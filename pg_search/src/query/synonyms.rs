@@ -132,6 +132,27 @@ pub struct Expansion {
     pub alternatives: Option<Vec<Vec<String>>>,
 }
 
+impl Expansion {
+    /// Keeps at most `max` alternatives, in rule order. The typed tokens survive the cap, so a
+    /// long rule never drops what the user typed.
+    pub fn cap(&mut self, max: usize) {
+        let Some(alternatives) = &mut self.alternatives else {
+            return;
+        };
+        if alternatives.len() <= max {
+            return;
+        }
+        match alternatives.iter().position(|a| *a == self.tokens) {
+            Some(typed) if typed >= max => {
+                let typed = alternatives.remove(typed);
+                alternatives.truncate(max - 1);
+                alternatives.push(typed);
+            }
+            _ => alternatives.truncate(max),
+        }
+    }
+}
+
 /// A set compiled against one analyzer: every key and every alternative is a token sequence that
 /// analyzer produced.
 #[derive(Debug, Default)]
@@ -568,6 +589,40 @@ mod tests {
                 Expansion {
                     tokens: tokens(&["couch"]),
                     alternatives: Some(vec![tokens(&["settee"])]),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cap_keeps_the_typed_tokens() {
+        let compiled = CompiledSynonyms::compile(
+            "t",
+            &rules(&["couch, sofa, divan, settee"]),
+            &mut analyzer(),
+        )
+        .unwrap();
+        let mut expansions = compiled.expand(&tokens(&["divan"]));
+        expansions.iter_mut().for_each(|e| e.cap(2));
+        assert_eq!(
+            expansions,
+            vec![Expansion {
+                tokens: tokens(&["divan"]),
+                alternatives: Some(vec![tokens(&["couch"]), tokens(&["divan"])]),
+            }]
+        );
+        let mut expansions = compiled.expand(&tokens(&["couch", "red"]));
+        expansions.iter_mut().for_each(|e| e.cap(2));
+        assert_eq!(
+            expansions,
+            vec![
+                Expansion {
+                    tokens: tokens(&["couch"]),
+                    alternatives: Some(vec![tokens(&["couch"]), tokens(&["sofa"])]),
+                },
+                Expansion {
+                    tokens: tokens(&["red"]),
+                    alternatives: None,
                 },
             ]
         );

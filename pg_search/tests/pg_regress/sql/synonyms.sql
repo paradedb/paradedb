@@ -147,6 +147,21 @@ RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
 RESET min_parallel_table_scan_size;
 
+-------------------------------------------------------------
+-- The kill switch, and the cap on alternatives.
+-------------------------------------------------------------
+
+SET paradedb.enable_synonyms = off;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+RESET paradedb.enable_synonyms;
+
+-- The rule is 'couch, sofa, divan', plus 'sofa, loveseat' from the UPDATE above. With a cap of two,
+-- the typed term survives the cut.
+SET paradedb.synonyms_max_alternatives = 2;
+SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa divan');
+SELECT id, description FROM products WHERE description ||| 'divan' ORDER BY id;
+RESET paradedb.synonyms_max_alternatives;
+
 DROP TABLE products;
 
 -------------------------------------------------------------

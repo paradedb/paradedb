@@ -1846,6 +1846,9 @@ fn resolve_search_tokenizer(
 /// The set a match query on `search_field` expands with: the field option first, then the index
 /// option. `none` at either level turns expansion off.
 fn resolve_synonym_set(search_field: &SearchField, schema: &SearchIndexSchema) -> Option<String> {
+    if !crate::gucs::enable_synonyms() {
+        return None;
+    }
     let set = match search_field.field_config().synonyms() {
         Some(set) => set.to_string(),
         None => schema.index_synonyms()?,
@@ -2206,8 +2209,15 @@ fn match_query(
     };
 
     let tokens = synonyms::tokenize(&mut analyzer, value);
+    let max_alternatives = crate::gucs::synonyms_max_alternatives();
     let mut expansions = match synonyms {
-        Some(synonyms) => synonyms.expand(&tokens),
+        Some(synonyms) => {
+            let mut expansions = synonyms.expand(&tokens);
+            expansions
+                .iter_mut()
+                .for_each(|expansion| expansion.cap(max_alternatives));
+            expansions
+        }
         None => tokens
             .into_iter()
             .map(|token| synonyms::Expansion {

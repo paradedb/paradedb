@@ -98,11 +98,13 @@ pub fn synonym_expansion(
         compiled_set(set_name, &tokenizer.name(), &mut analyzer).unwrap_or_else(|e| panic!("{e}"));
 
     let tokens = tokenize(&mut analyzer, input_text);
+    let max_alternatives = crate::gucs::synonyms_max_alternatives();
     let mut position = 0;
     let rows = compiled
         .expand(&tokens)
         .into_iter()
-        .map(|expansion| {
+        .map(|mut expansion| {
+            expansion.cap(max_alternatives);
             let row = (
                 position as i32,
                 expansion.tokens.join(" "),

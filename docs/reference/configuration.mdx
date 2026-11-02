@@ -31,6 +31,8 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | Setting                                        | Default       | Context | Description                                                                                                                |
 | ---------------------------------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `paradedb.enable_custom_scan`                  | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.                                 |
+| `paradedb.enable_synonyms`                     | `on`          | user    | Expands match queries with the synonym set the index or field names. See [Synonyms](/reference/tokenizers/synonyms).       |
+| `paradedb.synonyms_max_alternatives`           | `32`          | user    | Most alternatives one query term expands to. The rest are dropped in rule order, and the typed term is always kept.        |
 | `paradedb.enable_aggregate_custom_scan`        | `on`          | user    | Enables the aggregate custom scan for eligible `pdb.agg` and `GROUP BY` queries.                                           |
 | `paradedb.enable_join_custom_scan`             | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.                                      |
 | `paradedb.enable_rank_join`                    | `on`          | user    | Enables `RankJoinExec` (Sorted Access + Random Access top-K execution) for eligible joins with `ORDER BY ... LIMIT`.       |

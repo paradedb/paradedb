@@ -56,6 +56,16 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Kill switch for query-time synonyms. A set that turns out to be expensive can be turned off
+/// for a session or a role without touching the index.
+static ENABLE_SYNONYMS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Every alternative is one more scorer in the disjunction, so a long rule is bounded. 32 is
+/// above any set seen in the field and small enough that a runaway rule cannot blow up a query.
+const DEFAULT_SYNONYMS_MAX_ALTERNATIVES: i32 = 32;
+static SYNONYMS_MAX_ALTERNATIVES: GucSetting<i32> =
+    GucSetting::<i32>::new(DEFAULT_SYNONYMS_MAX_ALTERNATIVES);
+
 static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
@@ -389,6 +399,26 @@ pub fn init() {
         c"Enable ParadeDB's custom scan",
         c"Enable ParadeDB's custom scan, which replaces table scans with ParadeDB index scans in cases where beneficial",
         &ENABLE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_synonyms",
+        c"Expand match queries with the synonym set of the index or field",
+        c"When off, match queries run with the typed terms only, whatever synonym set the index or field names",
+        &ENABLE_SYNONYMS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.synonyms_max_alternatives",
+        c"Most alternatives one query term expands to",
+        c"Alternatives past this count are dropped in rule order. The typed term is always kept.",
+        &SYNONYMS_MAX_ALTERNATIVES,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1031,6 +1061,14 @@ pub fn spill_to_disk() -> bool {
 
 pub fn enable_custom_scan() -> bool {
     ENABLE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_synonyms() -> bool {
+    ENABLE_SYNONYMS.get()
+}
+
+pub fn synonyms_max_alternatives() -> usize {
+    SYNONYMS_MAX_ALTERNATIVES.get().max(1) as usize
 }
 
 pub fn enable_aggregate_custom_scan() -> bool {

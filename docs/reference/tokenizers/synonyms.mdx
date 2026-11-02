@@ -82,6 +82,17 @@ The alternatives of one term share one score. A row that contains both `sofa` an
 the best of the two, and not twice. A directed rule replaces the typed term, so `sneakers` scores as the phrase
 `running shoes`.
 
+## Limits
+
+Every alternative is one more term in the query. `paradedb.synonyms_max_alternatives`, `32` by default, bounds how many
+alternatives one term expands to. The rest are dropped in rule order, and the typed term is always kept.
+
+`paradedb.enable_synonyms` turns expansion off for a session or a role without touching the index:
+
+```sql
+SET paradedb.enable_synonyms = off;
+```
+
 ## Reload
 
 Changes are transactional. An `UPDATE` to a set is visible to its own transaction right away, and to every other session

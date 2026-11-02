@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793608487819,
+  "lastUpdate": 1793608531806,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112577,6 +112577,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13076342500-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fb3f03fa531956b9b4e53fc60af8af5e2c801afa",
+          "message": "ci: Prune benchmark reports during monthly Pages compaction (#7157)\n\n## What\n\nExtend the monthly gh-pages squash job to prune per-commit Benchmarker\nHTML reports. Retain reports from the last 30 days within a 512 MiB\nbudget, keeping the newest first. Aggregate benchmark history remains\nintact. Expired report URLs will stop working; reports without a\nrecorded run date also expire.\n\n## Why\n\nThe Pages tree has grown to 11.14 GB, exceeding the deployment artifact\nlimit. The current inventory would shrink to approximately 611 MB with\nthis policy. Git history squashing alone does not reduce the published\nfile tree.\n\n## Tests\n\n- Retention tests cover age, size budget, legacy short SHAs, unknown\ndates, idempotence, and preservation of aggregate history.\n- bash -n and git diff --check passed.\n- Evaluated the retention policy against the current Pages file\ninventory.\n\nThe job has not been run against published reports. After merging,\nmanually dispatch the existing compaction workflow to recover Pages\nwithout waiting for next month's schedule.",
+          "timestamp": "2026-11-01T22:50:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/fb3f03fa531956b9b4e53fc60af8af5e2c801afa"
+        },
+        "date": 1793608529075,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1769.6930012177913,
+            "unit": "median tps",
+            "extra": "avg tps: 1788.7671279925773, max tps: 1998.6351450673676, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.057930231589928,
+            "unit": "median tps",
+            "extra": "avg tps: 6.100643226012994, max tps: 7.12695751153099, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1951.3224293775038,
+            "unit": "median tps",
+            "extra": "avg tps: 1941.253137694143, max tps: 1959.2847610714643, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 3104.767616045917,
+            "unit": "median tps",
+            "extra": "avg tps: 3028.2074060782347, max tps: 3425.161321694127, count: 59404"
+          }
+        ],
+        "publication_id": "13126252854-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -156738,6 +156785,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13076342500-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fb3f03fa531956b9b4e53fc60af8af5e2c801afa",
+          "message": "ci: Prune benchmark reports during monthly Pages compaction (#7157)\n\n## What\n\nExtend the monthly gh-pages squash job to prune per-commit Benchmarker\nHTML reports. Retain reports from the last 30 days within a 512 MiB\nbudget, keeping the newest first. Aggregate benchmark history remains\nintact. Expired report URLs will stop working; reports without a\nrecorded run date also expire.\n\n## Why\n\nThe Pages tree has grown to 11.14 GB, exceeding the deployment artifact\nlimit. The current inventory would shrink to approximately 611 MB with\nthis policy. Git history squashing alone does not reduce the published\nfile tree.\n\n## Tests\n\n- Retention tests cover age, size budget, legacy short SHAs, unknown\ndates, idempotence, and preservation of aggregate history.\n- bash -n and git diff --check passed.\n- Evaluated the retention policy against the current Pages file\ninventory.\n\nThe job has not been run against published reports. After merging,\nmanually dispatch the existing compaction workflow to recover Pages\nwithout waiting for next month's schedule.",
+          "timestamp": "2026-11-01T22:50:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/fb3f03fa531956b9b4e53fc60af8af5e2c801afa"
+        },
+        "date": 1793608531735,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06193185644064373, max background_merging: 2.0, count: 59404"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.615478052054053, max cpu: 9.547489, count: 59404"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.264481676844152, max mem: 27.26953125, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.819101029917982, max cpu: 9.746192, count: 59404"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.011179276648036, max mem: 44.015625, count: 59404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45115,
+            "unit": "median block_count",
+            "extra": "avg block_count: 44862.39951855094, max block_count: 45115.0, count: 59404"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.428876843310215, max segment_count: 20.0, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.645319,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.7209681777397, max cpu: 33.466137, count: 59404"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 38.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 38.25630185625126, max mem: 38.27734375, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.481451539490979, max cpu: 9.5569935, count: 59404"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 44.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.44847049704145, max mem: 44.44921875, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.7220855,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.707303914900984, max cpu: 9.721519, count: 59404"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.00302878383611, max mem: 44.015625, count: 59404"
+          }
+        ],
+        "publication_id": "13126252854-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

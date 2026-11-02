@@ -1,90 +1,72 @@
-# MS MARCO vector CI
+# MS MARCO vector comparison
 
-The opt-in `benchmark-msmarco-pg_search` label runs unfiltered top-10 and
-top-100 cosine search over all 113,520,750 MS MARCO v2.1 passages with
-1,024-dimensional Cohere Embed English v3 vectors. The corpus and published
-ground truth live under `s3://paradedb-benchmark/datasets/msmarco/v1/`.
+Apply `benchmark-msmarco-pg_search` to this PR to run three independent jobs
+against the completed 113,520,750-row heap snapshot. The workflow removes the
+label so another run can be requested explicitly. No benchmark changes need
+to be merged first.
 
-CI uses the first 100 of the 1,677 held-out queries, ordered by query ID, for
-both pdbench and k6. Each workload independently selects max_probe for
-90%, 95%, and 99% recall. A target that is not reached remains in the report
-without a k6 measurement. Filtered workloads are not part of this suite.
+| Variant         | Extension revision                                            | Recall tuning                                           |
+| --------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| main            | `c9030485d8c388f1cc56f8c808e80315fe47323b`                    | `paradedb.vector_cluster_max_probe`                     |
+| PR #7160        | `e3c06a5c611003c5c9d55b4cea4d636f37163e51`                    | `paradedb.vector_search_effort`, automatic probe budget |
+| pg_vectorsearch | private memory fix `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1` | integer `prism.nprobe`                                  |
 
-The benchmark uses the same PostgreSQL 18 ARM64 runner, 12 GiB shared buffers,
-12 GiB maintenance memory, eight workers, eight target segments, and 0.32
-training sample ratio as Cohere CI. The index includes text and vectors; the
-queries return `_id` and `title`. The corpus table is named `msmarco` to match
-the native heap loader's Parquet directory convention.
+The private `paradedb/pg_vectorsearch` build fixes per-tuple detoast retention
+in parallel index scans. It uses the existing engine support from pdbench
+PR #45. All three jobs pin pdbench to
+`ac64c0a34a1558ca72e07a342b51b52076befa50` and Benchmarker to
+`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. The workflow and assets come from
+this PR; each pg_search extension is built from its exact revision above.
+The pg_vectorsearch job uses main's pg_search installation to restore the
+cluster, then builds only the PRISM index.
 
-## Initial setup
+## Workload and resources
 
-The [heap-generation changes](../datasets/msmarco/README.md) must be on main.
-The benchmark workflow can remain in a PR while it is tested.
+Each job restores
+`s3://paradedb-benchmark/snapshots/msmarco/v1/113m/pg_backrest/` and builds a
+fresh cosine vector index over the same 1,024-dimensional embeddings.
+The completed full backup is `20261102-224214F`. The snapshot has no search
+index, and its exact row count was verified before backup.
 
-1. Run the snapshot workflow once. MS MARCO must be selected explicitly;
-   the snapshot workflow's `all` selection excludes it.
+Only unfiltered top-10 and top-100 queries run. pdbench selects settings
+separately for R90, R95, and R99 using the first 100 held-out query vectors,
+ordered by ID, and the published ground truth under
+`s3://paradedb-benchmark/datasets/msmarco/v1/queries/`. An unreached target
+is reported explicitly and receives no k6 latency measurement.
 
-   ```sh
-   gh workflow run generate-benchmark-snapshots.yml --ref main \
-     -f dataset=msmarco -f size=113m
-   ```
+All jobs use PostgreSQL 18 on separate ARM64 `c8gd.metal-24xl` runners, with
+12 GiB shared buffers, 12 GiB maintenance memory, and eight available parallel
+workers. pg_search uses eight target segments and a 0.32 training sample
+ratio. pg_vectorsearch uses automatic `nlist` and requests eight parallel
+build workers through both PostgreSQL and the table setting. Its build must
+record at least one worker to pass the parallel-build check. pdbench saves
+worker and RSS samples alongside build time and index size; summed process
+RSS can include shared mappings.
 
-   The native `load-heap` command imports the corpus, verifies its exact row
-   count, freezes and analyzes the heap, then publishes pgBackRest data at
-   `s3://paradedb-benchmark/snapshots/msmarco/v1/113m/pg_backrest/`.
-   The snapshot contains no search index. Generation is restricted to main
-   and uses the existing benchmark write role.
+The full benchmark has a 12-hour job limit. The first full-corpus run still
+needs to establish index-build runtime, memory, and disk requirements.
 
-2. After snapshot generation succeeds, apply `benchmark-msmarco-pg_search` to
-   the PR containing the benchmark workflow. This runs restore, index build,
-   recall sweeps, plan checks, k6, and result publication before merging the
-   benchmark changes. Main comparisons are skipped until a baseline exists.
-   The workflow removes the label so it can be reapplied for another run.
-   It is not triggered by the generic `benchmarks` label or a schedule.
+## Validation and results
 
-3. Once the benchmark workflow is merged, run it on main to establish the first
-   baseline:
+After `VACUUM ANALYZE`, the workflow imports both published ground-truth
+fixtures, runs recall sweeps, and checks parameterized `EXPLAIN ANALYZE`
+plans before timing selected points. pg_search must perform cosine TopK
+inside its scan; pg_vectorsearch must use the expected PRISM index. The
+PR #7160 job also verifies quantized routing counters and exact reranking.
 
-   ```sh
-   gh workflow run benchmark-pg_search-benchmarker-msmarco.yml --ref main
-   ```
+k6 runs one VU, with 10 seconds of warmup followed by 50 seconds of measurement
+per reached recall target. Each job retains its configuration, source and
+tool revisions, build diagnostics, recall reports, plans, database log, and
+k6 latency/QPS dashboards in `msmarco-113m-<variant>-diagnostics` for 30 days.
+The Actions summary includes selected settings and achieved recall.
+These comparison runs do not publish a rolling main baseline or post PR
+comments.
 
-   A successful main run with no `commit` override and `publish_baseline=true`
-   publishes metrics and a 90-day sweep baseline artifact. Manual runs can
-   select another extension commit or disable baseline publication. Those
-   runs do not replace the main baseline.
-
-The initial load and full benchmark need substantial disk and runtime: raw
-vectors alone occupy approximately 465 GB, in addition to text, PostgreSQL
-storage, WAL, and the rebuilt index. The first full run must confirm the
-runner capacity and six-hour job limit. No full-corpus runtime is assumed.
-
-## Run and results
-
-Each label run restores the heap, installs the selected extension, and uses
-`pdbench build` to rebuild the index. `VACUUM ANALYZE` runs after index
-creation; the heap was already frozen during snapshot preparation.
-The workflow imports both published ground-truth fixtures before the sweeps.
-The shared helpers in `benchmarks/cohere/` accept `--dataset msmarco`, preserve
-each workload's k and query-vector operand, and check the parameterized plans
-before k6 measures them. k6 uses one VU, 10 seconds of discarded warmup, and
-50 seconds of measurement per reached recall target.
-
-The existing publisher reports p50/p95/p99, QPS, index build time and size,
-recall, max_probe, and shared buffer diagnostics under `msmarco-113m`.
-The latest successful main baseline preceding the run supplies matched-recall
-sweep comparisons; differing configurations are skipped rather than forced.
-The `msmarco-113m-diagnostics` artifact retains build logs, plans, pdbench
-reports, operating points, and comparisons for 30 days.
-
-This native CI setup reuses Cohere's snapshot/build/search path. The standalone
-`pdbench-load` Docker configuration in the pdbench repository remains usable
-for separate loading and index-building experiments.
-
-## Local checks
+The shared helpers in `benchmarks/cohere/` support both engines and preserve
+each workload's k, dimensions, and query-vector operand. Local checks:
 
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 pre-commit run --files .github/workflows/benchmark-pg_search-benchmarker-msmarco.yml \
-  .github/workflows/generate-benchmark-snapshots.yml
+  benchmarks/cohere/prepare_k6.py benchmarks/cohere/verify_plans.py
 ```

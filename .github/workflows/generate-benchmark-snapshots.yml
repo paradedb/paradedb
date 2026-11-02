@@ -30,6 +30,11 @@ on:
         description: "Optional size for stackoverflow/cohere/msmarco (e.g. 100k, 1m, 20m, 113m). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
         default: ""
+      load_workers:
+        description: "MS MARCO Parquet loader workers. Positive integer; blank uses the dataset default (16)."
+        required: false
+        type: string
+        default: ""
       benchmarker_ref:
         description: "Benchmarker ref for stackexchange/wikipedia (branch/tag/SHA)."
         required: false
@@ -62,8 +67,15 @@ jobs:
         env:
           DATASET: ${{ inputs.dataset }}
           SIZE: ${{ inputs.size }}
+          LOAD_WORKERS: ${{ inputs.load_workers }}
         run: |
           set -euo pipefail
+          if [ -n "$LOAD_WORKERS" ]; then
+            if [[ "$DATASET" != msmarco || ! "$LOAD_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+              echo "load_workers must be a positive integer and requires dataset=msmarco" >&2
+              exit 1
+            fi
+          fi
           all='[
             {"dataset":"stackoverflow","size":"100k"},
             {"dataset":"stackoverflow","size":"1m"},
@@ -92,6 +104,7 @@ jobs:
       contents: read
       id-token: write
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
+    timeout-minutes: ${{ matrix.dataset == 'msmarco' && 720 || 360 }}
     needs: prep
     if: github.ref == 'refs/heads/main' && needs.prep.outputs.native != '[]'
     runs-on:
@@ -142,21 +155,51 @@ jobs:
           # extension default of 0, so an index's own `target_segment_count` is honored.
           global_target_segment_count: ${{ matrix.dataset == 'stackoverflow' && '48' || '0' }}
 
+      - name: Refresh AWS credentials for MS MARCO load
+        if: matrix.dataset == 'msmarco'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}-load
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
+
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap
+        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 300 || 360 }}
         working-directory: benchmarks/
+        env:
+          LOAD_WORKERS: ${{ inputs.load_workers }}
         run: |
           set -euo pipefail
+          load_args=()
+          if [ -n "$LOAD_WORKERS" ]; then
+            load_args+=(--parquet-load-workers "$LOAD_WORKERS")
+          fi
           cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
-            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
+            --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
+            "${load_args[@]}"
 
       - name: Verify and vacuum MS MARCO heap
         if: matrix.dataset == 'msmarco'
         run: |
           psql "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
             -X -v ON_ERROR_STOP=1 -f benchmarks/datasets/msmarco/verify_heap.sql
+
+      - name: Refresh AWS credentials for MS MARCO backup
+        if: matrix.dataset == 'msmarco'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}-backup
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
@@ -179,6 +222,7 @@ jobs:
         run: cargo pgrx stop pg${{ env.pg_version }}
 
       - name: Snapshot Heap
+        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 330 || 360 }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail

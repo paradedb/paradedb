@@ -1,4 +1,4 @@
-name: Benchmark pg_search (Benchmarker MS MARCO)
+name: Benchmark MS MARCO (pg_search and pg_vectorsearch)
 
 on:
   pull_request:
@@ -6,36 +6,51 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
-        default: ""
+        description: "Candidate pg_search commit"
+        default: "e3c06a5c611003c5c9d55b4cea4d636f37163e51"
+      baseline_commit:
+        description: "Baseline pg_search commit"
+        default: "c9030485d8c388f1cc56f8c808e80315fe47323b"
       pdbench_ref:
         description: "pdbench ref"
-        default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
+        default: "ac64c0a34a1558ca72e07a342b51b52076befa50"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
-      publish_baseline:
-        description: "Publish baseline metrics when running on main"
-        type: boolean
-        default: true
 
 permissions:
   actions: read
-  contents: write
+  contents: read
   pull-requests: write
 
 jobs:
   msmarco:
     permissions:
       actions: read
-      contents: write
+      contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (ParadeDB)
+    name: MS MARCO 113m (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: main
+            ref: ${{ inputs.baseline_commit || 'c9030485d8c388f1cc56f8c808e80315fe47323b' }}
+            config: 113m
+            engine: pg_search
+          - name: pr7160
+            ref: ${{ inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51' }}
+            config: 113m-adaptive
+            engine: pg_search
+          - name: pg_vectorsearch
+            ref: ${{ inputs.baseline_commit || 'c9030485d8c388f1cc56f8c808e80315fe47323b' }}
+            config: 113m-pgvectorsearch
+            engine: pg_vectorsearch
     if: >-
       github.event_name != 'pull_request' ||
       github.event.label.name == 'benchmark-msmarco-pg_search'
-    timeout-minutes: 360
+    timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -45,9 +60,11 @@ jobs:
     env:
       MSMARCO_SIZE: 113m
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'ac64c0a34a1558ca72e07a342b51b52076befa50' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
-      BENCHMARK_REF: ${{ inputs.commit || github.sha }}
+      PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+      BENCHMARK_REF: ${{ matrix.ref }}
+      MSMARCO_CONFIG: benchmarks/msmarco/${{ matrix.config }}.toml
 
     steps:
       - name: Remove benchmark label
@@ -70,20 +87,22 @@ jobs:
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
 
-      - name: Checkout benchmark workflow for backfills
-        if: inputs.commit != ''
+      - name: Checkout shared benchmark workflow
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: benchmark-workflow
           persist-credentials: false
 
-      - name: Use this workflow's benchmark code for backfills
-        if: inputs.commit != ''
+      - name: Use identical benchmark code for all engines
         run: |
           rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
+          mkdir -p benchmark-artifacts
+          git rev-parse HEAD > benchmark-artifacts/extension-commit.txt
+          git -C benchmark-workflow rev-parse HEAD > benchmark-artifacts/workflow-commit.txt
+          cp "$MSMARCO_CONFIG" benchmark-artifacts/config.toml
 
       - name: Test vector benchmark helpers
         run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
@@ -95,6 +114,44 @@ jobs:
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}
+
+      - name: Create pg_vectorsearch checkout token
+        if: matrix.engine == 'pg_vectorsearch'
+        id: pg_vectorsearch_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pg_vectorsearch
+          permission-contents: read
+
+      - name: Checkout pg_vectorsearch memory fix
+        if: matrix.engine == 'pg_vectorsearch'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: paradedb/pg_vectorsearch
+          ref: ${{ env.PG_VECTORSEARCH_REF }}
+          path: pg-vectorsearch
+          token: ${{ steps.pg_vectorsearch_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Install pg_vectorsearch build tools
+        if: matrix.engine == 'pg_vectorsearch'
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: meson ninja-build
+
+      - name: Build and install pg_vectorsearch
+        if: matrix.engine == 'pg_vectorsearch'
+        run: |
+          set -euo pipefail
+          pg_config="/usr/lib/postgresql/${pg_version}/bin/pg_config"
+          CC="$("$pg_config" --cc)" meson setup pg-vectorsearch/build pg-vectorsearch --buildtype=release \
+            -Dnative=true -Dblas=enabled -Dpostgresql=enabled -Dtools=disabled -Dpg_config="$pg_config"
+          meson compile -C pg-vectorsearch/build -j 8
+          sudo meson install -C pg-vectorsearch/build
+          git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
 
       - name: Create pdbench checkout token
         id: pdbench_token
@@ -157,6 +214,13 @@ jobs:
             --repo-s3-key-type shared)
           (cd pg_search && cargo pgrx start pg18)
 
+      - name: Enable pg_vectorsearch parallel build
+        if: matrix.engine == 'pg_vectorsearch'
+        run: |
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION pg_vectorsearch;' \
+            -c 'ALTER TABLE msmarco SET (parallel_workers = 8);'
+
       - name: Refresh pg_search and build index
         run: |
           set -euo pipefail
@@ -169,8 +233,7 @@ jobs:
                                'parallel_leader_participation', 'paradedb.global_target_segment_count')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
-          cp benchmarks/datasets/msmarco/indexes/pg_search.sql benchmarks/msmarco/assets/msmarco/index.sql
-          pdbench build --url "$PARADEDB_URL" --config "benchmarks/msmarco/${MSMARCO_SIZE}.toml" \
+          pdbench build --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
             --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
             --force-rebuild \
             | tee benchmark-artifacts/index-build.log
@@ -182,10 +245,26 @@ jobs:
             -c 'VACUUM (ANALYZE) msmarco;' \
             | tee benchmark-artifacts/index-vacuum.log
 
+      - name: Verify pg_vectorsearch used parallel workers
+        if: matrix.engine == 'pg_vectorsearch'
+        run: |
+          jq -e '.data.metrics.workers.max_parallel_workers > 0' \
+            benchmark-artifacts/search/"${MSMARCO_SIZE}"/*_build.json
+
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: python3-venv
+
+      - name: Refresh AWS credentials for query fixtures
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
+          aws-region: us-east-1
 
       - name: Import published ground-truth fixtures
         env:
@@ -216,70 +295,14 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'msmarco', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep max_probe with pdbench
+      - name: Sweep recall targets with pdbench
         run: |
           set -euo pipefail
           for query in knn_top10_unfiltered knn_top100_unfiltered; do
-            pdbench search --url "$PARADEDB_URL" --config "benchmarks/msmarco/${MSMARCO_SIZE}.toml" \
+            pdbench search --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
               --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
               --query "$query" --no-compare --html
           done
-
-      - name: Find mainline pdbench baseline
-        id: pdbench_baseline
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
-        with:
-          script: |
-            const name = `msmarco-${process.env.MSMARCO_SIZE}-baseline`;
-            const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
-              ...context.repo,
-              workflow_id: 'benchmark-pg_search-benchmarker-msmarco.yml',
-              branch: 'main', event: 'workflow_dispatch', status: 'success', per_page: 100,
-            });
-            for await (const { data: runs } of pages) {
-              for (const run of runs) {
-                // Keep the baseline stable if a newer main run finishes first.
-                if (run.run_number >= context.runNumber) continue;
-                const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-                  ...context.repo, run_id: run.id, per_page: 100,
-                });
-                const artifact = artifacts.find(a => a.name === name && !a.expired);
-                if (!artifact) continue;
-                core.setOutput('run_id', run.id);
-                core.setOutput('commit', run.head_sha);
-                core.setOutput('url', run.html_url);
-                core.info(`Baseline: ${run.html_url} (${run.head_sha})`);
-                return;
-              }
-            }
-            await core.summary.addHeading('pdbench mainline comparison', 3)
-              .addRaw(`Skipped: no successful main baseline run has an unexpired ${name} artifact.\n`)
-              .write();
-
-      - name: Download mainline pdbench baseline
-        if: steps.pdbench_baseline.outputs.run_id != ''
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: msmarco-113m-baseline
-          path: benchmark-baseline
-          run-id: ${{ steps.pdbench_baseline.outputs.run_id }}
-          github-token: ${{ github.token }}
-
-      - name: Compare pdbench sweeps with mainline
-        if: steps.pdbench_baseline.outputs.run_id != ''
-        env:
-          BASELINE_COMMIT: ${{ steps.pdbench_baseline.outputs.commit }}
-          BASELINE_URL: ${{ steps.pdbench_baseline.outputs.url }}
-          CURRENT_COMMIT: ${{ steps.commit_info.outputs.commit_sha }}
-        run: |
-          set -euo pipefail
-          python3 benchmarks/cohere/compare_search.py --dataset msmarco \
-            --baseline "benchmark-baseline/${MSMARCO_SIZE}" \
-            --current "benchmark-artifacts/search/${MSMARCO_SIZE}" \
-            --output benchmark-artifacts/comparison \
-            --baseline-commit "$BASELINE_COMMIT" --baseline-url "$BASELINE_URL" \
-            --current-commit "$CURRENT_COMMIT"
-          cat benchmark-artifacts/comparison/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare k6 operating points
         run: |
@@ -298,12 +321,17 @@ jobs:
           } > benchmark-artifacts/tool-commits.txt
 
       - name: Verify k6 vector query plans
-        run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
+        env:
+          VARIANT: ${{ matrix.name }}
+        run: |
+          args=()
+          if [[ "$VARIANT" == pr7160 ]]; then args+=(--quantized); fi
+          python3 benchmarks/cohere/verify_plans.py benchmark-artifacts "${args[@]}"
 
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","variant":"${{ matrix.name }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -326,34 +354,20 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
-      - name: Stage Benchmarker results
-        uses: ./.github/actions/stage-benchmark-results
-        with:
-          benchmark_type: benchmarker
-          metadata: >-
-            {"dataset":"msmarco-113m",
-             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
-             "publish_baseline":"${{ github.ref == 'refs/heads/main' && inputs.commit == '' && inputs.publish_baseline }}",
-             "context_file":"benchmark-artifacts/operating_points.md",
-             "sweep_reports_dir":"benchmark-artifacts/comparison",
-             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
-             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
-
-      - name: Upload mainline baseline
-        if: github.ref == 'refs/heads/main' && inputs.commit == '' && inputs.publish_baseline
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: msmarco-113m-baseline
-          path: benchmark-artifacts/search/
-          retention-days: 90
-          if-no-files-found: error
+      - name: Save database log
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts
+          if [[ -f ~/.pgrx/18.log ]]; then cp ~/.pgrx/18.log benchmark-artifacts/postgres.log; fi
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: msmarco-113m-diagnostics
-          path: benchmark-artifacts/
+          name: msmarco-113m-${{ matrix.name }}-diagnostics
+          path: |
+            benchmark-artifacts/
+            benchmarker/results/
           retention-days: 30
           if-no-files-found: warn
 
@@ -365,10 +379,3 @@ jobs:
         if: always()
         working-directory: pg_search
         run: cargo pgrx stop pg18
-
-  publish-results:
-    name: Publish Benchmark Results
-    needs: msmarco
-    if: always() && !cancelled() && (needs.msmarco.result == 'success' || needs.msmarco.result == 'failure')
-    uses: ./.github/workflows/publish-benchmark-results.yml
-    secrets: inherit

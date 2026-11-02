@@ -3,7 +3,7 @@
 import copy
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
+from prepare_k6 import EFFORT, NPROBE, PROBE, QUERIES, SUITES, operating_points, summary
 from verify_plans import verify
 
 
@@ -130,6 +130,81 @@ class OperatingPointsTest(unittest.TestCase):
         for report in inputs:
             report["config"]["search"]["sweep"]["tolerance"] = 0.0005
         with self.assertRaisesRegex(ValueError, "strict recall targets"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_msmarco_preserves_adaptive_effort_above_one(self):
+        """Carry the selected effort and automatic probe budget into k6."""
+        inputs = reports("msmarco")
+        for report in inputs:
+            report["data"]["sweep_param"] = EFFORT
+            report["config"]["search"]["session"][PROBE] = "0"
+            for result in report["data"]["variants"].values():
+                result["points"][0]["value"] = "5.5"
+                for target in result["targets"].values():
+                    target["value"] = "5.5"
+        points = operating_points(inputs, dataset="msmarco")
+        for point in points:
+            self.assertEqual(point["param"], EFFORT)
+            self.assertEqual(point["session"][PROBE], "0")
+            if point["reached"]:
+                self.assertEqual(point["probe"], "5.5")
+        self.assertIn("search effort", summary(points))
+        inputs[0]["config"]["search"]["session"][PROBE] = "0.1"
+        with self.assertRaisesRegex(ValueError, "automatic max_probe"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_msmarco_preserves_pg_vectorsearch_integer_probes(self):
+        """Use PRISM sessions and backend for both unfiltered values of k."""
+        inputs = reports("msmarco")
+        for report in inputs:
+            report["config"]["engine"] = "pg_vectorsearch"
+            report["config"]["dataset"]["table"] = "msmarco"
+            report["config"]["search"]["sweep"].update(min=1, max=4096, integer=True)
+            report["data"]["sweep_param"] = NPROBE
+            for result in report["data"]["variants"].values():
+                result["points"][0]["value"] = "64"
+                for target in result["targets"].values():
+                    target["value"] = "64"
+        points = operating_points(inputs, dataset="msmarco")
+        for point in points:
+            self.assertEqual(point["param"], NPROBE)
+            self.assertEqual(point["backend"], "pg_vectorsearch")
+            self.assertEqual(point["index_name"], "msmarco_prism_idx")
+        self.assertIn("nprobe", summary(points))
+        invalid = copy.deepcopy(inputs)
+        invalid[0]["data"]["sweep_param"] = PROBE
+        with self.assertRaisesRegex(ValueError, "Expected msmarco"):
+            operating_points(invalid, dataset="msmarco")
+        for result in inputs[0]["data"]["variants"].values():
+            result["points"][0]["value"] = "64.5"
+            for target in result["targets"].values():
+                target["value"] = "64.5"
+        with self.assertRaisesRegex(ValueError, "invalid selected point"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_pg_vectorsearch_rejects_fallback_plans(self):
+        """Require the expected PRISM index before measuring latency."""
+        scan = {"Node Type": "Index Scan", "Index Name": "msmarco_prism_idx"}
+        verify([{"Plan": scan}], False, 100, "pg_vectorsearch", "msmarco_prism_idx")
+        for fallback in (
+            {"Node Type": "Seq Scan"},
+            {"Node Type": "Index Scan", "Index Name": "other_idx"},
+            {"Custom Plan Provider": "ParadeDB Scan"},
+        ):
+            with self.assertRaisesRegex(ValueError, "pg_vectorsearch index scan"):
+                verify(
+                    [{"Plan": fallback}],
+                    False,
+                    100,
+                    "pg_vectorsearch",
+                    "msmarco_prism_idx",
+                )
+
+    def test_refuses_incomplete_recall_targets(self):
+        """Do not omit r99 when exporting a partial sweep configuration."""
+        inputs = reports("msmarco")
+        inputs[0]["config"]["search"]["sweep"]["targets"] = [0.9, 0.95]
+        with self.assertRaisesRegex(ValueError, "all three recall targets"):
             operating_points(inputs, dataset="msmarco")
 
     def test_refuses_top10_metrics_labeled_as_top100(self):

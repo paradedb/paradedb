@@ -36,6 +36,7 @@ pub mod rank_join_exec;
 pub mod rank_join_rule;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;
+pub(crate) mod statistics;
 pub mod table_provider;
 pub mod tantivy_decode_exec;
 pub mod tantivy_fetch_exec;

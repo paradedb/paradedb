@@ -35,6 +35,7 @@ use arrow_array::builder::{
 use arrow_array::{Array, ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
 use datafusion::common::Result;
+use datafusion::common::stats::ColumnStatistics;
 use datafusion::error::DataFusionError;
 use serde::{Deserialize, Serialize};
 use tantivy::SegmentOrdinal;
@@ -81,6 +82,7 @@ struct FFInner {
     segment_view: SegmentView,
     _cleanup_admission: Arc<CleanupAdmission>,
     columns: Vec<WhichFastField>,
+    statistics: Vec<OnceLock<ColumnStatistics>>,
     segment_caches: Vec<SegmentCache>,
 }
 
@@ -111,6 +113,7 @@ impl FFHelper {
             _cleanup_admission: reader.cleanup_admission(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
             columns: fields.to_vec(),
+            statistics: (0..fields.len()).map(|_| OnceLock::new()).collect(),
         }))
     }
 
@@ -233,6 +236,15 @@ impl FFHelper {
             .map_or(0, |inner| inner.segment_caches.len())
     }
 
+    /// The original field layout, retained independently of scan execution state.
+    pub(crate) fn fields(&self) -> &[WhichFastField] {
+        self.0.as_ref().map_or(&[], |inner| &inner.columns)
+    }
+
+    pub(crate) fn statistics(&self, field: FFIndex) -> &OnceLock<ColumnStatistics> {
+        &self.inner().statistics[field]
+    }
+
     /// Whether this helper reads a named column at `field`. A helper rebuilt for one lookup
     /// lays out only the columns that lookup reads, with `Junk` in the gaps.
     pub(crate) fn lays_out(&self, field: FFIndex) -> bool {
@@ -258,6 +270,7 @@ impl FFHelper {
             segment_view: inner.segment_view.clone(),
             _cleanup_admission: Arc::clone(&inner._cleanup_admission),
             segment_caches: Self::segment_caches(inner.segment_caches.len(), columns.len()),
+            statistics: (0..columns.len()).map(|_| OnceLock::new()).collect(),
             columns,
         }))
     }

@@ -44,10 +44,12 @@ use crate::scan::deferred_lookup::{
 use crate::scan::execution_plan::UnsafeSendStream;
 
 use crate::scan::filter_pushdown::schema_preserving_child_filter_description;
+use crate::scan::statistics::column_statistics;
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, new_null_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::stats::Precision;
+use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -57,6 +59,7 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
+use datafusion::physical_plan::statistics::{ChildStats, StatisticsArgs, StatisticsContext};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, SegmentOrdinal};
@@ -207,6 +210,41 @@ impl ExecutionPlan for TantivyDecodeExec {
 
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
+    }
+
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
+        StatisticsContext::new().compute(self, &StatisticsArgs::new().with_partition(partition))
+    }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        vec![ChildStats::At(partition)]
+    }
+
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        _args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        let mut statistics = input_stats[0].as_ref().clone();
+        for field in &self.deferred_fields {
+            // An ordinal's bounds, NDV and byte size do not describe a decoded value.
+            statistics.column_statistics[field.col_idx] = self
+                .ffhelper(field.canonical.indexrelid)
+                .filter(|_| field.cardinality == FieldCardinality::Scalar)
+                .map(|helper| {
+                    column_statistics(
+                        helper,
+                        field.canonical.ff_index,
+                        &field.output_data_type(),
+                        statistics.num_rows.get_value().copied(),
+                    )
+                })
+                .unwrap_or_default();
+        }
+        if !self.deferred_fields.is_empty() {
+            statistics.total_byte_size = Precision::Absent;
+        }
+        Ok(Arc::new(statistics))
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {

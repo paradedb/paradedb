@@ -24,14 +24,15 @@
 use std::fmt;
 use std::sync::Arc;
 
-use datafusion::common::Result;
 use datafusion::common::config::ConfigOptions;
+use datafusion::common::{Result, Statistics};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
 use datafusion::physical_plan::metrics::MetricsSet;
+use datafusion::physical_plan::statistics::{ChildStats, StatisticsArgs, StatisticsContext};
 use datafusion::physical_plan::{
     ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
     ReplaceChildrenOptions,
@@ -68,6 +69,25 @@ impl ExecutionPlan for FilterPassthroughExec {
 
     fn properties(&self) -> &Arc<PlanProperties> {
         self.inner.properties()
+    }
+
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
+        StatisticsContext::new().compute(
+            self.inner.as_ref(),
+            &StatisticsArgs::new().with_partition(partition),
+        )
+    }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        self.inner.child_stats_requests(partition)
+    }
+
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        self.inner.statistics_from_inputs(input_stats, args)
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {

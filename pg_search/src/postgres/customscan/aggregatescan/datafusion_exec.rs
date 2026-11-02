@@ -133,10 +133,10 @@ fn internal_column_prefix(plan: &RelNode, targetlist: &JoinAggregateTargetList) 
         })
     };
     let mut prefix = String::new();
-    while field_names.iter().any(|name| {
-        name.strip_prefix(prefix.as_str())
-            .is_some_and(is_internal)
-    }) {
+    while field_names
+        .iter()
+        .any(|name| name.strip_prefix(prefix.as_str()).is_some_and(is_internal))
+    {
         prefix.push('_');
     }
     prefix

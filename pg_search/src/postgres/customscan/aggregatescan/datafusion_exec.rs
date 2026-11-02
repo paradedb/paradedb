@@ -135,7 +135,7 @@ fn internal_column_prefix(plan: &RelNode, targetlist: &JoinAggregateTargetList) 
     let mut prefix = String::new();
     while field_names.iter().any(|name| {
         name.strip_prefix(prefix.as_str())
-            .is_some_and(|name| is_internal(name))
+            .is_some_and(is_internal)
     }) {
         prefix.push('_');
     }
@@ -861,6 +861,7 @@ fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPla
 ///
 /// `HAVING` only judges the SQL level. A bucket row of a group the clause drops
 /// stays in the output, and the assembler ignores it for lack of a root row.
+#[allow(clippy::too_many_arguments)]
 fn apply_pdb_aggregate(
     df: DataFrame,
     pdb_plan: &PdbAggPlan,
@@ -1474,6 +1475,7 @@ impl FilterExpr {
 }
 
 /// Build a DataFusion [`DataFrame`] for a single scan source.
+#[allow(clippy::too_many_arguments)]
 async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,

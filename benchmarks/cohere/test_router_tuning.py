@@ -28,6 +28,7 @@ class RouterTuningTest(unittest.TestCase):
         self.source = (Path(__file__).parent / "1m.toml").read_text()
         config = tomllib.loads(self.source)
         config["search"]["query"] = QUERY
+        config["search"]["runs"] = 3
         self.report = {
             "kind": "search",
             "profile": "1m",
@@ -126,7 +127,7 @@ class RouterTuningTest(unittest.TestCase):
             profile = root / "1m.toml"
             profile.write_text(self.source)
             directory = root / "artifacts"
-            initial = directory / "search" / "1m"
+            initial = directory / "admission" / "1m"
             initial.mkdir(parents=True)
             (initial / "default_search.json").write_text(json.dumps(self.report))
             (directory / "query_vectors.json").write_text(json.dumps(["[0]"]))
@@ -142,9 +143,12 @@ class RouterTuningTest(unittest.TestCase):
                         generated.read_text(encoding="utf-8")
                     )
                     report["config"]["search"]["query"] = QUERY
+                    report["config"]["search"]["runs"] = int(
+                        command[command.index("--set") + 1].split("=")[1]
+                    )
                     report["profile"] = generated.stem
                     output = directory / "search" / generated.stem
-                    output.mkdir()
+                    output.mkdir(parents=True)
                     (output / "one_search.json").write_text(json.dumps(report))
                 return subprocess.CompletedProcess(command, 0)
 

@@ -11,7 +11,7 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
 
-This branch enables `paradedb.vector_centroid_quantization` during index
+This branch enables `paradedb.vector_router_quantization` during index
 creation. The setting defaults to off and is persisted with the index, so
 later build workers, merges, and search sessions retain the one-bit router
 after the SQL script resets the GUC. Document quantization is independent.
@@ -47,28 +47,18 @@ Flat and located scans do not invoke a router and omit these counters.
 at each selected operating point, with a table in the CI summary and PR results.
 These diagnostic counts are separate from pdbench's averages over all vectors.
 
-Router composition can be selected at query time without rebuilding:
+Router search policies can be adjusted at query time without rebuilding:
 
 | Setting                                    | Default | Effect                                                  |
 | ------------------------------------------ | ------: | ------------------------------------------------------- |
 | `paradedb.vector_router_rerank_factor`     |       2 | Approximate members retained per requested centroid     |
 | `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level    |
 | `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists             |
-| `paradedb.vector_router_flat`              |     off | Score all quantized posting-centroid codes as one batch |
 
-The flat path uses the same scoring, retention, and exact-rerank primitives;
-`routing_mode` distinguishes it from hierarchical traversal in EXPLAIN. The
-beam and flat settings leave full-precision routing unchanged.
+The beam setting leaves full-precision routing unchanged.
 Quantized routing defaults to a half-width beam with 2× member retention.
 Wider selection compensates for errors in quantized centroid ordering;
 retaining more members cannot recover members in unopened lists.
-`router_tuning.py` runs controlled unfiltered sweeps on the existing index:
-quarter/half/full beams, APS off at the full beam, flat scoring, and 2×/4×
-retention. It validates that only these query settings differ and that every
-report references the same index build. Exact selected recall targets and p50
-appear in `router-tuning/summary.md`; HTML comparisons and verified router
-counters remain in the diagnostics artifact. k6 continues to measure the
-default configuration.
 
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.

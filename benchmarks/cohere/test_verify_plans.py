@@ -70,11 +70,6 @@ class VerifyRouterTest(unittest.TestCase):
         self.assertEqual(counts["routed_segments"], 0)
         self.assertEqual(counts["routing_exact_scored"], 0)
 
-    def test_requested_router_mode_is_verified(self):
-        scans = [{"Segment Info": {"a": segment(routing_mode="flat")}}]
-        routing_metrics(scans, True, expected_mode="flat")
-        with self.assertRaisesRegex(ValueError, "Expected hierarchical"):
-            routing_metrics(scans, True, expected_mode="hierarchical")
 
 
 if __name__ == "__main__":

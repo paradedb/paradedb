@@ -2342,7 +2342,6 @@ impl SearchIndexReader {
                         router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
                         router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
                         router_aps: crate::gucs::vector_router_aps(),
-                        router_flat: crate::gucs::vector_router_flat(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);

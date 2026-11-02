@@ -353,7 +353,6 @@ pub fn vector_cluster_max_probe() -> f32 {
 static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
 static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
 static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
-static VECTOR_ROUTER_FLAT: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 pub fn vector_router_rerank_factor() -> usize {
     VECTOR_ROUTER_RERANK_FACTOR.get().max(1) as usize
@@ -365,10 +364,6 @@ pub fn vector_router_min_beam_fraction() -> f32 {
 
 pub fn vector_router_aps() -> bool {
     VECTOR_ROUTER_APS.get()
-}
-
-pub fn vector_router_flat() -> bool {
-    VECTOR_ROUTER_FLAT.get()
 }
 
 /// Fixed IVF cluster-open cost measured in fully scored rows.
@@ -403,11 +398,11 @@ static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0
 static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
 /// Captured at CREATE INDEX/REINDEX; existing indexes retain their stored choice.
-static VECTOR_CENTROID_QUANTIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
+static VECTOR_ROUTER_QUANTIZATION: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Whether new indexes use one-bit centroid routing with exact reranking.
-pub fn vector_centroid_quantization() -> bool {
-    VECTOR_CENTROID_QUANTIZATION.get()
+pub fn vector_router_quantization() -> bool {
+    VECTOR_ROUTER_QUANTIZATION.get()
 }
 
 /// Minimum merged-segment row count for IVF vector storage.
@@ -751,7 +746,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_min_beam_fraction",
         c"Minimum fraction of each quantized router level's lists to open",
-        c"Query-time shortlist breadth. Full-precision routing retains its existing beam. Ignored by flat quantized routing.",
+        c"Query-time shortlist breadth. Full-precision routing retains its existing beam.",
         &VECTOR_ROUTER_MIN_BEAM_FRACTION,
         0.0,
         1.0,
@@ -761,20 +756,11 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_router_aps",
         c"Allow stacked routing to stop after quiet lists",
-        c"Applies to full-precision and quantized hierarchical routing. Flat routing has no list-level stopping.",
+        c"Applies to full-precision and quantized hierarchical routing.",
         &VECTOR_ROUTER_APS,
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_bool_guc(
-        c"paradedb.vector_router_flat",
-        c"Score all quantized posting-centroid codes as one batch before exact reranking",
-        c"Bypasses the quantized router hierarchy without rebuilding the index. Full-precision routing is unchanged.",
-        &VECTOR_ROUTER_FLAT,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     // Registered so SHOW and pg_settings stay stable. Nothing reads these.
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
@@ -819,10 +805,10 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.vector_centroid_quantization",
+        c"paradedb.vector_router_quantization",
         c"Use one-bit centroid routing with exact reranking for new vector indexes",
         c"Off by default. Captured in stored index settings at CREATE INDEX or REINDEX; changing this GUC does not change existing indexes. Independent of document-vector quantization.",
-        &VECTOR_CENTROID_QUANTIZATION,
+        &VECTOR_ROUTER_QUANTIZATION,
         GucContext::Userset,
         GucFlags::default(),
     );

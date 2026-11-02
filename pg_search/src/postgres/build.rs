@@ -592,9 +592,9 @@ mod tests {
 
         Spi::run(
             "CREATE TABLE centroid_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
-             SET LOCAL paradedb.vector_centroid_quantization = on;
+             SET LOCAL paradedb.vector_router_quantization = on;
              CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body);
-             SET LOCAL paradedb.vector_centroid_quantization = off;
+             SET LOCAL paradedb.vector_router_quantization = off;
              CREATE TABLE centroid_full_precision_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
              CREATE INDEX centroid_full_precision_idx ON centroid_full_precision_settings USING paradedb (id, body);",
         ).unwrap();

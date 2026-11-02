@@ -1,5 +1,5 @@
 -- Capture the opt-in router setting before building the benchmark index.
-SET paradedb.vector_centroid_quantization = on;
+SET paradedb.vector_router_quantization = on;
 
 CREATE INDEX cohere_wiki_bm25_idx ON cohere_wiki
 USING paradedb (
@@ -10,4 +10,4 @@ USING paradedb (
     target_segment_count = 8
 );
 
-RESET paradedb.vector_centroid_quantization;
+RESET paradedb.vector_router_quantization;

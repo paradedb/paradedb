@@ -193,8 +193,8 @@ jobs:
           # VACUUM FULL rebuilds indexes and captures build GUCs again.
           # This session does not inherit pdbench's CREATE INDEX settings.
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
-            -c 'SET paradedb.vector_centroid_quantization = on;' \
-            -c 'SHOW paradedb.vector_centroid_quantization;' \
+            -c 'SET paradedb.vector_router_quantization = on;' \
+            -c 'SHOW paradedb.vector_router_quantization;' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log
@@ -316,12 +316,6 @@ jobs:
 
       - name: Verify k6 query plans and filter pushdown
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
-
-      - name: Compare router compositions on the built index
-        run: |
-          python3 benchmarks/cohere/router_tuning.py \
-            --profile "benchmarks/cohere/${COHERE_SIZE}.toml" \
-            --directory benchmark-artifacts --assets benchmarks/cohere/assets
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()

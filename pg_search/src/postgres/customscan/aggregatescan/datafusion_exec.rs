@@ -1187,7 +1187,15 @@ fn build_relnode_df<'a>(
 
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(left_df, right_df, join, &sources, &[], &[])
+                build_join_df_with_filter(
+                    left_df,
+                    right_df,
+                    join,
+                    &sources,
+                    &[],
+                    &[],
+                    internal_prefix,
+                )
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(

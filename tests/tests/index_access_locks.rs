@@ -18,7 +18,7 @@
 use anyhow::Result;
 use rstest::rstest;
 use sqlx::Connection;
-use std::time::Duration;
+use tests::fixtures::locking::{execute_ddl_and_finish, index_locked_while_waiting_for_heap};
 use tests::fixtures::*;
 
 #[rstest]
@@ -49,40 +49,14 @@ async fn direct_metadata_locks_heap_before_index(
             .await
     });
 
-    // Observe the actual heap wait before issuing DDL. Merely starting the
-    // reader or sleeping would allow an index-first implementation to pass.
-    async_std::future::timeout(Duration::from_secs(10), async {
-        loop {
-            let waiting: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT FROM pg_locks
-                 WHERE pid = $1 AND relation = 'direct_lock_docs'::regclass
-                   AND mode = 'AccessShareLock' AND NOT granted)",
-            )
-            .bind(reader_pid)
-            .fetch_one(&mut observer)
-            .await?;
-            if waiting {
-                return Ok::<_, sqlx::Error>(());
-            }
-            async_std::task::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await??;
-    let index_locked_before_heap: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT FROM pg_locks
-         WHERE pid = $1 AND relation = 'direct_lock_idx'::regclass AND granted)",
+    let index_locked_before_heap = index_locked_while_waiting_for_heap(
+        &mut observer,
+        reader_pid,
+        "direct_lock_docs",
+        "direct_lock_docs",
     )
-    .bind(reader_pid)
-    .fetch_one(&mut observer)
     .await?;
-    let dropped = sqlx::query("DROP INDEX direct_lock_idx")
-        .execute(&mut *transaction)
-        .await;
-    if dropped.is_ok() {
-        transaction.commit().await?;
-    } else {
-        transaction.rollback().await?;
-    }
+    let dropped = execute_ddl_and_finish(transaction, "DROP INDEX direct_lock_idx").await;
     let result = pending.await;
     assert!(
         !index_locked_before_heap,

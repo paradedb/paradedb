@@ -42,6 +42,9 @@ static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
 // Check for missing workers and new databases independently of the sweep interval.
 const WORKER_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
+// Yield to database maintenance on the same cadence as PostgreSQL's DROP DATABASE wait.
+const DATABASE_CHECK_INTERVAL: Duration = Duration::from_millis(100);
+
 pub(crate) fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.mutable_sweep_interval",
@@ -331,7 +334,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
         if !BackgroundWorker::wait_latch(Some(
             next_sweep
                 .saturating_duration_since(Instant::now())
-                .min(Duration::from_secs(1)),
+                .min(DATABASE_CHECK_INTERVAL),
         )) {
             return;
         }

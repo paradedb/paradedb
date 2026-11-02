@@ -249,21 +249,20 @@ modelBuilder.Entity<MockItem>()
   The default samples 32% of the vectors. Larger samples can improve centroid
   quality at the cost of a slower, more memory-intensive build.
 </ParamField>
-<ParamField body="max_leaf_size" default={200}>
-  The maximum number of sampled training vectors in a leaf of the hierarchical
-  clustering tree. Must be an integer between `1` and `2147483647`. Smaller
-  values generally produce more centroids and smaller clusters; the actual
-  centroid count depends on the clustering result. This setting is independent
-  of `training_sample_ratio` and does not cap the number of indexed vectors
-  assigned to a cluster.
+<ParamField body="max_leaf_size" default={0}>
+  The number of indexed vectors per cluster. Must be an integer between `0` and
+  `2147483647`. A positive value sets the vectors per cluster directly. `0`
+  sizes each cluster to 4 Postgres pages of layer-0 quantized data for the
+  field's dimension and metric. Actual cluster sizes depend on the clustering
+  result.
 </ParamField>
 
 <Note>
   These options replace `centroid_ratio` and `training_samples_per_centroid`.
   The old names are no longer accepted. Recreate indexes that explicitly store
   either old option using the new options; `REINDEX` alone does not remove
-  obsolete index options. The new defaults sample 32% of vectors and use a
-  maximum training leaf size of 200.
+  obsolete index options. The defaults sample 32% of vectors and size clusters
+  to 4 pages of quantized data.
 </Note>
 
 ## Vector Quantization

@@ -32,13 +32,15 @@ fn aggregate_scan_handles_internal_alias_collisions(mut conn: PgConnection) {
             ctid_0 INTEGER,
             _ctid_0 INTEGER,
             __ctid_0 INTEGER,
+            __pdb_k0 INTEGER,
+            __pdb_m0 INTEGER,
             n NUMERIC(10, 2)
         );
         INSERT INTO alias_items
-            SELECT g, g % 3, g % 3, g % 3, g % 3, g
+            SELECT g, g % 3, g % 3, g % 3, g % 3, g % 3, g % 3, g
             FROM generate_series(1, 60) AS g;
         CREATE INDEX alias_items_idx ON alias_items
-            USING paradedb (id, agg_0, ctid_0, _ctid_0, __ctid_0, n);
+            USING paradedb (id, agg_0, ctid_0, _ctid_0, __ctid_0, __pdb_k0, __pdb_m0, n);
     "#
     .execute(&mut conn);
 
@@ -65,6 +67,29 @@ fn aggregate_scan_handles_internal_alias_collisions(mut conn: PgConnection) {
             ],
             "incorrect results for {column}"
         );
+    }
+
+    let query = r#"
+        SELECT __pdb_k0, SUM(n), pdb.agg('{"terms": {"field": "__pdb_m0"}}')
+        FROM alias_items WHERE id @@@ pdb.all()
+        GROUP BY __pdb_k0 ORDER BY __pdb_k0
+    "#;
+    let (plan,) = format!("EXPLAIN (FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+    let plan = plan.to_string();
+    assert!(plan.contains("ParadeDB Aggregate Scan"), "{plan}");
+    assert!(plan.contains("DataFusion Physical Plan"), "{plan}");
+
+    let rows: Vec<(i32, BigDecimal, Value)> = query.fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+    for ((key, sum, aggregate), (expected_key, expected_sum)) in
+        rows.iter().zip([(0, 630), (1, 590), (2, 610)])
+    {
+        assert_eq!(*key, expected_key);
+        assert_eq!(*sum, BigDecimal::from(expected_sum));
+        let buckets = aggregate["buckets"].as_array().expect("terms buckets");
+        assert_eq!(buckets.len(), 1);
+        assert_eq!(buckets[0]["key"].as_i64(), Some(i64::from(*key)));
+        assert_eq!(buckets[0]["doc_count"].as_u64(), Some(20));
     }
 }
 

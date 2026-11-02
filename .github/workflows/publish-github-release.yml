@@ -6,6 +6,11 @@
 # Beta releases require an -rc.N version and create a prerelease without advancing the branch.
 # The new version tag triggers the other publishing workflows.
 #
+# Release files are prepared without secrets and passed as a patch to separate
+# approval and publishing jobs. Both validate the patch before using credentials.
+# Only the publishing job gets the signing key. Slack notifications run separately.
+# Backport this workflow and its validation scripts together to stable branches.
+#
 # Conditionals checking for `paradedb/paradedb` ensure that artifact assembly,
 # version bumps, and release commits only run on the community repository.
 # See RELEASE.md for the community and enterprise release procedures.
@@ -31,36 +36,34 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: read
+  contents: read
 
 jobs:
-  publish-github-release:
-    name: Publish ParadeDB GitHub Release
+  prepare-release:
+    name: Prepare Release Without Publishing Credentials
     runs-on: ubuntu-latest
-
+    outputs:
+      is_latest: ${{ steps.release_latest.outputs.is_latest }}
+    permissions:
+      contents: read
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
-        with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
           fetch-depth: 2 # Keep the parent for release-artifact diffs even when no commit is created.
-
       - name: Fetch Release Tags
-        run: git fetch --depth=2 --no-tags origin "+refs/tags/v*:refs/tags/v*"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git fetch --depth=2 --no-tags origin "+refs/tags/v*:refs/tags/v*"
 
       - name: Validate Inputs and Setup
         id: validate
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
           INPUTS_BETA: ${{ github.event.inputs.beta }}
         run: |
@@ -108,14 +111,6 @@ jobs:
             fi
           fi
           echo "Input validation passed!"
-
-      - name: Configure Release Tag Signing
-        uses: paradedb/actions/setup-git-signing@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
-          signing-user: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
-          signing-email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
 
       - name: Install Rust
         if: github.repository == 'paradedb/paradedb'
@@ -165,6 +160,53 @@ jobs:
         run: |
           ./scripts/release.sh set-version "${INPUTS_VERSION}"
 
+      - name: Export Release Changes
+        run: |
+          git add -A
+          git diff --cached --binary --no-renames > "$RUNNER_TEMP/release.patch"
+
+      - name: Upload Release Changes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-preparation
+          path: ${{ runner.temp }}/release.patch
+          if-no-files-found: error
+          retention-days: 7
+
+  approve-release:
+    name: Review Prepared Release
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 2 # Keep the parent for release-artifact diffs even when no commit is created.
+
+      - name: Download This Run's Release Changes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-preparation
+          path: ${{ runner.temp }}/release-preparation
+
+      - name: Validate and Import Release Changes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 .github/scripts/apply_release_patch.py \
+            "$RUNNER_TEMP/release-preparation/release.patch" "$RELEASE_VERSION"
+
+      - name: Fetch Release Tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git fetch --depth=2 --no-tags origin "+refs/tags/v*:refs/tags/v*"
+
       - name: Prepare Approval Details
         if: github.event.inputs.beta != 'true'
         id: approval_details
@@ -175,25 +217,121 @@ jobs:
             --branch "${GITHUB_REF_NAME}" \
             --output-file /tmp/approval-body.md
           {
+            printf '\nPrepared from commit `%s`. Review the patch artifact in [this workflow run](%s/%s/actions/runs/%s) before approving.\n\n' \
+              "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            git diff --cached --stat
+          } >> /tmp/approval-body.md
+          {
             echo "issue_body<<EOF"
             cat /tmp/approval-body.md
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
           cat /tmp/approval-body.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Generate GitHub App Token
+        id: app-token
+        if: inputs.beta != true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: write
+          permission-members: read
+
+      # Pin the image directly because the action loads a mutable container tag.
       - name: Manual Approval Before Release
         if: github.event.inputs.beta != 'true'
-        uses: trstringer/manual-approval@fa642940caf8412403569b28b2db4a1df08a83a3 # v1
-        with:
-          secret: ${{ steps.app-token.outputs.token }}
-          approvers: pg_search-maintainers
-          minimum-approvals: 1
-          issue-title: "Release v${{ github.event.inputs.version }}?"
-          issue-body: ${{ steps.approval_details.outputs.issue_body }}
+        uses: docker://ghcr.io/trstringer/manual-approval@sha256:7cac2dde511346ae728d44e6a4c6385e5cd4b1a612e2158712448cfc4414b15b # v1.13.0
+        env:
+          INPUT_SECRET: ${{ steps.app-token.outputs.token }}
+          INPUT_APPROVERS: pg_search-maintainers
+          INPUT_MINIMUM-APPROVALS: "1"
+          INPUT_EXCLUDE-WORKFLOW-INITIATOR-AS-APPROVER: "false"
+          INPUT_ISSUE-TITLE: "Release v${{ github.event.inputs.version }}?"
+          INPUT_ISSUE-BODY: ${{ steps.approval_details.outputs.issue_body }}
 
-      - name: Stage Release Artifacts
-        if: github.repository == 'paradedb/paradedb'
-        run: git add -A
+  publish-github-release:
+    name: Sign and Publish Reviewed Release
+    needs: [prepare-release, approve-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 2 # Keep the parent for release-artifact diffs even when no commit is created.
+
+      - name: Download This Run's Release Changes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-preparation
+          path: ${{ runner.temp }}/release-preparation
+
+      - name: Validate and Import Release Changes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 .github/scripts/apply_release_patch.py \
+            "$RUNNER_TEMP/release-preparation/release.patch" "$RELEASE_VERSION"
+
+      - name: Fetch Release Tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git fetch --depth=2 --no-tags origin "+refs/tags/v*:refs/tags/v*"
+
+      - name: Check Release Is Still Unpublished
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          echo "start_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          if gh release view "v$RELEASE_VERSION" > /dev/null 2>&1; then
+            echo "::error::Release already exists; refusing to publish it again."
+            exit 1
+          fi
+
+      - name: Determine if Release Should be Marked as Latest
+        id: release_latest
+        env:
+          INPUTS_BETA: ${{ github.event.inputs.beta }}
+          INPUTS_VERSION: ${{ github.event.inputs.version }}
+          EXPECTED_LATEST: ${{ needs.prepare-release.outputs.is_latest }}
+        run: |
+          FLAGS=""
+          if [[ "${INPUTS_BETA}" == "true" ]]; then
+            FLAGS="--beta"
+          fi
+          IS_LATEST=$(./scripts/release.sh is-latest "${INPUTS_VERSION}" $FLAGS)
+          if [[ "$IS_LATEST" != "$EXPECTED_LATEST" ]]; then
+            echo "::error::Release ordering changed since preparation. Re-run to prepare and review current metadata."
+            exit 1
+          fi
+          echo "is_latest=${IS_LATEST}"
+          echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Authenticate Release Pushes
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh auth setup-git
 
       - name: Commit Release Artifacts
         if: github.repository == 'paradedb/paradedb'
@@ -205,6 +343,7 @@ jobs:
       - name: Push Release Commit
         if: github.repository == 'paradedb/paradedb'
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BETA: ${{ github.event.inputs.beta }}
           RELEASE_REF: ${{ github.ref_name }}
           START_SHA: ${{ steps.validate.outputs.start_sha }}
@@ -223,8 +362,17 @@ jobs:
             echo "Beta release: skipping push of release commit to branch '$RELEASE_REF'."
           fi
 
+      - name: Configure Release Tag Signing
+        uses: paradedb/actions/setup-git-signing@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          signing-key: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_KEY }}
+          signing-user: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_USER }}
+          signing-email: ${{ secrets.PARADEDB_GITHUB_BOT_COMMIT_SIGNING_EMAIL }}
+
       - name: Create Tag
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           INPUTS_VERSION: ${{ github.event.inputs.version }}
         run: |
           TAG="v${INPUTS_VERSION}"
@@ -233,9 +381,13 @@ jobs:
           git verify-tag "$TAG"
           git push origin "refs/tags/$TAG"
 
+      - name: Remove Bot Signing Key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"
+
       - name: Generate Release Notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: v${{ github.event.inputs.version }}
         run: |
           python3 .github/scripts/generate_release_notes.py \
@@ -246,22 +398,26 @@ jobs:
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases. The tag has already been
       # created in the step above, so this step just attaches the release to it.
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
-        with:
-          tag_name: v${{ github.event.inputs.version }}
-          target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
-          prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
-          make_latest: ${{ steps.release_latest.outputs.is_latest }}
-          body_path: ${{ runner.temp }}/release-notes.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          IS_BETA: ${{ inputs.beta }}
+          IS_LATEST: ${{ steps.release_latest.outputs.is_latest }}
+        run: |
+          FLAGS=(--latest="$IS_LATEST")
+          if [[ "$IS_BETA" == "true" ]]; then
+            FLAGS+=(--prerelease)
+          fi
+          gh release create "v$RELEASE_VERSION" --verify-tag \
+            --title "v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md" "${FLAGS[@]}"
 
       - name: Stage Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_VERSION: ${{ github.event.inputs.version }}
-          RELEASE_REF: ${{ github.ref_name }}
           IS_LATEST: ${{ steps.release_latest.outputs.is_latest }}
         run: |
           CLEAN_VERSION="${RELEASE_VERSION%%-*}"
@@ -285,7 +441,7 @@ jobs:
           git checkout main
 
           echo "Checking out assembled release files from the release commit..."
-          git checkout "$RELEASE_REF" -- ${NEW_SQL} "${BRANCH_CHANGELOG}"
+          git checkout "v${RELEASE_VERSION}" -- ${NEW_SQL} "${BRANCH_CHANGELOG}"
 
           # TODO: Legacy accommodation for 0.25.x (remove after 0.25.x is EOL):
           # Move changelog to docs/project/changelog/ if it was checked out from docs/changelog/
@@ -336,6 +492,7 @@ jobs:
       - name: Push Release Artifacts on Main
         if: github.repository == 'paradedb/paradedb' && github.ref_name != 'main' && github.event.inputs.beta != 'true'
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           COMMIT_CREATED: ${{ steps.sync-commit.outputs.created }}
         run: |
           if [[ "$COMMIT_CREATED" == "true" ]]; then
@@ -367,12 +524,14 @@ jobs:
             echo "ℹ️ Stable branch ${STABLE_BRANCH} already exists."
           fi
 
-      - name: Remove Bot Signing Key
-        if: always()
-        run: rm -f "$RUNNER_TEMP/github-bot-signing-key" "$RUNNER_TEMP/github-bot-signing-key.allowed-signers"
-
+  notify-failure:
+    name: Notify Release Failure
+    needs: [prepare-release, approve-release, publish-github-release]
+    if: always() && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
       - name: Notify Slack on Failure
-        if: failure()
         uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

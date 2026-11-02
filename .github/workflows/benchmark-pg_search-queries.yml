@@ -56,6 +56,12 @@ permissions:
 
 jobs:
   benchmark-pg_search-queries:
+    permissions:
+      actions: write
+      contents: write
+      deployments: write
+      pull-requests: write
+      id-token: write
     name: Run Benchmark Jobs
     timeout-minutes: 360
     runs-on:
@@ -77,7 +83,7 @@ jobs:
     env:
       pg_version: 18
       BACKREST_STANZA: bench
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_BUCKET: paradedb-benchmark
       BACKREST_REPO_PATH_PREFIX: /snapshots
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
@@ -150,8 +156,11 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Fetch Latest Benchmark Code, Suites

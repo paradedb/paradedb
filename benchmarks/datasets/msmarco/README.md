@@ -14,6 +14,10 @@ into PostgreSQL 18. The workflow verifies the exact row count, freezes and
 analyzes the heap, and backs it up with pgBackRest to
 `s3://paradedb-benchmark/snapshots/msmarco/v1/113m/pg_backrest/`.
 
+The source contains embedded NUL bytes in text, which PostgreSQL cannot store.
+`pg_null_byte_replacement = ""` removes those bytes during Parquet loading.
+Datasets that omit this setting retain the default behavior of rejecting them.
+
 The snapshot contains the heap with 1,024-dimensional vectors and no search
 index. Snapshot generation runs only from main and uses the existing benchmark
 write role. MS MARCO requires explicit selection and is excluded from `all`.

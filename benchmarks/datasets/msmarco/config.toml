@@ -1,5 +1,6 @@
 sampling_seed = 0
 load_format = "parquet"
+pg_null_byte_replacement = ""
 s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
 tables = []
 

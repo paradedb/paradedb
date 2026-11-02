@@ -1129,6 +1129,10 @@ fn load_tables_parquet(
     let conn = utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
     conn.execute_batch("INSTALL postgres; LOAD postgres;")
         .with_context(|| "Failed to load DuckDB postgres extension")?;
+    if let Some(replacement) = &config.pg_null_byte_replacement {
+        conn.execute("SET pg_null_byte_replacement = ?", [replacement])
+            .with_context(|| "Failed to configure Postgres NUL-byte replacement")?;
+    }
     conn.execute_batch(&format!("ATTACH '{url}' AS pg (TYPE postgres);"))
         .with_context(|| "Failed to ATTACH target Postgres from DuckDB")?;
 

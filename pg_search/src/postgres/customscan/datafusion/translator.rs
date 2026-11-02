@@ -27,8 +27,7 @@ use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType,
-    LateralUnnestInfo, RelNode,
+    JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, LateralUnnestInfo, RelNode,
     RelationAlias, ScoreColumn, UnnestNode,
 };
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
@@ -753,10 +752,7 @@ fn prefix_ctid_column_name(
     }
 }
 
-pub fn build_equi_join_exprs(
-    join: &JoinNode,
-    internal_prefix: &str,
-) -> Result<Vec<Expr>> {
+pub fn build_equi_join_exprs(join: &JoinNode, internal_prefix: &str) -> Result<Vec<Expr>> {
     let mut on = Vec::with_capacity(join.equi_keys.len());
     for jk in &join.equi_keys {
         let ((left_source, left_attno), (right_source, right_attno)) =
@@ -919,7 +915,8 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             {
                 Some(make_source_unnested_col(source, &col_name))
             } else {
-                let col_name = prefix_ctid_column_name(mapped_attno, col_name, self.internal_prefix);
+                let col_name =
+                    prefix_ctid_column_name(mapped_attno, col_name, self.internal_prefix);
                 Some(make_source_col(source, &col_name))
             }
         } else {

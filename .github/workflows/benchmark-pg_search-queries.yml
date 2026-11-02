@@ -5,23 +5,10 @@
 
 name: Benchmark pg_search (Queries)
 
-# Stack Overflow runs on push to main, benchmarks/benchmark-stackoverflow labels, or manually.
+# Run Stack Overflow nightly on main, on labeled PRs, or manually.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/actions/benchmark-queries/**"
-      - ".github/actions/publish-benchmark-results/**"
-      - ".github/actions/benchmarks-from-main/**"
-      - ".github/actions/setup-benchmark-cluster/**"
-      - ".github/actions/setup-pg-search-build-environment/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/actions/setup-postgres/**"
-      - ".github/workflows/benchmark-pg_search-queries.yml"
-      - "benchmarks/**"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -74,7 +61,7 @@ jobs:
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
     if: >-
-      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
@@ -332,7 +319,7 @@ jobs:
   notify-slack-on-failure:
     name: Notify Slack on Failure
     needs: [benchmark-pg_search-queries, publish-results]
-    if: always() && (needs.benchmark-pg_search-queries.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'push'
+    if: always() && (needs.benchmark-pg_search-queries.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read

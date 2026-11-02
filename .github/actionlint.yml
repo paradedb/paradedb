@@ -3,6 +3,7 @@ self-hosted-runner:
   labels:
     - family=*
     - image=*
+    - ami=*
     - extras=*
     - cpu=*
     - ram=*

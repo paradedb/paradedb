@@ -16,32 +16,7 @@ training sample ratio as Cohere CI. The index includes text and vectors; the
 queries return `_id` and `title`. The corpus table is named `msmarco` to match
 the native heap loader's Parquet directory convention.
 
-## Test from a branch
-
-Run snapshot generation against the branch containing these workflows:
-
-```sh
-gh workflow run generate-benchmark-snapshots.yml --ref YOUR_BRANCH \
-  -f dataset=msmarco -f size=113m -F run_benchmark=true
-```
-
-Branch snapshots use
-`s3://paradedb-benchmark/snapshots/branches/REPOSITORY_ID/YOUR_BRANCH/msmarco/v1/113m/pg_backrest/`.
-The workflow verifies the row count, freezes and analyzes the heap, uploads the
-backup, then writes `complete.json`. Its run summary shows the exact destination.
-Runs for the same branch and dataset are serialized. The branch must be allowed
-to assume the benchmark write role in AWS; the workflow does not change IAM.
-
-With `run_benchmark=true`, generation automatically calls the MS MARCO benchmark
-workflow from the same commit after the snapshot succeeds. For subsequent runs,
-apply `benchmark-msmarco-pg_search` to the branch's PR. The benchmark prefers the
-completed snapshot for that PR's repository and branch, falling back to the
-shared snapshot when no branch snapshot exists.
-The selected prefix and snapshot provenance are saved with the diagnostics.
-This exercises restore, index build, recall sweeps, plan checks, k6, and result
-publication before merge. Branch runs do not publish main baselines.
-
-## Shared snapshot and baseline
+## Initial setup
 
 After merging the workflow and dataset assets into main:
 
@@ -56,8 +31,8 @@ After merging the workflow and dataset assets into main:
    The native `load-heap` command imports the corpus, verifies its exact row
    count, freezes and analyzes the heap, then publishes pgBackRest data at
    `s3://paradedb-benchmark/snapshots/msmarco/v1/113m/pg_backrest/`.
-   The snapshot contains no search index. Only main updates this shared path;
-   branch runs use their separate prefix. Both use the benchmark write role.
+   The snapshot contains no search index. Generation is restricted to main
+   and uses the existing benchmark write role.
 
 2. Run the benchmark on main to establish the first baseline:
 

@@ -64,6 +64,40 @@ pub struct Db {
 
 impl Db {
     pub async fn new() -> Self {
+        static CLEANUP: std::sync::Once = std::sync::Once::new();
+        // Earlier test binaries may leave databases whose persistent workers still hold slots.
+        CLEANUP.call_once(|| {
+            block_on(async {
+                let url = dotenvy::var("DATABASE_URL").expect("DATABASE_URL must be set");
+                let mut conn = PgConnection::connect(&url)
+                    .await
+                    .expect("test cleanup connection");
+                let exists: bool =
+                    sqlx::query_scalar("SELECT to_regclass('_sqlx_test.databases') IS NOT NULL")
+                        .fetch_one(&mut conn)
+                        .await
+                        .expect("test database registry");
+                if !exists {
+                    return;
+                }
+                let names: Vec<String> =
+                    sqlx::query_scalar("SELECT d.db_name FROM _sqlx_test.databases d WHERE NOT EXISTS (SELECT FROM pg_stat_activity a WHERE a.datname=d.db_name AND a.backend_type <> 'pg_search mutable sweep')")
+                        .fetch_all(&mut conn)
+                        .await
+                        .expect("test database names");
+                for name in names {
+                    let command =
+                        format!("DROP DATABASE IF EXISTS \"{}\"", name.replace('"', "\"\""));
+                    if conn.execute(AssertSqlSafe(command)).await.is_ok() {
+                        sqlx::query("DELETE FROM _sqlx_test.databases WHERE db_name=$1")
+                            .bind(name)
+                            .execute(&mut conn)
+                            .await
+                            .expect("test database cleanup record");
+                    }
+                }
+            });
+        });
         let path =
             // timestamp
             SystemTime::now()

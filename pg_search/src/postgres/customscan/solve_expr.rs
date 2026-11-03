@@ -64,6 +64,7 @@
 //! cannot free another's query.
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::nodecast;
 use crate::query::tid_bitmap_stream::BitmapCell;
 use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{PgMemoryContexts, pg_sys};
@@ -202,6 +203,42 @@ impl SearchQueryInput {
         nodes
     }
 
+    /// A planning-only copy with each `PostgresExpression` folded through
+    /// `estimate_expression_value`, which also reduces STABLE functions and bound Params, as
+    /// the core selectivity estimators do. `None` when any expression stays non-constant
+    /// (unbound Param, correlated Var) or the query carries heap filters, which need an
+    /// `ExprContext` the estimation reader does not have.
+    ///
+    /// # Safety
+    /// `root` must point to a valid `PlannerInfo` for the duration of the call.
+    pub unsafe fn fold_for_estimation(
+        &self,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> Option<SearchQueryInput> {
+        if root.is_null() || self.has_heap_filters() {
+            return None;
+        }
+        let sqi_typoid = searchqueryinput_typoid();
+        let mut folded = self.clone();
+        let mut all_folded = true;
+        folded.visit(&mut |sqi| {
+            let SearchQueryInput::PostgresExpression { expr } = sqi else {
+                return;
+            };
+            let estimated = unsafe { pg_sys::estimate_expression_value(root, expr.node()) };
+            let Some(c) = (unsafe { nodecast!(Const, T_Const, estimated) }) else {
+                all_folded = false;
+                return;
+            };
+            assert_eq!(unsafe { (*c).consttype }, sqi_typoid);
+            let value = unsafe { SearchQueryInput::from_datum((*c).constvalue, (*c).constisnull) };
+            // A NULL estimate means the predicate is NULL, so fold it to `Null`
+            // (see `solve_postgres_expressions`).
+            *sqi = value.unwrap_or(SearchQueryInput::Null);
+        });
+        all_folded.then_some(folded)
+    }
+
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
         let mut cnt = 0;
         self.visit(&mut |sqi| {
@@ -243,13 +280,14 @@ impl SearchQueryInput {
                         if let Some(resolved_sqi) = expr.solve(expr_context, sqi_typoid) {
                             *sqi = resolved_sqi;
                         } else {
-                            // PostgresExpression evaluated to NULL (e.g., subquery returned no results)
-                            // Replace with a query that matches nothing
+                            // PostgresExpression evaluated to NULL (e.g., subquery returned no results).
+                            // Keep NULL distinct from `Empty` so a negation can treat `NOT NULL` as
+                            // NULL, which matches nothing, while `NOT Empty` matches every row.
                             pgrx::debug1!(
                                 "PostgresExpression evaluated to NULL for expression: {}",
                                 pgrx::node_to_string(expr.node()).unwrap_or("unknown")
                             );
-                            *sqi = SearchQueryInput::Empty;
+                            *sqi = SearchQueryInput::Null;
                         }
                     }
                     SearchQueryInput::HeapFilter {

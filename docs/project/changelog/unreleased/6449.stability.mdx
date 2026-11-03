@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A `LIMIT` query over a bitmap intersection no longer fails with "bitmap intersection stream ... claimed twice" when it has to search again, for example after deleted rows hid its first batch, or when a window aggregate runs alongside it (#6403).

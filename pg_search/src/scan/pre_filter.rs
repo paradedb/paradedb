@@ -34,10 +34,12 @@
 //!    the inverted index for maximum performance.
 //!
 //! 2. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
-//!    Top K threshold from `SortExec`) or filters that cannot be mapped to the inverted
-//!    index are applied as `PreFilter`s *after* the search but *before* Arrow column
-//!    materialization. These evaluate directly against Tantivy fast fields (using
-//!    term-ordinal bounds for strings or direct numeric comparisons).
+//!    Top K threshold from `SortExec`) or filters that cannot be (or should not be, e.g.
+//!    high-density `InList`s that would fall back to Tantivy `LinearScan`) mapped to the
+//!    inverted index are applied as `PreFilter`s *after* the search but *before* heap
+//!    visibility (`fetch_ctids`) and Arrow column materialization. These evaluate directly
+//!    against Tantivy fast fields (using term-ordinal bounds/sets for strings or direct
+//!    numeric comparisons).
 //!
 //! # Data Flow
 //!
@@ -54,13 +56,13 @@
 //!        ▼
 //! try_dynamic_filter_pushdown()      ← Converts eligible static filters (like InList)
 //!                                      into a Tantivy Query and modifies the SearchIndexReader.
-//!                                      Rewrites the DataFusion expr to lit(true).
+//!                                      Rewrites pushed-down DataFusion exprs to lit(true).
 //!        │
-//!        │  at every poll_next
+//!        │  on first batch or when DynamicFilterTracker::changed() fires
 //!        ▼
-//! ScanStream::collect_pre_filters    ← calls DynamicFilterPhysicalExpr::current()
-//!   → collect_filters()                to get the latest threshold for remaining filters,
-//!   → Vec<PreFilter>                   decomposes them into PreFilter(s).
+//! build_filters()                    ← calls DynamicFilterPhysicalExpr::current()
+//!   → collect_filters()                to get the latest expression for remaining filters,
+//!   → Vec<PreFilter>                   skips lit(true), and decomposes into PreFilter(s).
 //!        │
 //!        ▼
 //! Scanner::next()                    ← applies PreFilters via apply_arrow()
@@ -70,11 +72,13 @@
 //! # Native DataFusion Evaluation
 //!
 //! `PreFilter`s do not execute custom matching logic. Instead, they leverage native DataFusion
-//! `PhysicalExpr` evaluation over a mock `RecordBatch` containing only the fetched fast-field columns.
-//! For string columns, to avoid expensive materialization, the `PreFilter` dynamically rewrites the
-//! expression per segment: translating string literals into local `UInt64` ordinal bounds and evaluating
-//! the bounds check directly against the fetched term ordinals. This allows complex expressions
-//! (e.g. `IS NULL OR col < 'abc'`) to be seamlessly evaluated by Arrow's highly optimized compute kernels.
+//! `PhysicalExpr` evaluation over a mock `RecordBatch` containing the fetched fast-field columns at
+//! their original schema indices (with zero-allocation `NullArray` placeholders in unreferenced slots).
+//! For string columns, to avoid expensive materialization, the `PreFilter` rewrites the expression once
+//! per segment (cached by `SegmentOrdinal`): translating string literals into local `UInt64` ordinal
+//! bounds or `InList` ordinal hash sets and evaluating directly against the fetched term ordinals.
+//! This allows complex expressions (e.g. `IS NULL OR col < 'abc'`) to be seamlessly evaluated by
+//! Arrow's vectorized compute kernels.
 //!
 //! # Observability
 //!
@@ -87,20 +91,20 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::arrow::array::UInt64Array;
-use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
+use datafusion::arrow::array::{Array, ArrayRef, BooleanArray, NullArray, UInt64Array};
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
-use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{
-    BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
+    BinaryExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
 };
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
+use parking_lot::Mutex;
 use tantivy::{Score, SegmentOrdinal};
 
 use crate::api::HashSet;
@@ -110,8 +114,388 @@ use crate::query::value_to_term;
 use crate::scan::deferred_encode::is_deferred_field;
 use tantivy::Term;
 use tantivy::query::{
-    BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
+    BooleanQuery, ConstScoreQuery, Occur, Query, TermQuery, TermSetQuery, TermSetStrategyConfig,
 };
+use tantivy::schema::IndexRecordOption;
+
+/// Point-lookup request payload pushed from [`crate::scan::rank_join_exec::RankJoinExec`] down to
+/// [`crate::scan::execution_plan::PgSearchScanPlan`] (and across nested `RankJoinExec` nodes) to
+/// trigger on-demand Random Access (`RA`) fetches for a batch of unresolved join keys.
+///
+/// # How `RankLookupPhysicalExpr` differs from a normal dynamic filter
+///
+/// If a rank join only needed Sorted Access (`SA`), its child inputs would simply be standard
+/// sorted `SendableRecordBatchStream` iterators with no special side-channel. Random Access (`RA`),
+/// however, acts like an extension trait on `Stream` that adds point-lookup methods and richer
+/// exhaustion states. Because DataFusion's `ExecutionPlan::execute` returns an opaque
+/// `SendableRecordBatchStream` wrapped by intermediate unary operators (`ProjectionExec`,
+/// `FilterPassthroughExec`, `TantivyFetchExec`, `TantivyDecodeExec`, `VisibilityFilterExec`),
+/// `RankJoinExec` cannot call custom methods on the leaf stream directly. Instead, it tunnels a
+/// synchronous, bidirectional RPC protocol through DataFusion's [`DynamicFilterPhysicalExpr`]:
+///
+/// 1. **One-shot RPC request/reset lifecycle (not a persistent monotonic filter):**
+///    Normal dynamic filters (`HashJoinExec`'s build-side `InListExpr`, or `SortExec` /
+///    `SegmentedTopKExec`'s rolling threshold) are published once or tightened monotonically and
+///    restrict every subsequent batch. By contrast, `RankJoinExec` writes a `RankLookupPhysicalExpr`
+///    into a side's `DynamicFilterPhysicalExpr` immediately before polling `child_stream.next().await`
+///    for an `RA` probe. At the top of `poll_next` in `lazy_sort.rs`,
+///    `LazySortStreamState::take_pending_ra_lookup` immediately consumes the request by resetting
+///    `dyn_filter.update(lit(true))` and executes a single out-of-band `reader.search_ra_lookup`
+///    batch without advancing the `SA` window cursor (yielding an empty `RecordBatch` if 0 rows
+///    matched, since returning `None` would close the stream).
+///
+/// 2. **Reverse (child `->` parent) exhaustion signaling:**
+///    When a leaf scan exhausts its `SA` stream, `LazySortStreamState::signal_parent_sa_exhausted`
+///    writes a sentinel literal back into the same `DynamicFilterPhysicalExpr` and yields an empty
+///    `RecordBatch` so `RankJoinExec` can distinguish why the batch was empty while keeping the
+///    stream open for future `RA` probes:
+///    - `lit(false)` (`ExhaustionBehavior::KeepAliveForRa`): `SA` is exhausted, but `RA` remains
+///      capable of probing the unvisited tail of the index.
+///    - `lit(ScalarValue::Boolean(None))` (`ExhaustionBehavior::SignalBothExhausted`): both `SA`
+///      and `RA` are exhausted because `SA` has already visited every matching document.
+///
+/// 3. **Automatic column-index remapping & cascading (`N >= 3`) interception:**
+///    Because `RankLookupPhysicalExpr` implements [`PhysicalExpr`] (`children()` returning `cols`
+///    and `with_new_children()` rebuilding `cols`), DataFusion's `FilterPushdown` pass and
+///    intermediate `ProjectionExec` nodes automatically remap its `Column` indices as it travels
+///    down the physical plan. In a cascading multi-way rank join, an inner `RankJoinExec`
+///    intercepts its parent's `DynamicFilterPhysicalExpr`, translates `score_threshold` via
+///    `ScoreCombiner::threshold_for`, and forwards a remapped `RankLookupPhysicalExpr` to its own
+///    children.
+///
+/// 4. **Dual execution mode (leaf Tantivy query vs intermediate in-memory `evaluate`):**
+///    - At a leaf `PgSearchScanPlan`, `PhysicalExpr::evaluate` is never called on
+///      `RankLookupPhysicalExpr`. Instead, [`try_convert_rank_lookup_to_query`] converts `cols`
+///      and `keys` into a Tantivy `TermSetQuery` (or `BooleanQuery` for composite keys), and
+///      `score_threshold` (`score > threshold`) is passed directly into
+///      `SearchIndexReader::search_ra_lookup` to drive Tantivy's `PruningScorer` (Block-Max WAND).
+///    - At an intermediate `RankJoinExec` (`find_matching_buffered_rows`),
+///      `RankLookupPhysicalExpr::evaluate(&batch)` *is* called as an Arrow [`PhysicalExpr`] to
+///      filter batches that the inner join already buffered in memory during prior `SA` pulls.
+#[derive(Debug, Clone)]
+pub struct RankLookupPhysicalExpr {
+    cols: Vec<Arc<dyn PhysicalExpr>>,
+    keys: Vec<Vec<ScalarValue>>,
+    /// Optional minimum score threshold using strict greater-than (`score > threshold`) semantics,
+    /// matching Tantivy's `PruningScorer`.
+    score_threshold: Option<Score>,
+}
+
+impl RankLookupPhysicalExpr {
+    pub fn new(cols: Vec<Arc<dyn PhysicalExpr>>, keys: Vec<Vec<ScalarValue>>) -> Self {
+        Self {
+            cols,
+            keys,
+            score_threshold: None,
+        }
+    }
+
+    pub fn with_score_threshold(mut self, score_threshold: Option<Score>) -> Self {
+        self.score_threshold = score_threshold;
+        self
+    }
+
+    pub fn with_cols(mut self, cols: Vec<Arc<dyn PhysicalExpr>>) -> Self {
+        self.cols = cols;
+        self
+    }
+
+    pub fn with_keys_and_threshold(
+        &self,
+        keys: Vec<Vec<ScalarValue>>,
+        score_threshold: Option<Score>,
+    ) -> Self {
+        Self {
+            cols: self.cols.clone(),
+            keys,
+            score_threshold,
+        }
+    }
+
+    pub fn keys(&self) -> &[Vec<ScalarValue>] {
+        &self.keys
+    }
+
+    pub fn score_threshold(&self) -> Option<Score> {
+        self.score_threshold
+    }
+}
+
+impl std::fmt::Display for RankLookupPhysicalExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RankLookup([")?;
+        for (i, c) in self.cols.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{c}")?;
+        }
+        if let Some(t) = self.score_threshold {
+            write!(f, "], keys={}, score_threshold={t})", self.keys.len())
+        } else {
+            write!(f, "], keys={})", self.keys.len())
+        }
+    }
+}
+
+impl PartialEq for RankLookupPhysicalExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.cols.len() == other.cols.len()
+            && self
+                .cols
+                .iter()
+                .zip(other.cols.iter())
+                .all(|(a, b)| a.as_ref() == b.as_ref())
+            && self.keys == other.keys
+            && self.score_threshold.map(f32::to_bits) == other.score_threshold.map(f32::to_bits)
+    }
+}
+
+impl Eq for RankLookupPhysicalExpr {}
+
+impl std::hash::Hash for RankLookupPhysicalExpr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.cols.len().hash(state);
+        for c in &self.cols {
+            c.as_ref().hash(state);
+        }
+        self.keys.hash(state);
+        self.score_threshold.map(f32::to_bits).hash(state);
+    }
+}
+
+impl PhysicalExpr for RankLookupPhysicalExpr {
+    fn data_type(&self, _input_schema: &Schema) -> datafusion::common::Result<DataType> {
+        Ok(DataType::Boolean)
+    }
+
+    fn nullable(&self, _input_schema: &Schema) -> datafusion::common::Result<bool> {
+        Ok(false)
+    }
+
+    fn evaluate(
+        &self,
+        batch: &RecordBatch,
+    ) -> datafusion::common::Result<datafusion::physical_plan::ColumnarValue> {
+        let num_rows = batch.num_rows();
+        if self.cols.is_empty() || self.keys.is_empty() || num_rows == 0 {
+            return Ok(datafusion::physical_plan::ColumnarValue::Array(Arc::new(
+                BooleanArray::from(vec![false; num_rows]),
+            )));
+        }
+
+        let mut col_arrays = Vec::with_capacity(self.cols.len());
+        for col_expr in &self.cols {
+            let val = col_expr.evaluate(batch)?;
+            col_arrays.push(val.into_array(num_rows)?);
+        }
+
+        let mut matches = Vec::with_capacity(num_rows);
+        if self.cols.len() == 1 {
+            let mut key_set = HashSet::default();
+            for k in &self.keys {
+                if let Some(v) = k.first() {
+                    key_set.insert(v.clone());
+                }
+            }
+            let arr = &col_arrays[0];
+            for row_idx in 0..num_rows {
+                let sv = ScalarValue::try_from_array(arr.as_ref(), row_idx)?;
+                matches.push(!sv.is_null() && key_set.contains(&sv));
+            }
+        } else {
+            let mut key_set: HashSet<Vec<ScalarValue>> = HashSet::default();
+            for k in &self.keys {
+                key_set.insert(k.clone());
+            }
+            let mut row_key = Vec::with_capacity(self.cols.len());
+            for row_idx in 0..num_rows {
+                row_key.clear();
+                let mut any_null = false;
+                for arr in &col_arrays {
+                    let sv = ScalarValue::try_from_array(arr.as_ref(), row_idx)?;
+                    if sv.is_null() {
+                        any_null = true;
+                        break;
+                    }
+                    row_key.push(sv);
+                }
+                matches.push(!any_null && key_set.contains(&row_key));
+            }
+        }
+
+        Ok(datafusion::physical_plan::ColumnarValue::Array(Arc::new(
+            BooleanArray::from(matches),
+        )))
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
+        self.cols.iter().collect()
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn PhysicalExpr>>,
+    ) -> datafusion::common::Result<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(Self {
+            cols: children,
+            keys: self.keys.clone(),
+            score_threshold: self.score_threshold,
+        }))
+    }
+
+    fn fmt_sql(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+/// Returns `true` if `col_name` with Arrow `data_type` can be converted into a Tantivy query
+/// by [`try_convert_rank_lookup_to_query`].
+pub fn supports_ra_lookup_column(
+    col_name: &str,
+    data_type: &DataType,
+    schema: &crate::schema::SearchIndexSchema,
+) -> bool {
+    let Some(field) = schema.search_field(col_name) else {
+        return false;
+    };
+    if field.is_text() && !field.is_keyword() {
+        return false;
+    }
+    let tantivy_schema = schema.tantivy_schema();
+    let Ok(tantivy_field) = tantivy_schema.get_field(col_name) else {
+        return false;
+    };
+    let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+    if !tantivy_field_type.is_indexed()
+        || matches!(
+            tantivy_field_type,
+            tantivy::schema::FieldType::JsonObject(_)
+        )
+    {
+        return false;
+    }
+    PdbOwnedValue::supports_execution_data_type(data_type, &field.field_type())
+}
+
+/// Convert a [`RankLookupPhysicalExpr`] into a zero-scoring Tantivy query (`ConstScoreQuery(..., 0.0)`)
+/// suitable for `reader.and_query(...)` during a Random Access (`RA`) point lookup.
+pub fn try_convert_rank_lookup_to_query(
+    lookup: &RankLookupPhysicalExpr,
+    output_schema: &Schema,
+    schema: &crate::schema::SearchIndexSchema,
+    index_created_by_version: Option<crate::api::version::Version>,
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+) -> Option<Box<dyn Query>> {
+    if lookup.cols.is_empty() || lookup.keys.is_empty() {
+        return None;
+    }
+
+    let tantivy_schema = schema.tantivy_schema();
+    if lookup.cols.len() == 1 {
+        let col = lookup.cols[0].downcast_ref::<Column>()?;
+        let output_field = output_schema.fields().get(col.index())?;
+        if output_field.name() != col.name() {
+            return None;
+        }
+        let field = schema.search_field(output_field.name())?;
+        if field.is_text() && !field.is_keyword() {
+            return None;
+        }
+        let field_type = field.field_type();
+        let tantivy_field = tantivy_schema.get_field(output_field.name()).ok()?;
+        let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+
+        let mut terms = Vec::with_capacity(lookup.keys.len());
+        for key_tuple in &lookup.keys {
+            let scalar = key_tuple.first()?;
+            if scalar.is_null() {
+                continue;
+            }
+            let owned_value = PdbOwnedValue::from_execution_scalar(scalar, &field_type)?;
+            let term = value_to_term(
+                tantivy_field,
+                &owned_value,
+                tantivy_field_type,
+                None,
+                index_created_by_version,
+            )
+            .ok()?;
+            terms.push(term);
+        }
+        if terms.is_empty() {
+            return None;
+        }
+        let cfg = TermSetStrategyConfig {
+            gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+            bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique()
+                .max(crate::gucs::term_set_bitset_max_density_multi()),
+            bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+            strategy_sink,
+            ..TermSetStrategyConfig::default()
+        };
+        let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
+        return Some(Box::new(ConstScoreQuery::new(term_set_query, 0.0)));
+    }
+
+    // Composite key: OR of ANDed TermQuerys
+    let mut col_infos = Vec::with_capacity(lookup.cols.len());
+    for col_expr in &lookup.cols {
+        let col = col_expr.downcast_ref::<Column>()?;
+        let output_field = output_schema.fields().get(col.index())?;
+        if output_field.name() != col.name() {
+            return None;
+        }
+        let field = schema.search_field(output_field.name())?;
+        if field.is_text() && !field.is_keyword() {
+            return None;
+        }
+        let tantivy_field = tantivy_schema.get_field(output_field.name()).ok()?;
+        let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+        col_infos.push((field.field_type(), tantivy_field, tantivy_field_type));
+    }
+
+    let mut tuple_queries: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(lookup.keys.len());
+    for key_tuple in &lookup.keys {
+        if key_tuple.len() != col_infos.len() {
+            return None;
+        }
+        let mut conj: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(col_infos.len());
+        let mut any_null = false;
+        for (scalar, (field_type, tantivy_field, tantivy_field_type)) in
+            key_tuple.iter().zip(col_infos.iter())
+        {
+            if scalar.is_null() {
+                any_null = true;
+                break;
+            }
+            let owned_value = PdbOwnedValue::from_execution_scalar(scalar, field_type)?;
+            let term = value_to_term(
+                *tantivy_field,
+                &owned_value,
+                tantivy_field_type,
+                None,
+                index_created_by_version,
+            )
+            .ok()?;
+            conj.push((
+                Occur::Must,
+                Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+            ));
+        }
+        if !any_null && !conj.is_empty() {
+            tuple_queries.push((Occur::Should, Box::new(BooleanQuery::new(conj))));
+        }
+    }
+
+    if tuple_queries.is_empty() {
+        return None;
+    }
+    Some(Box::new(ConstScoreQuery::new(
+        BooleanQuery::new(tuple_queries),
+        0.0,
+    )))
+}
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -122,6 +506,10 @@ pub struct PreFilter {
     pub expr: Arc<dyn PhysicalExpr>,
     /// The indices of the fast fields this expression requires.
     pub required_columns: Vec<usize>,
+    /// Cached segment-rewritten expression `(segment_ord, rewritten_expr)` so
+    /// `apply_arrow` only runs the AST rewrite once per segment rather than
+    /// on every batch.
+    cached_segment_expr: Mutex<Option<(SegmentOrdinal, Arc<dyn PhysicalExpr>)>>,
 }
 
 /// A wrapper bundling a list of `PreFilter`s with the schema they apply to.
@@ -141,70 +529,78 @@ impl PreFilter {
         schema: &SchemaRef,
         num_rows: usize,
     ) -> Result<BooleanArray, String> {
-        // 1. Rewrite the expression for the current segment.
-        // String literal comparisons are rewritten to ordinal comparisons.
-        // NOTE: This runs two `transform()` passes on every batch. If this shows up in
-        // profiling, the rewritten expression could be cached per-segment to reduce
-        // allocation overhead for small batch sizes.
-        let rewritten_string_expr = self
-            .expr
-            .clone()
-            .transform_down(|node| {
-                if let Some(dyn_filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
-                    let current_expr = dyn_filter.current().map_err(|e| {
-                        datafusion::error::DataFusionError::Execution(format!(
-                            "DynamicFilter error: {}",
-                            e
-                        ))
-                    })?;
-                    return Ok(Transformed::yes(current_expr));
-                } else if let Some(cast) = node.downcast_ref::<CastExpr>() {
-                    if cast.cast_type() == &cast.expr().data_type(schema)? {
-                        return Ok(Transformed::yes(Arc::clone(cast.expr())));
-                    }
-                    return Ok(Transformed::no(node));
-                } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
-                    if let Some(rewritten) =
-                        try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
-                    {
-                        return Ok(Transformed::yes(rewritten));
-                    }
-                } else if let Some(in_list) = node.downcast_ref::<InListExpr>()
-                    && let Some(rewritten) =
-                        try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
-                {
-                    return Ok(Transformed::yes(rewritten));
-                }
-                Ok(Transformed::no(node))
-            })
-            .data()
-            .map_err(|e| format!("Failed to rewrite string expr: {}", e))?;
+        // 1. Rewrite the expression for the current segment (cached per segment_ord).
+        // String literal comparisons and `InList`s are rewritten to segment-local ordinal
+        // comparisons/sets. Caching by `segment_ord` is safe because `build_filters` unwraps
+        // top-level `DynamicFilterPhysicalExpr::current()`, `is_supported` rejects nested
+        // `DynamicFilterPhysicalExpr`s, and `PgSearchScanPlan` rebuilds `PreFilter`s whenever
+        // `DynamicFilterTracker::changed()` reports an update — so `self.expr` is static for the
+        // lifetime of this `PreFilter`.
+        let rewritten_expr = {
+            let mut cache = self.cached_segment_expr.lock();
+            if let Some((cached_ord, cached_expr)) = cache.as_ref()
+                && *cached_ord == segment_ord
+            {
+                Arc::clone(cached_expr)
+            } else {
+                let rewritten = self
+                    .expr
+                    .clone()
+                    .transform_down(|node| {
+                        if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
+                            if let Some(rewritten) =
+                                try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
+                            {
+                                // Leaf `Column op Literal` has already been rewritten; jump
+                                // past its children.
+                                return Ok(Transformed::new(
+                                    rewritten,
+                                    true,
+                                    TreeNodeRecursion::Jump,
+                                ));
+                            }
+                        } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
+                            if let Some(rewritten) =
+                                try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
+                            {
+                                return Ok(Transformed::new(
+                                    rewritten,
+                                    true,
+                                    TreeNodeRecursion::Jump,
+                                ));
+                            }
+                            if in_list.expr().is::<Column>() {
+                                // Skip `InListExpr::map_children`, which calls `children()` and
+                                // allocates/clones a `Vec` of every literal in `in_list.list()`.
+                                return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                            }
+                        } else if node.is::<HashTableLookupExpr>() {
+                            return Ok(Transformed::new(node, false, TreeNodeRecursion::Jump));
+                        }
+                        Ok(Transformed::no(node))
+                    })
+                    .data()
+                    .map_err(|e| format!("Failed to rewrite string expr: {}", e))?;
+                *cache = Some((segment_ord, Arc::clone(&rewritten)));
+                rewritten
+            }
+        };
 
-        let rewritten_expr = rewritten_string_expr
-            .transform(|node| {
-                if let Some(col) = node.downcast_ref::<Column>() {
-                    let orig_idx = col.index();
-                    if orig_idx < schema.fields().len()
-                        && let Some(new_idx) = self
-                            .required_columns
-                            .iter()
-                            .position(|&idx| idx == orig_idx)
-                    {
-                        let new_col = Column::new(col.name(), new_idx);
-                        return Ok(Transformed::yes(Arc::new(new_col) as Arc<dyn PhysicalExpr>));
-                    }
-                }
-                Ok(Transformed::no(node))
-            })
-            .data()
-            .map_err(|e| format!("Failed to update col indices: {}", e))?;
+        // 2. Build a RecordBatch from memoized_columns preserving original schema column indices.
+        // Non-required columns are filled with zero-buffer `NullArray` placeholders so we don't
+        // need to remap `Column` indices. Even inside the per-segment cache, remapping `col` in a
+        // numeric `InListExpr` would have to go through `InListExpr::with_new_children` (since
+        // `InListExpr::new` is private in DataFusion), allocating and cloning the entire literal
+        // list twice per segment.
+        let null_array: ArrayRef = Arc::new(NullArray::new(num_rows));
+        let mut fields: Vec<Field> = schema
+            .fields()
+            .iter()
+            .map(|f| Field::new(f.name(), DataType::Null, true))
+            .collect();
+        let mut arrays: Vec<ArrayRef> = vec![null_array; schema.fields().len()];
 
-        // 2. Build a RecordBatch from memoized_columns.
-        // We only include the columns that were actually required and fetched.
-        let mut fields = Vec::with_capacity(self.required_columns.len());
-        let mut arrays = Vec::with_capacity(self.required_columns.len());
         for &ff_index in &self.required_columns {
-            let col_name = schema.field(ff_index).name().clone();
             let mut array = memoized_columns[ff_index]
                 .as_ref()
                 .ok_or_else(|| format!("Column {} not fetched", ff_index))?
@@ -225,14 +621,14 @@ impl PreFilter {
             // Note: The schema of the array might differ from the global schema
             // (e.g. UInt64 ordinals instead of Utf8). DataFusion `Column` exprs just extract by name/index,
             // so we must build the batch schema to match the *actual* array types we pass in.
-            fields.push(Field::new(col_name, array.data_type().clone(), true));
-            arrays.push(array);
+            fields[ff_index] = Field::new(schema_field.name(), array.data_type().clone(), true);
+            arrays[ff_index] = array;
         }
 
         let batch_schema = Arc::new(Schema::new(fields));
         let options = datafusion::arrow::record_batch::RecordBatchOptions::new()
             .with_row_count(Some(num_rows));
-        let batch = RecordBatch::try_new_with_options(batch_schema.clone(), arrays, &options)
+        let batch = RecordBatch::try_new_with_options(batch_schema, arrays, &options)
             .map_err(|e| format!("Failed to build RecordBatch: {}", e))?;
 
         // 3. Evaluate the rewritten expression natively via DataFusion.
@@ -259,13 +655,18 @@ impl PreFilter {
 /// Top-level `AND` operations are split into separate `PreFilter`s to allow early
 /// short-circuiting in the scanner. Expressions containing unsupported nodes
 /// (e.g. non-comparison operators, functions) are safely skipped.
+///
+/// Note: [`RankLookupPhysicalExpr`] is intentionally not handled here because
+/// `LazySortStreamState::take_pending_ra_lookup` consumes any pending `RA` request and resets its
+/// [`DynamicFilterPhysicalExpr`] to `lit(true)` at the top of `poll_next`, before `SA` window
+/// pre-filter collection runs.
 pub fn collect_filters(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
     out: &mut Vec<PreFilter>,
     score_col_schema_idx: Option<usize>,
     score_threshold: &mut Option<Score>,
-) {
+) -> datafusion::error::Result<()> {
     // Split top-level ANDs to maximize early pruning
     if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
         && matches!(binary.op(), Operator::And)
@@ -276,15 +677,23 @@ pub fn collect_filters(
             out,
             score_col_schema_idx,
             score_threshold,
-        );
+        )?;
         collect_filters(
             binary.right(),
             schema,
             out,
             score_col_schema_idx,
             score_threshold,
-        );
-        return;
+        )?;
+        return Ok(());
+    }
+
+    // Ignore trivial `true` literals (e.g. uninitialized TopK dynamic filters or
+    // `InList` nodes rewritten to `lit(true)` after inverted-index pushdown).
+    if let Some(lit) = expr.downcast_ref::<Literal>()
+        && matches!(lit.value(), ScalarValue::Boolean(Some(true)))
+    {
+        return Ok(());
     }
 
     let threshold = match (
@@ -300,14 +709,16 @@ pub fn collect_filters(
 
     // Check if the expression is supported for pre-filtering
     let mut required_columns = Vec::new();
-    if is_supported(expr, schema, &mut required_columns) {
+    if is_supported(expr, schema, &mut required_columns)? {
         required_columns.sort_unstable();
         required_columns.dedup();
         out.push(PreFilter {
             expr: Arc::clone(expr),
             required_columns,
+            cached_segment_expr: Mutex::new(None),
         });
     }
+    Ok(())
 }
 
 /// Check for expressions that we know always evaluate to false
@@ -358,15 +769,15 @@ fn try_extract_score_threshold(
                 _ => None,
             }
         }
-        Operator::Eq => {
-            // Look for a binary expr that looks like: score = f32
+        Operator::Eq | Operator::GtEq => {
+            // Look for a binary expr that looks like: score = f32 or score >= f32
             let col = binary_expr.left().downcast_ref::<Column>()?;
             if col.index() != score_col_schema_idx {
                 return None;
             }
             match binary_expr.right().downcast_ref::<Literal>()?.value() {
                 // PruningScorer's assume the threshold has greater-than semantics, so
-                // take the next representable value below the eq check to keep the threshold valid
+                // take the next representable value below the eq/gte check to keep the threshold valid
                 ScalarValue::Float32(Some(t)) => Some(t.next_down()),
                 _ => None,
             }
@@ -420,6 +831,27 @@ fn is_string_like_field(field: &Field) -> bool {
                 | DataType::Dictionary(_, _)
         )
 }
+/// Validates that a physical `Column`'s index is within `schema`.
+///
+/// Physical `Column` indices are remapped to the scan schema during `FilterPushdown`; an
+/// out-of-bounds index indicates a plan remapping bug rather than an unsupported predicate, so we
+/// surface it as an internal error rather than silently leaving pre-filter performance on the
+/// table in release/benchmark builds.
+fn check_column_index(col: &Column, schema: &Schema) -> datafusion::error::Result<usize> {
+    let idx = col.index();
+    if idx < schema.fields().len() {
+        Ok(idx)
+    } else {
+        Err(datafusion::common::internal_datafusion_err!(
+            "pre_filter: column '{}' has physical index {} which is out of bounds \
+             for schema with {} fields",
+            col.name(),
+            idx,
+            schema.fields().len()
+        ))
+    }
+}
+
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
 ///
 /// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly halts *all*
@@ -429,25 +861,11 @@ fn is_supported(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
     required_columns: &mut Vec<usize>,
-) -> bool {
+) -> datafusion::error::Result<bool> {
     let mut supported = true;
-    let _ = expr.apply(|node| {
+    expr.apply(|node| {
         if let Some(col) = node.downcast_ref::<Column>() {
-            // Must map to a valid column index
-            let idx = col.index();
-            if idx < schema.fields().len() {
-                required_columns.push(idx);
-            } else {
-                pgrx::warning!(
-                    "pre_filter: column '{}' has physical index {} which is out of bounds \
-                     for schema with {} fields — marking filter as unsupported",
-                    col.name(),
-                    idx,
-                    schema.fields().len()
-                );
-                supported = false;
-                return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
-            }
+            required_columns.push(check_column_index(col, schema)?);
         } else if node.is::<Literal>() {
             // Allowed
         } else if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
@@ -463,37 +881,42 @@ fn is_supported(
                 | Operator::Or => {}
                 _ => {
                     supported = false;
-                    return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+                    return Ok(TreeNodeRecursion::Stop);
                 }
             }
-        } else if node.is::<IsNullExpr>() || node.is::<NotExpr>() || node.is::<InListExpr>() {
+        } else if node.is::<IsNullExpr>() || node.is::<NotExpr>() {
             // Allowed
+        } else if let Some(in_list) = node.downcast_ref::<InListExpr>() {
+            if !is_supported(in_list.expr(), schema, required_columns)?
+                || !in_list.list().iter().all(|e| e.is::<Literal>())
+            {
+                supported = false;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+            // All items in `in_list.list()` are verified `Literal`s. Skip visiting
+            // `InListExpr::children()`, which allocates a `Vec` of `1 + list.len()` refs.
+            return Ok(TreeNodeRecursion::Jump);
         } else if node.is::<HashTableLookupExpr>() {
             // We only support HashTableLookupExpr for non-string columns.
             let mut is_numeric = true;
             let mut lookup_columns = Vec::new();
 
             // We manually inspect the subtree to check the data types of the columns it uses
-            let _ = node.apply(|sub_node| {
+            node.apply(|sub_node| {
                 if let Some(col) = sub_node.downcast_ref::<Column>() {
-                    let idx = col.index();
-                    if idx < schema.fields().len() {
-                        if is_string_like_field(schema.field(idx)) {
-                            is_numeric = false;
-                            return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
-                        }
-                        lookup_columns.push(idx);
-                    } else {
+                    let idx = check_column_index(col, schema)?;
+                    if is_string_like_field(schema.field(idx)) {
                         is_numeric = false;
-                        return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+                        return Ok(TreeNodeRecursion::Stop);
                     }
+                    lookup_columns.push(idx);
                 }
-                Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
-            });
+                Ok(TreeNodeRecursion::Continue)
+            })?;
 
             if !is_numeric {
                 supported = false;
-                return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+                return Ok(TreeNodeRecursion::Stop);
             }
 
             required_columns.extend(lookup_columns);
@@ -501,16 +924,16 @@ fn is_supported(
             // We tell DataFusion's main traversal loop to skip visiting
             // the children of this HashTableLookupExpr, as the child is likely
             // an internal DataFusion hashing node that isn't on our allowlist.
-            return Ok(datafusion::common::tree_node::TreeNodeRecursion::Jump);
+            return Ok(TreeNodeRecursion::Jump);
         } else {
             // Any other node type (e.g. CAST, LIKE, UDFs) blocks the expression from pre-filtering
             supported = false;
-            return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+            return Ok(TreeNodeRecursion::Stop);
         }
 
-        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
-    });
-    supported
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(supported)
 }
 
 /// Attempts to rewrite a binary expression involving a String/Bytes column and a Literal
@@ -560,6 +983,9 @@ fn extract_bytes_from_scalar(scalar: &ScalarValue) -> Option<Option<&[u8]>> {
     }
 }
 
+/// Attempts to rewrite a String/Bytes `col [NOT] IN (...)` expression into an equivalent
+/// `InListExpr` over segment-local `UInt64` term ordinals (backed by DataFusion's pre-built
+/// `StaticFilter` hash set).
 fn try_rewrite_in_list(
     in_list: &InListExpr,
     ffhelper: &FFHelper,
@@ -570,10 +996,7 @@ fn try_rewrite_in_list(
         Some(col) => col,
         None => return Ok(None),
     };
-    let ff_index = col.index();
-    if ff_index >= schema.fields().len() {
-        return Ok(None);
-    }
+    let ff_index = check_column_index(col, schema)?;
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let dict = match ff_type {
@@ -603,6 +1026,9 @@ fn try_rewrite_in_list(
             None => return Ok(None), // Early abort if non-string literal is found
         };
 
+        // Terms absent from this segment's dictionary map to `NULL_TERM_ORDINAL` (a sentinel
+        // ordinal that no non-null row in the segment can hold) rather than `None`, which
+        // would falsely introduce SQL `NULL` 3VL semantics into `NOT IN`.
         let target_ord = dict
             .term_ord(bytes)
             .map_err(|e| {
@@ -646,10 +1072,7 @@ fn rewrite_col_op_lit(
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
-    let ff_index = col.index();
-    if ff_index >= schema.fields().len() {
-        return Ok(None);
-    }
+    let ff_index = check_column_index(col, schema)?;
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let bytes = match extract_bytes_from_scalar(lit.value()) {
@@ -798,10 +1221,8 @@ fn extract_in_list_exprs<'a>(
 enum InListPushdown {
     /// AND the converted term-set query into the tantivy search.
     Query(Box<dyn Query>),
-    /// Drop the predicate: evaluating it in the scan costs more per row than the hash
-    /// join above, which re-checks the same keys against its build table anyway.
-    Skip,
-    /// Not convertible; keep it as a batch-level pre-filter.
+    /// Not convertible (or faster as a vectorized batch pre-filter than Tantivy
+    /// `LinearScan`); keep it as a batch-level pre-filter.
     Keep,
 }
 
@@ -849,30 +1270,25 @@ fn try_convert_in_list_to_query(
         return InListPushdown::Keep;
     }
 
-    // Integrating the term set only pays when the segments admit an index-driven strategy.
-    // Past its density gate tantivy's planner falls back to `LinearScan`, a per-candidate
-    // fast-field probe that re-does the membership test the hash join above performs against
-    // its build table anyway, at a far higher per-row cost than the join's own vectorized
-    // probe — so the predicate is dropped rather than kept. The gate only guards that
-    // fallback: a keyword column or one without a fast representation routes to the FST
-    // automaton, and a column the segments are sorted by routes to gallop, both index-driven
-    // at any density.
+    // Integrating the term set into the Tantivy query only pays when the segments admit an
+    // index-driven strategy. Past its density gate tantivy's planner falls back to `LinearScan`,
+    // a per-candidate fast-field probe inside the scorer. Keeping the `InListExpr` as a
+    // batch-level `PreFilter` instead evaluates its vectorized `static_filter` hash set over
+    // the fast-field batch before heap visibility (`fetch_ctids`) and non-filter column
+    // materialization. The gate only guards that fallback: a keyword column or one without a
+    // fast representation routes to the FST automaton, and a column the segments are sorted by
+    // routes to gallop, both index-driven at any density.
     // Gate on the largest segment: the big segments carry the linear cost, and a small
     // segment's linear scan is cheap even when it misses its own bitset gate. The looser
     // multi-column threshold is used because the column's docs-per-term isn't known here; a
     // unique-keyed column between the two thresholds still lands on `LinearScan`, an
     // accepted residual since either path is inexpensive in that band.
-    // A per-segment exact decision needs doc counts and doc_freqs only tantivy's weight
-    // sees. A `TermSetStrategyConfig` flag meaning "a consumer above rechecks membership"
-    // would let each segment fall back to match-all instead of `LinearScan`, and this
-    // planner-side prediction would go away; until then the largest segment stands in for
-    // all of them.
     let linear_fallback_possible = field.is_fast()
         && !field.is_text()
         && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));
     let density = in_list.list().len() as f64 / max_segment_docs.max(1) as f64;
     if linear_fallback_possible && density > crate::gucs::term_set_bitset_max_density_multi() {
-        return InListPushdown::Skip;
+        return InListPushdown::Keep;
     }
 
     let tantivy_schema = schema.tantivy_schema();
@@ -884,6 +1300,7 @@ fn try_convert_in_list_to_query(
     let terms: Option<Vec<Term>> = in_list
         .list()
         .iter()
+        .filter(|expr| !extract_physical_scalar_value(expr).is_some_and(|s| s.is_null()))
         .map(|expr| {
             let scalar = extract_physical_scalar_value(expr)?;
             // Join-derived InList members are Arrow execution values. For
@@ -987,9 +1404,6 @@ pub fn try_dynamic_filter_pushdown(
                     pushed_down_queries.push(query);
                     pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
                 }
-                InListPushdown::Skip => {
-                    pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
-                }
                 InListPushdown::Keep => {}
             }
         }
@@ -1000,9 +1414,16 @@ pub fn try_dynamic_filter_pushdown(
                 .clone()
                 .transform_down(|node| {
                     if pushed_down_pointers.contains(&(Arc::as_ptr(&node) as *const () as usize)) {
-                        Ok(Transformed::yes(Arc::new(Literal::new(
-                            ScalarValue::Boolean(Some(true)),
-                        ))))
+                        Ok(Transformed::new(
+                            Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
+                            true,
+                            TreeNodeRecursion::Jump,
+                        ))
+                    } else if node.is::<InListExpr>() {
+                        // A sibling `InListExpr` that returned `InListPushdown::Keep` cannot
+                        // contain nested `InListExpr`s; jump past `map_children` to avoid
+                        // allocating and cloning its literal list.
+                        Ok(Transformed::new(node, false, TreeNodeRecursion::Jump))
                     } else {
                         Ok(Transformed::no(node))
                     }
@@ -1163,6 +1584,63 @@ mod tests {
         assert_eq!(
             try_extract_score_threshold(&lit(true), Some(SCORE_IDX)),
             None
+        );
+    }
+
+    #[test]
+    fn collect_filters_skips_true_literals_and_supports_in_list() {
+        use super::collect_filters;
+        use datafusion::arrow::array::Int64Array;
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::physical_plan::expressions::InListExpr;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("pdb.score()", DataType::Float32, true),
+            Field::new("id", DataType::Int64, true),
+        ]));
+
+        // Standalone `lit(true)` should produce no PreFilters.
+        let mut filters = Vec::new();
+        let mut threshold = None;
+        collect_filters(
+            &lit(true),
+            &schema,
+            &mut filters,
+            Some(SCORE_IDX),
+            &mut threshold,
+        )
+        .unwrap();
+        assert!(filters.is_empty());
+
+        // `lit(true) AND id IN (1, 2, 3)` should skip `lit(true)` and keep only the `InListExpr`
+        // with `required_columns == [ID_IDX]`.
+        let array = Arc::new(Int64Array::from(vec![1, 2, 3]));
+        let in_list = Arc::new(InListExpr::try_new_from_array(id(), array, false, &schema).unwrap())
+            as Arc<dyn PhysicalExpr>;
+        let conj = bin(lit(true), Operator::And, in_list);
+        collect_filters(
+            &conj,
+            &schema,
+            &mut filters,
+            Some(SCORE_IDX),
+            &mut threshold,
+        )
+        .unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].required_columns, vec![ID_IDX]);
+
+        // An out-of-bounds physical column index must return an internal error.
+        let oob_col = Arc::new(Column::new("missing", 99)) as Arc<dyn PhysicalExpr>;
+        let oob_expr = bin(oob_col, Operator::Eq, int_lit(1));
+        assert!(
+            collect_filters(
+                &oob_expr,
+                &schema,
+                &mut filters,
+                Some(SCORE_IDX),
+                &mut threshold,
+            )
+            .is_err()
         );
     }
 }

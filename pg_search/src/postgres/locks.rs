@@ -211,6 +211,8 @@ pub struct LWLockExclusiveGuard<'a> {
     _marker: PhantomData<&'a LWLock>,
 }
 
+// We intentionally do NOT use `impl_safe_drop!` here because InterruptHoldoffCount
+// determines whether PostgreSQL has already released this lock during ERROR unwinding.
 impl Drop for LWLockExclusiveGuard<'_> {
     #[inline]
     fn drop(&mut self) {

@@ -18,13 +18,13 @@
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::directory::utils::load_index_settings;
+use crate::index::set_ivf_clusterer;
 use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
-use crate::vector::clusterer::{set_ivf_clusterer, set_ivf_router};
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::cell::RefCell;
@@ -513,10 +513,7 @@ impl PgSearchRelation {
         })?;
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        set_ivf_router(&mut index, self.options())?;
-        if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index, self.options());
-        }
+        set_ivf_clusterer(&mut index, self.options());
         setup_tokenizers(self, &mut index)?;
         Ok(index)
     }

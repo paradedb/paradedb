@@ -25,7 +25,7 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
 
 <Note>
   Recall also depends on the index's `training_sample_ratio` and
-  `max_leaf_size`, set at build time. See [Index
+  `max_leaf_size`, applied whenever a segment is clustered. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
 
@@ -34,3 +34,46 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
 Quantization settings in `vector_fields` take effect only during `CREATE INDEX` and
 `REINDEX`. Changing quantization with `ALTER INDEX ... SET (vector_fields = ...)`
 does not affect new or existing segments until `REINDEX` rebuilds the index.
+
+## Inspecting Vector Indexes
+
+Use `vector_info` to inspect vector storage and `vector_config` to check build settings. These examples inspect the `embedding` field of `search_idx`:
+
+<CodeGroup>
+```sql SQL
+SELECT * FROM paradedb.vector_info('search_idx'::regclass, 'embedding');
+SELECT * FROM paradedb.vector_config('search_idx'::regclass, 'embedding');
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(diagnostics.vectorInfo("search_idx", "embedding"));
+await db.execute(diagnostics.vectorConfig("search_idx", "embedding"));
+```
+
+```python Django
+from paradedb import paradedb_vector_info, paradedb_vector_config
+
+paradedb_vector_info('search_idx', 'embedding')
+paradedb_vector_config('search_idx', 'embedding')
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_vector_info(engine, "search_idx", "embedding")
+diagnostics.paradedb_vector_config(engine, "search_idx", "embedding")
+```
+
+```ruby Rails
+ParadeDB::Diagnostics.vector_info("search_idx", "embedding")
+ParadeDB::Diagnostics.vector_config("search_idx", "embedding")
+```
+
+```cs EF Core
+await dbContext.Database.VectorInfo("search_idx", "embedding").ToListAsync();
+await dbContext.Database.VectorConfig("search_idx", "embedding").ToListAsync();
+```
+
+</CodeGroup>

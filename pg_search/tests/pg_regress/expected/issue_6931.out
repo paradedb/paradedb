@@ -1,0 +1,58 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE issue_6931_i (id int PRIMARY KEY, body text, a int4, w int8);
+CREATE TABLE issue_6931_e (id int PRIMARY KEY, tag text, b int4);
+INSERT INTO issue_6931_i VALUES (1, 'alpha', 2147483647, 9223372036854775807), (2, 'beta', 5, 10);
+INSERT INTO issue_6931_e VALUES (1, 'x', 1), (2, 'y', 0);
+CREATE INDEX issue_6931_i_idx ON issue_6931_i USING paradedb (id, body, a, w);
+CREATE INDEX issue_6931_e_idx ON issue_6931_e USING paradedb (id, tag, b);
+SET paradedb.enable_join_custom_scan = on;
+-- Integer arithmetic in a Join Scan is evaluated by PostgreSQL
+EXPLAIN (COSTS OFF)
+SELECT i.id FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' AND (i.w + e.b) > 0 LIMIT 10;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: i INNER e
+   Join Cond: e.id = i.id
+   Join Predicate: heap:((i.w + e.b) > 0)
+   Limit: 10
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=10
+     :     VisibilityFilterExec: tables=[i, e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_eval_expr_opexpr_e8373b5a(w@0, b@1) > 0
+     :         CooperativeExec
+     :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"alpha","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
+-- Overflow raises an error instead of wrapping
+SELECT i.id FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' AND (i.w + e.b) > 0 LIMIT 10;
+ERROR:  bigint out of range
+SELECT i.id, (i.w + e.b) AS s FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' LIMIT 10;
+ERROR:  bigint out of range
+SELECT i.id, (i.a + e.b) AS s FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' LIMIT 10;
+ERROR:  integer out of range
+SELECT i.id, (-i.a - 2 * e.b) AS s FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' LIMIT 10;
+ERROR:  integer out of range
+SELECT i.id, (i.w * (e.b + 1)) AS s FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' LIMIT 10;
+ERROR:  bigint out of range
+-- Arithmetic that does not overflow is unchanged
+SELECT i.id, (i.w + e.b) AS s, (i.a - e.b) AS d, (i.a * 2) AS m
+FROM issue_6931_i i JOIN issue_6931_e e ON e.id = i.id
+WHERE i.body @@@ 'beta' AND (i.w + e.b) > 0 LIMIT 10;
+ id | s  | d | m  
+----+----+---+----
+  2 | 10 | 5 | 10
+(1 row)
+
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE issue_6931_i;
+DROP TABLE issue_6931_e;

@@ -1,0 +1,202 @@
+-- Regression test for issue #5779, `###` operator variant.
+-- The `###` operator paired with `pdb.slop` failed under generic prepared plans.
+-- The RHS `$1::pdb.slop(...)` is not folded to a `Const` under a generic plan,
+-- so the operator's `rewrite_exec` path saw the RHS type as `pdb.slop` and
+-- raised: "The right-hand side of the `###(field, TEXT)` operator must be a
+-- text value".
+--
+-- Both cases below must return the same rows as a non-parameterized query.
+-- `###` takes `pdb.slop` (not `pdb.fuzzy`); phrases have no per-token fuzzy
+-- distance in Tantivy.
+CREATE TABLE issue_5779_hashhashhash_repro (
+    id int,
+    title_x text
+);
+INSERT INTO issue_5779_hashhashhash_repro (id, title_x) VALUES
+    (1, 'the quick brown fox jumps'),
+    (2, 'quick fox brown'),
+    (3, 'brown fox quick'),
+    (4, 'quick jumps over brown fox'),
+    (5, 'nothing here');
+CREATE INDEX issue_5779_hashhashhash_idx ON issue_5779_hashhashhash_repro
+    USING paradedb (id, title_x);
+-- Baseline: the same query as a literal must return the phrase match set.
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### 'quick brown'::pdb.slop(3))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+-- Case 1: plan_cache_mode = auto.
+SET plan_cache_mode = auto;
+PREPARE issue_5779_hashhashhash_auto(text) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1::pdb.slop(3))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_auto('lazy dog');
+ id | title_x 
+----+---------
+(0 rows)
+
+DEALLOCATE issue_5779_hashhashhash_auto;
+-- Case 2: plan_cache_mode = force_generic_plan.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_5779_hashhashhash_generic(text) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1::pdb.slop(3))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+EXECUTE issue_5779_hashhashhash_generic('quick brown');
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_generic('lazy dog');
+ id | title_x 
+----+---------
+(0 rows)
+
+DEALLOCATE issue_5779_hashhashhash_generic;
+-- Case 3: the text[] overloads under a generic plan, with and without a slop
+-- typmod. The plain cast carries no slop data and must stay an exact phrase.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_5779_hashhashhash_arr(text[]) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1::pdb.slop(3))
+  AND (id @@@ pdb.all())
+ORDER BY id;
+EXECUTE issue_5779_hashhashhash_arr(ARRAY['quick', 'brown']);
+ id |          title_x           
+----+----------------------------
+  1 | the quick brown fox jumps
+  2 | quick fox brown
+  3 | brown fox quick
+  4 | quick jumps over brown fox
+(4 rows)
+
+EXECUTE issue_5779_hashhashhash_arr(ARRAY['lazy', 'dog']);
+ id | title_x 
+----+---------
+(0 rows)
+
+DEALLOCATE issue_5779_hashhashhash_arr;
+PREPARE issue_5779_hashhashhash_arr_plain(text[]) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1::pdb.slop)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+EXECUTE issue_5779_hashhashhash_arr_plain(ARRAY['quick', 'brown']);
+ id |          title_x          
+----+---------------------------
+  1 | the quick brown fox jumps
+(1 row)
+
+EXECUTE issue_5779_hashhashhash_arr_plain(ARRAY['lazy', 'dog']);
+ id | title_x 
+----+---------
+(0 rows)
+
+DEALLOCATE issue_5779_hashhashhash_arr_plain;
+-- Case 4: a finished query is rejected at plan time under a custom plan, and
+-- the generic plan must reject it the same way instead of running it.
+SET plan_cache_mode = force_custom_plan;
+PREPARE issue_5779_hashhashhash_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+EXECUTE issue_5779_hashhashhash_classified(pdb.term('quick'));
+ERROR:  The right-hand side of the `###(field, TEXT)` operator must be a text value.
+DEALLOCATE issue_5779_hashhashhash_classified;
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_5779_hashhashhash_classified(pdb.query) AS
+SELECT id, title_x
+FROM issue_5779_hashhashhash_repro
+WHERE (title_x ### $1)
+  AND (id @@@ pdb.all())
+ORDER BY id;
+EXECUTE issue_5779_hashhashhash_classified(pdb.term('quick'));
+ERROR:  The right-hand side of the `###(field, TEXT)` operator must be a text value.
+DEALLOCATE issue_5779_hashhashhash_classified;
+RESET plan_cache_mode;
+DROP TABLE issue_5779_hashhashhash_repro CASCADE;

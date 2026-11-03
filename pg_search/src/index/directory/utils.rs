@@ -229,9 +229,7 @@ pub unsafe fn save_new_metas(
                     panic!("segment id `{id}` should be in the segment meta linked list: {e}")
                 });
 
-            // we need to be in a transaction in order to delete segments
-            // this means (auto)VACUUM can't do this, but that's okay because it doesn't
-            // it only applies .delete files, which we consider as modifications
+            // Merges and VACUUM retire replaced segments inside a transaction.
             assert!(pg_sys::IsTransactionState());
 
             assert!(
@@ -267,7 +265,7 @@ pub unsafe fn save_new_metas(
     // now change things on disk
     //
 
-    // delete old entries and their corresponding files -- happens only as the result of a merge
+    // Retire entries removed by a merge or VACUUM.
     for (entry, blockno) in &deleted_entries {
         assert!(entry.xmax() == pg_sys::FrozenTransactionId);
         let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
@@ -366,11 +364,20 @@ pub unsafe fn load_metas(
     let mut exhausted_metas_lists = false;
 
     let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
-    let mut largest_doc_count = 0;
+    // Prefer non-empty persisted segments over mutable segments so estimation never
+    // materializes a mutable segment from the heap when any persisted segment exists.
+    let mut largest_key = (false, 0usize);
 
     loop {
         // Find all relevant segments in this list.
         segment_metas.for_each(|bman, mut entry| {
+            // Skip unrelated segments before recycling checks touch their pin-test buffers.
+            if let MvccSatisfies::ParallelWorker(view) = solve_mvcc
+                && !view.contains(&entry.segment_id())
+            {
+                return;
+            }
+
             if matches!(
                 solve_mvcc,
                 MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
@@ -384,8 +391,11 @@ pub unsafe fn load_metas(
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
                 matches!(solve_mvcc, MvccSatisfies::ParallelWorker(view) if view.contains(&entry.segment_id()))
 
-                    // vacuum sees everything that hasn't been deleted by a merge
+                    // vacuum sees all non-retired segments
                     || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
+
+                    || (matches!(solve_mvcc, MvccSatisfies::VacuumMerge { live_ctids } if live_ctids.contains_key(&entry.segment_id()))
+                        && entry.xmax() == pg_sys::InvalidTransactionId)
 
                     // a snapshot or ::LargestSegment can see any that are visible in its snapshot
                     || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
@@ -420,13 +430,23 @@ pub unsafe fn load_metas(
                 return;
             }
 
+            let mut tantivy_meta = entry.as_tantivy();
+            if let MvccSatisfies::VacuumMerge { live_ctids } = solve_mvcc {
+                let live_ctids = &live_ctids[&entry.segment_id()];
+                assert!(entry.is_mutable() && entry.is_mergeable(indexrel));
+                assert!(live_ctids.len() <= entry.num_docs());
+                tantivy_meta.max_doc = live_ctids.len().try_into().expect("too many mutable CTIDs");
+            }
+
+            let tantivy_meta = tantivy_meta.track(inventory);
             total_segments += 1;
-            total_docs += entry.num_docs();
+            total_docs += tantivy_meta.num_docs() as usize;
 
             let mut need_entry = true;
             if is_largest_only {
-                if entry.num_docs() > largest_doc_count {
-                    largest_doc_count = entry.num_docs();
+                let entry_key = (!entry.is_mutable() && entry.num_docs() > 0, entry.num_docs());
+                if entry_key > largest_key {
+                    largest_key = entry_key;
 
                     // the entry we're processing right now is known to be the largest so far
                     // and it's the only one we want
@@ -442,7 +462,7 @@ pub unsafe fn load_metas(
             if need_entry {
                 pin_cushion.push(bman, &entry);
 
-                alive_segments.push(entry.as_tantivy().track(inventory));
+                alive_segments.push(tantivy_meta);
                 alive_entries.push(entry);
 
                 opstamp = opstamp.max(Some(entry.opstamp()));

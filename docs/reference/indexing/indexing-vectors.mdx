@@ -161,20 +161,20 @@ embedding: { metric: :ip }      # inner product
 ## Index Options
 
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
-recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and indexed. All are set at index build time and apply to every vector field in the index. An example:
+recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and apply to every vector field in the index. They are read each time a segment is clustered: during `CREATE INDEX` and `REINDEX`, and whenever a merge writes a segment with at least `paradedb.vector_clustering_threshold` documents. Changing them with `ALTER INDEX ... SET` affects only segments clustered afterwards; run `REINDEX` to recluster existing segments. An example:
 
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, max_leaf_size=100);
+WITH (training_sample_ratio=0.32, max_leaf_size=200);
 ```
 
 ```ts Drizzle
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 100 })
+  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, maxLeafSize: 200 })
   .on(
     mockItems.id,
     mockItems.description,
@@ -194,7 +194,7 @@ with connection.schema_editor() as schema_editor:
             fields={'id': {}, 'description': {}, 'category': {}, 'embedding': {'metric': 'cosine'}},
             name="search_idx",
             training_sample_ratio=0.32,
-            max_leaf_size=100,
+            max_leaf_size=200,
         ),
     )
 ```
@@ -210,7 +210,7 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 100},
+    postgresql_with={'training_sample_ratio': 0.32, 'max_leaf_size': 200},
 )
 
 with engine.begin() as conn:
@@ -227,7 +227,7 @@ ActiveRecord::Base.connection.add_paradedb_index(
     embedding: { metric: :cosine },
   },
   name: :search_idx,
-  index_options: { training_sample_ratio: 0.32, max_leaf_size: 100 }
+  index_options: { training_sample_ratio: 0.32, max_leaf_size: 200 }
 )
 ```
 
@@ -238,15 +238,15 @@ modelBuilder.Entity<MockItem>()
     .HasField(e => e.Category)
     .HasField(e => e.Embedding, VectorMetric.Cosine)
     .HasTrainingSampleRatio(0.32)
-    .HasMaxLeafSize(100);
+    .HasMaxLeafSize(200);
 ```
 
 </CodeGroup>
 
 <ParamField body="training_sample_ratio" default={0.32}>
-  The fraction of indexed vectors sampled to train the clustering at build time.
-  Must be between `0.000001` and `1.0`; `1.0` trains on every vector. The
-  default samples 32% of the vectors. Larger samples can improve centroid
+  The fraction of indexed vectors sampled for training whenever a segment is
+  clustered. Must be between `0.000001` and `1.0`; `1.0` trains on every vector.
+  The default samples 32% of the vectors. Larger samples can improve centroid
   quality at the cost of a slower, more memory-intensive build.
 </ParamField>
 <ParamField body="max_leaf_size" default={200}>
@@ -263,5 +263,79 @@ modelBuilder.Entity<MockItem>()
   The old names are no longer accepted. Recreate indexes that explicitly store
   either old option using the new options; `REINDEX` alone does not remove
   obsolete index options. The new defaults sample 32% of vectors and use a
-  maximum training leaf size of 100.
+  maximum training leaf size of 200.
 </Note>
+
+## Vector Quantization
+
+Use `vector_fields` to configure quantization for each vector field. This example disables quantization for `embedding`. The setting takes effect during `CREATE INDEX` or `REINDEX`.
+
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, embedding vector_cosine_ops)
+WITH (vector_fields = '{"embedding":{"quantization":false}}');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .paradedbIndex("search_idx", {
+    vectorFields: { embedding: { quantization: false } },
+  })
+  .on(
+    mockItems.id,
+    mockItems.description,
+    indexing.vectorField(mockItems.embedding, "cosine"),
+  );
+```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import ParadeDBIndex
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(MockItem, ParadeDBIndex(
+        fields={'id': {}, 'description': {}, 'embedding': {'metric': 'cosine'}},
+        name='search_idx',
+        vector_fields={'embedding': {'quantization': False}},
+    ))
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.ParadeDBField(MockItem.id),
+    indexing.ParadeDBField(MockItem.description),
+    indexing.VectorField(MockItem.embedding, metric="cosine"),
+    postgresql_using="paradedb",
+    postgresql_with=dict(indexing.VectorIndexOptions(
+        vector_fields={"embedding": {"quantization": False}},
+    )),
+)
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_paradedb_index(
+  :mock_items,
+  fields: { id: {}, description: {}, embedding: { metric: :cosine } },
+  name: :search_idx,
+  index_options: { vector_fields: { embedding: { quantization: false } } }
+)
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasParadeDbIndex("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Embedding, VectorMetric.Cosine)
+    .HasVectorQuantization("embedding", false);
+```
+
+</CodeGroup>

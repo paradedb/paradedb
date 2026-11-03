@@ -19,8 +19,15 @@ INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
 USING paradedb (id, txt, n);
 
--- Test 1: Window agg pushdown with GROUP BY/ORDER BY on grouping column (planner hook)
+-- Test 1: Window function with GROUP BY/ORDER BY on grouping column keeps native WindowAgg above Aggregate Scan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT n, SUM(n) OVER ()
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY n
+ORDER BY n
+LIMIT 1;
+
 SELECT n, SUM(n) OVER ()
 FROM issue_3827_t
 WHERE id @@@ pdb.all()

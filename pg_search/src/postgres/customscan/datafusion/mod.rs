@@ -55,6 +55,8 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
         numeric_agg::numeric_bytes_avg_udaf(),
         cardinality_agg::tantivy_cardinality_udaf(),
         pdb_agg_udaf::pdb_agg_udaf(),
+        pdb_agg_udaf::pdb_precombine_agg_udaf(),
+        pdb_agg_udaf::pdb_combine_agg_udaf(),
         topk_agg::topk_as_agg_udaf(),
     ]
 }

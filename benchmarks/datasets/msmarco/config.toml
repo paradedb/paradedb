@@ -1,0 +1,10 @@
+sampling_seed = 0
+load_format = "parquet"
+pg_null_byte_replacement = ""
+parquet_load_workers = 16
+s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
+tables = []
+
+[root_table]
+name = "msmarco"
+primary_key = "_id"

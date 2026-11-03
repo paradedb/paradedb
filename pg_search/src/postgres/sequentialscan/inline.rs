@@ -25,7 +25,7 @@ use crate::postgres::heap::ExpressionState;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_var_relation, system_column_var};
 use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
@@ -192,17 +192,18 @@ impl MaybeInlineRow {
             pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
         );
 
-        let xmin = pg_sys::copyObjectImpl(ctid.cast()).cast::<pg_sys::Var>();
-        (*xmin).varattno = pg_sys::MinTransactionIdAttributeNumber as _;
-        (*xmin).varattnosyn = (*xmin).varattno;
-        (*xmin).vartype = pg_sys::XIDOID;
         let mut xmin_args = PgList::<pg_sys::Node>::new();
-        xmin_args.push(xmin.cast());
-        let tableoid = pg_sys::copyObjectImpl(ctid.cast()).cast::<pg_sys::Var>();
-        (*tableoid).varattno = pg_sys::TableOidAttributeNumber as _;
-        (*tableoid).varattnosyn = (*tableoid).varattno;
-        (*tableoid).vartype = pg_sys::OIDOID;
-        xmin_args.push(tableoid.cast());
+        xmin_args.push(
+            system_column_var(
+                ctid,
+                pg_sys::MinTransactionIdAttributeNumber as _,
+                pg_sys::XIDOID,
+            )
+            .cast(),
+        );
+        xmin_args.push(
+            system_column_var(ctid, pg_sys::TableOidAttributeNumber as _, pg_sys::OIDOID).cast(),
+        );
         xmin_args.push(pg_sys::copyObjectImpl(ctid.cast()).cast());
         let visible_xmin = pg_sys::makeFuncExpr(
             xmin_is_visible_procoid(),

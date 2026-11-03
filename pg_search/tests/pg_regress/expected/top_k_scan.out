@@ -337,6 +337,9 @@ LIMIT 10000;
    ->  Custom Scan (ParadeDB Base Scan) on records (actual rows=2500.00 loops=1)
          Table: records
          Index: records_search_idx
+         Segments:
+           Included: 1
+           Pruned: 0
          Heap Fetches: 2500
          Exec Method: TopKScanExecState
          Scores: false
@@ -344,7 +347,7 @@ LIMIT 10000;
             TopK Limit: 10000
             Queries: 1
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
-(11 rows)
+(14 rows)
 
 -- Test 12: 4-column ORDER BY uses Top K (issue #3148)
 \echo 'Test 12: 4-column ORDER BY uses Top K'

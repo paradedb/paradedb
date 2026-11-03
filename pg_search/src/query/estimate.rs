@@ -22,6 +22,10 @@ use tantivy::query::{
 };
 
 pub(crate) trait QueryEstimate {
+    fn is_fast_count(&self) -> bool {
+        false
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>>;
 }
 
@@ -38,6 +42,21 @@ impl Estimate {
 }
 
 impl QueryEstimate for dyn Query {
+    fn is_fast_count(&self) -> bool {
+        self.is::<AllQuery>()
+            || self.is::<TermQuery>()
+            || self.is::<ConstScoreQuery<AllQuery>>()
+            || self
+                .downcast_ref::<BooleanQuery>()
+                .is_some_and(QueryEstimate::is_fast_count)
+            || self
+                .downcast_ref::<BoostQuery>()
+                .is_some_and(QueryEstimate::is_fast_count)
+            || self
+                .downcast_ref::<ConstScoreQuery>()
+                .is_some_and(QueryEstimate::is_fast_count)
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         macro_rules! estimate_as {
             ($($query:ty),* $(,)?) => {$(
@@ -58,6 +77,10 @@ impl QueryEstimate for dyn Query {
 }
 
 impl QueryEstimate for AllQuery {
+    fn is_fast_count(&self) -> bool {
+        true
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         Ok(Some(Estimate {
             matches: reader.max_doc() as f64,
@@ -67,18 +90,30 @@ impl QueryEstimate for AllQuery {
 }
 
 impl QueryEstimate for ConstScoreQuery {
+    fn is_fast_count(&self) -> bool {
+        self.query().is_fast_count()
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         self.query().estimate_docs(reader)
     }
 }
 
 impl QueryEstimate for BoostQuery {
+    fn is_fast_count(&self) -> bool {
+        self.query().is_fast_count()
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         self.query().estimate_docs(reader)
     }
 }
 
 impl QueryEstimate for TermQuery {
+    fn is_fast_count(&self) -> bool {
+        true
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         // The index already stores how many documents contain this term.
         let term = self.term();
@@ -115,6 +150,12 @@ impl QueryEstimate for PhraseQuery {
 }
 
 impl QueryEstimate for BooleanQuery {
+    fn is_fast_count(&self) -> bool {
+        self.clauses()
+            .iter()
+            .all(|(_, query)| query.is_fast_count())
+    }
+
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
         // Exact match queries become terms joined by AND or OR, so they use this estimate too.
         // AND starts with the smallest estimate; each extra condition reduces it less.

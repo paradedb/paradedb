@@ -20,10 +20,20 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
+use crate::index::reader::index::SegmentPruningEstimate;
 use crate::postgres::customscan::explain;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::query::SearchQueryInput;
 use crate::query::estimate_tree::QueryWithEstimates;
+
+impl SegmentPruningEstimate {
+    pub(crate) fn explain(&self, explainer: &mut Explainer) {
+        explainer.add_group("Segments", |explainer| {
+            explainer.add_unsigned_integer("Included", self.candidate_segments as u64, None);
+            explainer.add_unsigned_integer("Pruned", self.pruned_segments as u64, None);
+        });
+    }
+}
 
 pub struct Explainer {
     state: NonNull<pg_sys::ExplainState>,
@@ -147,6 +157,26 @@ impl Explainer {
                 (*state).indent -= 1;
             }
             pg_sys::ExplainCloseGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+        }
+    }
+
+    pub fn add_unsigned_integer_group(
+        &mut self,
+        key: &str,
+        total: u64,
+        properties: impl FnOnce(&mut Self),
+    ) {
+        let state = self.state.as_ptr();
+        if unsafe { (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT } {
+            self.add_unsigned_integer(key, total, None);
+            unsafe { (*state).indent += 1 };
+            properties(self);
+            unsafe { (*state).indent -= 1 };
+        } else {
+            self.add_group(key, |explainer| {
+                explainer.add_unsigned_integer("Total", total, None);
+                properties(explainer);
+            });
         }
     }
 

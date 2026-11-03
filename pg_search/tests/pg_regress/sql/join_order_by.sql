@@ -160,8 +160,10 @@ LIMIT 5
 FOR UPDATE OF t1;
 
 -- =============================================================================
--- TEST 2.4: Volatile expression in target list declines JoinScan
+-- TEST 2.4: Volatile expression in target list is projected by Postgres
 -- =============================================================================
+-- JoinScan should be used, with random() evaluated once per output row in the
+-- Postgres projection above the scan, matching where a native plan evaluates it.
 
 SELECT setseed(0.5);
 
@@ -176,6 +178,67 @@ LIMIT 5;
 SELECT setseed(0.5);
 
 SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+-- Same, with the volatile expression reading a column of the other side, so the Postgres
+-- projection takes its input from a Var appended to the scan's output.
+
+SELECT setseed(0.5);
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, round((random() * t2.id)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+SELECT setseed(0.5);
+
+SELECT t1.id, round((random() * t2.id)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2.5: Volatile ORDER BY key in the target list declines JoinScan
+-- =============================================================================
+-- A sort key with no column references must not be treated as belonging to an
+-- outer relation and dropped from the scan's sort.
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, round((random() * 100)::numeric, 2) AS rand_val
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY rand_val, t1.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2.6: Volatile ORDER BY key only in a hidden sort entry declines JoinScan
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id
+FROM sorted_t1 t1
+JOIN sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY random(), t1.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2.7: Volatile expression Postgres can't project declines JoinScan
+-- =============================================================================
+-- pdb.score() exists only inside the scan, so the fallback can't take the expression.
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, random() * pdb.score(t1.id) AS rand_score
 FROM sorted_t1 t1
 JOIN sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val'
@@ -332,6 +395,8 @@ LIMIT 10;
 -- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
 -- =============================================================================
 
+SET paradedb.enable_rank_join = off;
+
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id, t2.id, paradedb.score(t2.id)
 FROM dyn_filter_t1 t1
@@ -340,6 +405,8 @@ WHERE t1.val ||| 'val'
   AND t2.val ||| 'val'
 ORDER BY paradedb.score(t2.id) DESC, t2.id
 LIMIT 10;
+
+RESET paradedb.enable_rank_join;
 
 -- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs

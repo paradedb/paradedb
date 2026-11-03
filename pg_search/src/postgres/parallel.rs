@@ -43,7 +43,7 @@ pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
 #[cfg(any(feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
-    ParallelScanState::size_of(&[u16::MAX as usize], &[], false, false)
+    ParallelScanState::size_of(&[u16::MAX as usize], false, false)
 }
 
 #[cfg(feature = "pg17")]
@@ -56,7 +56,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX.
     // Index scans never publish per-segment EXPLAIN info, so without those slots the estimate
     // stays around 2MB.
-    ParallelScanState::size_of(&[u16::MAX as usize], &[], false, false)
+    ParallelScanState::size_of(&[u16::MAX as usize], false, false)
 }
 
 #[cfg(feature = "pg18")]
@@ -73,7 +73,7 @@ pub extern "C-unwind" fn amestimateparallelscan(
     } else {
         unsafe { estimated_parallel_segments(rel) }
     };
-    ParallelScanState::size_of(&[nsegments], &[], false, false)
+    ParallelScanState::size_of(&[nsegments], false, false)
 }
 
 unsafe fn bm25_shared_state(
@@ -104,23 +104,28 @@ unsafe fn bm25_shared_state(
 /// snapshot-visible segments. Workers wait for this initialization and then
 /// use ParallelWorker visibility to see the same segments.
 /// Segments are NOT claimed here - they're claimed lazily in amgettuple/amgetbitmap.
+///
+/// Returns whether this call started a new round of the scan.
 pub unsafe fn maybe_init_parallel_scan(
     scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
-) -> Option<i32> {
+) -> bool {
     if unsafe { (*scan).parallel_scan.is_null() } {
         // not a parallel scan, so there's nothing to initialize
-        return None;
+        return false;
     }
 
     // Read indexRelation before mutable borrow of scan
     let rel = (*scan).indexRelation;
 
-    let state = get_bm25_scan_state(scan)?;
+    let Some(state) = get_bm25_scan_state(scan) else {
+        return false;
+    };
 
     let _mutex = state.acquire_mutex();
 
-    if !state.is_initialized() {
+    let started = !state.is_initialized();
+    if started {
         // If concurrent writes created more segments than the DSM can hold, fall back to serial
         // scan to avoid a shared memory overflow.
         let estimated_segments = estimated_parallel_segments(rel);
@@ -132,11 +137,11 @@ pub unsafe fn maybe_init_parallel_scan(
                 actual_segments,
                 estimated_segments
             );
-            return None;
+            return true;
         }
-        state.populate(&[searcher.segment_view()], &[], false, false);
+        state.populate(&[searcher.segment_view()], false, false);
     }
-    Some(unsafe { pg_sys::ParallelWorkerNumber })
+    started
 }
 
 /// Claim a segment from the shared pool.

@@ -23,16 +23,19 @@ use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_tokenizer};
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::gucs::per_tuple_cost;
-use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::lookup_reltuples;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
 };
 use crate::postgres::deparse::deparse_expr;
+use crate::postgres::index::{
+    free_leaf_partition_indexes, is_partitioned_index, leaf_partition_index_oids,
+};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -40,7 +43,7 @@ use crate::postgres::sequentialscan::MaybeInlineRow;
 use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
-use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
+use crate::postgres::var::{VarContext, find_json_path, find_var_relation, system_column_var};
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
@@ -132,7 +135,7 @@ impl ReturnedNodePointer {
             .iter_ptr()
             .last()
             .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
-            .and_then(|row| PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(0));
+            .and_then(|row| record_field(row, c"original_lhs"));
         let lhs = original_lhs.unwrap_or(lhs);
         let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
             return Self::unsupported();
@@ -206,13 +209,11 @@ impl ReturnedNodePointer {
             );
         }
         let ctid = (!derived).then(|| {
-            let ctid = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-            (*ctid).varattno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
-            (*ctid).varattnosyn = (*ctid).varattno;
-            (*ctid).vartype = pg_sys::TIDOID;
-            (*ctid).vartypmod = -1;
-            (*ctid).varcollid = pg_sys::Oid::INVALID;
-            ctid
+            system_column_var(
+                base_var,
+                pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::TIDOID,
+            )
         });
 
         let mut args = PgList::<pg_sys::Node>::new();
@@ -244,6 +245,18 @@ impl ReturnedNodePointer {
         if keep_original_lhs {
             fields.push(original_lhs);
             names.push(pg_sys::makeString(pg_sys::pstrdup(c"original_lhs".as_ptr())).cast());
+        }
+        // A predicate that stays above the Append keeps the parent partitioned index, whose
+        // storage does not exist (#4643). Ship the row's `tableoid` so execution can find
+        // the partition's own leaf index. The relkind gate keeps every other plan unchanged.
+        if !derived && is_partitioned_index(indexrel.oid()) {
+            let tableoid = system_column_var(
+                base_var,
+                pg_sys::TableOidAttributeNumber as pg_sys::AttrNumber,
+                pg_sys::OIDOID,
+            );
+            fields.push(tableoid.cast());
+            names.push(pg_sys::makeString(pg_sys::pstrdup(c"tableoid".as_ptr())).cast());
         }
         // A non-null record preserves strictness even when the original LHS is NULL.
         args.push(
@@ -667,9 +680,10 @@ fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
     crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
 }
 
-/// Reuse the supplied reader, or open the largest segment, to estimate matching docs,
-/// total docs, and the query's Tantivy `DocSet::cost()` in one pass. The single
-/// source for both `estimate_selectivity` and planner traversal estimates.
+/// Reuse the supplied reader, or open one via [`SearchIndexReader::mvcc_for_estimation`],
+/// to estimate matching docs, total docs, Tantivy `DocSet::cost()`, and the candidate
+/// segment count in one pass. The single source for `estimate_selectivity`, planner
+/// traversal estimates, and segment count estimates.
 ///
 /// Returns `None` if the reader can't be opened (e.g. a transient/concurrent-DDL
 /// failure); callers degrade gracefully rather than crash planning. The same open
@@ -678,7 +692,45 @@ fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
-) -> Option<DocsEstimate> {
+) -> Option<(DocsEstimate, usize)> {
+    // A partitioned index has no storage of its own (#4643). A predicate above an Append
+    // covers every partition, so one leaf stands in for the tree: its match ratio is the
+    // selectivity, and its counts scale up to the rows of every leaf. The largest leaf is
+    // tried first, since the first in OID order is often a default or near-empty partition
+    // whose rows say nothing about the rest. A leaf a `REINDEX` holds is skipped instead
+    // of waited on, and one that holds no rows yields to the next.
+    if is_partitioned_index(indexrel.oid()) {
+        let mut leaves: Vec<_> = leaf_partition_index_oids(indexrel)
+            .into_iter()
+            .map(|oid| (oid, leaf_heap_rows(oid)))
+            .collect();
+        leaves.sort_by(|a, b| b.1.unwrap_or(-1.0).total_cmp(&a.1.unwrap_or(-1.0)));
+        let ordered: Vec<pg_sys::Oid> = leaves.iter().map(|(oid, _)| *oid).collect();
+        let (sample_oid, estimate, segment_count) = free_leaf_partition_indexes(&ordered)
+            .find_map(|leaf| {
+                open_and_estimate_docs(&leaf, search_query_input.clone(), None)
+                    .filter(|(estimate, _)| estimate.total_docs > 0)
+                    .map(|(estimate, segment_count)| (leaf.oid(), estimate, segment_count))
+            })?;
+        // A leaf that has never been counted is taken to be the sample's size.
+        let sample_rows = estimate.total_docs as f64;
+        let total_rows = leaves
+            .iter()
+            .filter(|(oid, _)| *oid != sample_oid)
+            .map(|(_, rows)| rows.unwrap_or(sample_rows))
+            .sum::<f64>()
+            + sample_rows;
+        let scale = total_rows / sample_rows;
+        return Some((
+            DocsEstimate {
+                matching_docs: (estimate.matching_docs as f64 * scale).ceil() as usize,
+                total_docs: total_rows.ceil() as u64,
+                query_cost: (estimate.query_cost as f64 * scale).ceil() as u64,
+            },
+            segment_count,
+        ));
+    }
+
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");
@@ -688,35 +740,48 @@ fn open_and_estimate_docs(
     let reader = match reader {
         Some(reader) => reader,
         None => {
-            opened = SearchIndexReader::open(
-                indexrel,
-                search_query_input,
-                false,
-                MvccSatisfies::LargestSegment,
-            )
-            .ok()?;
+            let mvcc_style = SearchIndexReader::mvcc_for_estimation(indexrel, &search_query_input);
+            opened =
+                SearchIndexReader::open(indexrel, search_query_input, false, mvcc_style).ok()?;
             &opened
         }
     };
-    Some(reader.estimate_docs(row_estimate))
+    let estimate = reader.estimate_docs(row_estimate);
+    Some((estimate, reader.estimated_segment_count()))
 }
 
-/// One index open, both planning answers: selectivity (matching/total docs) and the
-/// query's Tantivy `DocSet::cost()`. basescan path generation needs both for the same
-/// combined query, so it opens once here instead of calling `estimate_selectivity` and
-/// a separate traversal estimate back-to-back.
+/// The planner's row count for the partition a leaf index is attached to, `None` when
+/// that partition has never been counted.
+fn leaf_heap_rows(index_oid: pg_sys::Oid) -> Option<f64> {
+    let heap_oid = unsafe { pg_sys::IndexGetRelation(index_oid, true) };
+    (heap_oid != pg_sys::InvalidOid)
+        .then(|| lookup_reltuples(heap_oid))
+        .flatten()
+}
+
+pub(crate) struct SelectivityAndCost {
+    pub(crate) selectivity: Option<f64>,
+    pub(crate) query_cost: Option<u64>,
+    pub(crate) segment_count: Option<usize>,
+}
+
+/// One index open, all planning answers: selectivity (matching/total docs), the
+/// query's Tantivy `DocSet::cost()`, and the estimated (pruned) segment count.
+/// basescan path generation needs all three for the same combined query, so it opens
+/// once here instead of calling `estimate_selectivity` and a separate traversal/segment
+/// estimate back-to-back.
 ///
-/// Returns `(selectivity, query_cost)`:
-/// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate)`
+/// Returns [`SelectivityAndCost`]:
+/// - expensive-to-estimate query (#4172): `(selectivity_heuristic, scaled match estimate, None)`
 ///   -- no open; the cost is the heuristic match estimate scaled by
 ///   `EXPENSIVE_QUERY_COST_FACTOR` (`None` only when the row count is unknown);
-/// - empty index / no valid total: `(None, Some(0))` -- the cost is a known 0;
-/// - open failure: `(None, None)`.
+/// - empty index / no valid total: `(None, Some(0), Some(segment_count))` -- the cost is a known 0;
+/// - open failure: `(None, None, None)`.
 pub(crate) fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
-) -> (Option<f64>, Option<u64>) {
+) -> SelectivityAndCost {
     if estimate_heuristically(&search_query_input) {
         // #4172 skips opening the index, so derive the work estimate from the same
         // heuristic: these shapes drive far more docset work than they match, so scale the
@@ -728,30 +793,44 @@ pub(crate) fn estimate_selectivity_and_cost(
             .map(|reltuples| {
                 (selectivity * reltuples as f64 * crate::gucs::expensive_query_cost_factor()) as u64
             });
-        return (Some(selectivity), cost);
+        return SelectivityAndCost {
+            selectivity: Some(selectivity),
+            query_cost: cost,
+            segment_count: None,
+        };
     }
 
-    let Some(estimate) = open_and_estimate_docs(indexrel, search_query_input, reader) else {
-        return (None, None);
+    let Some((estimate, segment_count)) =
+        open_and_estimate_docs(indexrel, search_query_input, reader)
+    else {
+        return SelectivityAndCost {
+            selectivity: None,
+            query_cost: None,
+            segment_count: None,
+        };
     };
 
     let total_rows = estimate.total_docs as f64;
     let selectivity =
         (total_rows > 0.0).then(|| (estimate.matching_docs as f64 / total_rows).min(1.0));
-    (selectivity, Some(estimate.query_cost))
+    SelectivityAndCost {
+        selectivity,
+        query_cost: Some(estimate.query_cost),
+        segment_count: Some(segment_count),
+    }
 }
 
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input, None).0
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).selectivity
 }
 
 /// The estimated number of heap rows matching `search_query_input`, scaled from the
-/// largest segment up to the whole relation. Unlike `estimate_selectivity` this is an
-/// absolute row count, which is what `visibility => 'threshold'` compares against
-/// `paradedb.visibility_threshold`.
+/// largest candidate segment up to the candidate portion of the relation. Unlike
+/// `estimate_selectivity` this is an absolute row count, which is what
+/// `visibility => 'threshold'` compares against `paradedb.visibility_threshold`.
 ///
 /// `None` when there is nothing to estimate from: an index that can't be opened, or an
 /// expensive-to-estimate query (#4172) over a heap with no `reltuples`.
@@ -769,7 +848,7 @@ pub(crate) fn estimate_matching_rows(
     }
 
     open_and_estimate_docs(indexrel, search_query_input, reader)
-        .map(|estimate| estimate.matching_docs as u64)
+        .map(|(estimate, _)| estimate.matching_docs as u64)
 }
 
 /// Estimate the query's traversal cost using the shared selectivity/cost estimator.
@@ -778,7 +857,7 @@ pub(crate) fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input, None).1
+    estimate_selectivity_and_cost(indexrel, search_query_input, None).query_cost
 }
 
 unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
@@ -1201,6 +1280,22 @@ unsafe fn resolve_lhs_var_for_group(
     var
 }
 
+/// The field of the trailing record argument carrying `name`, e.g. the preserved
+/// original LHS or the partition identity (#4643). The names distinguish the fields, so
+/// one is never misread as another.
+unsafe fn record_field(
+    row: *mut pg_sys::RowExpr,
+    name: &core::ffi::CStr,
+) -> Option<*mut pg_sys::Node> {
+    unsafe {
+        let names = PgList::<pg_sys::String>::from_pg((*row).colnames);
+        let position = names.iter_ptr().position(|colname| {
+            !(*colname).sval.is_null() && core::ffi::CStr::from_ptr((*colname).sval) == name
+        })?;
+        PgList::<pg_sys::Node>::from_pg((*row).args).get_ptr(position)
+    }
+}
+
 unsafe fn wrap_with_index(
     indexrel: &PgSearchRelation,
     rhs: *mut pg_sys::Node,
@@ -1275,21 +1370,14 @@ unsafe fn wrap_with_index(
         args.push(rhs);
 
         Some(
-            pg_sys::FuncExpr {
-                xpr: pg_sys::Expr {
-                    type_: pg_sys::NodeTag::T_FuncExpr,
-                },
-                funcid: with_index_procoid(),
-                funcresulttype: searchqueryinput_typoid(),
-                funcretset: false,
-                funcvariadic: false,
-                funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                funccollid: pg_sys::Oid::INVALID,
-                inputcollid: pg_sys::Oid::INVALID,
-                args: args.into_pg(),
-                location: -1,
-            }
-            .palloc()
+            pg_sys::makeFuncExpr(
+                with_index_procoid(),
+                searchqueryinput_typoid(),
+                args.into_pg(),
+                pg_sys::Oid::INVALID,
+                pg_sys::Oid::INVALID,
+                pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            )
             .cast(),
         )
     }
@@ -1361,7 +1449,7 @@ unsafe fn rewrite_rhs_to_search_query_input(
     } else {
         // the rhs is a complex expression that needs to be evaluated at runtime
         // but its return type is not SearchQueryInput, so we need to rewrite it
-        operator.rewrite_exec(field, lhs, rhs).palloc().cast()
+        operator.rewrite_exec(field, lhs, rhs).cast()
     };
     rhs
 }
@@ -1386,7 +1474,7 @@ unsafe fn build_text_funcexpr(
     operator_name: &str,
     text_fn: &std::ffi::CStr,
     array_fn: &std::ffi::CStr,
-) -> pg_sys::FuncExpr {
+) -> *mut pg_sys::FuncExpr {
     let expr_type = get_expr_result_type(rhs);
     let is_array = is_text_array_like(expr_type);
     if !(is_text_like(expr_type) || is_array) {
@@ -1403,40 +1491,63 @@ unsafe fn build_text_funcexpr(
     args.push(field.into_const().cast());
     args.push(rhs.cast());
 
-    pg_sys::FuncExpr {
-        xpr: pg_sys::Expr {
-            type_: pg_sys::NodeTag::T_FuncExpr,
-        },
+    pg_sys::makeFuncExpr(
         funcid,
-        funcresulttype: searchqueryinput_typoid(),
-        funcretset: false,
-        funcvariadic: false,
-        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        funccollid: pg_sys::Oid::INVALID,
-        inputcollid: pg_sys::Oid::INVALID,
-        args: args.into_pg(),
-        location: -1,
+        searchqueryinput_typoid(),
+        args.into_pg(),
+        pg_sys::Oid::INVALID,
+        pg_sys::Oid::INVALID,
+        pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+    )
+}
+
+/// A ParadeDB `pdb.*` type that participates as an operator RHS, either directly
+/// (`pdb.query`) or via an implicit cast to `pdb.query`. Operator runtime rewrite paths use
+/// it to decide whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query
+/// dispatch rather than the text/text[] dispatch, and which cast lifts it there.
+#[derive(Clone, Copy)]
+pub(crate) enum PdbQueryRhs {
+    Query,
+    Fuzzy,
+    Boost,
+    Slop,
+    Const,
+}
+
+impl PdbQueryRhs {
+    pub(crate) fn from_oid(oid: pg_sys::Oid) -> Option<Self> {
+        if oid == pdb_query_typoid() {
+            Some(Self::Query)
+        } else if oid == fuzzy_typoid() {
+            Some(Self::Fuzzy)
+        } else if oid == boost_typoid() {
+            Some(Self::Boost)
+        } else if oid == slop_typoid() {
+            Some(Self::Slop)
+        } else if oid == const_typoid() {
+            Some(Self::Const)
+        } else {
+            None
+        }
+    }
+
+    /// The `*_to_query` cast that lifts this type to `pdb.query`, or `None` when the value
+    /// already is one.
+    fn cast_sig(self) -> Option<&'static std::ffi::CStr> {
+        match self {
+            Self::Query => None,
+            Self::Fuzzy => Some(c"paradedb.fuzzy_to_query(pdb.fuzzy)"),
+            Self::Boost => Some(c"paradedb.boost_to_query(pdb.boost)"),
+            Self::Slop => Some(c"paradedb.slop_to_query(pdb.slop)"),
+            Self::Const => Some(c"paradedb.const_to_query(pdb.const)"),
+        }
     }
 }
 
-/// Return `true` if `oid` names a ParadeDB `pdb.*` type that participates as an operator RHS,
-/// either directly (`pdb.query`) or via an implicit cast to `pdb.query` (`pdb.fuzzy`,
-/// `pdb.boost`, `pdb.slop`, `pdb.const`). Used by operator runtime rewrite paths to decide
-/// whether an RHS whose type is a `pdb.*` composite needs the runtime pdb.query dispatch
-/// rather than the text/text[] dispatch.
-pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
-    oid == pdb_query_typoid()
-        || oid == fuzzy_typoid()
-        || oid == boost_typoid()
-        || oid == slop_typoid()
-        || oid == const_typoid()
-}
-
 /// Build a [`pg_sys::FuncExpr`] that calls `outer_sig(fieldname, pdb.query)` on an RHS whose
-/// declared type is one of `pdb.query`, `pdb.fuzzy`, `pdb.boost`, `pdb.slop`, or `pdb.const`.
-/// This is the runtime counterpart to the const-folding path in
-/// [`rewrite_rhs_to_search_query_input`]: it is reached when a `Param` (generic prepared plan)
-/// keeps the RHS as a non-Const node so const folding does not apply.
+/// declared type is the given [`PdbQueryRhs`]. This is the runtime counterpart to the
+/// const-folding path in [`rewrite_rhs_to_search_query_input`]: it is reached when a `Param`
+/// (generic prepared plan) keeps the RHS as a non-Const node so const folding does not apply.
 ///
 /// For non-`pdb.query` inputs the RHS is first wrapped in the appropriate `*_to_query` cast so
 /// that `outer_sig` type-checks. Callers pass the SQL regprocedure signature of the outer
@@ -1446,45 +1557,27 @@ pub(crate) fn is_pdb_query_castable(oid: pg_sys::Oid) -> bool {
 pub(crate) unsafe fn build_pdb_query_funcexpr(
     field: FieldName,
     rhs: *mut pg_sys::Node,
-    rhs_type: pg_sys::Oid,
+    rhs_kind: PdbQueryRhs,
     outer_sig: &std::ffi::CStr,
-) -> pg_sys::FuncExpr {
-    let coerced_rhs: *mut pg_sys::Node = if rhs_type == pdb_query_typoid() {
-        rhs
-    } else {
-        let cast_sig: &std::ffi::CStr = if rhs_type == fuzzy_typoid() {
-            c"paradedb.fuzzy_to_query(pdb.fuzzy)"
-        } else if rhs_type == boost_typoid() {
-            c"paradedb.boost_to_query(pdb.boost)"
-        } else if rhs_type == slop_typoid() {
-            c"paradedb.slop_to_query(pdb.slop)"
-        } else if rhs_type == const_typoid() {
-            c"paradedb.const_to_query(pdb.const)"
-        } else {
-            panic!("build_pdb_query_funcexpr called with unsupported rhs type oid {rhs_type}");
-        };
+) -> *mut pg_sys::FuncExpr {
+    let coerced_rhs: *mut pg_sys::Node = if let Some(cast_sig) = rhs_kind.cast_sig() {
         let cast_funcid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[cast_sig.into_datum()])
                 .unwrap_or_else(|| panic!("`{}` should exist", cast_sig.to_str().unwrap()));
 
         let mut cast_args = PgList::<pg_sys::Node>::new();
         cast_args.push(rhs);
-        pg_sys::FuncExpr {
-            xpr: pg_sys::Expr {
-                type_: pg_sys::NodeTag::T_FuncExpr,
-            },
-            funcid: cast_funcid,
-            funcresulttype: pdb_query_typoid(),
-            funcretset: false,
-            funcvariadic: false,
-            funcformat: pg_sys::CoercionForm::COERCE_IMPLICIT_CAST,
-            funccollid: pg_sys::Oid::INVALID,
-            inputcollid: pg_sys::Oid::INVALID,
-            args: cast_args.into_pg(),
-            location: -1,
-        }
-        .palloc()
+        pg_sys::makeFuncExpr(
+            cast_funcid,
+            pdb_query_typoid(),
+            cast_args.into_pg(),
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            pg_sys::CoercionForm::COERCE_IMPLICIT_CAST,
+        )
         .cast()
+    } else {
+        rhs
     };
 
     let outer_funcid =
@@ -1495,20 +1588,14 @@ pub(crate) unsafe fn build_pdb_query_funcexpr(
     args.push(field.into_const().cast());
     args.push(coerced_rhs);
 
-    pg_sys::FuncExpr {
-        xpr: pg_sys::Expr {
-            type_: pg_sys::NodeTag::T_FuncExpr,
-        },
-        funcid: outer_funcid,
-        funcresulttype: searchqueryinput_typoid(),
-        funcretset: false,
-        funcvariadic: false,
-        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        funccollid: pg_sys::Oid::INVALID,
-        inputcollid: pg_sys::Oid::INVALID,
-        args: args.into_pg(),
-        location: -1,
-    }
+    pg_sys::makeFuncExpr(
+        outer_funcid,
+        searchqueryinput_typoid(),
+        args.into_pg(),
+        pg_sys::Oid::INVALID,
+        pg_sys::Oid::INVALID,
+        pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+    )
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that

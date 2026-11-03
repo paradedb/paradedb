@@ -22,21 +22,9 @@ FROM generate_series(1, 20000) g;
 CREATE INDEX sequential_scan_idx ON sequential_scan USING paradedb (anchor, id, body) WHERE keep;
 CREATE INDEX sequential_scan_anchor_idx ON sequential_scan (anchor) INCLUDE (id);
 
--- The per-row filter's deparsed qual embeds the BM25 index oid, which changes on every database
--- creation; mask it so the plans below are stable.
-CREATE FUNCTION explain_seqscan(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N');
-    END LOOP;
-END;
-$$;
-
 -- Tiny work_mem: the ~20k-key match set exceeds it and spills; count is still correct.
 SET work_mem = '64kB';
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
 
 -- A cursor's spilled cache survives rollback of the savepoint that first populated it.
@@ -66,15 +54,15 @@ CLOSE sequential_scan_cursor;
 ROLLBACK;
 
 -- Membership correctness across the spilled, on-disk sorted set (probes low/mid/high keys).
-SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id$$);
 SELECT id FROM sequential_scan WHERE body ||| 'keyword' AND id IN (1, 10000, 20000) ORDER BY id;
 
 -- Negation over the spilled set: everything matched, so NOT (...) excludes all rows.
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword')$$);
 SELECT count(*) FROM sequential_scan WHERE NOT (body ||| 'keyword');
 
 -- A term matched by no row -> empty set -> nothing matches (no spill).
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm'$$);
 SELECT count(*) FROM sequential_scan WHERE body ||| 'nonexistentterm';
 
 -- Duplicate and NULL first-indexed values do not participate in row identity.
@@ -85,7 +73,7 @@ SET paradedb.enable_custom_scan = off;
 RESET enable_indexscan;
 SET enable_seqscan = off;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target'$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target'$$);
 SELECT id FROM sequential_scan WHERE anchor = 'duplicate' AND body ||| 'target';
 SET enable_indexscan = off;
 RESET enable_seqscan;
@@ -105,13 +93,13 @@ SET enable_mergejoin = off;
 RESET enable_indexscan;
 RESET enable_indexonlyscan;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
+SELECT explain_redact_oid($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
 
 SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 RESET enable_seqscan;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
+SELECT explain_redact_oid($$SELECT s.id FROM sequential_scan_terms t JOIN sequential_scan s ON s.body ||| t.term WHERE s.keep$$);
 SELECT s.id
 FROM sequential_scan_terms t
 JOIN sequential_scan s ON s.body ||| t.term
@@ -147,7 +135,7 @@ SELECT id FROM sequential_scan WHERE body ||| 'target' ORDER BY id;
 
 -- With ample work_mem the identical query stays in memory: no spill WARNING.
 SET work_mem = '256MB';
-SELECT explain_seqscan($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
+SELECT explain_redact_oid($$SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword'$$);
 SELECT count(*) FROM sequential_scan WHERE body ||| 'keyword';
 
 DROP TABLE sequential_scan CASCADE;
@@ -196,7 +184,7 @@ SELECT id, field_match, wrapped_match, missing, compound, wrapped_compound
 FROM sequential_scan_null_checks ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 
 SELECT id, query_and, query_or, sql_and, sql_or FROM sequential_scan_null_checks ORDER BY id;
@@ -208,7 +196,7 @@ SELECT id FROM sequential_scan_null_checks WHERE NOT sql_or ORDER BY id;
 SET paradedb.enable_custom_scan = on;
 SELECT id FROM sequential_scan_null_checks WHERE NOT field_match ORDER BY id;
 SELECT id FROM sequential_scan_null_checks WHERE NOT wrapped_match ORDER BY id;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_null_checks WHERE NOT compound$$);
 SELECT id FROM sequential_scan_null_checks WHERE NOT compound ORDER BY id;
 
 SELECT id FROM sequential_scan_null_checks WHERE NOT query_and ORDER BY id;
@@ -331,7 +319,7 @@ SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 SET enable_bitmapscan = off;
 SET enable_seqscan = on;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
 SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
 SELECT id, lower(body) === 'alpha' AS matches FROM sequential_scan_expr_first ORDER BY id;
 
@@ -344,11 +332,11 @@ FROM (VALUES ('alpha'), ('beta'), ('missing')) p(term) ORDER BY p.term;
 
 SET enable_indexscan = on;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
 SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
 SET enable_indexscan = off;
 SET enable_bitmapscan = on;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha'$$);
 SELECT id FROM sequential_scan_expr_first WHERE lower(body) === 'alpha';
 
 -- A NULL first expression must not suppress a match on another indexed expression.
@@ -359,7 +347,7 @@ CREATE INDEX sequential_scan_expr_first_idx ON sequential_scan_expr_first USING 
 );
 SET enable_indexscan = on;
 SET enable_bitmapscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle'$$);
 SELECT id FROM sequential_scan_expr_first WHERE lower(note) === 'needle' ORDER BY id;
 SET enable_indexscan = off;
 SET enable_seqscan = on;
@@ -417,7 +405,7 @@ SELECT paradedb.search_with_query_input(1, paradedb.empty()) AS direct_empty,
 
 SET enable_indexscan = on;
 SET enable_seqscan = off;
-SELECT explain_seqscan($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
+SELECT explain_redact_oid($$SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[
     paradedb.term('body', 'alpha'), paradedb.term('body', 'beta')
 ])$$);
 SELECT id FROM sequential_scan_arrays WHERE id @@@ ANY(ARRAY[

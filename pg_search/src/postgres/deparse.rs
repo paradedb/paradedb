@@ -265,8 +265,12 @@ pub unsafe fn node_to_string_without_context(expr: *mut pg_sys::Node) -> String 
 }
 
 /// Serialize a non-null node via `nodeToString` into an owned Rust `String`.
+///
+/// Strips any nested `PlaceHolderVar` wrappers before serializing so `stringToNode` can parse
+/// the resulting string on PostgreSQL 15 (which lacks `_readPlaceHolderVar` in `readfuncs.c`).
 pub unsafe fn node_to_string_owned(node: *mut pg_sys::Node) -> String {
-    pgrx::node_to_string(node)
+    let stripped = crate::postgres::utils::strip_placeholder_vars_deep(node);
+    pgrx::node_to_string(stripped)
         .expect("nodeToString failed for non-null node")
         .to_string()
 }

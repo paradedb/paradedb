@@ -73,7 +73,7 @@ use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, Physic
 use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::{FFType, FieldCardinality};
 use crate::scan::deferred_encode::{deferred_data_type, is_deferred_field};
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::deferred_placement_rule::same_columns;
@@ -167,7 +167,11 @@ pub(crate) fn ordinal_group_keys(
     }
     let mut lifted = Vec::new();
     for (i, field) in decode.deferred_fields().iter().enumerate() {
-        if !keys.contains(&field.col_idx) || elsewhere.contains(&field.col_idx) {
+        // A list has no term ordinal to group on, so it groups on its decoded value.
+        if field.cardinality == FieldCardinality::List
+            || !keys.contains(&field.col_idx)
+            || elsewhere.contains(&field.col_idx)
+        {
             continue;
         }
         if !resolved_below(decode, field) {
@@ -445,6 +449,14 @@ mod tests {
     /// A scan of range table entry `heap_rti` with a deferred `category`, resolved to term
     /// ordinals by the scan itself when `fetch_at_scan`.
     fn scan(heap_rti: u32, fetch_at_scan: bool) -> Arc<dyn ExecutionPlan> {
+        scan_of(heap_rti, fetch_at_scan, FieldCardinality::Scalar)
+    }
+
+    fn scan_of(
+        heap_rti: u32,
+        fetch_at_scan: bool,
+        cardinality: FieldCardinality,
+    ) -> Arc<dyn ExecutionPlan> {
         Arc::new(PgSearchScanPlan::new(
             None,
             Arc::new(Schema::new(vec![
@@ -456,6 +468,7 @@ mod tests {
             vec![DeferredField {
                 name: "category".into(),
                 is_bytes: false,
+                cardinality,
                 canonical: canonical(),
                 heap_rti,
                 rebuild: None,
@@ -472,6 +485,14 @@ mod tests {
 
     /// A decode of the `category` that came from range table entry `heap_rti`.
     fn decode_over(input: Arc<dyn ExecutionPlan>, heap_rti: u32) -> Arc<dyn ExecutionPlan> {
+        decode_of(input, heap_rti, FieldCardinality::Scalar)
+    }
+
+    fn decode_of(
+        input: Arc<dyn ExecutionPlan>,
+        heap_rti: u32,
+        cardinality: FieldCardinality,
+    ) -> Arc<dyn ExecutionPlan> {
         let mut ffhelpers = HashMap::default();
         ffhelpers.insert(INDEXRELID, Arc::new(FFHelper::empty()));
         Arc::new(
@@ -481,6 +502,7 @@ mod tests {
                     col_idx: 1,
                     display_name: "category".into(),
                     is_bytes: false,
+                    cardinality,
                     canonical: canonical(),
                     heap_rti,
                     rebuild: None,
@@ -635,6 +657,22 @@ mod tests {
         let single = group_by_category(Arc::clone(&input), vec![count_star(&input)]);
         let err = rewrite(single).expect_err("an undecoded ordinal is a planning error");
         assert!(err.to_string().contains("without a decode"), "{err}");
+    }
+
+    /// A list holds many terms per row and has no ordinal to group on, so nothing below its
+    /// decode resolves one. The rule groups it on its value instead of failing the plan.
+    #[pg_test]
+    fn a_list_key_is_grouped_on_its_value() {
+        let decode = decode_of(
+            scan_of(1, false, FieldCardinality::List),
+            1,
+            FieldCardinality::List,
+        );
+        let single = group_by_category(Arc::clone(&decode), vec![count_star(&decode)]);
+
+        let rewritten = rewrite(Arc::clone(&single)).unwrap();
+
+        assert!(Arc::ptr_eq(&rewritten, &single), "the plan is left alone");
     }
 
     #[pg_test]

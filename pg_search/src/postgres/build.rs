@@ -32,7 +32,7 @@ use anyhow::Result;
 use pgrx::*;
 use tantivy::Index;
 use tantivy::schema::Schema;
-use tantivy::vector::VectorOptions;
+use tantivy::schema::VectorOptions;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -256,6 +256,16 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         warning!(
             "sort_by field '{dim}' has a columnar field in normalized order, so its segments carry no bounds to prune on"
         );
+    }
+
+    for (name, ExtractedFieldAttribute { tantivy_type, .. }) in
+        unsafe { extract_field_attributes(index_relation.as_ptr()) }
+    {
+        if matches!(tantivy_type, SearchFieldType::Ltree(_)) {
+            warning!(
+                "Direct indexing of `ltree` fields in ParadeDB is deprecated and will be removed in a future release. Use a PostgreSQL GiST index ('USING gist ({name})') alongside the ParadeDB index instead."
+            );
+        }
     }
 }
 

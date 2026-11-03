@@ -380,6 +380,7 @@ const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 thread_local! {
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+    static WARNED_STALE_VM_AT: Cell<StatementId> = const { Cell::new(NEVER) };
 }
 
 fn current_statement_id() -> StatementId {
@@ -438,4 +439,22 @@ pub fn warn_filter_spilled() {
         &WARNED_SPILLED_AT,
         "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded",
     );
+}
+
+/// Warn (once per statement, on the leader only) that a table's visibility map is significantly
+/// out of date, degrading visibility-map shortcuts.
+pub fn warn_stale_visibility_map(table_name: &str) {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+        return;
+    }
+    if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+        return;
+    }
+    let message = format!(
+        "visibility map for table \"{table_name}\" is significantly out of date, which may degrade \
+         query performance; consider running VACUUM and tuning autovacuum: \
+         https://www.paradedb.com/docs/operate/performance-tuning/reads#configuring-autovacuum\n\
+         To disable this warning: SET paradedb.planner_warnings = 'off'"
+    );
+    warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
 }

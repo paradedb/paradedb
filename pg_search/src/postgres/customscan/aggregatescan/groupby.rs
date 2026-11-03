@@ -24,6 +24,7 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
+use crate::schema::SearchFieldType;
 use pgrx::pg_sys;
 use pgrx::{PgList, pg_guard};
 
@@ -32,6 +33,10 @@ pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
     pub original_type_oid: pg_sys::Oid,
+    /// True when the NULL bucket of this column is keyed by a string sentinel (text, bool and
+    /// JSON fields), as opposed to a number such as `i64::MAX`.
+    #[serde(default)]
+    pub string_null_sentinel: bool,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -162,10 +167,18 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         // are strictly equivalent to the semantics of the projected value. If they were
                         // different, we would need to evaluate grouping expressions natively via ExecProject.
                         let original_type_oid = search_field.field_type().typeoid().value();
+                        let string_null_sentinel = matches!(
+                            search_field.field_type(),
+                            SearchFieldType::Text(_)
+                                | SearchFieldType::Tokenized(..)
+                                | SearchFieldType::Bool(_)
+                                | SearchFieldType::Json(_)
+                        );
                         grouping_columns.push(GroupingColumn {
                             field_name,
                             attno,
                             original_type_oid,
+                            string_null_sentinel,
                         });
                         found_valid_column = true;
                         break; // Found a valid grouping column for this pathkey

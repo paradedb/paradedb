@@ -687,25 +687,22 @@ WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
-                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: category, (count(*))
-         Sort Key: (count(*)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: category, (count(*))
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: category
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(16 rows)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=products, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(13 rows)
 
 SELECT category
 FROM products
@@ -737,7 +734,7 @@ ORDER BY COUNT(category) DESC;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            Applies to Aggregates: COUNT(category)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (10 rows)
 
 SELECT category
@@ -887,25 +884,22 @@ WHERE (description ||| 'laptop' OR description ||| 'keyboard' OR description |||
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
-                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: category, (count(*))
-         Sort Key: (count(*)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: category, (count(*))
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: category
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(16 rows)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=2), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=products, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(13 rows)
 
 SELECT category, COUNT(*) as product_count
 FROM products
@@ -930,25 +924,22 @@ WHERE (description ||| 'laptop' OR description ||| 'keyboard')
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
-                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: category, (count(*))
-   ->  Sort
+   ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: category, (count(*))
-         Sort Key: (count(*)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: category, (count(*))
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: category
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-(16 rows)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=products, segments=1, eager=[category], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(13 rows)
 
 SELECT category, COUNT(*) as pcount
 FROM products
@@ -980,7 +971,7 @@ ORDER BY COUNT(category) DESC;
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
            Applies to Aggregates: COUNT(category)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (10 rows)
 
 SELECT category

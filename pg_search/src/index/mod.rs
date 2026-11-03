@@ -33,29 +33,43 @@ use crate::api::FieldName;
 use crate::index::mvcc::MVCCDirectory;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
-use anyhow::{Context, Result};
-use rand::{TryRng, rngs::SysRng};
+use std::sync::Arc;
+
+use anyhow::Result;
+use pgrx::pg_sys;
 use tantivy::columnar::CodecType;
 use tantivy::schema::FieldType;
-use tantivy::vector::{VectorQuantizationConfig, VectorQuantizationLayer};
+use tantivy::vector::VectorQuantizationConfig;
+use tantivy::vector::clustering::SuperKMeansClusterer;
 use tantivy::{Index, IndexSettings};
 
-/// Open the tantivy index behind `directory` the way every pg_search reader
-/// and writer must: with the index's IVF centroid router selected. Tantivy
-/// refuses to open an IVF segment for search, or to build one at merge time,
-/// without a configured router.
+/// Opens the tantivy index behind `directory` with the index's IVF clusterer installed.
 pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
     let indexrel = directory.indexrel().clone();
     let mut index = Index::open(directory)?;
-    crate::vector::clusterer::set_ivf_router(&mut index, indexrel.options())?;
+    set_ivf_clusterer(&mut index, indexrel.options());
     Ok(index)
+}
+
+/// Installs tantivy's SuperKMeans clusterer from the index options and the session's
+/// `maintenance_work_mem` (CREATE INDEX / VACUUM merge budget).
+///
+/// Tantivy doesn't persist the clusterer, so every open sets it.
+pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
+    // `maintenance_work_mem` is in kB; train/assign batch sizing wants bytes.
+    let memory_limit = (unsafe { pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+    let clusterer = SuperKMeansClusterer::new()
+        .with_max_leaf_size(options.max_leaf_size())
+        .with_training_sample_ratio(options.training_sample_ratio())
+        .with_memory_limit(memory_limit.max(1));
+    index.set_ivf_clusterer(Arc::new(clusterer));
 }
 
 /// Builds the Tantivy settings for a ParadeDB index.
 ///
 /// # Errors
 ///
-/// Returns an error when a quantized field is invalid or seed generation fails.
+/// Returns an error when a quantized field is invalid.
 pub fn index_settings(
     options: &BM25IndexOptions,
     schema: &tantivy::schema::Schema,
@@ -70,20 +84,10 @@ pub fn index_settings(
         let Some(bits) = field_config.quantization_layers() else {
             continue;
         };
-        let mut os_rng = SysRng;
-        let layers = bits
-            .into_iter()
-            .map(|bits| {
-                let seed = os_rng
-                    .try_next_u64()
-                    .context("failed to obtain an operating-system random quantization seed")?;
-                Ok(VectorQuantizationLayer { bits, seed })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        vector_quantization.push(VectorQuantizationConfig::materialize(
+        vector_quantization.push(VectorQuantizationConfig::with_random_seeds(
             field_name.to_string(),
             vector_options,
-            layers,
+            &bits,
         )?);
     }
 

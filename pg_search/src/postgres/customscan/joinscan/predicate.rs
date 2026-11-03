@@ -235,9 +235,7 @@ pub unsafe fn extract_single_table_predicate(
     side: &ScanInfo,
     expr: *mut pg_sys::Node,
 ) -> Option<crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate> {
-    let indexrelid = side.indexrelid;
-    let heaprelid = side.heaprelid;
-    let (_, bm25_idx) = rel_get_bm25_index(heaprelid)?;
+    let (_, bm25_idx) = rel_get_bm25_index(side.heaprelid)?;
 
     // Create a RestrictInfo wrapping the expression for extract_quals
     let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
@@ -262,14 +260,7 @@ pub unsafe fn extract_single_table_predicate(
     )?;
 
     let query = SearchQueryInput::from(&qual);
-    Some(
-        crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate {
-            rti,
-            indexrelid,
-            heaprelid,
-            query,
-        },
-    )
+    Some(crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate { query })
 }
 
 /// Check if all Var references in an expression are fast fields.

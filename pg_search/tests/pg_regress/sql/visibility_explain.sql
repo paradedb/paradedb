@@ -29,7 +29,6 @@ DECLARE
     launched int;
     leader boolean;
     setup_cost float8;
-    divisor float8;
     actual_count bigint;
     expected_count bigint;
     enabled boolean;
@@ -67,19 +66,14 @@ BEGIN
             ELSE
                 ASSERT parallelism ->> 'Worker Selection' = 'Cost model';
                 ASSERT jsonb_typeof(parallelism -> 'Estimated Query Work') = 'number';
-                IF parallelism ? 'Parallel Threshold' THEN
-                    ASSERT jsonb_typeof(parallelism -> 'Parallel Threshold') = 'number';
-                    ASSERT (requested > 0) =
-                        ((parallelism ->> 'Estimated Query Work')::float8 >
-                         (parallelism ->> 'Parallel Threshold')::float8);
-                    ASSERT (requested > 0) = (setup_cost = 0);
-                    IF requested > 0 THEN
-                        divisor := requested + leader::int;
-                        ASSERT abs((parallelism ->> 'Parallel Threshold')::float8 -
-                            (setup_cost + requested * 0.1) / (1 - 1 / divisor)) < 0.01;
-                    END IF;
-                ELSE
-                    ASSERT NOT leader AND worker_limit = 1 AND requested = 0;
+                ASSERT jsonb_typeof(parallelism -> 'Parallel Threshold') = 'number';
+                ASSERT (requested > 0) =
+                    ((parallelism ->> 'Estimated Query Work')::float8 >
+                     (parallelism ->> 'Parallel Threshold')::float8);
+                ASSERT (requested > 0) = (setup_cost = 0);
+                IF requested > 0 THEN
+                    ASSERT abs((parallelism ->> 'Parallel Threshold')::float8 -
+                        (setup_cost + requested * 0.1)) < 0.01;
                 END IF;
             END IF;
             SELECT count(*) INTO actual_count FROM visibility_stats_docs
@@ -188,6 +182,28 @@ SELECT check_sparse_visibility_stats();
 DELETE FROM visibility_stats_docs WHERE id = 1;
 SELECT check_sparse_visibility_stats();
 DROP FUNCTION check_sparse_visibility_stats();
+
+-- Stale visibility map warning: fires once per query when >=50% of scanned blocks
+-- and >= paradedb.visibility_map_warning_threshold blocks are dirty.
+DROP INDEX visibility_stats_idx;
+CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
+    WITH (sort_by = 'ctid ASC NULLS FIRST', mutable_segment_rows = 0,
+          target_segment_count = 2, layer_sizes = '10TB', background_layer_sizes = '0');
+VACUUM visibility_stats_docs;
+SET paradedb.visibility_map_warning_threshold = 100;
+-- Clean visibility map: no warning.
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+-- Dirty the majority of blocks across both segments: warns once per statement.
+UPDATE visibility_stats_docs SET padding = 'stale' WHERE id % 5 = 0;
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+-- Suppressed when paradedb.planner_warnings = 'off'.
+SET paradedb.planner_warnings = 'off';
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+RESET paradedb.planner_warnings;
+-- Silenced again after VACUUM refreshes the visibility map.
+VACUUM visibility_stats_docs;
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+RESET paradedb.visibility_map_warning_threshold;
 
 DROP FUNCTION check_visibility_stats(text);
 DROP TABLE visibility_stats_docs;

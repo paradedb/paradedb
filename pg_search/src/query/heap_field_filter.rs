@@ -27,7 +27,7 @@ use pgrx::{PgMemoryContexts, pg_sys};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::Field;
 use tantivy::{
-    DocId, DocSet, Score, SegmentReader, TERMINATED, Term,
+    DocId, DocSet, Score, SeekDangerResult, SegmentReader, TERMINATED, Term,
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
 };
 /// Core heap-based field filter using PostgreSQL expression evaluation
@@ -44,6 +44,8 @@ pub struct HeapFieldFilter {
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
     #[serde(skip)]
     heap_fetch_state: Option<HeapFetchState>,
+    #[serde(skip)]
+    scratch_context: Option<pg_sys::MemoryContext>,
 }
 
 impl Clone for HeapFieldFilter {
@@ -53,9 +55,22 @@ impl Clone for HeapFieldFilter {
             heap_filter: self.heap_filter.clone(),
             initialized_expression: None,
             heap_fetch_state: None,
+            scratch_context: None,
         }
     }
 }
+
+crate::impl_safe_drop!(HeapFieldFilter, |self| {
+    unsafe {
+        if let Some(context) = self
+            .scratch_context
+            .take()
+            .filter(|_| crate::postgres::utils::IsTransactionState())
+        {
+            pg_sys::MemoryContextDelete(context);
+        }
+    }
+});
 
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &HeapFieldFilter) -> bool {
@@ -75,6 +90,7 @@ impl HeapFieldFilter {
             heap_filter,
             initialized_expression: None,
             heap_fetch_state: None,
+            scratch_context: None,
         }
     }
 
@@ -141,12 +157,30 @@ impl HeapFieldFilter {
                 return false;
             }
 
-            // Evaluate the expression
-            let mut is_null = false;
-            let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+            let scratch_context = self.scratch_context.get_or_insert_with(|| {
+                pg_sys::AllocSetContextCreateExtended(
+                    (*econtext).ecxt_per_query_memory,
+                    c"HeapFieldFilter scratch context".as_ptr(),
+                    pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
+                )
+            });
 
-            // Convert the result to a boolean
-            bool::from_datum(result, is_null).unwrap_or(false)
+            let mut scratch = PgMemoryContexts::For(*scratch_context);
+            let (result, is_null) = scratch.switch_to(|_| {
+                let mut is_null = false;
+                let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+                (result, is_null)
+            });
+
+            let res = bool::from_datum(result, is_null).unwrap_or(false);
+
+            // A rejected candidate never reaches the scan's per-row reset, so the
+            // expression's scratch memory is reclaimed here, or it grows per candidate.
+            scratch.reset();
+
+            res
         })();
 
         // Restore original scan tuple
@@ -444,6 +478,9 @@ struct HeapFilterScorer {
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel: PgSearchRelation,
     current_doc: DocId,
+    /// `seek_danger` left `current_doc` on a document the heap filters have not accepted. The
+    /// `DocSet` contract then allows only further `seek_danger` calls until one returns `Found`.
+    in_danger: bool,
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
@@ -472,6 +509,7 @@ impl HeapFilterScorer {
             ctid_ff,
             heaprel: PgSearchRelation::open(rel_oid),
             current_doc: TERMINATED,
+            in_danger: false,
             expr_context,
             planstate,
         };
@@ -560,6 +598,7 @@ impl Scorer for HeapFilterScorer {
 
 impl DocSet for HeapFilterScorer {
     fn advance(&mut self) -> DocId {
+        self.in_danger = false;
         loop {
             pgrx::check_for_interrupts!();
 
@@ -573,6 +612,55 @@ impl DocSet for HeapFilterScorer {
             if self.passes_heap_filters(doc) {
                 self.current_doc = doc;
                 return doc;
+            }
+        }
+    }
+
+    // The default `seek` advances one document at a time and evaluates the heap filters on
+    // each, so an intersection seeking this scorer past the documents its driver skipped would
+    // fetch every one of them from the heap.
+    fn seek(&mut self, target: DocId) -> DocId {
+        if !self.in_danger && self.current_doc >= target {
+            return self.current_doc;
+        }
+        self.in_danger = false;
+        let doc = self.indexed_scorer.seek(target);
+        if doc == TERMINATED || self.passes_heap_filters(doc) {
+            self.current_doc = doc;
+            return doc;
+        }
+        self.advance()
+    }
+
+    // A probe at a rejected document answers with a lower bound instead of walking the
+    // indexed scorer (and the heap) to the next accepted one, which the caller may never ask
+    // for.
+    fn seek_danger(&mut self, target: DocId) -> SeekDangerResult {
+        if target >= TERMINATED {
+            return SeekDangerResult::SeekLowerBound(TERMINATED);
+        }
+        if !self.in_danger && self.current_doc >= target {
+            return if self.current_doc == target {
+                SeekDangerResult::Found
+            } else {
+                SeekDangerResult::SeekLowerBound(self.current_doc)
+            };
+        }
+        match self.indexed_scorer.seek_danger(target) {
+            SeekDangerResult::Found => {
+                self.current_doc = target;
+                if self.passes_heap_filters(target) {
+                    self.in_danger = false;
+                    SeekDangerResult::Found
+                } else {
+                    self.in_danger = true;
+                    SeekDangerResult::SeekLowerBound(target + 1)
+                }
+            }
+            SeekDangerResult::SeekLowerBound(bound) => {
+                self.current_doc = bound;
+                self.in_danger = true;
+                SeekDangerResult::SeekLowerBound(bound)
             }
         }
     }

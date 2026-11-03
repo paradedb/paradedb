@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A heap filter that calls an allocating function, such as `tags @> jsonb_build_array('x')`, no longer grows the backend's memory with every row it rejects (#6739).

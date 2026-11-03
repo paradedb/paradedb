@@ -67,6 +67,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
@@ -318,6 +319,20 @@ impl CreateUpperPathsHookArgs {
         }
     }
 
+    /// The underlying scan/join relation (`RELOPT_BASEREL` or `RELOPT_JOINREL`).
+    ///
+    /// At `UPPERREL_GROUP_AGG` and `UPPERREL_DISTINCT`, `input_rel` is the
+    /// scan/join relation directly. At `UPPERREL_FINAL`, `input_rel` is an
+    /// upper relation (`UPPERREL_WINDOW` or `UPPERREL_ORDERED`), so the
+    /// scan/join relation is recovered via `find_final_rel`.
+    pub unsafe fn scan_join_rel(&self) -> Option<&pg_sys::RelOptInfo> {
+        if self.stage == pg_sys::UpperRelationKind::UPPERREL_FINAL {
+            joinscan::planning::find_final_rel(self.root).as_ref()
+        } else {
+            self.input_rel.as_ref()
+        }
+    }
+
     /// The pathkeys of the GROUP BY keys.
     ///
     /// On PG16 and later, `group_pathkeys` can have more entries after these:
@@ -368,10 +383,34 @@ impl CreateUpperPathsHookArgs {
         )
     }
 
-    /// The statically-known `LIMIT + OFFSET` of the query, or `None` when there
-    /// is no LIMIT or its value is parameterized (not known at planning time).
+    /// The query's `LIMIT`/`OFFSET` as the grouping stage sees it, or `None`
+    /// when there is no LIMIT.
+    ///
+    /// Above a `GROUP BY`, a `DISTINCT` or a window function runs between the
+    /// grouping and the `Limit` node and needs every grouped row, so a fetch
+    /// pushed into the grouping would starve it. The `DISTINCT` can fold the
+    /// fetched rows into fewer than the limit, and `count(*) OVER ()` would
+    /// count the fetch instead of the groups. A scan planned at
+    /// `UPPERREL_DISTINCT` runs the `DISTINCT` itself and sits above the
+    /// window stage, so it sees the `Limit` next.
+    pub fn grouping_limit_offset(&self) -> Option<LimitOffset> {
+        let parse = self.root().parse;
+        if parse.is_null() {
+            return None;
+        }
+        let has_stage_above = self.stage == pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+            && unsafe { !(*parse).distinctClause.is_null() || (*parse).hasWindowFuncs };
+        if has_stage_above {
+            return None;
+        }
+        LimitOffset::from_parse(parse)
+    }
+
+    /// The statically-known `LIMIT + OFFSET` of [`Self::grouping_limit_offset`],
+    /// or `None` when its value is parameterized (not known at planning time).
     pub fn limit_plus_offset(&self) -> Option<usize> {
-        limit_offset::LimitOffset::from_parse(self.root().parse).and_then(|lo| lo.static_fetch())
+        self.grouping_limit_offset()
+            .and_then(|lo| lo.static_fetch())
     }
 
     /// True when the query groups by exactly one column. Tantivy's bounded top-N
@@ -452,6 +491,33 @@ impl CreateUpperPathsHookArgs {
         }
 
         false
+    }
+
+    /// True when the query sums a direct `int8` column reference. PostgreSQL sums
+    /// `bigint` into an exact NUMERIC, but the Tantivy aggregation engine sums in
+    /// f64, which rounds values past 2^53, so these queries must route to the
+    /// DataFusion backend. Wrapped arguments stay on Tantivy, as in
+    /// [`Self::has_numeric_aggregate`].
+    pub unsafe fn has_int8_sum_aggregate(&self) -> bool {
+        let parse = self.root().parse;
+        if parse.is_null() {
+            return false;
+        }
+
+        let is_int8_sum = |node: *mut pg_sys::Node| {
+            crate::nodecast!(Aggref, T_Aggref, node).is_some_and(|aggref| {
+                (*aggref).aggfnoid.to_u32() == pg_sys::F_SUM_INT8
+                    && PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
+                        .iter_ptr()
+                        .any(|arg| {
+                            aggregatescan::join_targetlist::unwrap_to_var((*arg).expr.cast())
+                                .is_some()
+                        })
+            })
+        };
+
+        (!(*parse).targetList.is_null() && (*parse).targetList.any(is_int8_sum))
+            || (!(*parse).havingQual.is_null() && (*parse).havingQual.any(is_int8_sum))
     }
 
     /// Returns true when a `GROUP BY` expression is `date(timestamp)` or

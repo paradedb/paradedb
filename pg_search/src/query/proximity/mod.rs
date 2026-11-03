@@ -135,7 +135,10 @@ mod pdb {
                         tantivy_fst::Regex::new(pattern.as_str()).unwrap_or_else(|e| panic!("{e}"));
                     let inverted_index = segment_reader.inverted_index(field)?;
                     let dict = inverted_index.terms();
-                    let mut term_stream = dict.search_with_state(regex).into_stream()?;
+                    let mut term_stream = dict
+                        .search_with_state(regex)
+                        .interruptible()
+                        .into_stream()?;
 
                     let mut terms = Vec::new();
                     while let Some((bytes, ..)) = term_stream.next() {

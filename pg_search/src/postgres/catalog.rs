@@ -209,6 +209,18 @@ pub fn lookup_opfamily_name(opfamily_oid: pg_sys::Oid) -> Option<String> {
     }
 }
 
+/// `pg_class.reltuples` for `relid`, the planner's row count. `None` when the relation
+/// has never been counted (stored as -1) or no longer exists. The syscache answers, so
+/// the relation is not opened or locked.
+pub fn lookup_reltuples(relid: pg_sys::Oid) -> Option<f64> {
+    unsafe {
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::RELOID, relid.into_datum()?)?;
+        let reltuples: f32 = entry.attr(pg_sys::Anum_pg_class_reltuples)?;
+        (reltuples >= 0.0).then_some(reltuples as f64)
+    }
+}
+
 /// Helper function to lookup a function's [`pg_sys::Oid`] by name, argument types, and namespace
 pub fn lookup_procoid(
     namespace: &CStr,

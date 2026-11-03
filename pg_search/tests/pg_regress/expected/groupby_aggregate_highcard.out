@@ -43,22 +43,20 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: rating
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=11), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
-(13 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: rating
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=11), expr=[rating@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(11 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -67,21 +65,20 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating, id
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: id, rating
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[id@0 as id, rating@1 as rating], aggr=[count(1) as agg_0]
-                 :   CooperativeExec
-                 :     PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-(12 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: id, rating
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[rating@1 ASC NULLS LAST, id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[id@0 as id, rating@1 as rating], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=products, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(11 rows)
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -127,22 +124,20 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (count(*))
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: rating
-               Aggregates: COUNT(*)
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
-                 :     CooperativeExec
-                 :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-(13 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: products_idx (products)
+         Group By: rating
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=products, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+(11 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

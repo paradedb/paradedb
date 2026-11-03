@@ -906,7 +906,8 @@ fn index_sort_by_many_segments(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_many_segments_idx ON test_many_segments
-        USING paradedb (id, content, score) WITH (sort_by = 'score DESC NULLS LAST');
+        USING paradedb (id, content, score)
+        WITH (sort_by = 'score DESC NULLS LAST', background_layer_sizes = '0');
     "#
     .execute(&mut conn);
 
@@ -1003,7 +1004,8 @@ fn index_sort_by_many_segments_parallel(mut conn: PgConnection) {
         );
 
         CREATE INDEX test_many_segments_parallel_idx ON test_many_segments_parallel
-        USING paradedb (id, content, priority) WITH (sort_by = 'priority DESC NULLS LAST');
+        USING paradedb (id, content, priority)
+        WITH (sort_by = 'priority DESC NULLS LAST', background_layer_sizes = '0');
     "#
     .execute(&mut conn);
 

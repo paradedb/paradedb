@@ -69,7 +69,9 @@ mod tests {
         assert_eq!(&packed[idx_range.clone()], idx_data.as_slice());
 
         // Test SharedMemoryDirectory
-        let reader_guard = Arc::new(ActiveReaderGuard { slot_index: 0 });
+        let reader_guard = Arc::new(ActiveReaderGuard {
+            slot_index: MAX_SLOTS,
+        });
         let shmem_dir =
             SharedMemoryDirectory::new(packed.as_ptr(), packed.len(), reader_guard, toc);
 
@@ -103,6 +105,41 @@ mod tests {
                 .is_err()
         );
         assert!(shmem_dir.delete(Path::new("dummy")).is_ok());
+    }
+
+    #[pg_test]
+    fn test_shared_cache_hit_and_invalidation() {
+        assert!(load_cache().is_some(), "cache must be preloaded");
+        let segment_id = SegmentId::generate_random();
+        let key = MutableCacheKey {
+            database_oid: unsafe { pg_sys::MyDatabaseId },
+            index_oid: pg_sys::InvalidOid,
+            segment_id: *segment_id.uuid_bytes(),
+            bound: MutableSegmentBound {
+                max_doc: 1,
+                num_deleted_docs: 0,
+            },
+        };
+        let path = PathBuf::from(format!("{}.fast", segment_id.uuid_string()));
+        let first = get_or_build(&key, || {
+            let directory = RamDirectory::default();
+            directory.atomic_write(&path, &[1, 2, 3])?;
+            Ok(directory)
+        })
+        .unwrap();
+        let cached = get_or_build(&key, || panic!("cache hit must not rebuild")).unwrap();
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+        assert_eq!(cached.atomic_read(&path).unwrap(), [1, 2, 3]);
+        drop(first);
+        drop(cached);
+        let replacement = get_or_build(&key, || {
+            let directory = RamDirectory::default();
+            directory.atomic_write(&path, &[4, 5, 6])?;
+            Ok(directory)
+        })
+        .unwrap();
+        assert_eq!(replacement.atomic_read(&path).unwrap(), [4, 5, 6]);
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
     }
 
     #[pg_test]

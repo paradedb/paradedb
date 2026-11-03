@@ -91,14 +91,23 @@ impl From<pg_sys::shm_mq_result::Type> for MessageQueueSendError {
 }
 
 pub struct MessageQueueSender {
+    // Declared before `handle` so Rust's field drop order runs `WorkerStatsGuard::drop`
+    // (`InstrEndParallelQuery`) before `MessageQueueHandle::drop` detaches the `shm_mq` and
+    // unblocks `ParallelProcessFinish::recv()` on the leader.
+    _stats: Option<crate::parallel_worker::WorkerStatsGuard>,
     handle: MessageQueueHandle,
 }
 
 impl MessageQueueSender {
     #[doc(hidden)]
-    pub(crate) unsafe fn new(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(crate) unsafe fn new(
+        seg: *mut pg_sys::dsm_segment,
+        mq: *mut pg_sys::shm_mq,
+        stats: Option<crate::parallel_worker::WorkerStatsGuard>,
+    ) -> Self {
         unsafe {
             Self {
+                _stats: stats,
                 handle: MessageQueueHandle::attach_sender(seg, mq),
             }
         }

@@ -35,7 +35,6 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
 use datafusion::common::{
     Column, DFSchema, DataFusionError, Result, TableReference, internal_datafusion_err,
     internal_err, plan_err,
@@ -44,8 +43,8 @@ use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{
-    AggregateUDF, Expr, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
-    WindowFunctionDefinition, col,
+    AggregateUDF, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder,
+    LogicalPlanBuilderOptions, SortExpr, WindowFunctionDefinition, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -59,12 +58,11 @@ use super::window_func::{
     SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
     WindowAggIndex,
 };
-use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
-use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    numeric_avg_func_with_args, numeric_sum_func_with_args,
-};
+use crate::postgres::customscan::aggregatescan::datafusion_exec::FilterExprExecContext;
+use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
 use crate::postgres::customscan::datafusion::topk_agg::{
@@ -73,6 +71,7 @@ use crate::postgres::customscan::datafusion::topk_agg::{
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
 };
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -523,13 +522,19 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
         .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
 
     let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+    let propagate_empty_pos = optimizer_rules
+        .iter()
+        .position(|r| r.name() == "propagate_empty_relation")
+        .expect("propagate_empty_relation optimizer rule not found");
+    optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
+
     let pos = optimizer_rules
         .iter()
         .position(|r| r.name() == "optimize_projections")
         .expect("optimize_projections optimizer rule not found");
     // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
-    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
-    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
+    // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
     // DataFusion dropping `projection_beneficial` across extension nodes).
     // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
     // above `VisibilityFilterNode`.
@@ -541,7 +546,6 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     optimizer_rules.push(Arc::new(
         super::range_partitioning_rule::RangePartitioningRule::new(),
     ));
-    optimizer_rules.push(Arc::new(PropagateEmptyUnnestRule));
     builder = builder.with_optimizer_rules(optimizer_rules);
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
@@ -549,11 +553,13 @@ pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
     let mut physical_rules =
         datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
     let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+    let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
     let pos = physical_rules
         .iter()
         .position(|r| r.name() == "EnsureRequirements")
         .expect("EnsureRequirements physical optimizer rule not found");
     physical_rules.insert(pos, co_partitioned_rule);
+    physical_rules.insert(pos + 1, rank_join_rule);
     builder = builder.with_physical_optimizer_rules(physical_rules);
 
     // Placement reads the final join sides and modes, so it follows the co-partitioning
@@ -889,25 +895,23 @@ fn build_clause_df<'a>(
         // `distinct_col_map` as before. In non-DISTINCT, the output projection
         // resolves the original names
         //
-        // When a query's fetch is statically known, a query with window aggregates always
-        // will take this path: they are computed in that same aggregate node (see
-        // `apply_topk_as_agg`). If the fetch is not statically known, the fallback
-        // path can still compute sql window functions
+        // When a query has a LIMIT, a query with window aggregates always takes this
+        // path: they are computed in that same aggregate node (see `apply_topk_as_agg`).
+        // A parameterized LIMIT or OFFSET leaves k unbound here, and execution binds it
+        // (`bind_topk_agg_fetch`). Without a LIMIT, which only reaches here in a
+        // subquery, there is no k, and the fallback path computes SQL window functions
         //
         // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
         let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
             || !join_clause.window_aggs.is_empty())
-            && let Some(fetch) = join_clause
-                .limit_offset
-                .as_ref()
-                .and_then(|lo| lo.static_fetch())
+            && let Some(lo) = &join_clause.limit_offset
         {
             let (df, distinct_col_map) =
-                apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
+                apply_topk_as_agg(df, join_clause, &private_data.output_columns, lo)?;
             (df, distinct_col_map, PathTaken::TopKAsAgg)
         } else {
-            // if no static offset + k is known (so this branch is taken), we can still compute sql
-            // window functions. (pdb.agg() window functions are rejected elsewhere)
+            // Without a LIMIT (or with neither window aggregates nor the GUC) there is no
+            // Top-K aggregate, but SQL window functions can still be computed here.
             let df = apply_sql_window_functions(df, join_clause)?;
 
             let (df, distinct_col_map) =
@@ -1261,7 +1265,9 @@ struct FinalizedTopKAgg {
 }
 
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
-/// projection, returning `fetch` rows in ORDER BY order.
+/// projection, returning its `LIMIT + OFFSET` rows in ORDER BY order. A parameterized
+/// LIMIT or OFFSET leaves the aggregate's k unbound until execution binds it (see
+/// `bind_topk_agg_fetch`).
 ///
 /// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
 /// carry are the output projection's expressions either way, which is what
@@ -1281,7 +1287,7 @@ fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    fetch: usize,
+    limit_offset: &LimitOffset,
 ) -> Result<(DataFrame, DistinctColMap)> {
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
@@ -1314,7 +1320,7 @@ fn apply_topk_as_agg(
     let topk_agg = topk_as_agg(
         &finalized.topk_payload_list,
         finalized.rebased_sort_exprs,
-        fetch,
+        limit_offset,
         &finalized.ctid_positions,
         join_clause.has_distinct,
     );
@@ -1586,38 +1592,48 @@ fn resolve_orderby_feature(
                     })
             }
         }
-        OrderByFeature::ScoreSum { rtis } => {
-            let score_cols: Result<Vec<Expr>> = rtis
-                .iter()
-                .map(|rti| {
-                    if !distinct_col_map.is_empty() {
-                        resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
-                            DataFusionError::Plan(format!(
-                                "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
-                            ))
-                        })
-                    } else {
-                        join_clause
-                            .plan
-                            .output_sources()
-                            .iter()
-                            .find(|s| s.scan_info.heap_rti == *rti)
-                            .map(|source| make_source_score_col(source))
-                            .ok_or_else(|| {
+        OrderByFeature::ScoreSum { expr, .. } => {
+            fn build_score_order_expr(
+                expr: &crate::api::ScoreOrderExpr,
+                join_clause: &JoinCSClause,
+                distinct_col_map: &DistinctColMap,
+            ) -> Result<Expr> {
+                match expr {
+                    crate::api::ScoreOrderExpr::Score { rti } => {
+                        if !distinct_col_map.is_empty() {
+                            resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
                                 DataFusionError::Plan(format!(
-                                    "JoinScan: could not find source for score sum RTI {rti}"
+                                    "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
                                 ))
                             })
+                        } else {
+                            join_clause
+                                .plan
+                                .output_sources()
+                                .iter()
+                                .find(|s| s.scan_info.heap_rti == *rti)
+                                .map(|source| make_source_score_col(source))
+                                .ok_or_else(|| {
+                                    DataFusionError::Plan(format!(
+                                        "JoinScan: could not find source for score sum RTI {rti}"
+                                    ))
+                                })
+                        }
                     }
-                })
-                .collect();
-
-            score_cols?
-                .into_iter()
-                .reduce(|acc, col_expr| acc + col_expr)
-                .ok_or_else(|| {
-                    DataFusionError::Plan("JoinScan: empty RTI list in ScoreSum".to_string())
-                })
+                    crate::api::ScoreOrderExpr::Constant(c) => {
+                        Ok(datafusion::prelude::lit(*c as f32))
+                    }
+                    crate::api::ScoreOrderExpr::Add(l, r) => {
+                        Ok(build_score_order_expr(l, join_clause, distinct_col_map)?
+                            + build_score_order_expr(r, join_clause, distinct_col_map)?)
+                    }
+                    crate::api::ScoreOrderExpr::Mul(l, r) => {
+                        Ok(build_score_order_expr(l, join_clause, distinct_col_map)?
+                            * build_score_order_expr(r, join_clause, distinct_col_map)?)
+                    }
+                }
+            }
+            build_score_order_expr(expr, join_clause, distinct_col_map)
         }
         OrderByFeature::Field { name, rti } => {
             if !distinct_col_map.is_empty() {
@@ -1682,7 +1698,8 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         let WindowAggDef::Sql(sql) = &info.agg_def else {
             continue;
         };
-        let expr = window_expr(sql, join_clause)?;
+        let mut expr = window_expr(sql, join_clause)?;
+        expr = maybe_apply_filter_to_expr(expr, info.filter.as_ref(), &join_clause.plan)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1697,6 +1714,40 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         return Ok(df);
     }
     df.window(window_exprs)
+}
+
+fn maybe_apply_filter_to_expr(
+    expr: Expr,
+    filter: Option<&FilterExpr>,
+    plan: &RelNode,
+) -> Result<Expr> {
+    let Some(f) = filter else {
+        return Ok(expr);
+    };
+    let filter = f
+        .to_datafusion(&FilterExprExecContext {
+            targetlist: None,
+            plan: Some(plan),
+        })
+        .ok_or(DataFusionError::Internal(
+            "couldn't convert window function predicate to a datafusion predicate".to_string(),
+        ))?;
+    let expr = match expr {
+        Expr::AggregateFunction(_) => expr.filter(filter).build()?,
+        Expr::WindowFunction(mut wf) => {
+            wf.params.filter = Some(Box::new(filter));
+            Expr::WindowFunction(wf)
+        }
+        // the only other non-aggregate shape we expect is the constant shape from
+        // `lower_sql_window_agg`.
+        Expr::Literal(l, m) => Expr::Literal(l, m),
+        other => {
+            return internal_err!(
+                "Found unexpected expression shape {other:?} when applying filter"
+            );
+        }
+    };
+    Ok(expr)
 }
 
 /// The extracted window aggregates, each paired with its `window_agg_N` column
@@ -1723,10 +1774,11 @@ fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<SeparatedWin
         if join_clause.window_aggs.canonical_index(index) != index {
             continue;
         }
-        let e = match &info.agg_def {
+        let mut e = match &info.agg_def {
             WindowAggDef::Sql(sql) => aggregate_expr(sql, join_clause)?,
             WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
         };
+        e = maybe_apply_filter_to_expr(e, info.filter.as_ref(), &join_clause.plan)?;
         match unalias(e.clone()) {
             Expr::AggregateFunction(_) => exprs.push((index.as_col_name(), e)),
             Expr::Literal(_, _) => consts.push((index.as_col_name(), e)),
@@ -1753,8 +1805,6 @@ fn lower_sql_window_agg(
     info: &SqlWindowAggDef,
     join_clause: &JoinCSClause,
 ) -> Result<LoweredSqlWindowAgg> {
-    use datafusion::functions_aggregate::{average, count, min_max, sum};
-
     let col_expr = match info.col_info() {
         Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
             Some(ce) => Some(ce),
@@ -1782,45 +1832,7 @@ fn lower_sql_window_agg(
         None => None,
     };
     let numeric_field = numeric_window_field(info.agg_type(), info.arg_field_type())?;
-
-    // Match only basic aggregate functions. Missing and filters are not supported in global window
-    // functions
-    //
-    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    let (udaf, args) = match info.agg_type() {
-        SupportedWindowAggType::Sum => {
-            let ce = col_expr.expect("should always have a column expression for SUM");
-            match numeric_field {
-                Some(field_type) => numeric_sum_func_with_args(ce, field_type),
-                None => (sum::sum_udaf(), vec![ce]),
-            }
-        }
-        SupportedWindowAggType::Avg => {
-            let ce = col_expr.expect("should always have a column expression for AVG");
-            match numeric_field {
-                Some(field_type) => numeric_avg_func_with_args(ce, field_type),
-                None => (average::avg_udaf(), vec![ce]),
-            }
-        }
-        SupportedWindowAggType::Min => (
-            min_max::min_udaf(),
-            vec![col_expr.expect("should always have a column expression for MIN")],
-        ),
-        SupportedWindowAggType::Max => (
-            min_max::max_udaf(),
-            vec![col_expr.expect("should always have a column expression for MAX")],
-        ),
-        SupportedWindowAggType::Count => (
-            count::count_udaf(),
-            vec![col_expr.expect("should always have a column expression for COUNT")],
-        ),
-        SupportedWindowAggType::CountStar => (
-            count::count_udaf(),
-            vec![datafusion::logical_expr::lit(COUNT_STAR_EXPANSION)],
-        ),
-    };
+    let (udaf, args) = info.agg_type().udaf_with_args(col_expr, numeric_field)?;
     Ok(LoweredSqlWindowAgg::Call(udaf, args))
 }
 
@@ -1916,15 +1928,7 @@ fn build_sort_exprs(
             other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
-        let asc = matches!(
-            info.direction,
-            SortDirection::AscNullsFirst | SortDirection::AscNullsLast
-        );
-        let nulls_first = matches!(
-            info.direction,
-            SortDirection::AscNullsFirst | SortDirection::DescNullsFirst
-        );
-        sort_exprs.push(expr.sort(asc, nulls_first));
+        sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
     }
 
     Ok(sort_exprs)

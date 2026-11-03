@@ -63,11 +63,14 @@ impl PagingExprs {
 ///
 /// This strategy limits itself to combinations which allow for deterministic comparison:
 /// it will always generate an `ORDER BY` including one of the given tiebreaker columns (which are
-/// assumed to be unique).
+/// assumed to be unique). `OFFSET` and `LIMIT` each draw from `0..page_bound`: an offset past the
+/// rows the query can return makes every page empty, so a bound near that count keeps the
+/// pages meaningful.
 pub fn arb_paging_exprs(
     table: impl AsRef<str>,
     columns: Vec<&str>,
     tiebreaker_columns: Vec<&str>,
+    page_bound: usize,
 ) -> impl Strategy<Value = String> {
     let columns = columns
         .into_iter()
@@ -107,8 +110,8 @@ pub fn arb_paging_exprs(
             (
                 Just(order_by_prefix),
                 suffixes,
-                proptest::option::of(0..100_usize),
-                proptest::option::of(0..100_usize),
+                proptest::option::of(0..page_bound),
+                proptest::option::of(0..page_bound),
             )
         })
         .prop_map(|(cols, suffixes, offset, limit)| {

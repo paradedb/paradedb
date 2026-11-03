@@ -325,6 +325,8 @@ pub struct ActiveReaderGuard {
     slot_index: usize,
 }
 
+// We intentionally do NOT use `impl_safe_drop!` here because shared reader counts must
+// be released even when the query unwinds.
 impl Drop for ActiveReaderGuard {
     fn drop(&mut self) {
         if let Some(cache) = load_cache() {
@@ -693,6 +695,8 @@ struct InflightBuildGuard {
     completed: bool,
 }
 
+// We intentionally do NOT use `impl_safe_drop!` here because an aborted build must
+// clear its claim while its backend PID is still alive.
 impl Drop for InflightBuildGuard {
     fn drop(&mut self) {
         if self.completed {
@@ -753,7 +757,7 @@ pub fn get_or_build(
                 slot.active_readers.fetch_add(1, Ordering::AcqRel);
                 let _ = slot
                     .usage_count
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
                         Some((u + 1).min(5))
                     });
                 let reader_guard = Arc::new(ActiveReaderGuard { slot_index: idx });

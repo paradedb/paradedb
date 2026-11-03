@@ -54,6 +54,7 @@ VALUES
 CREATE INDEX issue_4906_ltree_idx
 ON issue_4906_ltree
 USING paradedb (id, category, title);
+WARNING:  Direct indexing of `ltree` fields in ParadeDB is deprecated and will be removed in a future release. Use a PostgreSQL GiST index ('USING gist (category)') alongside the ParadeDB index instead.
 ANALYZE issue_4906_ltree;
 -- Force the planner to choose Custom Scan when we ask for it via `pdb.all()`.
 -- enable_custom_scan_without_operator stays OFF throughout, so the only thing
@@ -405,6 +406,7 @@ CREATE INDEX issue_4906_ltree_partial_idx
 ON issue_4906_ltree_partial
 USING paradedb (id, category, title)
 WHERE is_indexed;
+WARNING:  Direct indexing of `ltree` fields in ParadeDB is deprecated and will be removed in a future release. Use a PostgreSQL GiST index ('USING gist (category)') alongside the ParadeDB index instead.
 ANALYZE issue_4906_ltree_partial;
 SET enable_seqscan = off;
 SET enable_indexscan = off;

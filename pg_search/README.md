@@ -99,7 +99,10 @@ Unit tests live in `pg_search/src` and run with:
 cargo test -p pg_search -- a_specific_method_to_run
 ```
 
-Tests marked `#[pg_test]` run inside the Postgres process and can use the full `pgrx` API. The annotation automatically reinstalls the extension — no manual install needed.
+There are two kinds of unit tests in `pg_search`:
+
+- **Pure Rust unit tests (`#[test]`):** Defined inside `#[cfg(test)] mod tests`. They run directly in the standalone test binary without starting Postgres, so they must not call code that transitively references Postgres (`pgrx` / `pg_sys`) symbols (such as GUC accessors, full session builders, or plan codecs). If a `#[test]` pulls in Postgres backend symbols (like `_BufferBlocks` or `_CurrentMemoryContext`), the test binary will fail to link on Linux or abort on startup on macOS with `dyld: symbol not found in flat namespace`. When this happens, either simplify the test to avoid the transitive `pg_sys` dependency or convert it to a `#[pg_test]`.
+- **In-Postgres unit tests (`#[pg_test]`):** Run inside a Postgres backend as SQL functions and can use the full `pgrx` API. The annotation automatically reinstalls the extension — no manual install needed. Enclosing modules for `#[pg_test]` must be annotated with both `#[cfg(any(test, feature = "pg_test"))]` and `#[pgrx::pg_schema]` so `pgrx` exports the SQL wrapper when building the extension for tests.
 
 For the other test categories (pg regress, integration tests, client property tests, stress tests, upgrade tests), see:
 

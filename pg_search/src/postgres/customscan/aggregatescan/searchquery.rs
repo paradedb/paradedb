@@ -24,9 +24,10 @@ use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+    optimize_quals_with_heap_expr,
 };
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
+use crate::postgres::utils::filter_implied_predicates;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 
@@ -79,10 +80,6 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             return Err("relation is a join".into());
         }
 
-        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
-            return Err("query does not imply the partial index predicate".into());
-        }
-
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
         if !has_where_clause {
             return Ok(SearchQueryClause {
@@ -128,7 +125,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             );
         }
 
-        let quals = match extract_quals(
+        let mut quals = match extract_quals(
             &PlannerContext::from_planner(args.root),
             heap_rti,
             filtered_restrict_info.as_ptr().cast(),
@@ -141,6 +138,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             Some(q) => q,
             None => return Err("could not extract search query from quals".into()),
         };
+        unsafe { optimize_quals_with_heap_expr(&mut quals) };
 
         Ok(SearchQueryClause {
             query: SearchQueryInput::from(&quals),

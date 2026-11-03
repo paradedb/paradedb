@@ -13,6 +13,8 @@ Examples include `ltree` path filters or PostGIS spatial filters.
 When a useful external index is available, ParadeDB can use it to narrow the candidate rows before returning search results.
 Without that external index, ParadeDB still returns correct results, but it checks the specialized filter row by row.
 
+## Geometric Filters
+
 As an example, let's start with the built-in `mock_items` table and create a larger example table with one specialized `location` column.
 
 ```sql
@@ -164,6 +166,129 @@ Custom Scan (ParadeDB Base Scan) on mock_items_geo
   ->  Bitmap Index Scan on geo_location_idx
         Index Cond: (location <@ '<(50,20),4>'::circle)
 ```
+
+## Hierarchical Filters
+
+For hierarchical filters, combine the ParadeDB index with a PostgreSQL GiST index on an `ltree` column.
+
+Starting with `mock_items`, create a table with a product hierarchy and separate indexes for text search and path filtering:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS ltree;
+
+DROP TABLE IF EXISTS mock_items_paths;
+
+CREATE TABLE mock_items_paths AS
+SELECT id, description,
+  CASE WHEN category = 'Footwear'
+    THEN 'Products.Footwear'::ltree
+    ELSE 'Products.Other'::ltree
+  END AS path
+FROM mock_items;
+
+CREATE INDEX paths_search_idx ON mock_items_paths
+USING paradedb (id, description);
+
+CREATE INDEX paths_path_idx ON mock_items_paths
+USING gist (path);
+```
+
+Combine text search with a descendant filter using `AND`:
+
+<CodeGroup>
+```sql SQL
+SELECT id, description
+FROM mock_items_paths
+WHERE description ||| 'running shoes'
+  AND path <@ 'Products.Footwear'::ltree
+ORDER BY id
+LIMIT 10;
+```
+
+```ts Drizzle
+import { and, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const path = "Products.Footwear";
+
+await db
+  .select({
+    id: mockItemsPaths.id,
+    description: mockItemsPaths.description,
+  })
+  .from(mockItemsPaths)
+  .where(
+    and(
+      search.matchAny(mockItemsPaths.description, "running shoes"),
+      sql`${mockItemsPaths.path} <@ ${path}::ltree`,
+    ),
+  )
+  .orderBy(mockItemsPaths.id)
+  .limit(10);
+```
+
+```python Django
+from paradedb import MatchAny, ParadeDB
+
+list(
+    MockItemPath.objects.filter(
+        description=ParadeDB(MatchAny("running shoes")),
+    ).extra(
+        where=["path <@ %s::ltree"],
+        params=["Products.Footwear"],
+    ).order_by("id").values("id", "description")[:10]
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItemPath.id, MockItemPath.description)
+    .where(
+        search.match_any(MockItemPath.description, "running shoes"),
+        text("path <@ CAST(:path AS ltree)"),
+    )
+    .order_by(MockItemPath.id)
+    .limit(10)
+)
+
+with Session(engine) as session:
+    session.execute(stmt, {"path": "Products.Footwear"}).all()
+```
+
+```ruby Rails
+MockItemPath.search(:description)
+            .match_any("running shoes")
+            .where("path <@ ?::ltree", "Products.Footwear")
+            .order(:id)
+            .limit(10)
+            .select(:id, :description)
+            .to_a
+```
+
+```cs EF Core
+var path = "Products.Footwear";
+
+await dbContext
+    .MockItemsPaths.FromSqlInterpolated($"""
+        SELECT id, description
+        FROM mock_items_paths
+        WHERE description ||| {"running shoes"}
+          AND path <@ {path}::ltree
+        """)
+    .OrderBy(item => item.Id)
+    .Take(10)
+    .Select(item => new { item.Id, item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+As with geometric filters, ParadeDB can combine the GiST index candidates with its text search matches when the path filter is selective enough.
+The GiST index also supports ancestor filters (`@>`), path patterns (`~`, `?`), and text queries over paths (`@`). See the [PostgreSQL `ltree` reference](https://www.postgresql.org/docs/current/ltree.html#LTREE-INDEXES).
 
 ## Limitations
 

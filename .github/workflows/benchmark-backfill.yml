@@ -26,17 +26,22 @@ permissions:
   actions: write
   contents: write
 
-# We don't specify a concurrency group here, as we want all jobs to complete.
+# Only the reset job, which clears benchmark history on gh-pages, uses the publication queue.
+# Jobs that dispatch benchmark workflows run in parallel.
 
 jobs:
   reset:
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+      queue: max
     name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App Token
         id: app-token
         if: ${{ inputs.reset_data }}
-        uses: actions/create-github-app-token@v3.2.0 # Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.2.0; Keep the exact pin because actionlint 1.7.12 has stale @v3 metadata that rejects client-id
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -44,13 +49,13 @@ jobs:
       # Check out the local signing action separately because gh-pages does not contain it.
       - name: Checkout Workflow Actions
         if: ${{ inputs.reset_data }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Checkout Git Repository at ref=gh-pages
         if: ${{ inputs.reset_data }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: gh-pages
           path: benchmark-data
@@ -86,7 +91,7 @@ jobs:
 
     steps:
       - name: Fire Benchmark for ${{ matrix.sha }}
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           BENCHMARK_SHA: ${{ matrix.sha }}
         with:
@@ -110,7 +115,7 @@ jobs:
             core.info(`queued ${wf} for ${sha}`);
 
       - name: Fire Stressgres for ${{ matrix.sha }}
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           BENCHMARK_SHA: ${{ matrix.sha }}
         with:

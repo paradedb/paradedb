@@ -17,7 +17,7 @@
 
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
-use crate::index::reader::index::SearchIndexManifest;
+use crate::index::reader::index::{SearchIndexManifest, SegmentPruningEstimate};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::aggregatescan::explain::AggregateParallelism;
@@ -128,6 +128,7 @@ pub struct WrappedAggregateProjection {
 
 #[derive(Default)]
 pub struct AggregateScanState {
+    pub segment_pruning: SegmentPruningEstimate,
     pub visibility_stats: VisibilityStats,
     pub parallelism: Option<AggregateParallelism>,
     pub state: ExecutionState,

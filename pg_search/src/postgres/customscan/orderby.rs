@@ -32,13 +32,14 @@ use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
     VarContext, fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers,
 };
 use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
 use crate::vector::metric::VectorMetric;
-use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_sys};
+use pgrx::{FromDatum, PgList, pg_sys};
 
 /// The type of sort expression found in an ORDER BY clause.
 #[derive(Debug, Clone, PartialEq)]
@@ -129,13 +130,7 @@ impl PathKeyInfo {
 
 /// Helper function to get the OID of the text lower function
 pub fn text_lower_funcoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"pg_catalog.lower(text)".into_datum()],
-        )
-        .expect("the `pg_catalog.lower(text)` function should exist")
-    }
+    pg_sys::F_LOWER_TEXT.into()
 }
 
 unsafe fn extract_score_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
@@ -663,6 +658,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
     if parse.is_null()
         || unsafe { (*parse).sortClause.is_null() }
         || unsafe { (*parse).limitCount.is_null() }
+        || unsafe { (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES }
     {
         return false;
     }
@@ -740,6 +736,12 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 Some(res) => res,
                 None => return false,
             };
+
+            // A partitioned table is read by one scan per partition, so no single scan
+            // sees its whole Top K, and its index has no storage to read a schema from.
+            if is_partitioned_index(bm25_index.oid()) {
+                return false;
+            }
 
             let schema = match SearchIndexSchema::open(&bm25_index) {
                 Ok(s) => s,

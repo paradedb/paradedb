@@ -42,6 +42,54 @@ SELECT count(*) AS gap_count
 FROM segment_pruning_items
 WHERE id @@@ pdb.all() AND price = 150;
 
+DO $$
+DECLARE
+    plan jsonb;
+    line text;
+    df_plan text := '';
+BEGIN
+    EXECUTE $q$EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT id FROM segment_pruning_items
+        WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106$q$ INTO plan;
+    ASSERT (plan #> '{0,Plan,Segments}') = '{"Included": 1, "Pruned": 3}'::jsonb,
+        format('expected 1 included / 3 pruned on BaseScan, got %s', plan #> '{0,Plan,Segments}');
+
+    EXECUTE $q$EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT id FROM segment_pruning_items
+        WHERE body @@@ 'common'$q$ INTO plan;
+    ASSERT (plan #> '{0,Plan,Segments}') = '{"Included": 4, "Pruned": 0}'::jsonb,
+        format('expected 4 included / 0 pruned on unpruned BaseScan, got %s', plan #> '{0,Plan,Segments}');
+
+    EXECUTE $q$EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT count(*) FROM segment_pruning_items
+        WHERE id @@@ pdb.all() AND price BETWEEN 104 AND 106$q$ INTO plan;
+    ASSERT (plan #> '{0,Plan,Segments}') = '{"Included": 1, "Pruned": 3}'::jsonb,
+        format('expected 1 included / 3 pruned on AggregateScan, got %s', plan #> '{0,Plan,Segments}');
+
+    EXECUTE $q$EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT count(*) FROM segment_pruning_items
+        WHERE id @@@ pdb.all() AND price = 150$q$ INTO plan;
+    ASSERT (plan #> '{0,Plan,Segments}') = '{"Included": 0, "Pruned": 4}'::jsonb,
+        format('expected 0 included / 4 pruned on gap AggregateScan, got %s', plan #> '{0,Plan,Segments}');
+
+    PERFORM set_config('paradedb.enable_join_custom_scan', 'on', true);
+    FOR line IN EXECUTE $q$EXPLAIN (COSTS OFF, TIMING OFF)
+        SELECT a.id FROM segment_pruning_items a
+        JOIN segment_pruning_items b ON a.price = b.id
+        WHERE a.id @@@ pdb.all() AND a.price BETWEEN 104 AND 106
+          AND b.body @@@ 'common'
+        ORDER BY a.id
+        LIMIT 10$q$
+    LOOP
+        df_plan := df_plan || line || E'\n';
+    END LOOP;
+    ASSERT df_plan LIKE '%table=a, segments={included=1, pruned=3}%',
+        format('expected pruned segments summary for table a, got %s', df_plan);
+    ASSERT df_plan LIKE '%table=b, segments=4,%',
+        format('expected unpruned segments=4 for table b, got %s', df_plan);
+END;
+$$;
+
 -- NULL prevents a matches-all guarantee but must not change SQL semantics.
 SELECT array_agg(id ORDER BY id) AS nullable_range
 FROM segment_pruning_items

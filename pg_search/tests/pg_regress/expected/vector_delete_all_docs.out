@@ -36,13 +36,19 @@ CREATE INDEX delvec_idx ON delvec
 -- flushed segment — and therefore any merge candidate — mixes both
 -- populations: after the DELETE below, merge sources still have live docs,
 -- just none with vectors.
-INSERT INTO delvec
-SELECT g,
-       md5(g::text),
-       CASE WHEN g % 2 = 1
-            THEN ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
-       END
-FROM generate_series(1, 24000) g;
+DO $$
+BEGIN
+    FOR batch_start IN 1..24000 BY 1000 LOOP
+        INSERT INTO delvec
+        SELECT g,
+               md5(g::text),
+               CASE WHEN g % 2 = 1
+                    THEN ('[' || repeat((g % 89)::text || ',', 15) || (g % 89)::text || ']')::vector
+               END
+        FROM generate_series(batch_start, batch_start + 999) g;
+    END LOOP;
+END
+$$;
 SELECT bool_or(vector_format = 'ivf') AS has_ivf
 FROM paradedb.vector_info('delvec_idx', 'vec');
  has_ivf 
@@ -59,9 +65,15 @@ VACUUM delvec;
 -- fresh vector-less rows overfill the extended layer. The merge target has
 -- >= 10000 live docs, none carrying a vector — exactly the empty-slots path.
 ALTER INDEX delvec_idx SET (layer_sizes = '1100kb');
-INSERT INTO delvec
-SELECT g, md5(g::text), NULL
-FROM generate_series(24001, 30000) g;
+DO $$
+BEGIN
+    FOR batch_start IN 24001..30000 BY 1000 LOOP
+        INSERT INTO delvec
+        SELECT g, md5(g::text), NULL
+        FROM generate_series(batch_start, batch_start + 999) g;
+    END LOOP;
+END
+$$;
 -- An IVF segment now exists whose vector field is empty.
 SELECT bool_or(vector_format = 'ivf' AND vector_num_vectors = 0) AS ivf_with_empty_vector_field
 FROM paradedb.vector_info('delvec_idx', 'vec');

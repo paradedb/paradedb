@@ -15,7 +15,7 @@ max_parallel_maintenance_workers = 8
 [postgres.search]
 shared_buffers = "12GB"
 max_parallel_workers = 8
-max_worker_processes = 8
+max_worker_processes = 32
 
 [index]
 training_sample_ratio = 0.32

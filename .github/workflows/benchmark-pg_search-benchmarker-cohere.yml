@@ -180,11 +180,19 @@ jobs:
                                'parallel_leader_participation', 'paradedb.global_target_segment_count')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c 'SELECT pid, backend_type, application_name, datname FROM pg_stat_activity ORDER BY pid;' \
+            | tee benchmark-artifacts/background-workers.log
           cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
           pdbench build --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
             --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
             --force-rebuild \
             | tee benchmark-artifacts/index-build.log
+          jq -e '.data.metrics.workers.max_parallel_workers == 7' \
+            benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json || {
+            echo "::error::Cohere index build requires seven parallel workers plus the leader; see index-build.log and background-workers.log."
+            exit 1
+          }
           jq '.data | [
             {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
             {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}

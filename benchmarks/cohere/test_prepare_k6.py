@@ -16,6 +16,7 @@ def reports(dataset="cohere"):
                 "dataset": {"name": dataset, "size": "1m", "dims": 1024},
                 "search": {
                     "query": query,
+                    "k": neighbors,
                     "sweep": {"tolerance": 0.000001},
                     "session": {"cohere.titles_10pct": "year", "jit": "off"},
                 },
@@ -205,6 +206,13 @@ class OperatingPointsTest(unittest.TestCase):
         inputs = reports("msmarco")
         inputs[0]["config"]["search"]["sweep"]["targets"] = [0.9, 0.95]
         with self.assertRaisesRegex(ValueError, "all three recall targets"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_refuses_top100_without_explicit_recall_k(self):
+        """Default top-ten scoring must not pass as a top-100 measurement."""
+        inputs = reports("msmarco")
+        del inputs[1]["config"]["search"]["k"]
+        with self.assertRaisesRegex(ValueError, "expected recall@100"):
             operating_points(inputs, dataset="msmarco")
 
     def test_refuses_top10_metrics_labeled_as_top100(self):

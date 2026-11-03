@@ -19,6 +19,7 @@ def validated_config(report, dataset, config):
     """Check report identity and shared sweep settings before exporting results."""
     current = json.loads(json.dumps(report["config"]))
     current["search"].pop("query", None)
+    current["search"].pop("k", None)
     param = report["data"]["sweep_param"]
     engine = current.get("engine", "pg_search")
     allowed = {"pg_search": (PROBE, EFFORT), "pg_vectorsearch": (NPROBE,)}
@@ -83,7 +84,9 @@ def operating_points(reports, dataset="cohere"):
             if result["query"].count(qvec) != 1:
                 raise ValueError(f"{query}: expected exactly one query-vector operand")
             measured = {point["value"]: point["metrics"] for point in result["points"]}
-            if any(point["recall"]["k"] != neighbors for point in measured.values()):
+            if report["config"]["search"].get("k", 10) != neighbors or any(
+                point["recall"]["k"] != neighbors for point in measured.values()
+            ):
                 raise ValueError(f"{query}: expected recall@{neighbors}")
             for target in TARGETS:
                 selected = result["targets"].get(str(target))

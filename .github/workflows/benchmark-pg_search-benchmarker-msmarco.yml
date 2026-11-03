@@ -15,10 +15,10 @@ on:
         default: "e3c06a5c611003c5c9d55b4cea4d636f37163e51"
       baseline_commit:
         description: "Baseline pg_search commit"
-        default: "c9030485d8c388f1cc56f8c808e80315fe47323b"
+        default: "cb348775ec9763c1b20d87398230aa9b8295d10b"
       pdbench_ref:
         description: "pdbench ref"
-        default: "ac64c0a34a1558ca72e07a342b51b52076befa50"
+        default: "e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -39,11 +39,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: ${{ fromJSON(github.event.label.name == 'benchmark-msmarco-main' && '["main"]' || (inputs.variant != '' && inputs.variant != 'all' && format('["{0}"]', inputs.variant)) || '["main","pr7160","pg_vectorsearch"]') }}
+        name: ${{ fromJSON(github.event.label.name == 'benchmark-msmarco-main' && '["main"]' || github.event.label.name == 'benchmark-msmarco-pr7160' && '["pr7160"]' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch' && '["pg_vectorsearch"]' || (inputs.variant != '' && inputs.variant != 'all' && format('["{0}"]', inputs.variant)) || '["main","pr7160","pg_vectorsearch"]') }}
     if: >-
       github.event_name != 'pull_request' ||
-      github.event.label.name == 'benchmark-msmarco-pg_search' ||
-      github.event.label.name == 'benchmark-msmarco-main'
+      contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-main", "benchmark-msmarco-pr7160", "benchmark-msmarco-pg_vectorsearch"]'), github.event.label.name)
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -54,10 +53,10 @@ jobs:
     env:
       MSMARCO_SIZE: 113m
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'ac64c0a34a1558ca72e07a342b51b52076befa50' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
-      BENCHMARK_REF: ${{ matrix.name == 'pr7160' && (inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51') || (inputs.baseline_commit || 'c9030485d8c388f1cc56f8c808e80315fe47323b') }}
+      BENCHMARK_REF: ${{ matrix.name == 'pr7160' && (inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51') || (inputs.baseline_commit || 'cb348775ec9763c1b20d87398230aa9b8295d10b') }}
       MSMARCO_CONFIG: benchmarks/msmarco/${{ matrix.name == 'pr7160' && '113m-adaptive' || matrix.name == 'pg_vectorsearch' && '113m-pgvectorsearch' || '113m' }}.toml
 
     steps:
@@ -232,10 +231,13 @@ jobs:
             --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
             --force-rebuild \
             | tee benchmark-artifacts/index-build.log
+          profile="$(basename "$MSMARCO_CONFIG" .toml)"
           jq '.data | [
             {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
-            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
-          ]' benchmark-artifacts/search/"${MSMARCO_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
+            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
+            {name: (.index.name + " peak summed RSS"), unit: "GiB", value: (.metrics.resources.peak_rss_bytes / 1073741824)}
+          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -c 'VACUUM (ANALYZE) msmarco;' \
             | tee benchmark-artifacts/index-vacuum.log
@@ -243,8 +245,9 @@ jobs:
       - name: Verify pg_vectorsearch used parallel workers
         if: matrix.name == 'pg_vectorsearch'
         run: |
+          profile="$(basename "$MSMARCO_CONFIG" .toml)"
           jq -e '.data.metrics.workers.max_parallel_workers > 0' \
-            benchmark-artifacts/search/"${MSMARCO_SIZE}"/*_build.json
+            benchmark-artifacts/search/"$profile"/*_build.json
 
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
@@ -293,13 +296,16 @@ jobs:
       - name: Sweep recall targets with pdbench
         run: |
           set -euo pipefail
-          for query in knn_top10_unfiltered knn_top100_unfiltered; do
+          for k in 10 100; do
+            query="knn_top${k}_unfiltered"
             pdbench search --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
               --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
-              --query "$query" --no-compare --html
+              --query "$query" --set "search.k=$k" --no-compare --html
           done
 
       - name: Prepare k6 operating points
+        env:
+          VARIANT: ${{ matrix.name }}
         run: |
           set -euo pipefail
           python3 benchmarks/cohere/prepare_k6.py --dataset msmarco --runs benchmark-artifacts/search --output benchmark-artifacts
@@ -314,6 +320,15 @@ jobs:
             git -C pdbench rev-parse HEAD
             git -C benchmarker rev-parse HEAD
           } > benchmark-artifacts/tool-commits.txt
+          {
+            printf 'Variant: `%s`. Unfiltered MS MARCO 113m, top-10/top-100 at R90/R95/R99.\n\n' "$VARIANT"
+            printf 'pg_search: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
+            if [[ "$VARIANT" == pg_vectorsearch ]]; then
+              printf 'pg_vectorsearch memory fix: `%s`.\n\n' "$PG_VECTORSEARCH_REF"
+            fi
+            printf 'Build RSS is the sum across sampled processes and includes shared mappings. These runs do not update the rolling main baseline.\n\n'
+            cat benchmark-artifacts/operating_points.md
+          } > benchmark-artifacts/result-context.md
 
       - name: Verify k6 vector query plans
         env:
@@ -349,6 +364,18 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
+      - name: Stage Benchmarker results
+        uses: ./.github/actions/stage-benchmark-results
+        with:
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"msmarco-113m-${{ matrix.name }}",
+             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "publish_baseline":"false",
+             "context_file":"benchmark-artifacts/result-context.md",
+             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
+
       - name: Save database log
         if: always()
         run: |
@@ -374,3 +401,14 @@ jobs:
         if: always()
         working-directory: pg_search
         run: cargo pgrx stop pg18
+
+  publish-results:
+    name: Publish Benchmark Results
+    needs: msmarco
+    if: always() && !cancelled() && (needs.msmarco.result == 'success' || needs.msmarco.result == 'failure')
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit

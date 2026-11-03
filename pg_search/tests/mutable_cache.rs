@@ -17,6 +17,7 @@
 
 use postgres::{Client, NoTls};
 use rstest::rstest;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::{Mutex, Once};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
@@ -180,63 +181,100 @@ fn backend_exit_releases_cache_resources(
 fn maintenance_merge_rechecks_heap_visibility() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut client = connect();
-    client
-        .batch_execute(
-            "SET max_parallel_workers_per_gather=0;
-             SET paradedb.enable_aggregate_custom_scan=off;",
+    let interval: i32 = client
+        .query_one(
+            "SELECT setting::int FROM pg_settings WHERE name='paradedb.mutable_sweep_interval'",
+            &[],
         )
-        .unwrap();
-    let mut sizes = Vec::new();
-    for enabled in [false, true] {
-        let table = format!("cache_dead_merge_{enabled}");
-        client.batch_execute(&format!(
+        .unwrap()
+        .get(0);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if interval != 0 {
+            client
+                .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval=0")
+                .unwrap();
+            client.simple_query("SELECT pg_reload_conf()").unwrap();
+        }
+        wait_until("periodic flushing paused", || {
+            client
+                .query_one(
+                    "SELECT current_setting('paradedb.mutable_sweep_interval')::int=0
+                 AND NOT EXISTS(SELECT FROM pg_stat_activity
+                     WHERE datname=current_database() AND backend_type='pg_search mutable sweep')",
+                    &[],
+                )
+                .unwrap()
+                .get(0)
+        });
+        client
+            .batch_execute(
+                "SET max_parallel_workers_per_gather=0;
+             SET paradedb.enable_aggregate_custom_scan=off;",
+            )
+            .unwrap();
+        let mut sizes = Vec::new();
+        for enabled in [false, true] {
+            let table = format!("cache_dead_merge_{enabled}");
+            client.batch_execute(&format!(
             "SET paradedb.enable_mutable_segment_cache={enabled};
              DROP TABLE IF EXISTS {table};
              CREATE TABLE {table}(id bigint PRIMARY KEY, body text) WITH(autovacuum_enabled=false);
              CREATE INDEX {table}_idx ON {table} USING paradedb(id, body)
                  WITH(mutable_segment_rows=200, target_segment_count=1, layer_sizes='0', background_layer_sizes='0');"
         )).unwrap();
-        client.execute(&format!(
+            client.execute(&format!(
             "INSERT INTO {table}
              SELECT i, 'marker ' || (SELECT string_agg(md5(g::text), ' ') FROM generate_series(1,500) g)
              FROM generate_series(1,200) i"
         ), &[]).unwrap();
-        let query = format!("SELECT count(*) FROM {table} WHERE body ||| 'marker'");
-        let plan = client
-            .query(&format!("EXPLAIN (COSTS OFF) {query}"), &[])
-            .unwrap();
-        assert!(
-            plan.iter()
-                .any(|row| row.get::<_, String>(0).contains("Custom Scan"))
-        );
-        assert_eq!(client.query_one(&query, &[]).unwrap().get::<_, i64>(0), 200);
-        client
-            .execute(&format!("DELETE FROM {table}"), &[])
-            .unwrap();
-        client
-            .batch_execute(&format!(
-                "ALTER INDEX {table}_idx SET(mutable_segment_rows=0)"
-            ))
-            .unwrap();
-        assert_eq!(
+            let query = format!("SELECT count(*) FROM {table} WHERE body ||| 'marker'");
+            let plan = client
+                .query(&format!("EXPLAIN (COSTS OFF) {query}"), &[])
+                .unwrap();
+            assert!(
+                plan.iter()
+                    .any(|row| row.get::<_, String>(0).contains("Custom Scan"))
+            );
+            assert_eq!(client.query_one(&query, &[]).unwrap().get::<_, i64>(0), 200);
             client
-                .query_one(
-                    &format!("SELECT paradedb.test_merge_index('{table}_idx')"),
-                    &[]
-                )
-                .unwrap()
-                .get::<_, i64>(0),
-            1
-        );
-        sizes.push(client.query_one(&format!(
+                .execute(&format!("DELETE FROM {table}"), &[])
+                .unwrap();
+            client
+                .batch_execute(&format!(
+                    "ALTER INDEX {table}_idx SET(mutable_segment_rows=0)"
+                ))
+                .unwrap();
+            assert_eq!(
+                client
+                    .query_one(
+                        &format!("SELECT paradedb.test_merge_index('{table}_idx')"),
+                        &[]
+                    )
+                    .unwrap()
+                    .get::<_, i64>(0),
+                1
+            );
+            sizes.push(client.query_one(&format!(
             "SELECT coalesce(sum(byte_size),0)::bigint FROM paradedb.index_info('{table}_idx') WHERE visible"
         ), &[]).unwrap().get::<_, i64>(0));
+            client
+                .batch_execute(&format!("DROP TABLE {table}"))
+                .unwrap();
+        }
+        assert!(
+            sizes[1] <= sizes[0] + 8192,
+            "cached merge retained dead contents: {sizes:?}"
+        );
+    }));
+    if interval != 0 {
         client
-            .batch_execute(&format!("DROP TABLE {table}"))
+            .batch_execute(&format!(
+                "ALTER SYSTEM SET paradedb.mutable_sweep_interval={interval}"
+            ))
             .unwrap();
+        client.simple_query("SELECT pg_reload_conf()").unwrap();
     }
-    assert!(
-        sizes[1] <= sizes[0] + 8192,
-        "cached merge retained dead contents: {sizes:?}"
-    );
+    if let Err(error) = result {
+        resume_unwind(error);
+    }
 }

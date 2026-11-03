@@ -8,8 +8,10 @@ INSERT INTO stackoverflow_schema_metadata ("name", "value") VALUES
 -- Query-time synonyms for the synonyms_* queries. The set holds words no other query uses, so
 -- the other queries only pay the per-query stamp check. Guarded, so this file still runs against
 -- a ref without the feature. The harness splits statements on ";" at a line end, so the lines in
--- the block end with a comment instead.
-DO $$ BEGIN
+-- the block end with a comment instead. It also trims the lines outside a dollar quote and joins
+-- them straight onto the `$$`, so `DO` needs its own line.
+DO
+$$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'paradedb' AND tablename = 'synonym_sets') THEN
     INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('bench', ARRAY['exception, failure, bug, crash, fault, problem, issue, fail, warning, mistake']) ON CONFLICT (name) DO NOTHING; -- rerun safe
     EXECUTE 'ALTER INDEX stackoverflow_posts_idx SET (synonyms = ''bench'')'; -- attach to every text field

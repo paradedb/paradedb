@@ -175,7 +175,7 @@ ORDER BY p.name;
          Group By: name
          Aggregates: AVG(id)
          DataFusion Physical Plan: 
-           : FilterExec: agg_0@1 > 1.5
+           : FilterExec: CAST(agg_0@1 AS Decimal128(38, 15)) > 1.500000000000000
            :   AggregateExec: mode=Single, gby=[name@0 as name], aggr=[avg(o_1.id) as agg_0]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@0, name@1)], projection=[name@0, id@1]
            :       CooperativeExec

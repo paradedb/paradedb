@@ -18,6 +18,7 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -46,6 +47,11 @@ pub struct DatasetConfig {
     /// Storage format LoadHeap reads from `sampled/{size}/{load_format}/`. Defaults to CSV.
     #[serde(default)]
     pub load_format: LoadFormat,
+    /// Replacement for NUL bytes when loading Parquet strings into Postgres; empty removes them.
+    #[serde(default)]
+    pub pg_null_byte_replacement: Option<String>,
+    #[serde(default)]
+    pub parquet_load_workers: Option<NonZeroUsize>,
     /// Named index parameters. Each value is an expression (evaluated as a SQL scalar) over
     /// recognized variables such as `dataset_size`, e.g. `lists = "{{ dataset_size }} / 100"`.
     /// Index SQL references them with `{{ name }}`.
@@ -162,6 +168,8 @@ mod tests {
             tables,
             s3_base_path: None,
             load_format: LoadFormat::default(),
+            pg_null_byte_replacement: None,
+            parquet_load_workers: None,
             params: HashMap::new(),
         }
     }

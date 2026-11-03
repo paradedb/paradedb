@@ -62,6 +62,7 @@ use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
 use crate::schema::SearchFieldType;
+use bigdecimal::BigDecimal;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
 
@@ -1820,6 +1821,26 @@ impl FilterExprBuildContext<'_> {
 }
 
 impl FilterExpr {
+    /// Preserve NUMERIC constants exactly instead of rounding through f64.
+    /// Unsupported precision/scale and special values fall back to Postgres.
+    fn numeric_literal(text: &str) -> Option<Self> {
+        let decimal = text.parse::<BigDecimal>().ok()?.normalized();
+        let (_, scale) = decimal.as_bigint_and_exponent();
+        if !(-38..=38).contains(&scale) {
+            return None;
+        }
+        let scale = scale.max(0);
+        let (coefficient, _) = decimal.with_scale(scale).as_bigint_and_exponent();
+        let value = coefficient.to_string();
+        if value.trim_start_matches('-').len() > 38 {
+            return None;
+        }
+        Some(Self::LitDecimal {
+            value,
+            scale: scale as i8,
+        })
+    }
+
     /// Translate a Postgres expression node tree into a serializable [`FilterExpr`].
     /// HAVING resolves `T_Aggref` -> `AggRef` and `T_Var` -> `GroupRef`;
     /// FILTER resolves `T_Var` -> `ColumnRef`. Interior nodes are context-agnostic.
@@ -1938,13 +1959,9 @@ impl FilterExpr {
                         Some(Self::LitFloat(f?))
                     }
                     pg_sys::NUMERICOID => {
-                        // The datum points to a varlena: decode it rather than
-                        // reading its bits as a float. NaN sorts above every
-                        // number in Postgres but not as a float, so decline it.
                         let n: Option<pgrx::AnyNumeric> =
                             unsafe { pgrx::FromDatum::from_datum(datum, false) };
-                        let f = f64::try_from(n?).ok()?;
-                        (!f.is_nan()).then_some(Self::LitFloat(f))
+                        Self::numeric_literal(&n?.to_string())
                     }
                     pg_sys::BOOLOID => {
                         let b: Option<bool> = unsafe { pgrx::FromDatum::from_datum(datum, false) };
@@ -2504,4 +2521,46 @@ pub(crate) fn nodes_equal_modulo_commutation(a: *mut pg_sys::Node, b: *mut pg_sy
         }
     }
     false
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::FilterExpr;
+    use pgrx::pg_test;
+
+    #[pg_test]
+    fn numeric_literals_preserve_precision_and_scale() {
+        for (text, value, scale) in [
+            ("18014398509481986", "18014398509481986", 0),
+            ("-18014398509481986.50", "-180143985094819865", 1),
+            ("18446744073709551614", "18446744073709551614", 0),
+            ("1000.00", "1000", 0),
+            ("0.00", "0", 0),
+            ("1e-38", "1", 38),
+            (
+                "99999999999999999999999999999999999999",
+                "99999999999999999999999999999999999999",
+                0,
+            ),
+        ] {
+            let literal = FilterExpr::numeric_literal(text).unwrap();
+            assert_eq!(
+                literal,
+                FilterExpr::LitDecimal {
+                    value: value.into(),
+                    scale,
+                }
+            );
+            let json = serde_json::to_string(&literal).unwrap();
+            assert_eq!(serde_json::from_str::<FilterExpr>(&json).unwrap(), literal);
+        }
+    }
+
+    #[pg_test]
+    fn unsupported_numeric_literals_fall_back() {
+        for text in ["NaN", "Infinity", "-Infinity", "1e38", "1e-39"] {
+            assert_eq!(FilterExpr::numeric_literal(text), None, "{text}");
+        }
+    }
 }

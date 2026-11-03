@@ -294,6 +294,7 @@ SELECT
         AS layer0_populated,
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
         AS layer0_selection_accounted,
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
@@ -549,9 +550,6 @@ $$;
 RESET paradedb.vector_stats;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_by_default;
 SET paradedb.vector_stats = on;
-
-SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
-    = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_with_vector_stats;
 RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();

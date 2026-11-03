@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793694896272,
+  "lastUpdate": 1793694926028,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -485478,6 +485478,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13124849287-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793694921117,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.88932328467699,
+            "unit": "median tps",
+            "extra": "avg tps: 57.56324698840017, max tps: 516.1382072484339, count: 58755"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.48210644144734,
+            "unit": "median tps",
+            "extra": "avg tps: 32.128440774654855, max tps: 356.64008453293076, count: 58755"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.30638218638015,
+            "unit": "median tps",
+            "extra": "avg tps: 128.7217315236946, max tps: 1088.310458487357, count: 58755"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.660152146764478,
+            "unit": "median tps",
+            "extra": "avg tps: 31.171572856169277, max tps: 272.27895464907095, count: 58755"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 39.09064925968383,
+            "unit": "median tps",
+            "extra": "avg tps: 60.51768440361932, max tps: 550.9696676082884, count: 58755"
+          }
+        ],
+        "publication_id": "13214516977-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -498160,6 +498213,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13124849287-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793694925948,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 21.5,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 21.30895389222194, max partition_index_size:MB: 26.953125, count: 58755"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.878933,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.197077655101133, max cpu: 32.32323, count: 58755"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.56367809122628, max mem: 57.03125, count: 58755"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.85408137641068, max cpu: 40.94787, count: 58755"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.10053133775849, max mem: 64.69921875, count: 58755"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.688212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.084436661128722, max cpu: 23.110256, count: 58755"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.67141194100502, max mem: 43.14453125, count: 58755"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.86562504189837, max cpu: 32.463768, count: 58755"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 53.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.08847378680538, max mem: 63.52734375, count: 58755"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.163310583818127, max cpu: 32.40116, count: 58755"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.86023463428644, max mem: 64.328125, count: 58755"
+          }
+        ],
+        "publication_id": "13214516977-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

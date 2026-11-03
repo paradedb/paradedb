@@ -204,6 +204,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    // TODO: Support multiple vector fields in a single index.
     if options
         .attributes()
         .values()

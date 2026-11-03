@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793695076634,
+  "lastUpdate": 1793747265800,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -486805,6 +486805,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13214516977-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747262703,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 36.03541303475314,
+            "unit": "median tps",
+            "extra": "avg tps: 55.131847196312556, max tps: 523.6339716455035, count: 58758"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.4923082825346,
+            "unit": "median tps",
+            "extra": "avg tps: 30.640103763405673, max tps: 340.2273719112841, count: 58758"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.38428849241961,
+            "unit": "median tps",
+            "extra": "avg tps: 132.53603093393363, max tps: 1216.1290221947247, count: 58758"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.605258183484096,
+            "unit": "median tps",
+            "extra": "avg tps: 29.746352918610288, max tps: 267.93597020607325, count: 58758"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 46.62652813853396,
+            "unit": "median tps",
+            "extra": "avg tps: 74.61806234970155, max tps: 526.0532671392992, count: 58758"
+          }
+        ],
+        "publication_id": "13279470144-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -499576,6 +499629,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13214516977-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747265689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 22.1875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 21.42975517695463, max partition_index_size:MB: 27.5859375, count: 58758"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.355068243555092, max cpu: 36.467236, count: 58758"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.19946791819837, max mem: 57.09375, count: 58758"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.94319612728398, max cpu: 41.084164, count: 58758"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.086756205006125, max mem: 64.73046875, count: 58758"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.701237,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.136955149144333, max cpu: 23.121387, count: 58758"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.06307837868886, max mem: 43.140625, count: 58758"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.95291179414081, max cpu: 41.084164, count: 58758"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 55.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.875939699168626, max mem: 63.796875, count: 58758"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.021857042470053, max cpu: 31.923988, count: 58758"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.45937787194935, max mem: 62.78125, count: 58758"
+          }
+        ],
+        "publication_id": "13279470144-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

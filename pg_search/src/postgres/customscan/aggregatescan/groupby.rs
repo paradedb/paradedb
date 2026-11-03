@@ -117,6 +117,13 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                     .field
                     .field_type()
                     .expect("All returned fast fields at this point should have a field type");
+                if field_type.is_numeric() {
+                    return Err(format!(
+                        "grouping field {} is numeric, which is not supported",
+                        resolved.field.name(),
+                    )
+                    .into());
+                }
                 if !resolved.field.is_array() && is_unnest {
                     unreachable!(
                         "Postgres should not allow UNNEST() on a non-array column: {}",

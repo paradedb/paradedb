@@ -181,7 +181,7 @@ impl SourceContext {
             }
             ResTarget::Field(name) => {
                 let resolved = resolve_fast_field_by_name(name, self)?;
-                let is_subfield = FieldName::from(name).root() != name;
+                let is_subfield = FieldName::from(name).root() != name && resolved.is_json;
                 if !is_subfield && !access.field_is_supported_for_pullup(&resolved.field) {
                     return None;
                 }

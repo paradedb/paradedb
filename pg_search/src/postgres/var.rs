@@ -588,10 +588,6 @@ pub unsafe fn find_one_resolved_var_and_fieldname(
     } else if let Some(name) = unsafe { json_path_fieldname(context, node) } {
         let resolved = source.resolve_fast_field(ResTarget::Field(name.as_ref()), access);
         (resolved, Some(name))
-    } else if is_a(node, T_OpExpr) {
-        // any opexpr not handled by json_path_fieldname does not have a json operator and is not
-        // findable here
-        (None, None)
     } else {
         (
             source.resolve_fast_field(ResTarget::Expr(node), access),

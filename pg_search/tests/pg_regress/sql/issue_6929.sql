@@ -21,6 +21,14 @@ SELECT sum(b) * 2 AS doubled FROM issue_6929_t WHERE body @@@ 'x';
 SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
 GROUP BY grp HAVING sum(b) = 18014398509481986 ORDER BY grp;
 
+-- Compare against adjacent and fractional NUMERIC constants without f64 rounding.
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) = 18014398509481985 ORDER BY grp;
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) > 18014398509481985.5 ORDER BY grp;
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) < 18014398509481986.5 ORDER BY grp;
+
 -- Parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT sum(b) FROM issue_6929_t WHERE body @@@ 'x';
@@ -28,6 +36,14 @@ SELECT grp, sum(b) FROM issue_6929_t WHERE body @@@ 'x' GROUP BY grp ORDER BY gr
 SELECT sum(b) * 2 AS doubled FROM issue_6929_t WHERE body @@@ 'x';
 SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
 GROUP BY grp HAVING sum(b) = 18014398509481986 ORDER BY grp;
+
+-- Compare against adjacent and fractional NUMERIC constants without f64 rounding.
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) = 18014398509481985 ORDER BY grp;
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) > 18014398509481985.5 ORDER BY grp;
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) < 18014398509481986.5 ORDER BY grp;
 
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;

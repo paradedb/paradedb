@@ -49,6 +49,28 @@ GROUP BY grp HAVING sum(b) = 18014398509481986 ORDER BY grp;
    1
 (1 row)
 
+-- Compare against adjacent and fractional NUMERIC constants without f64 rounding.
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) = 18014398509481985 ORDER BY grp;
+ grp 
+-----
+(0 rows)
+
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) > 18014398509481985.5 ORDER BY grp;
+ grp 
+-----
+   1
+(1 row)
+
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) < 18014398509481986.5 ORDER BY grp;
+ grp 
+-----
+   1
+   2
+(2 rows)
+
 -- Parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT sum(b) FROM issue_6929_t WHERE body @@@ 'x';
@@ -76,6 +98,28 @@ GROUP BY grp HAVING sum(b) = 18014398509481986 ORDER BY grp;
 -----
    1
 (1 row)
+
+-- Compare against adjacent and fractional NUMERIC constants without f64 rounding.
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) = 18014398509481985 ORDER BY grp;
+ grp 
+-----
+(0 rows)
+
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) > 18014398509481985.5 ORDER BY grp;
+ grp 
+-----
+   1
+(1 row)
+
+SELECT grp FROM issue_6929_t WHERE body @@@ 'x'
+GROUP BY grp HAVING sum(b) < 18014398509481986.5 ORDER BY grp;
+ grp 
+-----
+   1
+   2
+(2 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793747265800,
+  "lastUpdate": 1793747292542,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112671,6 +112671,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13215089513-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747289651,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1779.011457883014,
+            "unit": "median tps",
+            "extra": "avg tps: 1797.5434692952274, max tps: 1994.5264696311726, count: 59228"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.002406533967299,
+            "unit": "median tps",
+            "extra": "avg tps: 6.047213751907826, max tps: 7.153010381256955, count: 59228"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1859.4031873318097,
+            "unit": "median tps",
+            "extra": "avg tps: 1853.0260621789666, max tps: 1875.3787048610764, count: 59228"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2981.092310260087,
+            "unit": "median tps",
+            "extra": "avg tps: 2913.8763470327895, max tps: 3231.1809591214037, count: 59228"
+          }
+        ],
+        "publication_id": "13279226589-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -157034,6 +157081,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13215089513-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747292431,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 1.0613223475383264, max background_merging: 3.0, count: 59228"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.456852961376367, max cpu: 9.8209715, count: 59228"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.04931577969879, max mem: 28.0859375, count: 59228"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.640371976846053, max cpu: 9.8209715, count: 59228"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 45.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.06528571262747, max mem: 45.08203125, count: 59228"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45312,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45050.2634733572, max block_count: 45312.0, count: 59228"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.04614371581009, max segment_count: 19.0, count: 59228"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.672454084087416, max cpu: 32.510887, count: 59228"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 40.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 40.629274728063585, max mem: 40.65234375, count: 59228"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.439979946922996, max cpu: 9.191, count: 59228"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 45.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.084337090354225, max mem: 45.11328125, count: 59228"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.463137295653194, max cpu: 9.770992, count: 59228"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 45.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.07746428526204, max mem: 45.08203125, count: 59228"
+          }
+        ],
+        "publication_id": "13279226589-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

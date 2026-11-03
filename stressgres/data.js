@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793694926028,
+  "lastUpdate": 1793694953877,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -181180,6 +181180,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13124731316-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793694951702,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 155.00879942628035,
+            "unit": "median tps",
+            "extra": "avg tps: 152.82542220101004, max tps: 163.33029794213968, count: 59087"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 546.2252213456717,
+            "unit": "median tps",
+            "extra": "avg tps: 557.8548327685392, max tps: 4259.207149888985, count: 59087"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3006.2507294936627,
+            "unit": "median tps",
+            "extra": "avg tps: 3010.4724287645768, max tps: 3375.759037220327, count: 59087"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 191.47088468826811,
+            "unit": "median tps",
+            "extra": "avg tps: 189.18299121779071, max tps: 205.33799487086225, count: 59087"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 274.17758402842423,
+            "unit": "median tps",
+            "extra": "avg tps: 376.7451474938885, max tps: 2726.320784249896, count: 118174"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.88179493636029,
+            "unit": "median tps",
+            "extra": "avg tps: 29.465805412111308, max tps: 48.2619939018075, count: 59087"
+          }
+        ],
+        "publication_id": "13212964124-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -229756,6 +229815,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13124731316-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793694953798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.527477,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.873897063621326, max cpu: 36.8699, count: 59087"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.88869537715572, max mem: 47.890625, count: 59087"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.343229056915355, max cpu: 36.852203, count: 59087"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.67911749834989, max mem: 33.6796875, count: 59087"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.928067144900435, max cpu: 13.88621, count: 59087"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 48.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.57141310165519, max mem: 52.83203125, count: 59087"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2540,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2529.6589605158497, max block_count: 2543.0, count: 59087"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 59087"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 30.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.330151936974293, max mem: 30.609375, count: 59087"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.83355052718872, max segment_count: 36.0, count: 59087"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.563719378454115, max cpu: 36.69374, count: 59087"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 52.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.98678656578435, max mem: 52.98828125, count: 59087"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.46220834357488, max cpu: 41.458733, count: 118174"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.664846235741365, max mem: 61.41015625, count: 118174"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.140964792824276, max cpu: 18.506023, count: 59087"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.23425534064177, max mem: 49.63671875, count: 59087"
+          }
+        ],
+        "publication_id": "13212964124-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

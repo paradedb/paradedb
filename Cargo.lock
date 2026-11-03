@@ -5135,7 +5135,7 @@ dependencies = [
  "serde_path_to_error",
  "stable_deref_trait",
  "strum 0.28.0",
- "superkmeans-rs 0.3.0 (git+https://github.com/paradedb/superkmeans-rs?rev=ced81ac6f010ff79e74b161df9454e51bc1a8d0e)",
+ "superkmeans-rs 0.3.0 (git+https://github.com/paradedb/superkmeans-rs?rev=738408113432215334bcb086a94bff78be8e8fab)",
  "tantivy",
  "tantivy-common",
  "tantivy-fst",
@@ -7040,7 +7040,7 @@ dependencies = [
 [[package]]
 name = "superkmeans-rs"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=ced81ac6f010ff79e74b161df9454e51bc1a8d0e#ced81ac6f010ff79e74b161df9454e51bc1a8d0e"
+source = "git+https://github.com/paradedb/superkmeans-rs?rev=738408113432215334bcb086a94bff78be8e8fab#738408113432215334bcb086a94bff78be8e8fab"
 dependencies = [
  "matrixmultiply",
  "pkg-config",

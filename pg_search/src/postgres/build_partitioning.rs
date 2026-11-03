@@ -36,6 +36,7 @@ use pgrx::{FromDatum, PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
+use superkmeans::common::Y_BATCH_SIZE;
 use superkmeans::distance::l2_squared;
 use superkmeans::{SuperKMeans, SuperKMeansConfig};
 use tantivy::schema::{Field, FieldType, Schema};
@@ -55,8 +56,8 @@ use crate::postgres::utils::{
     unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
-use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
+use crate::vector::{PgVector, normalize_for_metric};
 
 /// Upper bound on the heap blocks read for the sample. Blocks are chosen uniformly at random,
 /// so a table physically ordered by a `partition_by` field still yields a spread of positions
@@ -67,6 +68,12 @@ const MAX_SAMPLE_BLOCKS: u32 = 4096;
 /// default statistics target. Rows beyond it are reservoir-sampled so the kept set stays
 /// uniform over the visited blocks.
 const MAX_SAMPLE_ROWS: usize = 30_000;
+
+/// Current, previous, and returned centroids coexist at the end of training.
+const VECTOR_TRAINING_CENTROID_BUFFERS: usize = 3;
+
+/// Headroom per row/centroid for assignments, norms, indices, validity, and deduplication.
+const VECTOR_TRAINING_BOOKKEEPING_BYTES: usize = 64;
 
 /// A fixed seed makes a rebuild over an unchanged heap reproduce the same boundaries.
 const SAMPLE_SEED: u32 = 0x5EED_1D0C;
@@ -179,41 +186,83 @@ pub(super) struct VectorPartitioning {
     centroids: Vec<f32>,
 }
 
+struct VectorSample {
+    dimensions: usize,
+    data: Vec<f32>,
+    present: Vec<bool>,
+}
+
+impl VectorSample {
+    fn new(dimensions: usize, rows: usize) -> Self {
+        assert_ne!(dimensions, 0, "vector dimensions must be nonzero");
+        Self {
+            dimensions,
+            data: Vec::with_capacity(rows * dimensions),
+            present: Vec::with_capacity(rows),
+        }
+    }
+
+    fn insert(&mut self, row: usize, vector: Option<PgVector>) -> Result<()> {
+        if row == self.present.len() {
+            self.present.push(false);
+            self.data.resize(self.data.len() + self.dimensions, 0.0);
+        }
+        self.present[row] = vector.is_some();
+        if let Some(vector) = vector {
+            anyhow::ensure!(
+                vector.0.len() == self.dimensions,
+                "partition vector dimension mismatch"
+            );
+            let offset = row * self.dimensions;
+            self.data[offset..offset + self.dimensions].copy_from_slice(&vector.0);
+        }
+        Ok(())
+    }
+}
+
 impl VectorPartitioning {
     fn train(
         field: FieldName,
-        dimensions: usize,
         metric: VectorMetric,
-        sample: Vec<Option<PgVector>>,
+        sample: VectorSample,
         target: usize,
     ) -> Result<Self> {
-        let mut data = Vec::new();
+        let VectorSample {
+            dimensions,
+            mut data,
+            present,
+        } = sample;
+        let mut rows = 0;
         let mut distinct = std::collections::HashSet::new();
-        for vector in sample {
-            let Some(mut vector) = vector else { continue };
+        for (row, present) in present.into_iter().enumerate() {
+            if !present {
+                continue;
+            }
+            let offset = row * dimensions;
+            let vector = &mut data[offset..offset + dimensions];
             anyhow::ensure!(
-                vector.0.len() == dimensions,
-                "partition vector dimension mismatch"
-            );
-            anyhow::ensure!(
-                vector.0.iter().all(|v| v.is_finite()),
+                vector.iter().all(|v| v.is_finite()),
                 "partition vector must be finite"
             );
-            if !vector.normalize_for_metric(metric) {
+            if !normalize_for_metric(vector, metric) {
                 continue;
             }
             if distinct.len() < target {
                 distinct.insert(
                     vector
-                        .0
                         .iter()
                         .map(|v| if *v == 0.0 { 0 } else { v.to_bits() })
                         .collect::<Vec<_>>(),
                 );
             }
-            data.extend(vector.0);
+            if row != rows {
+                data.copy_within(offset..offset + dimensions, rows * dimensions);
+            }
+            rows += 1;
         }
+        data.truncate(rows * dimensions);
         let count = target.min(distinct.len());
+        drop(distinct);
         let centroids = if count > 1 {
             let mut clusterer = SuperKMeans::with_config(
                 count,
@@ -228,7 +277,6 @@ impl VectorPartitioning {
                     ..Default::default()
                 },
             );
-            let rows = data.len() / dimensions;
             clusterer.train_owned(data, rows)
         } else {
             Vec::new()
@@ -301,35 +349,63 @@ pub(super) fn plan_partition_boundaries(
 
     let sample_rows = vector.map_or(MAX_SAMPLE_ROWS, |(dimensions, _)| {
         let budget = (unsafe { pg_sys::maintenance_work_mem } as usize).saturating_mul(1024);
-        (budget
-            / dimensions
-                .max(1)
-                .saturating_mul(std::mem::size_of::<f32>() * 4))
-        .clamp(1, MAX_SAMPLE_ROWS)
+        let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
+        let centroid_bytes = target_partitions.saturating_mul(
+            vector_bytes
+                .saturating_mul(VECTOR_TRAINING_CENTROID_BUFFERS)
+                .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES),
+        );
+        let ratio_bytes = dimensions
+            .saturating_add(1)
+            .saturating_mul(std::mem::size_of::<f32>());
+        let fixed_bytes = centroid_bytes
+            .saturating_add(vector_bytes)
+            .saturating_add(ratio_bytes);
+        // One vector buffer plus row state and a conservatively unbatched distance buffer.
+        let row_bytes = vector_bytes
+            .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
+            .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
+        (budget.saturating_sub(fixed_bytes) / row_bytes).clamp(1, MAX_SAMPLE_ROWS)
     });
     let schema = indexrel.schema()?;
     let categorized_fields = schema.categorized_fields();
     if let Some((dimensions, metric)) = vector {
         let projection = CategorizedPartitionField::resolve(&partition_by[0], &categorized_fields)?;
-        let sample = unsafe {
-            sample_partition_fields(heaprel, indexrel, snapshot, &projection, sample_rows)?
+        let mut sample = VectorSample::new(dimensions, sample_rows);
+        unsafe {
+            sample_partition_fields(
+                heaprel,
+                indexrel,
+                snapshot,
+                &projection,
+                sample_rows,
+                |row, vector| sample.insert(row, vector),
+            )?
         };
         return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
             partition_by[0].clone(),
-            dimensions,
             metric,
             sample,
             target_partitions.max(1),
         )?)));
     }
     let projection = PartitionField::resolve_dims(&partition_by, &categorized_fields)?;
-    let sample = unsafe {
+    let mut sample = Vec::new();
+    unsafe {
         sample_partition_fields(
             heaprel,
             indexrel,
             snapshot,
             projection.as_slice(),
             sample_rows,
+            |row, point| {
+                if row == sample.len() {
+                    sample.push(point);
+                } else {
+                    sample[row] = point;
+                }
+                Ok(())
+            },
         )?
     };
     Ok(Some(BuildPartitioning::Range(KdTree::from_sample(
@@ -547,12 +623,13 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     snapshot: pg_sys::Snapshot,
     projection: &P,
     sample_rows: usize,
-) -> anyhow::Result<Vec<P::Point>> {
+    mut collect: impl FnMut(usize, P::Point) -> Result<()>,
+) -> anyhow::Result<()> {
     let nblocks = unsafe {
         pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
     };
     if nblocks == 0 {
-        return Ok(Vec::new());
+        return Ok(());
     }
 
     // A plain build scans with `SnapshotAny` and lets `HeapTupleSatisfiesVacuum` drop only the
@@ -597,7 +674,6 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     let natts = unsafe { (*heaprel.rd_att).natts as usize };
     let created_by_version = indexrel.created_by_version();
 
-    let mut sample = Vec::new();
     let mut seen_rows = 0usize;
     let mut indexed_offsets: Vec<pg_sys::OffsetNumber> = Vec::new();
     let mut result: anyhow::Result<()> = Ok(());
@@ -643,14 +719,14 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                 for &offset in &indexed_offsets {
                     // Decide whether this row makes the sample before paying to project it.
                     seen_rows += 1;
-                    let target_slot = if sample.len() < sample_rows {
-                        None
+                    let target_slot = if seen_rows <= sample_rows {
+                        seen_rows - 1
                     } else {
                         let j = rng.random_range(0..seen_rows);
                         if j >= sample_rows {
                             continue;
                         }
-                        Some(j)
+                        j
                     };
 
                     let item_id = pg_sys::PageGetItemId(page, offset);
@@ -687,10 +763,7 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                     pg_sys::ExecClearTuple(slot);
                     let point = point?;
 
-                    match target_slot {
-                        None => sample.push(point),
-                        Some(j) => sample[j] = point,
-                    }
+                    collect(target_slot, point)?;
                 }
                 anyhow::Ok(())
             });
@@ -706,8 +779,11 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     }
 
     result?;
-    pgrx::debug1!("sample_partition_fields: sampled {} rows", sample.len());
-    Ok(sample)
+    pgrx::debug1!(
+        "sample_partition_fields: sampled {} rows",
+        seen_rows.min(sample_rows)
+    );
+    Ok(())
 }
 
 /// Projects one deformed heap row (plus its evaluated index expressions) onto the sampled
@@ -760,14 +836,19 @@ mod tests {
 
     #[pg_test]
     fn vector_partition_training_and_transport() {
+        let train = |metric, vectors: Vec<Option<PgVector>>, target| {
+            let mut sample = VectorSample::new(2, vectors.len());
+            for (row, vector) in vectors.into_iter().enumerate() {
+                sample.insert(row, vector).unwrap();
+            }
+            VectorPartitioning::train(FieldName::from("emb"), metric, sample, target).unwrap()
+        };
         for metric in [
             VectorMetric::L2,
             VectorMetric::Cosine,
             VectorMetric::InnerProduct,
         ] {
-            let model = VectorPartitioning::train(
-                FieldName::from("emb"),
-                2,
+            let model = train(
                 metric,
                 (0..200)
                     .map(|i| {
@@ -778,8 +859,7 @@ mod tests {
                     })
                     .collect(),
                 2,
-            )
-            .unwrap();
+            );
             assert_eq!(model.centroids.len(), 4);
             assert_ne!(
                 model.route(Some(&PgVector(vec![-10.0, 0.0]))),
@@ -797,25 +877,15 @@ mod tests {
             );
         }
         for sample in [vec![], vec![None], vec![Some(PgVector(vec![0.0, 0.0]))]] {
-            let model = VectorPartitioning::train(
-                FieldName::from("emb"),
-                2,
-                VectorMetric::Cosine,
-                sample,
-                8,
-            )
-            .unwrap();
+            let model = train(VectorMetric::Cosine, sample, 8);
             assert_eq!(model.route(Some(&PgVector(vec![1.0, 0.0]))), 0);
             assert_eq!(BuildPartitioning::Vector(model).partition_count(), 1);
         }
-        let model = VectorPartitioning::train(
-            FieldName::from("emb"),
-            2,
+        let model = train(
             VectorMetric::L2,
             (0..100).map(|_| Some(PgVector(vec![1.0, 2.0]))).collect(),
             8,
-        )
-        .unwrap();
+        );
         assert_eq!(BuildPartitioning::Vector(model).partition_count(), 1);
     }
 

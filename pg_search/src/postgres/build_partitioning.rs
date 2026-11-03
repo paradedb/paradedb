@@ -107,7 +107,10 @@ impl BuildPartitioning {
     pub(super) fn partition_count(&self) -> usize {
         match self {
             Self::Range(tree) => tree.partition_count(),
-            Self::Vector(model) => (model.centroids.len() / model.dimensions).max(1),
+            Self::Vector(model) => {
+                assert_ne!(model.dimensions, 0, "vector dimensions must be nonzero");
+                (model.centroids.len() / model.dimensions).max(1)
+            }
         }
     }
 

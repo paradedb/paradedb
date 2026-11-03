@@ -6,6 +6,9 @@ SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 1.0;
 SET paradedb.vector_stats = on;
 
+SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
+    = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
+
 CREATE FUNCTION quant_fixture_vector(d integer, n integer)
 RETURNS vector
 LANGUAGE SQL IMMUTABLE PARALLEL SAFE
@@ -299,8 +302,10 @@ SELECT
         AS exact_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
         AS routing_flat,
-    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
-        AS bound_flat,
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bounds_skips') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bound_armed_probe_sum') IS NULL
+        AS no_radii,
     jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
         AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
         AS io_flat,
@@ -544,6 +549,9 @@ $$;
 RESET paradedb.vector_stats;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_by_default;
 SET paradedb.vector_stats = on;
+
+SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
+    = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
 SELECT quant_explain_has_segment_info() AS segment_info_shown_with_vector_stats;
 RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();

@@ -1,6 +1,5 @@
 CREATE INDEX cohere_wiki_bm25_idx ON cohere_wiki
 USING paradedb (
-    _id,
     (text::pdb.unicode_words('stemmer=english', 'stopwords_language=english')),
     emb vector_cosine_ops
 ) WITH (

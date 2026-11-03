@@ -967,6 +967,8 @@ impl AggregateFieldExpression {
         // Tantivy counts array elements, but SQL COUNT(array) counts non-NULL rows.
         // Empty and all-NULL arrays have no stored values, so even a field-exists
         // filter cannot recover the SQL count. Leave these aggregates to Postgres.
+        // TODO(https://github.com/paradedb/paradedb/issues/7187): Re-enable COUNT(array)
+        // pushdown once outer array presence is preserved in fast fields.
         if pg_sys::get_base_element_type(pg_sys::exprType(expr)) != pg_sys::InvalidOid {
             bail!("aggregate pushdown is not supported for array columns");
         }

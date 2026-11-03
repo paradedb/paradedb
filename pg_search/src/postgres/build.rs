@@ -204,7 +204,8 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
-    // TODO: Support multiple vector fields in a single index.
+    // TODO: Support multiple vector fields in a single index after exploring what
+    // partitioning on multiple vector fields would entail.
     if options
         .attributes()
         .values()

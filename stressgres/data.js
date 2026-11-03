@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793747320906,
+  "lastUpdate": 1793747346438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -507943,6 +507943,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13213489456-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747343979,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3963.824395415895,
+            "unit": "median tps",
+            "extra": "avg tps: 3972.2155385863757, max tps: 4791.6255163642, count: 58887"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4448.243335363213,
+            "unit": "median tps",
+            "extra": "avg tps: 4485.072166371768, max tps: 5865.755318228958, count: 58887"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.18513994500537,
+            "unit": "median tps",
+            "extra": "avg tps: 164.86213393449913, max tps: 3035.4405540214675, count: 58887"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 22.941928759218314,
+            "unit": "median tps",
+            "extra": "avg tps: 38.67998742637026, max tps: 563.846482066935, count: 58887"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 22.868777052976373,
+            "unit": "median tps",
+            "extra": "avg tps: 38.511197561216896, max tps: 527.4704996797898, count: 58887"
+          }
+        ],
+        "publication_id": "13279251723-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -522532,6 +522585,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13213489456-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747346364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.464265872315152, max cpu: 4.6153846, count: 58887"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 22.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.97784972436616, max mem: 22.05078125, count: 58887"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.268903216010497, max cpu: 4.660194, count: 58887"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.416991971912307, max mem: 21.421875, count: 58887"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.439774130709887, max cpu: 32.796486, count: 58887"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.204805588988233, max mem: 22.2109375, count: 58887"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.049620459524, max document_count: 10002.0, count: 58887"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.05043558001, max document_count: 10002.0, count: 58887"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58887"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.233618,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.594470915085807, max cpu: 32.19933, count: 58887"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.01882743909946, max mem: 66.5390625, count: 58887"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.207682,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.555054876674777, max cpu: 32.214767, count: 58887"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.42560678980505, max mem: 66.078125, count: 58887"
+          }
+        ],
+        "publication_id": "13279251723-other"
       }
     ]
   }

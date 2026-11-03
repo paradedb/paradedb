@@ -36,7 +36,7 @@ icu_segmenter = "2.3.0"
 opencc-jieba-rs = { git = "https://github.com/paradedb/opencc-jieba-rs", branch = "main" }
 
 [dev-dependencies]
-rstest = "0.27.0"
+rstest = "0.28.0"
 
 [package.metadata.cargo-machete]
 ignored = ["strum"]

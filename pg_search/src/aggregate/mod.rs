@@ -943,6 +943,8 @@ fn set_missing_on_terms(
         // A GROUP BY on an array field is an `unnest()`, which yields no row
         // for an empty or NULL array. Only `pdb.agg()` gets here with one, since
         // plain aggregates over `unnest()` are left to PostgreSQL.
+        // TODO(https://github.com/paradedb/paradedb/issues/7187): restore `missing` here once
+        // fast fields preserve inner array NULLs and empty arrays.
         if let AggregationVariants::Terms(terms) = agg
             && terms.missing.is_none()
             && !(name == GroupedKey::NAME

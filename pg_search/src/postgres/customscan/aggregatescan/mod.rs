@@ -143,6 +143,8 @@ enum GroupingPushdownDeclineReason {
     MissingPathKeys,
     NondeterministicCollation,
     NondeterministicAggregateKey,
+    // TODO(https://github.com/paradedb/paradedb/issues/7187): restore `GROUP BY unnest(...)`
+    // pushdown once fast fields preserve inner array NULLs and empty arrays.
     UnnestNullElements,
 }
 

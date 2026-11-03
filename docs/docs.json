@@ -636,10 +636,6 @@
   "integrations": {
     "gtm": {
       "tagId": "GTM-KMGRG564"
-    },
-    "posthog": {
-      "apiKey": "phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj",
-      "apiHost": "https://app.posthog.com"
     }
   },
   "seo": {

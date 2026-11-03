@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793570602211,
+  "lastUpdate": 1793692421386,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -70221,6 +70221,116 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13099283597-buffers"
+      }
+    ],
+    "benchmarker hackernews (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793692420144,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.61,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.677,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.61,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.342,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.871,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.198,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13213572477-latency"
+      }
+    ],
+    "benchmarker hackernews (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793692421373,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6904.170718145565,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7702.9735992327,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.03202268000483,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13213572477-throughput"
       }
     ]
   }

@@ -1008,6 +1008,7 @@ unsafe fn extract_raw_group_column(
             let field_name = source
                 .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
                 .map(|r| r.field.name())
+                .or_else(|| find_one_fieldname(var_context, expr).map(|f| f.into_inner()))
                 .ok_or_else(unsupported)?;
             (
                 var,

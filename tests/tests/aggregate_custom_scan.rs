@@ -452,6 +452,69 @@ fn test_group_by_column_that_depends_on_keys(mut conn: PgConnection) {
     }
 }
 
+// The Tantivy backend turns nested group buckets into rows. The rows must match
+// PostgreSQL for NULL keys at each level, groups a FILTER has no bucket for,
+// more groups than a filter level scans through, and NaN keys.
+#[rstest]
+fn test_group_by_flatten_matches_postgres(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE flatten_paths (id INT, a INT, b INT, value INT);
+    INSERT INTO flatten_paths VALUES
+        (1, NULL, NULL, 2), (2, NULL, 1, 3), (3, 1, NULL, 4),
+        (4, 1, 1, 5), (5, 1, 1, 6), (6, 2, 2, 7);
+    CREATE INDEX flatten_paths_idx ON flatten_paths USING paradedb (id, a, b, value);
+
+    CREATE TABLE flatten_many (id INT, g INT, f FLOAT8, value INT);
+    INSERT INTO flatten_many SELECT i, i % 40, (i % 40) / 4.0, i FROM generate_series(1, 400) i;
+    CREATE INDEX flatten_many_idx ON flatten_many USING paradedb (id, g, f, value);
+
+    CREATE TABLE flatten_nan (id INT, f FLOAT8, value INT);
+    INSERT INTO flatten_nan VALUES (1, 'NaN', 2), (2, 'NaN', 3), (3, 1.5, 4);
+    CREATE INDEX flatten_nan_idx ON flatten_nan USING paradedb (id, f, value);
+    "#
+    .execute(&mut conn);
+
+    let queries = [
+        "SELECT a, b, COUNT(*), SUM(value) FROM flatten_paths
+         WHERE id @@@ paradedb.all() GROUP BY a, b",
+        "SELECT a, b, COUNT(*), COUNT(*) FILTER (WHERE value > 4),
+                SUM(value) FILTER (WHERE value < 4) FROM flatten_paths
+         WHERE id @@@ paradedb.all() GROUP BY a, b",
+        // Groups 35-39 have no bucket in the second filter.
+        "SELECT g, COUNT(*), COUNT(*) FILTER (WHERE value > 200),
+                SUM(value) FILTER (WHERE g < 35) FROM flatten_many
+         WHERE id @@@ paradedb.all() GROUP BY g",
+        "SELECT f, COUNT(*), SUM(value) FILTER (WHERE value > 200) FROM flatten_many
+         WHERE id @@@ paradedb.all() GROUP BY f",
+        "SELECT f, COUNT(*), SUM(value) FROM flatten_nan
+         WHERE id @@@ paradedb.all() GROUP BY f",
+    ];
+
+    for query in queries {
+        "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+        let (plan,) = format!("EXPLAIN (FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+        let plan = plan.to_string();
+        assert!(
+            plan.contains("ParadeDB Aggregate Scan") && plan.contains("Tantivy Query"),
+            "{plan}"
+        );
+
+        // The comment keeps the two settings from using one cached plan.
+        let [pushed_down, expected] = ["on", "off"].map(|enabled| {
+            format!("SET paradedb.enable_aggregate_custom_scan TO {enabled};").execute(&mut conn);
+            let (rows,) = format!(
+                "/* aggregate scan {enabled} */
+                 SELECT COALESCE(jsonb_agg(to_jsonb(q) ORDER BY to_jsonb(q)::text), '[]')::text
+                 FROM ({query}) q"
+            )
+            .fetch_one::<(String,)>(&mut conn);
+            rows
+        });
+
+        assert_eq!(pushed_down, expected, "{query}");
+    }
+}
+
 #[rstest]
 fn test_group_by_null_bucket(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);

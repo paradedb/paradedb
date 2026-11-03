@@ -350,12 +350,12 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
-static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
 static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
 static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-pub fn vector_router_rerank_factor() -> usize {
-    VECTOR_ROUTER_RERANK_FACTOR.get().max(1) as usize
+pub fn vector_router_rerank_factor() -> f32 {
+    VECTOR_ROUTER_RERANK_FACTOR.get() as f32
 }
 
 pub fn vector_router_min_beam_fraction() -> f32 {
@@ -725,13 +725,13 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_int_guc(
+    GucRegistry::define_float_guc(
         c"paradedb.vector_router_rerank_factor",
         c"Approximate candidates retained per requested centroid by quantized routing",
-        c"Query-time retention padding before exact reranking. Does not widen list selection or change document probing budgets.",
+        c"Retain ceil(factor * router_k) candidates before exact reranking. A factor of 1 removes padding but still reranks exactly. Does not widen list selection or change document probing budgets.",
         &VECTOR_ROUTER_RERANK_FACTOR,
-        1,
-        16,
+        1.0,
+        16.0,
         GucContext::Userset,
         GucFlags::default(),
     );

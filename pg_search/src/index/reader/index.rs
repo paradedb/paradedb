@@ -3096,34 +3096,27 @@ impl SearchIndexReader {
         };
         let fruits = reader_batches
             .flat_map(|readers| {
-                let readers = readers
-                    .into_iter()
-                    .map(|(ord, reader, _)| (ord, reader))
-                    .collect::<Vec<_>>();
-                let centroids = readers
-                    .iter()
-                    .map(|(ord, reader)| {
-                        if readers.len() <= 1 {
-                            return None;
-                        }
-                        let centroid = SegmentStats::of_reader(reader)
-                            .expect("segment stats should be readable")
-                            .and_then(|stats| {
-                                stats
-                                    .vector_partition(vector_field)
-                                    .expect("partition centroid should be readable")
-                            });
-                        on_segment(*ord);
-                        centroid
-                    })
-                    .collect::<Vec<_>>();
+                let use_centroids = readers.len() > 1;
+                let mut centroids = vec![None; readers.len()];
                 let segments = readers
-                    .iter()
-                    .zip(&centroids)
-                    .map(|(&(ordinal, reader), centroid)| VectorSegment {
-                        ordinal,
-                        reader,
-                        partition_centroid: centroid.as_deref(),
+                    .into_iter()
+                    .zip(&mut centroids)
+                    .map(|((ordinal, reader, _), centroid)| {
+                        if use_centroids {
+                            *centroid = SegmentStats::of_reader(reader)
+                                .expect("segment stats should be readable")
+                                .and_then(|stats| {
+                                    stats
+                                        .vector_partition(vector_field)
+                                        .expect("partition centroid should be readable")
+                                });
+                            on_segment(ordinal);
+                        }
+                        VectorSegment {
+                            ordinal,
+                            reader,
+                            partition_centroid: centroid.as_deref(),
+                        }
                     })
                     .collect::<Vec<_>>();
                 collector

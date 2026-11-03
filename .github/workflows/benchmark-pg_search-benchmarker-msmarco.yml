@@ -8,11 +8,14 @@ on:
       variant:
         description: "Benchmark variant"
         type: choice
-        options: [all, main, pr7160, pg_vectorsearch]
+        options: [all, main, pr7160, pr7163, pg_vectorsearch]
         default: all
       commit:
         description: "Candidate pg_search commit"
         default: "e3c06a5c611003c5c9d55b4cea4d636f37163e51"
+      optimized_commit:
+        description: "Optimized pg_search commit (PR 7163)"
+        default: "861459898cf0722372fa5dc44d20b5ab59a0e4b7"
       baseline_commit:
         description: "Baseline pg_search commit"
         default: "cb348775ec9763c1b20d87398230aa9b8295d10b"
@@ -39,10 +42,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: ${{ fromJSON(github.event.label.name == 'benchmark-msmarco-main' && '["main"]' || github.event.label.name == 'benchmark-msmarco-pr7160' && '["pr7160"]' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch' && '["pg_vectorsearch"]' || (inputs.variant != '' && inputs.variant != 'all' && format('["{0}"]', inputs.variant)) || '["main","pr7160","pg_vectorsearch"]') }}
+        name: ${{ fromJSON(github.event.label.name == 'benchmark-msmarco-main' && '["main"]' || github.event.label.name == 'benchmark-msmarco-pr7160' && '["pr7160"]' || github.event.label.name == 'benchmark-msmarco-pr7163' && '["pr7163"]' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch' && '["pg_vectorsearch"]' || (inputs.variant != '' && inputs.variant != 'all' && format('["{0}"]', inputs.variant)) || '["main","pr7160","pr7163","pg_vectorsearch"]') }}
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-main", "benchmark-msmarco-pr7160", "benchmark-msmarco-pg_vectorsearch"]'), github.event.label.name)
+      contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-main", "benchmark-msmarco-pr7160", "benchmark-msmarco-pr7163", "benchmark-msmarco-pg_vectorsearch"]'), github.event.label.name)
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -56,8 +59,8 @@ jobs:
       PDBENCH_REF: ${{ inputs.pdbench_ref || 'e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
-      BENCHMARK_REF: ${{ matrix.name == 'pr7160' && (inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51') || (inputs.baseline_commit || 'cb348775ec9763c1b20d87398230aa9b8295d10b') }}
-      MSMARCO_CONFIG: benchmarks/msmarco/${{ matrix.name == 'pr7160' && '113m-adaptive' || matrix.name == 'pg_vectorsearch' && '113m-pgvectorsearch' || '113m' }}.toml
+      BENCHMARK_REF: ${{ matrix.name == 'pr7160' && (inputs.commit || 'e3c06a5c611003c5c9d55b4cea4d636f37163e51') || matrix.name == 'pr7163' && (inputs.optimized_commit || '861459898cf0722372fa5dc44d20b5ab59a0e4b7') || (inputs.baseline_commit || 'cb348775ec9763c1b20d87398230aa9b8295d10b') }}
+      MSMARCO_CONFIG: benchmarks/msmarco/${{ contains(fromJSON('["pr7160","pr7163"]'), matrix.name) && '113m-adaptive' || matrix.name == 'pg_vectorsearch' && '113m-pgvectorsearch' || '113m' }}.toml
 
     steps:
       - name: Remove benchmark label
@@ -216,6 +219,8 @@ jobs:
             -c 'ALTER TABLE msmarco SET (parallel_workers = 8);'
 
       - name: Refresh pg_search and build index
+        env:
+          PGOPTIONS: ${{ contains(fromJSON('["pr7160","pr7163"]'), matrix.name) && '-c paradedb.vector_centroid_quantization=on' || '' }}
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
@@ -224,7 +229,8 @@ jobs:
             -c "SELECT name, setting, unit FROM pg_settings
                 WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
                                'max_worker_processes', 'max_parallel_maintenance_workers',
-                               'parallel_leader_participation', 'paradedb.global_target_segment_count')
+                               'parallel_leader_participation', 'paradedb.global_target_segment_count',
+                               'paradedb.vector_centroid_quantization')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
           pdbench build --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
@@ -293,6 +299,43 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'msmarco', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
+      - name: Verify quantized router before recall sweep
+        if: contains(fromJSON('["pr7160","pr7163"]'), matrix.name)
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifacts/router-preflight
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c 'SELECT json_build_array(emb::text) FROM msmarco LIMIT 1' \
+            > benchmark-artifacts/router-preflight/query_vectors.json
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path(os.environ["MSMARCO_CONFIG"]).read_text())
+          search = config["search"]
+          points = []
+          for k in (10, 100):
+              query = f"knn_top{k}_unfiltered"
+              sql = Path(f"benchmarks/msmarco/assets/msmarco/queries/{query}.sql").read_text()
+              sql = sql.replace("{{ table }}", config["dataset"]["table"])
+              sql = sql.replace("{{ dims }}", str(config["dataset"]["dims"]))
+              points.append({
+                  "name": query,
+                  "reached": True,
+                  "filtered": False,
+                  "neighbors": k,
+                  "dimensions": config["dataset"]["dims"],
+                  "session": search["session"] | {"statement_timeout": "120s"},
+                  "param": search["sweep"]["param"],
+                  "probe": str(search["sweep"]["start"]),
+                  "sql": sql.replace("current_setting('msmarco.qvec')", "$1"),
+              })
+          Path("benchmark-artifacts/router-preflight/operating_points.json").write_text(json.dumps(points))
+          PYTHON
+          python3 benchmarks/cohere/verify_plans.py benchmark-artifacts/router-preflight --quantized
+
       - name: Sweep recall targets with pdbench
         run: |
           set -euo pipefail
@@ -335,7 +378,7 @@ jobs:
           VARIANT: ${{ matrix.name }}
         run: |
           args=()
-          if [[ "$VARIANT" == pr7160 ]]; then args+=(--quantized); fi
+          if [[ "$VARIANT" == pr7160 || "$VARIANT" == pr7163 ]]; then args+=(--quantized); fi
           python3 benchmarks/cohere/verify_plans.py benchmark-artifacts "${args[@]}"
 
       - name: Measure selected operating points with k6

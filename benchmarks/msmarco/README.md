@@ -1,6 +1,6 @@
 # MS MARCO vector comparison
 
-Apply `benchmark-msmarco-pg_search` to this PR to run three independent jobs
+Apply `benchmark-msmarco-pg_search` to this PR to run four independent jobs
 against the completed 113,520,750-row heap snapshot. The workflow removes the
 label so another run can be requested explicitly. No benchmark changes need
 to be merged first.
@@ -10,9 +10,10 @@ draft PRs and result comments:
 
 - `benchmark-msmarco-main`
 - `benchmark-msmarco-pr7160`
+- `benchmark-msmarco-pr7163`
 - `benchmark-msmarco-pg_vectorsearch`
 
-Manual dispatch accepts `variant=main`, `pr7160`, or `pg_vectorsearch`;
+Manual dispatch accepts `variant=main`, `pr7160`, `pr7163`, or `pg_vectorsearch`;
 `all` remains the default. Benchmarker builds enable verbose xk6 logging so
 dependency-resolution failures retain their cause.
 
@@ -20,11 +21,12 @@ dependency-resolution failures retain their cause.
 | --------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
 | main            | `cb348775ec9763c1b20d87398230aa9b8295d10b`                    | `paradedb.vector_cluster_max_probe`                     |
 | PR #7160        | `e3c06a5c611003c5c9d55b4cea4d636f37163e51`                    | `paradedb.vector_search_effort`, automatic probe budget |
+| PR #7163        | `861459898cf0722372fa5dc44d20b5ab59a0e4b7`                    | `paradedb.vector_search_effort`, automatic probe budget |
 | pg_vectorsearch | private memory fix `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1` | integer `prism.nprobe`                                  |
 
 The private `paradedb/pg_vectorsearch` build fixes per-tuple detoast retention
 in parallel index scans. It uses the existing engine support from pdbench
-PR #45. All three jobs pin pdbench to
+PR #45. All jobs pin pdbench to
 `e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c` and Benchmarker to
 `ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. The workflow and assets come from
 this PR; each pg_search extension is built from its exact revision above.
@@ -63,11 +65,18 @@ recall-scoring failures from that run are corrected here.
 
 ## Validation and results
 
+PR #7160 and #7163 set `paradedb.vector_centroid_quantization=on` in the
+build connection and require pdbench to verify it before creating the index.
+The setting is captured at index creation. Before sweeping recall, both jobs
+run the existing plan verifier for top-10 and top-100 on one corpus vector
+and require quantized routing with exact reranking. This preflight has a
+two-minute statement timeout and its own diagnostic directory.
+
 After `VACUUM ANALYZE`, the workflow imports both published ground-truth
 fixtures, runs recall sweeps, and checks parameterized `EXPLAIN ANALYZE`
 plans before timing selected points. pg_search must perform cosine TopK
 inside its scan; pg_vectorsearch must use the expected PRISM index. The
-PR #7160 job also verifies quantized routing counters and exact reranking.
+PR #7160 and #7163 jobs also verify quantized routing counters and exact reranking.
 
 k6 runs one VU, with 10 seconds of warmup followed by 50 seconds of measurement
 per reached recall target. Each job retains its configuration, source and

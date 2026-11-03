@@ -8,6 +8,7 @@ vector_field = "emb"
 s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
 
 [postgres.build]
+"paradedb.vector_centroid_quantization" = "on"
 shared_buffers = "12GB"
 maintenance_work_mem = "12GB"
 max_parallel_maintenance_workers = 8

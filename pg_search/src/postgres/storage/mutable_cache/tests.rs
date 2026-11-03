@@ -34,6 +34,57 @@ mod tests {
         MutableSegmentBound, SegmentMetaEntry, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
     };
 
+    fn lifecycle_key(id: i32) -> MutableCacheKey {
+        let mut segment_id = [0; 16];
+        segment_id[..4].copy_from_slice(&id.to_le_bytes());
+        MutableCacheKey {
+            database_oid: unsafe { pg_sys::MyDatabaseId },
+            index_oid: pg_sys::InvalidOid,
+            segment_id,
+            bound: MutableSegmentBound {
+                max_doc: 1,
+                num_deleted_docs: 0,
+            },
+        }
+    }
+
+    #[pg_extern]
+    fn test_mutable_cache_access(id: i32, pause_build: bool, pause_reader: bool) -> bool {
+        let key = lifecycle_key(id);
+        let path = PathBuf::from(format!(
+            "{}.fast",
+            SegmentId::from_bytes(key.segment_id).uuid_string()
+        ));
+        let directory = get_or_build(&key, || {
+            if pause_build {
+                Spi::run("SELECT pg_sleep(60)").unwrap();
+            }
+            let directory = RamDirectory::default();
+            directory.atomic_write(&path, &[1, 2, 3])?;
+            Ok(directory)
+        })
+        .unwrap();
+        if pause_reader {
+            Spi::run("SELECT pg_sleep(60)").unwrap();
+        }
+        directory.atomic_read(&path).unwrap() == [1, 2, 3]
+    }
+
+    #[pg_extern]
+    fn test_mutable_cache_readers(id: i32, invalidate: bool) -> i64 {
+        let key = lifecycle_key(id);
+        let cache = load_cache().expect("cache must be preloaded");
+        if invalidate {
+            cache.invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+        }
+        let _guard = cache.lock.acquire_exclusive();
+        unsafe { cache.slots() }
+            .iter()
+            .find(|slot| slot.state() != SlotState::Empty && slot.key == key)
+            .map(|slot| i64::from(slot.active_readers.load(Ordering::Acquire)))
+            .unwrap_or(-1)
+    }
+
     #[pg_test]
     fn test_pack_unpack_and_shmem_directory() {
         let ram_dir = RamDirectory::default();

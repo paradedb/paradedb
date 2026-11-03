@@ -115,7 +115,7 @@ use pgrx::pg_sys;
 use std::cell::UnsafeCell;
 use std::ffi::c_void;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use tantivy::Directory;
 use tantivy::directory::RamDirectory;
 use tantivy::index::SegmentId;
@@ -132,6 +132,8 @@ pub const MAX_SLOTS: usize = 256;
 pub const MAX_INFLIGHT_BUILDS: usize = 16;
 
 static MUTABLE_CACHE: AtomicPtr<MutableCacheHeader> = AtomicPtr::new(std::ptr::null_mut());
+static BACKEND_EXIT_REGISTERED: AtomicBool = AtomicBool::new(false);
+static BACKEND_READERS: [AtomicU32; MAX_SLOTS] = [const { AtomicU32::new(0) }; MAX_SLOTS];
 static mut PREV_SHMEM_REQUEST_HOOK: pg_sys::shmem_request_hook_type = None;
 static mut PREV_SHMEM_STARTUP_HOOK: pg_sys::shmem_startup_hook_type = None;
 static mut PREV_OBJECT_ACCESS_HOOK: pg_sys::object_access_hook_type = None;
@@ -325,13 +327,17 @@ pub struct ActiveReaderGuard {
     slot_index: usize,
 }
 
-// We intentionally do NOT use `impl_safe_drop!` here because shared reader counts must
-// be released even when the query unwinds.
+// We intentionally do NOT use `impl_safe_drop!` here because ERROR unwinding must release
+// reader counts. Backend exit uses release_backend_resources instead of Rust destructors.
 impl Drop for ActiveReaderGuard {
     fn drop(&mut self) {
+        if crate::postgres::utils::proc_exit_in_progress() {
+            return;
+        }
         if let Some(cache) = load_cache() {
             let slots = unsafe { cache.slots() };
             if self.slot_index < slots.len() {
+                BACKEND_READERS[self.slot_index].fetch_sub(1, Ordering::Relaxed);
                 let prev = slots[self.slot_index]
                     .active_readers
                     .fetch_sub(1, Ordering::Release);
@@ -341,6 +347,34 @@ impl Drop for ActiveReaderGuard {
             }
         }
     }
+}
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn release_backend_resources(_code: i32, _arg: pg_sys::Datum) {
+    let Some(cache) = load_cache() else {
+        return;
+    };
+    let guard = cache.lock.acquire_exclusive();
+    let slots = unsafe { cache.slots_mut(&guard) };
+    let slab_pool = unsafe { cache.slab_pool_mut(&guard) };
+    for (slot, readers) in slots.iter_mut().zip(&BACKEND_READERS) {
+        let count = readers.swap(0, Ordering::Relaxed);
+        if count == 0 {
+            continue;
+        }
+        let previous = slot.active_readers.fetch_sub(count, Ordering::Release);
+        if previous == count && slot.state() == SlotState::Superseded {
+            slab_pool.free(slot.span.offset, slot.span.order);
+            *slot = CacheSlot::empty();
+            cache.generation.fetch_add(1, Ordering::Release);
+        }
+    }
+    for build in unsafe { cache.inflight_builds_mut(&guard) } {
+        if build.builder_pid == unsafe { pg_sys::MyProcPid } {
+            *build = InflightBuild::empty();
+        }
+    }
+    cache.cv.broadcast();
 }
 
 /// Shared memory header located at the base of the cache allocation.
@@ -747,6 +781,14 @@ pub fn get_or_build(
         return Ok(Arc::new(ram_dir));
     };
 
+    if !BACKEND_EXIT_REGISTERED.load(Ordering::Relaxed) {
+        // FATAL exits skip Rust destructors, including the query's scan state.
+        unsafe {
+            pg_sys::before_shmem_exit(Some(release_backend_resources), pg_sys::Datum::from(0));
+        }
+        BACKEND_EXIT_REGISTERED.store(true, Ordering::Relaxed);
+    }
+
     loop {
         let guard = cache.lock.acquire_exclusive();
         let slots = unsafe { cache.slots_mut(&guard) };
@@ -755,6 +797,7 @@ pub fn get_or_build(
         for (idx, slot) in slots.iter().enumerate() {
             if slot.state() == SlotState::Ready && slot.key == *key {
                 slot.active_readers.fetch_add(1, Ordering::AcqRel);
+                BACKEND_READERS[idx].fetch_add(1, Ordering::Relaxed);
                 let _ = slot
                     .usage_count
                     .try_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
@@ -798,6 +841,7 @@ pub fn get_or_build(
             cache.cv.prepare_to_sleep();
             drop(guard);
             cache.cv.sleep();
+            ConditionVariable::cancel_sleep();
             pgrx::check_for_interrupts!();
             continue;
         }
@@ -929,6 +973,7 @@ pub fn get_or_build(
         slots[slot_idx].span = span;
         slots[slot_idx].set_state(SlotState::Ready);
         slots[slot_idx].active_readers.store(1, Ordering::Release);
+        BACKEND_READERS[slot_idx].fetch_add(1, Ordering::Relaxed);
         slots[slot_idx].usage_count.store(1, Ordering::Release);
 
         // Supersede any older bound for this same segment and eagerly reclaim if no active readers

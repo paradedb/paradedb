@@ -36,9 +36,9 @@ pretty_assertions = "1.4.1"
 # Fork adds RngAlgorithm::Antithesis (crate version still 1.11.0).
 proptest = { git = "https://github.com/antithesishq/proptest", rev = "6061eb48d67ff76f882e709677308816d5791ce7" }
 # Stays on crates.io: the antithesis feature does not touch the derive crate.
-proptest-derive = "0.8.0"
+proptest-derive = "0.9.0"
 rand = "0.10.3"
-rstest = "0.27.0"
+rstest = "0.28.0"
 rustc-hash = "2.1.2"
 serde_json = "1.0.149"
 sqlx = { version = "0.9.0", features = [

@@ -5,23 +5,10 @@
 
 name: Benchmark pg_search (Queries)
 
-# Stack Overflow runs on push to main, benchmarks/benchmark-stackoverflow labels, or manually.
+# Run Stack Overflow nightly on main, on labeled PRs, or manually.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/actions/benchmark-queries/**"
-      - ".github/actions/publish-benchmark-results/**"
-      - ".github/actions/benchmarks-from-main/**"
-      - ".github/actions/setup-benchmark-cluster/**"
-      - ".github/actions/setup-pg-search-build-environment/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/actions/setup-postgres/**"
-      - ".github/workflows/benchmark-pg_search-queries.yml"
-      - "benchmarks/**"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -56,6 +43,12 @@ permissions:
 
 jobs:
   benchmark-pg_search-queries:
+    permissions:
+      actions: write
+      contents: write
+      deployments: write
+      pull-requests: write
+      id-token: write
     name: Run Benchmark Jobs
     timeout-minutes: 360
     runs-on:
@@ -68,7 +61,7 @@ jobs:
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
     if: >-
-      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
@@ -77,7 +70,7 @@ jobs:
     env:
       pg_version: 18
       BACKREST_STANZA: bench
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_BUCKET: paradedb-benchmark
       BACKREST_REPO_PATH_PREFIX: /snapshots
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
@@ -125,13 +118,13 @@ jobs:
       # Keep workflow actions separate from the source commit being benchmarked
       # so we can benchmark older commits with newer actions.
       - name: Checkout Workflow Actions
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
 
       - name: Checkout Source to Benchmark
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
           path: source
@@ -145,13 +138,16 @@ jobs:
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Fetch Latest Benchmark Code, Suites
@@ -164,7 +160,7 @@ jobs:
 
       - name: Resolve Git Ref to PR
         id: pr_label
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           # ← Set this to whatever ref you’re resolving:
           # • a SHA:            ${{ github.sha }}
@@ -323,14 +319,14 @@ jobs:
   notify-slack-on-failure:
     name: Notify Slack on Failure
     needs: [benchmark-pg_search-queries, publish-results]
-    if: always() && (needs.benchmark-pg_search-queries.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'push'
+    if: always() && (needs.benchmark-pg_search-queries.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       checks: read
     steps:
       - name: Notify Slack on Failure (Push only)
-        uses: paradedb/actions/slack-alert@v14
+        uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
           job_results: ${{ toJSON(needs) }}

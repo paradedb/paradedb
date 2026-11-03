@@ -39,13 +39,14 @@ runs:
           <<< "$METADATA" > _benchmark_publish/metadata.json
 
     - name: Upload Benchmark Results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: gh-pages-${{ inputs.benchmark_type }}-${{ steps.publication-inputs.outputs.artifact_key }}-${{ github.run_attempt }}
         path: |
           _benchmark_publish/metadata.json
           ${{ steps.publication-inputs.outputs.results_path }}
           ${{ fromJSON(inputs.metadata).context_file }}
+          ${{ fromJSON(inputs.metadata).sweep_reports_dir }}
           ${{ fromJSON(inputs.metadata).buffer_metrics_file }}
           ${{ fromJSON(inputs.metadata).index_metrics_file }}
         retention-days: 30

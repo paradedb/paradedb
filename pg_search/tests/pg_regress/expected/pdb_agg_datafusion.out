@@ -1371,47 +1371,54 @@ RESET min_parallel_table_scan_size;
 RESET max_parallel_workers;
 SET max_parallel_workers_per_gather = 0;
 RESET paradedb.mpp_min_rows;
--- Test 6.12: plain GROUP BY on array field over join runs on DataFusion
+-- Test 6.12: array grouping over a join preserves empty arrays and NULLs
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post'
 GROUP BY p.tags
 ORDER BY p.tags;
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Output: p.tags, (count(*))
-   Sort Key: p.tags
-   ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: p.tags, (count(*))
-         Backend: DataFusion
-         Indexes: pa_posts_idx (p), pa_authors_idx (a)
-         Group By: tags
-         Aggregates: COUNT(*)
-         DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[tags@0 as tags], aggr=[count(1) as agg_0]
-           :   TantivyDecodeExec: decode=[tags]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@1)], projection=[tags@1]
-           :       CooperativeExec
-           :         PgSearchScan: table=a, segments=1, visibility=eager, query="all"
-           :       CooperativeExec
-           :         PgSearchScan: table=p, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(17 rows)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column tags is an array, which is not read from the index (table: join)
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: p.tags, count(*)
+   Group Key: p.tags
+   ->  Sort
+         Output: p.tags
+         Sort Key: p.tags
+         ->  Hash Join
+               Output: p.tags
+               Hash Cond: (a.id = p.author_id)
+               ->  Seq Scan on public.pa_authors a
+                     Output: a.id, a.name, a.reputation, a.tags
+               ->  Hash
+                     Output: p.tags, p.author_id
+                     ->  Custom Scan (ParadeDB Base Scan) on public.pa_posts p
+                           Output: p.tags, p.author_id
+                           Table: pa_posts
+                           Index: pa_posts_idx
+                           Worker Selection: Cost model
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"title","value":"post","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(21 rows)
 
 SELECT p.tags, COUNT(*)
 FROM pa_posts p JOIN pa_authors a ON p.author_id = a.id
 WHERE p.title ||| 'post'
 GROUP BY p.tags
 ORDER BY p.tags;
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY column tags is an array, which is not read from the index (table: join)
             tags            | count 
 ----------------------------+-------
+ {}                         |     1
  {database,postgres}        |     1
  {database,postgres,search} |     1
  {database,rust}            |     1
  {rust}                     |     1
-                            |     2
-(5 rows)
+                            |     1
+(6 rows)
 
 -- Test 6.13: pdb.agg terms on a key that is also LATERAL unnested in FROM
 EXPLAIN (FORMAT TEXT, COSTS OFF, VERBOSE, TIMING OFF)

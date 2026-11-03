@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793747379547,
+  "lastUpdate": 1793747407724,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -181535,6 +181535,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13212964124-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747403776,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 129.75397955433723,
+            "unit": "median tps",
+            "extra": "avg tps: 127.9838855604497, max tps: 134.87368200069665, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 544.5102131187336,
+            "unit": "median tps",
+            "extra": "avg tps: 559.5322562347302, max tps: 4813.230666578321, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2950.9900636399807,
+            "unit": "median tps",
+            "extra": "avg tps: 2933.3799786996383, max tps: 3421.5537881706646, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 154.68802104534842,
+            "unit": "median tps",
+            "extra": "avg tps: 152.9409466674369, max tps: 168.19042121007485, count: 59068"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 269.37830402984565,
+            "unit": "median tps",
+            "extra": "avg tps: 375.13115833945875, max tps: 2742.738690408101, count: 118136"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 28.51360427100875,
+            "unit": "median tps",
+            "extra": "avg tps: 28.037185425637578, max tps: 45.916484068288646, count: 59068"
+          }
+        ],
+        "publication_id": "13277127731-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -230230,6 +230289,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13212964124-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747407623,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.681709,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.674306345270727, max cpu: 36.905334, count: 59068"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.89418935062132, max mem: 48.9296875, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.394985474177207, max cpu: 40.870388, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 33.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.89890002306664, max mem: 33.90234375, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5779686,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.907162352226889, max cpu: 18.43495, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 52.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.31323829103745, max mem: 52.69921875, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2552,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2549.4614850680573, max block_count: 2552.0, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.0680516721577549, max cpu: 4.569253, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.564643715717477, max mem: 28.5859375, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.396068937495766, max segment_count: 35.0, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 13.565709,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.871654976562116, max cpu: 33.466137, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 53.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.910920464549335, max mem: 53.921875, count: 59068"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.409427964727908, max cpu: 41.006172, count: 118136"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 49.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.40157083917053, max mem: 57.296875, count: 118136"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.866451392162196, max cpu: 22.966507, count: 59068"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.555232555063654, max mem: 49.67578125, count: 59068"
+          }
+        ],
+        "publication_id": "13277127731-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

@@ -43,11 +43,11 @@ Flat and located scans do not invoke a router and omit these counters.
 
 Router search policies can be adjusted at query time without rebuilding:
 
-| Setting                                    | Default | Effect                                                  |
-| ------------------------------------------ | ------: | ------------------------------------------------------- |
-| `paradedb.vector_router_rerank_factor`     |       2 | Approximate members retained per requested centroid     |
-| `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level    |
-| `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists             |
+| Setting                                    | Default | Effect                                               |
+| ------------------------------------------ | ------: | ---------------------------------------------------- |
+| `paradedb.vector_router_rerank_factor`     |       2 | Approximate members retained per requested centroid  |
+| `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level |
+| `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists          |
 
 The beam setting leaves full-precision routing unchanged.
 Quantized routing defaults to a half-width beam with 2× member retention.

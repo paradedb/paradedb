@@ -2,6 +2,8 @@
 -- Test JSON ? operator pushsown 
 -- =====================================================================
 -- The index cannot answer ? exactly, so it runs as a heap filter in the custom scan
+-- TODO(https://github.com/paradedb/paradedb/issues/7187): push ? down again once fast
+-- fields store JSON null values and array elements.
 DROP TABLE IF EXISTS jsonb_exists_test;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE jsonb_exists_test (

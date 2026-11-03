@@ -192,6 +192,16 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    for (field_name, attr) in options.attributes().iter() {
+        if matches!(attr.tantivy_type, SearchFieldType::Vector(_, 0, _)) {
+            pg_sys::ereport!(
+                ERROR,
+                PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+                format!("vector field '{field_name}' must declare dimensions using vector(N)")
+            );
+        }
+    }
+
     if options
         .attributes()
         .values()
@@ -398,6 +408,50 @@ mod tests {
     use tantivy::IndexSettings;
     use tantivy::index::Order;
     use tantivy::schema::{FAST, NumericOptions, Schema};
+
+    #[pg_test]
+    fn vector_index_rejects_unspecified_dimensions() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE unspecified_vector_dims (id BIGINT, embedding vector);",
+        )
+        .unwrap();
+        for rows in ["", "(1, NULL)", "(1, '[1,2,3]')"] {
+            Spi::run("TRUNCATE unspecified_vector_dims").unwrap();
+            if !rows.is_empty() {
+                Spi::run(&format!(
+                    "INSERT INTO unspecified_vector_dims VALUES {rows}"
+                ))
+                .unwrap();
+            }
+            for partition_option in [
+                "",
+                ", partition_by = 'embedding'",
+                ", partition_by = ''",
+                ", partition_by = 'id'",
+            ] {
+                Spi::run(&format!(
+                    r#"
+                    DO $$
+                    BEGIN
+                        BEGIN
+                            CREATE INDEX ON unspecified_vector_dims USING paradedb (id, embedding)
+                            WITH (target_segment_count = 4{partition_option});
+                        EXCEPTION WHEN invalid_parameter_value THEN
+                            IF SQLERRM <> 'vector field ''embedding'' must declare dimensions using vector(N)' THEN
+                                RAISE;
+                            END IF;
+                            RETURN;
+                        END;
+                        RAISE EXCEPTION 'index accepted unspecified vector dimensions';
+                    END
+                    $$;
+                    "#,
+                ))
+                .unwrap();
+            }
+        }
+    }
 
     #[pg_test]
     fn test_build_sort_by_field_empty() {

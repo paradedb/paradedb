@@ -3,8 +3,8 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directories:
+      - "/"
       - "/.github/actions/*"
-      - "/.github/workflows"
     schedule:
       interval: "monthly"
     ignore:
@@ -15,50 +15,26 @@ updates:
         patterns:
           - "*"
 
-  # - package-ecosystem: "docker"
-  #   directory: "/docker"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     docker-dependencies:
-  #       patterns:
-  #         - "*"
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      docker-dependencies:
+        patterns:
+          - "*"
 
-  # - package-ecosystem: "cargo"
-  #   directory: "/dst"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     dst-dependencies:
-  #       patterns:
-  #         - "*"
-
-  # - package-ecosystem: "cargo"
-  #   directory: "/pg_search"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     pg_search-dependencies:
-  #       patterns:
-  #         - "*"
-
-  # - package-ecosystem: "cargo"
-  #   directory: "/tokenizers"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     tokenizers-dependencies:
-  #       patterns:
-  #         - "*"
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      cargo-dependencies:
+        patterns:
+          - "*"

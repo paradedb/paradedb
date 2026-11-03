@@ -85,18 +85,29 @@ impl BuildPartitioning {
         }
     }
 
+    pub(super) fn resolve(
+        self,
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+    ) -> Result<PartitionRouter> {
+        match self {
+            Self::Range(model) => Ok(PartitionRouter::Range {
+                projection: PartitionField::resolve_dims(model.dims(), categorized_fields)?,
+                model,
+            }),
+            Self::Vector(model) => Ok(PartitionRouter::Vector {
+                projection: Box::new(CategorizedPartitionField::resolve(
+                    &model.field,
+                    categorized_fields,
+                )?),
+                model,
+            }),
+        }
+    }
+
     pub(super) fn partition_count(&self) -> usize {
         match self {
             Self::Range(tree) => tree.partition_count(),
             Self::Vector(model) => (model.centroids.len() / model.dimensions).max(1),
-        }
-    }
-
-    pub(super) fn route(&self, point: &PartitionPoint) -> usize {
-        match (self, point) {
-            (Self::Range(tree), PartitionPoint::Range(point)) => tree.route(point),
-            (Self::Vector(model), PartitionPoint::Vector(vector)) => model.route(vector.as_ref()),
-            _ => unreachable!("partition projection must match its model"),
         }
     }
 
@@ -115,9 +126,46 @@ impl BuildPartitioning {
     }
 }
 
-pub(super) enum PartitionPoint {
-    Range(Point),
-    Vector(Option<PgVector>),
+pub(super) enum PartitionRouter {
+    Range {
+        model: KdTree,
+        projection: Vec<PartitionField>,
+    },
+    Vector {
+        model: VectorPartitioning,
+        projection: Box<CategorizedPartitionField>,
+    },
+}
+
+impl PartitionRouter {
+    pub(super) unsafe fn route(
+        &self,
+        ctid: u64,
+        created_by_version: Option<Version>,
+        get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<usize> {
+        match self {
+            Self::Range { model, projection } => {
+                let point = unsafe {
+                    projection
+                        .as_slice()
+                        .project(ctid, created_by_version, get_field)?
+                };
+                Ok(model.route(&point))
+            }
+            Self::Vector { model, projection } => {
+                let vector = unsafe { projection.project(ctid, created_by_version, get_field)? };
+                Ok(model.route(vector.as_ref()))
+            }
+        }
+    }
+
+    pub(super) fn into_model(self) -> BuildPartitioning {
+        match self {
+            Self::Range { model, .. } => BuildPartitioning::Range(model),
+            Self::Vector { model, .. } => BuildPartitioning::Vector(model),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -133,15 +181,12 @@ impl VectorPartitioning {
         field: FieldName,
         dimensions: usize,
         metric: VectorMetric,
-        sample: Vec<PartitionPoint>,
+        sample: Vec<Option<PgVector>>,
         target: usize,
     ) -> Result<Self> {
         let mut data = Vec::new();
         let mut distinct = std::collections::HashSet::new();
-        for point in sample {
-            let PartitionPoint::Vector(vector) = point else {
-                unreachable!("vector partition sample must contain vectors")
-            };
+        for vector in sample {
             let Some(mut vector) = vector else { continue };
             anyhow::ensure!(
                 vector.0.len() == dimensions,
@@ -259,14 +304,13 @@ pub(super) fn plan_partition_boundaries(
                 .saturating_mul(std::mem::size_of::<f32>() * 4))
         .clamp(1, MAX_SAMPLE_ROWS)
     });
-    let sample = unsafe {
-        sample_partition_fields(heaprel, indexrel, snapshot, &partition_by, sample_rows)?
-    };
-    pgrx::debug1!(
-        "plan_partition_boundaries: sampled {} rows for partition_by={partition_by:?}, target_partitions={target_partitions}",
-        sample.len()
-    );
+    let schema = indexrel.schema()?;
+    let categorized_fields = schema.categorized_fields();
     if let Some((dimensions, metric)) = vector {
+        let projection = CategorizedPartitionField::resolve(&partition_by[0], &categorized_fields)?;
+        let sample = unsafe {
+            sample_partition_fields(heaprel, indexrel, snapshot, &projection, sample_rows)?
+        };
         return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
             partition_by[0].clone(),
             dimensions,
@@ -275,15 +319,16 @@ pub(super) fn plan_partition_boundaries(
             target_partitions.max(1),
         )?)));
     }
-    let sample = sample
-        .into_iter()
-        .map(|point| match point {
-            PartitionPoint::Range(point) => point,
-            PartitionPoint::Vector(_) => {
-                unreachable!("range partition sample must contain scalar values")
-            }
-        })
-        .collect();
+    let projection = PartitionField::resolve_dims(&partition_by, &categorized_fields)?;
+    let sample = unsafe {
+        sample_partition_fields(
+            heaprel,
+            indexrel,
+            snapshot,
+            projection.as_slice(),
+            sample_rows,
+        )?
+    };
     Ok(Some(BuildPartitioning::Range(KdTree::from_sample(
         partition_by,
         sample,
@@ -356,6 +401,18 @@ pub(crate) struct CategorizedPartitionField {
 }
 
 impl CategorizedPartitionField {
+    fn resolve(
+        dim: &FieldName,
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+    ) -> Result<Self> {
+        categorized_fields
+            .iter()
+            .find(|(field, _)| field.field_name() == dim)
+            .cloned()
+            .map(|(field, categorized)| Self { field, categorized })
+            .ok_or_else(|| anyhow::anyhow!("partition_by field `{dim}` is not indexed"))
+    }
+
     pub(super) unsafe fn datum_to_vector(
         &self,
         datum: pg_sys::Datum,
@@ -412,37 +469,82 @@ impl PartitionField {
                 if dim.is_ctid() {
                     Ok(Self::Ctid)
                 } else {
-                    categorized_fields
-                        .iter()
-                        .find(|(field, _)| field.field_name() == dim)
-                        .cloned()
-                        .map(|(field, categorized)| {
-                            Self::Categorized(Box::new(CategorizedPartitionField {
-                                field,
-                                categorized,
-                            }))
-                        })
-                        .ok_or_else(|| anyhow::anyhow!("partition_by field `{dim}` is not indexed"))
+                    CategorizedPartitionField::resolve(dim, categorized_fields)
+                        .map(|field| Self::Categorized(Box::new(field)))
                 }
             })
             .collect()
     }
 }
 
+trait PartitionProjection {
+    type Point;
+
+    fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField>;
+
+    unsafe fn project(
+        &self,
+        ctid: u64,
+        created_by_version: Option<Version>,
+        get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<Self::Point>;
+}
+
+impl PartitionProjection for [PartitionField] {
+    type Point = Point;
+
+    fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField> {
+        self.iter().filter_map(|field| match field {
+            PartitionField::Ctid => None,
+            PartitionField::Categorized(field) => Some(field.as_ref()),
+        })
+    }
+
+    unsafe fn project(
+        &self,
+        ctid: u64,
+        created_by_version: Option<Version>,
+        mut get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<Point> {
+        self.iter()
+            .map(|field| match field {
+                PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+                PartitionField::Categorized(field) => {
+                    let (datum, is_null) = get_field(&field.categorized);
+                    unsafe { field.datum_to_value(datum, is_null, created_by_version) }
+                }
+            })
+            .collect()
+    }
+}
+
+impl PartitionProjection for CategorizedPartitionField {
+    type Point = Option<PgVector>;
+
+    fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField> {
+        std::iter::once(self)
+    }
+
+    unsafe fn project(
+        &self,
+        _ctid: u64,
+        _created_by_version: Option<Version>,
+        mut get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<Option<PgVector>> {
+        let (datum, is_null) = get_field(&self.categorized);
+        Ok(unsafe { self.datum_to_vector(datum, is_null) })
+    }
+}
+
 /// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
 /// onto `partition_by`, in that order.
-unsafe fn sample_partition_fields(
+unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
     snapshot: pg_sys::Snapshot,
-    partition_by: &[FieldName],
+    projection: &P,
     sample_rows: usize,
-) -> anyhow::Result<Vec<PartitionPoint>> {
-    let schema = indexrel.schema()?;
-    let categorized_fields = schema.categorized_fields();
-    let fields = PartitionField::resolve_dims(partition_by, &categorized_fields)?;
-    drop(categorized_fields);
-
+) -> anyhow::Result<Vec<P::Point>> {
     let nblocks = unsafe {
         pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
     };
@@ -468,12 +570,9 @@ unsafe fn sample_partition_fields(
         }
     };
 
-    let needs_expressions = fields.iter().any(|f| match f {
-        PartitionField::Ctid => false,
-        PartitionField::Categorized(categorized) => {
-            !matches!(categorized.categorized.source, FieldSource::Heap { .. })
-        }
-    });
+    let needs_expressions = projection
+        .fields()
+        .any(|field| !matches!(field.categorized.source, FieldSource::Heap { .. }));
     let expression_state = needs_expressions.then(|| ExpressionState::new(indexrel));
 
     let mut sampler = unsafe {
@@ -573,7 +672,7 @@ unsafe fn sample_partition_fields(
                     // routes the HOT root.
                     let ctid_u64 = item_pointer_to_u64(t_self);
                     let point = project_row(
-                        &fields,
+                        projection,
                         values,
                         isnull,
                         ctid_u64,
@@ -604,70 +703,47 @@ unsafe fn sample_partition_fields(
     }
 
     result?;
+    pgrx::debug1!("sample_partition_fields: sampled {} rows", sample.len());
     Ok(sample)
 }
 
 /// Projects one deformed heap row (plus its evaluated index expressions) onto the sampled
 /// fields, converting each datum the same way the index writer does.
-unsafe fn project_row(
-    fields: &[PartitionField],
+unsafe fn project_row<P: PartitionProjection + ?Sized>(
+    projection: &P,
     values: &[pg_sys::Datum],
     isnull: &[bool],
     ctid: u64,
     expr_results: &[(pg_sys::Datum, bool)],
     created_by_version: Option<Version>,
-) -> anyhow::Result<PartitionPoint> {
+) -> anyhow::Result<P::Point> {
     let unpacked_composites = unsafe {
-        CompositeSlotValues::from_composites(fields.iter().filter_map(|f| match f {
-            PartitionField::Categorized(categorized) => {
-                if let FieldSource::CompositeField {
-                    expression_idx,
-                    composite_type_oid,
-                    ..
-                } = categorized.categorized.source
-                {
-                    let (datum, is_null) = expr_results[expression_idx];
-                    Some((expression_idx, datum, is_null, composite_type_oid))
-                } else {
-                    None
-                }
+        CompositeSlotValues::from_composites(projection.fields().filter_map(|field| {
+            if let FieldSource::CompositeField {
+                expression_idx,
+                composite_type_oid,
+                ..
+            } = field.categorized.source
+            {
+                let (datum, is_null) = expr_results[expression_idx];
+                Some((expression_idx, datum, is_null, composite_type_oid))
+            } else {
+                None
             }
-            PartitionField::Ctid => None,
         }))
     };
 
-    if let [PartitionField::Categorized(categorized)] = fields
-        && matches!(categorized.field.field_type(), SearchFieldType::Vector(..))
-    {
-        let (datum, is_null) = resolve_field_value(
-            &categorized.categorized.source,
-            values,
-            isnull,
-            expr_results,
-            &unpacked_composites,
-        );
-        return Ok(PartitionPoint::Vector(unsafe {
-            categorized.datum_to_vector(datum, is_null)
-        }));
-    }
-
-    fields
-        .iter()
-        .map(|f| match f {
-            PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
-            PartitionField::Categorized(categorized) => {
-                let (datum, is_null) = resolve_field_value(
-                    &categorized.categorized.source,
-                    values,
-                    isnull,
-                    expr_results,
-                    &unpacked_composites,
-                );
-                unsafe { categorized.datum_to_value(datum, is_null, created_by_version) }
-            }
+    unsafe {
+        projection.project(ctid, created_by_version, |field| {
+            resolve_field_value(
+                &field.source,
+                values,
+                isnull,
+                expr_results,
+                &unpacked_composites,
+            )
         })
-        .collect::<Result<Point>>()
-        .map(PartitionPoint::Range)
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -692,10 +768,10 @@ mod tests {
                 metric,
                 (0..200)
                     .map(|i| {
-                        PartitionPoint::Vector(Some(PgVector(vec![
+                        Some(PgVector(vec![
                             if i % 2 == 0 { -10.0 } else { 10.0 },
                             (i % 7) as f32 * 0.01,
-                        ])))
+                        ]))
                     })
                     .collect(),
                 2,
@@ -717,11 +793,7 @@ mod tests {
                 model
             );
         }
-        for sample in [
-            vec![],
-            vec![PartitionPoint::Vector(None)],
-            vec![PartitionPoint::Vector(Some(PgVector(vec![0.0, 0.0])))],
-        ] {
+        for sample in [vec![], vec![None], vec![Some(PgVector(vec![0.0, 0.0]))]] {
             let model = VectorPartitioning::train(
                 FieldName::from("emb"),
                 2,
@@ -737,9 +809,7 @@ mod tests {
             FieldName::from("emb"),
             2,
             VectorMetric::L2,
-            (0..100)
-                .map(|_| PartitionPoint::Vector(Some(PgVector(vec![1.0, 2.0]))))
-                .collect(),
+            (0..100).map(|_| Some(PgVector(vec![1.0, 2.0]))).collect(),
             8,
         )
         .unwrap();

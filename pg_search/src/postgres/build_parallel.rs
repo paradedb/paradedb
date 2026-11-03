@@ -27,12 +27,11 @@ use crate::parallel_worker::{
     WorkerStyle, chunk_range,
 };
 use crate::postgres::build_partitioning::{
-    BuildPartitioning, PartitionField, PartitionPoint, plan_partition_boundaries,
+    BuildPartitioning, PartitionRouter, plan_partition_boundaries,
 };
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
 use crate::postgres::locks::Spinlock;
-use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::ps_status::{
     COMMITTING, FINALIZING, INDEXING, MERGING, set_ps_display_remove_suffix, set_ps_display_suffix,
 };
@@ -709,10 +708,7 @@ fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
 /// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
 /// participants' files, so a partition ends up as one segment however many workers scanned it.
 struct PartitionSpill {
-    model: BuildPartitioning,
-    /// The `partition_by` fields in `model.dims()` order, resolved to either `Ctid` or the index's categorized
-    /// fields so the callback can project each scanned row onto them.
-    dim_fields: Vec<PartitionField>,
+    router: PartitionRouter,
     files: PartitionSpillFiles,
     /// A key's encoding can depend on the version that created the index, so routing has to
     /// convert values the way the document build does.
@@ -726,11 +722,9 @@ impl PartitionSpill {
         files: PartitionSpillFiles,
         created_by_version: Option<Version>,
     ) -> anyhow::Result<Self> {
-        let dim_fields = PartitionField::resolve_dims(model.dims(), categorized_fields)?;
         let files = files.with_partitions(model.partition_count());
         Ok(Self {
-            model,
-            dim_fields,
+            router: model.resolve(categorized_fields)?,
             files,
             created_by_version,
         })
@@ -746,38 +740,17 @@ impl PartitionSpill {
         ctid: u64,
         unpacked_composites: &CompositeSlotValues,
     ) -> anyhow::Result<usize> {
-        if let BuildPartitioning::Vector(_) = &self.model {
-            let [PartitionField::Categorized(categorized)] = self.dim_fields.as_slice() else {
-                unreachable!("vector partitioning requires one vector field")
-            };
-            let (datum, is_null) = get_field_value(
-                &categorized.categorized.source,
-                categorized.categorized.attno,
-                values,
-                isnull,
-                unpacked_composites,
-            );
-            let vector = unsafe { categorized.datum_to_vector(datum, is_null) };
-            return Ok(self.model.route(&PartitionPoint::Vector(vector)));
-        }
-        let point = self
-            .dim_fields
-            .iter()
-            .map(|dim_field| match dim_field {
-                PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
-                PartitionField::Categorized(categorized) => {
-                    let (datum, is_null) = get_field_value(
-                        &categorized.categorized.source,
-                        categorized.categorized.attno,
-                        values,
-                        isnull,
-                        unpacked_composites,
-                    );
-                    unsafe { categorized.datum_to_value(datum, is_null, self.created_by_version) }
-                }
+        unsafe {
+            self.router.route(ctid, self.created_by_version, |field| {
+                get_field_value(
+                    &field.source,
+                    field.attno,
+                    values,
+                    isnull,
+                    unpacked_composites,
+                )
             })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(self.model.route(&PartitionPoint::Range(point)))
+        }
     }
 }
 
@@ -1123,11 +1096,12 @@ impl<'a> WorkerBuildState<'a> {
     /// segment, whichever participants scanned its rows.
     fn drain_partitioned(&mut self) -> anyhow::Result<()> {
         let PartitionSpill {
-            model, mut files, ..
+            router, mut files, ..
         } = self
             .partitioning
             .take()
             .expect("drain_partitioned: partitioning state should be set");
+        let model = router.into_model();
         unsafe { files.finish_writes() };
         let barrier = Instant::now();
         self.wait_for_spills();

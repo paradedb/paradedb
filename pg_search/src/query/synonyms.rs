@@ -133,6 +133,15 @@ pub struct Expansion {
 }
 
 impl Expansion {
+    /// True when the expansion builds one `TermQuery`, the shape Block-WAND prunes. A token in
+    /// no rule, or a rule whose one alternative is one word, is a single term.
+    pub fn is_single_term(&self) -> bool {
+        match &self.alternatives {
+            None => true,
+            Some(alternatives) => alternatives.len() == 1 && alternatives[0].len() == 1,
+        }
+    }
+
     /// Keeps at most `max` alternatives, in rule order. The typed tokens survive the cap, so a
     /// long rule never drops what the user typed.
     pub fn cap(&mut self, max: usize) {

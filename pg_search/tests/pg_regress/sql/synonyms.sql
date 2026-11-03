@@ -141,10 +141,13 @@ SET min_parallel_table_scan_size = 0;
 SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
 SELECT id, description FROM products WHERE description &&& 'red sofa' ORDER BY id;
 
--- A one-token top-k by score is kept serial as Block-WAND prunable. With a set, the token
--- is a union that does not prune, so the scan gets workers.
+-- A one-token top-k by score is kept serial as Block-WAND prunable. A rule turns the token
+-- into a union that does not prune, so the scan gets workers.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
+-- A token in no rule is still one term, so the scan stays serial.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'leather' ORDER BY paradedb.score(id) DESC LIMIT 3;
 SET paradedb.enable_synonyms = off;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;

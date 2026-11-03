@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::{pdb, resolve_synonym_set};
+use crate::query::pdb_query::{match_expands_with_synonyms, pdb};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -893,17 +893,24 @@ impl SearchQueryInput {
         }
     }
 
-    /// Whether a synonym set turns this query's token into a union of alternatives. The union
-    /// is a `DisjunctionMax` that Block-WAND does not prune, so a one-token match with a set on
-    /// its field or index is not the single posting list `is_topk_prunable` assumes.
+    /// Whether a synonym rule turns this query's token into a union of alternatives. The union
+    /// is a `DisjunctionMax` that Block-WAND does not prune, so such a one-token match is not
+    /// the single posting list `is_topk_prunable` assumes. A token in no rule still is.
     pub(crate) fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
         match self {
             SearchQueryInput::FieldedQuery {
                 field,
-                query: pdb::Query::Match { .. },
+                query:
+                    pdb::Query::Match {
+                        value,
+                        tokenizer: None,
+                        ..
+                    },
             } => schema
                 .search_field(field.root())
-                .is_some_and(|search_field| resolve_synonym_set(&search_field, schema).is_some()),
+                .is_some_and(|search_field| {
+                    match_expands_with_synonyms(&search_field, schema, value)
+                }),
             SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
             _ => false,
         }

@@ -1843,12 +1843,24 @@ fn resolve_search_tokenizer(
     Ok((analyzer, key))
 }
 
-/// The set a match query on `search_field` expands with: the field option first, then the index
-/// option. `none` at either level turns expansion off.
-pub(crate) fn resolve_synonym_set(
+/// The analyzer `resolve_search_tokenizer` returns, built from the index options alone, for the
+/// planner, which has no open index. `None` when the field options name no tokenizer.
+fn search_tokenizer_from_options(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
-) -> Option<String> {
+) -> Option<(tantivy::tokenizer::TextAnalyzer, String)> {
+    let config = search_field.field_config();
+    let tokenizer = config
+        .search_tokenizer()
+        .cloned()
+        .or_else(|| schema.index_search_tokenizer())
+        .or_else(|| config.tokenizer().cloned())?;
+    Some((tokenizer.to_tantivy_tokenizer()?, tokenizer.name()))
+}
+
+/// The set a match query on `search_field` expands with: the field option first, then the index
+/// option. `none` at either level turns expansion off.
+fn resolve_synonym_set(search_field: &SearchField, schema: &SearchIndexSchema) -> Option<String> {
     if !crate::gucs::enable_synonyms() {
         return None;
     }
@@ -1857,6 +1869,63 @@ pub(crate) fn resolve_synonym_set(
         None => schema.index_synonyms()?,
     };
     (set != SYNONYMS_NONE).then_some(set)
+}
+
+/// The match's tokens, each with the alternatives the set on the field gives it, capped by
+/// `paradedb.synonyms_max_alternatives`.
+fn expand_match(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    analyzer: &mut tantivy::tokenizer::TextAnalyzer,
+    analyzer_key: &str,
+    value: &str,
+) -> anyhow::Result<Vec<synonyms::Expansion>> {
+    let synonyms = match resolve_synonym_set(search_field, schema) {
+        Some(set) => Some(synonyms::compiled_set(&set, analyzer_key, analyzer)?),
+        None => None,
+    };
+    let tokens = synonyms::tokenize(analyzer, value);
+    Ok(match synonyms {
+        Some(synonyms) => {
+            let max_alternatives = crate::gucs::synonyms_max_alternatives();
+            let mut expansions = synonyms.expand(&tokens);
+            expansions
+                .iter_mut()
+                .for_each(|expansion| expansion.cap(max_alternatives));
+            expansions
+        }
+        None => tokens
+            .into_iter()
+            .map(|token| synonyms::Expansion {
+                tokens: vec![token],
+                alternatives: None,
+            })
+            .collect(),
+    })
+}
+
+/// Whether the set on `search_field` turns the match `value` into a union of alternatives,
+/// which Block-WAND does not prune. A token in no rule stays one `TermQuery`.
+pub(crate) fn match_expands_with_synonyms(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    value: &str,
+) -> bool {
+    if resolve_synonym_set(search_field, schema).is_none() {
+        return false;
+    }
+    let Some((mut analyzer, analyzer_key)) = search_tokenizer_from_options(search_field, schema)
+    else {
+        return false;
+    };
+    // A set that does not load fails the query at execution, with its own error.
+    expand_match(search_field, schema, &mut analyzer, &analyzer_key, value).is_ok_and(
+        |expansions| {
+            expansions
+                .iter()
+                .any(|expansion| !expansion.is_single_term())
+        },
+    )
 }
 
 fn tokenized_phrase(
@@ -2206,29 +2275,7 @@ fn match_query(
         }
         None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
-    let synonyms = match resolve_synonym_set(&search_field, schema) {
-        Some(set) => Some(synonyms::compiled_set(&set, &analyzer_key, &mut analyzer)?),
-        None => None,
-    };
-
-    let tokens = synonyms::tokenize(&mut analyzer, value);
-    let max_alternatives = crate::gucs::synonyms_max_alternatives();
-    let mut expansions = match synonyms {
-        Some(synonyms) => {
-            let mut expansions = synonyms.expand(&tokens);
-            expansions
-                .iter_mut()
-                .for_each(|expansion| expansion.cap(max_alternatives));
-            expansions
-        }
-        None => tokens
-            .into_iter()
-            .map(|token| synonyms::Expansion {
-                tokens: vec![token],
-                alternatives: None,
-            })
-            .collect(),
-    };
+    let mut expansions = expand_match(&search_field, schema, &mut analyzer, &analyzer_key, value)?;
     if expansions
         .iter()
         .flat_map(|expansion| expansion.alternatives.iter().flatten())

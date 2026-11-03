@@ -5115,9 +5115,9 @@ dependencies = [
 
 [[package]]
 name = "pg_query"
-version = "18.1.0"
+version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "457bfe74085c505ecaf5468416450969e2e52a66d26bc1a4b2f6944a2daee73f"
+checksum = "da43168013d137b3ca49b0044c1108ec09ff596a0626d4db89209c0a1d450cd2"
 dependencies = [
  "bindgen 0.66.1",
  "cc",
@@ -5137,10 +5137,10 @@ version = "0.26.0"
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
- "arrow-array 60.1.0",
+ "arrow-array 59.3.2",
  "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
- "arrow-select 60.1.0",
+ "arrow-select 59.3.2",
  "async-stream",
  "async-trait",
  "base64 0.23.1",
@@ -7394,7 +7394,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",

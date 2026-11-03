@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793747407724,
+  "lastUpdate": 1793747435510,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -342657,6 +342657,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13213181864-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747432583,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.25357606665817,
+            "unit": "median tps",
+            "extra": "avg tps: 56.7481365655082, max tps: 643.4013827470075, count: 59044"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.564939033466175,
+            "unit": "median tps",
+            "extra": "avg tps: 55.904725762112236, max tps: 644.7533158978342, count: 59044"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.46457016596225,
+            "unit": "median tps",
+            "extra": "avg tps: 58.921744543611936, max tps: 752.5166020245174, count: 59044"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.66215242761798,
+            "unit": "median tps",
+            "extra": "avg tps: 56.28527158608917, max tps: 658.3662874791469, count: 59044"
+          }
+        ],
+        "publication_id": "13277132803-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -364710,6 +364757,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13213181864-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86b05e56f557c460d0f7e433814626784eaf9988",
+          "message": "feat: periodically sweep underfilled mutable segments (#6797)\n\nEvery database gets a worker that wakes at the configured interval\n(default 1s) and flushes underfilled mutable segments across all indexes\nin that database. This ensures that mutable segments, which are slower\nto read, live for as short of a time as possible.\n\nIf a new pg_search database is created or the worker gets killed, every\n30s a launcher will check and create any missing workers.",
+          "timestamp": "2026-11-03T19:16:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/86b05e56f557c460d0f7e433814626784eaf9988"
+        },
+        "date": 1793747435401,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.03895753030067, max cpu: 62.682068, count: 59044"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 50.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.36247458198547, max mem: 60.28125, count: 59044"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.524034,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1673799440769907, max cpu: 4.591105, count: 59044"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.601058506156427, max mem: 21.76953125, count: 59044"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5649076,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.603129584196694, max cpu: 9.217475, count: 59044"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.12060053995749, max mem: 29.12109375, count: 59044"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 2399,
+            "unit": "median pages",
+            "extra": "avg pages: 1915.555196124924, max pages: 3188.0, count: 59044"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 18.7421875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 14.965275102042545, max relation_size:MB: 24.90625, count: 59044"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 6,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.8096165571438245, max segment_count: 26.0, count: 59044"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.504927,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6952917635245597, max cpu: 4.58891, count: 59044"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 21.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.247147916172686, max mem: 21.2890625, count: 59044"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.70577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.229437805180137, max cpu: 46.51163, count: 59044"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 49.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.78407734062733, max mem: 61.95703125, count: 59044"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.695034,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.12498111081978, max cpu: 67.50376, count: 59044"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 45.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.832339878416946, max mem: 57.71484375, count: 59044"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 95.9806137084961,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 200.77212079176533, max replication_lag:MB: 1006.1712188720703, count: 59044"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.70577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.227803439564298, max cpu: 41.860466, count: 59044"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 55.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.88053321463654, max mem: 67.83984375, count: 59044"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.035295,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.663807800231007, max cpu: 27.732307, count: 59044"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 21.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.910923553832735, max mem: 21.96484375, count: 59044"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.069438,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.885990889457622, max cpu: 32.292168, count: 59044"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 22.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.001265144955457, max mem: 22.09765625, count: 59044"
+          }
+        ],
+        "publication_id": "13277132803-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

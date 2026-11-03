@@ -1,24 +1,8 @@
 name: Benchmark pg_search (Benchmarker Cohere)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/actions/setup-benchmark-cluster/**"
-      - ".github/actions/setup-pg-search-build-environment/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/actions/setup-postgres/**"
-      - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/publish-benchmark-results/**"
-      - ".github/actions/stage-benchmark-results/**"
-      - ".github/workflows/publish-benchmark-results.yml"
-      - ".github/actions/setup-benchmarker/**"
-      - ".github/workflows/benchmark-pg_search-benchmarker-cohere.yml"
-      - "benchmarks/cohere/**"
-      - "benchmarks/datasets/cohere/**"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -125,7 +109,7 @@ jobs:
 
       - name: Create pdbench checkout token
         id: pdbench_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

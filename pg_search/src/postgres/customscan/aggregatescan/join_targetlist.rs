@@ -1272,8 +1272,9 @@ unsafe fn extract_raw_aggregate_entry(
     }
     let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
     if is_string_agg {
-        agg_kind =
-            AggKind::StringAgg(extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into()));
+        agg_kind = AggKind::StringAgg(extract_string_agg_separator(aggref).ok_or(
+            "string_agg with a non-constant separator is not supported for aggregate-on-join",
+        )?);
     }
     let field_refs = extract_aggref_field_refs(context, aggref, is_string_agg)?;
     let order_by =

@@ -1318,6 +1318,11 @@ impl FilterExpr {
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
+            FilterExpr::LitDecimal { value, scale } => Some(lit(ScalarValue::Decimal128(
+                Some(value.parse().ok()?),
+                38,
+                *scale,
+            ))),
             FilterExpr::LitBool(v) => Some(lit(*v)),
             FilterExpr::LitString(v) => Some(lit(v.clone())),
             FilterExpr::BinOp { left, op, right } => {

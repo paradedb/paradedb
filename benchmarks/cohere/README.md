@@ -9,11 +9,7 @@ The workflow runs the 1M and 10M snapshots independently. Each uses the existing
 10% (`year`), and approximately 1% (`battle`) full-text filters. The index retains
 eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
-workers, with 32 total worker slots so extension background workers do not consume
-the parallel worker budget. CI requires seven parallel build workers plus the
-leader, and verifies seven planned and launched query workers before k6. Runs
-with fewer workers fail before publishing results. Both tools use the same
-database and index throughout a run.
+workers. Both tools use the same database and index throughout a run.
 
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.

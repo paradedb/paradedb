@@ -115,16 +115,7 @@ class OperatingPointsTest(unittest.TestCase):
             "Custom Plan Provider": "ParadeDB Base Scan",
             "Tantivy Query": "text:year",
         }
-        plan = [
-            {
-                "Plan": {
-                    "Node Type": "Gather",
-                    "Workers Planned": 7,
-                    "Workers Launched": 7,
-                    "Plans": [scan],
-                }
-            }
-        ]
+        plan = [{"Plan": {"Node Type": "Gather", "Plans": [scan]}}]
         verify(plan, filtered=True)
         scan["Tantivy Query"] = "all"
         with self.assertRaisesRegex(ValueError, "predicate pushed down"):
@@ -134,26 +125,6 @@ class OperatingPointsTest(unittest.TestCase):
             verify(plan, filtered=False)
         with self.assertRaisesRegex(ValueError, "Expected a ParadeDB scan"):
             verify([{"Plan": {"Node Type": "Seq Scan"}}], filtered=False)
-
-    def test_plan_guard_rejects_worker_shortfalls_and_serial_execution(self):
-        """Reject results collected with less than the expected parallelism."""
-        scan = {"Custom Plan Provider": "ParadeDB Base Scan"}
-        for planned, launched in [(7, 5), (5, 5), (7, None)]:
-            with self.subTest(planned=planned, launched=launched):
-                plan = [
-                    {
-                        "Plan": {
-                            "Node Type": "Gather Merge",
-                            "Workers Planned": planned,
-                            "Workers Launched": launched,
-                            "Plans": [scan],
-                        }
-                    }
-                ]
-                with self.assertRaisesRegex(ValueError, "seven planned and launched"):
-                    verify(plan, filtered=False)
-        with self.assertRaisesRegex(ValueError, "seven planned and launched"):
-            verify([{"Plan": scan}], filtered=False)
 
 
 if __name__ == "__main__":

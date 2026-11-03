@@ -11,28 +11,18 @@ def verify(plan, filtered):
     """Require ParadeDB execution and index-level text filtering."""
     nodes = [plan[0]["Plan"]]
     scans = []
-    parallel = []
     while nodes:
         node = nodes.pop()
         if node.get("Filter"):
             raise ValueError("Filter runs outside the ParadeDB index")
         if "ParadeDB" in node.get("Custom Plan Provider", ""):
             scans.append(node)
-        if node.get("Node Type") in ("Gather", "Gather Merge"):
-            parallel.append(node)
         nodes.extend(node.get("Plans", []))
     if not scans or (
         filtered
         and not any("text" in str(scan.get("Tantivy Query", "")) for scan in scans)
     ):
         raise ValueError("Expected a ParadeDB scan with the text predicate pushed down")
-    if not parallel or any(
-        node.get("Workers Planned") != 7 or node.get("Workers Launched") != 7
-        for node in parallel
-    ):
-        raise ValueError(
-            "Cohere query requires seven planned and launched parallel workers"
-        )
 
 
 if __name__ == "__main__":

@@ -76,7 +76,7 @@ runs:
 
     - name: Upload Query Benchmark Results
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       env:
         DATASET: ${{ inputs.dataset }}
         INDEX: ${{ inputs.index }}

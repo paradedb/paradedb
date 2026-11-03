@@ -1300,6 +1300,7 @@ fn try_convert_in_list_to_query(
     let terms: Option<Vec<Term>> = in_list
         .list()
         .iter()
+        .filter(|expr| !extract_physical_scalar_value(expr).is_some_and(|s| s.is_null()))
         .map(|expr| {
             let scalar = extract_physical_scalar_value(expr)?;
             // Join-derived InList members are Arrow execution values. For

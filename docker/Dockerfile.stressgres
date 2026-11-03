@@ -24,9 +24,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     pkg-config \
     libpq-dev \
     libssl-dev \
-    libpng-dev \
-    libjpeg-dev \
-    libfontconfig1-dev \
     curl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
@@ -46,7 +43,7 @@ RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
     TARGET="$(rustc -vV | sed -n 's/^host: //p')" && \
     env "CARGO_TARGET_$(echo "$TARGET" | tr 'a-z-' 'A-Z_')_RUSTFLAGS=-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id" \
         cargo build --offline --profile dst --target "$TARGET" \
-        --manifest-path /home/app/Cargo.toml -p stressgres --features dst && \
+        --manifest-path /home/app/Cargo.toml -p stressgres --no-default-features --features dst && \
     cp "/home/app/target/$TARGET/dst/stressgres" /tmp/stressgres && \
     cp /usr/lib/postgresql/17/bin/psql /tmp/psql
 
@@ -59,10 +56,11 @@ FROM debian:trixie-slim AS runtime
 # Upgrade the runtime packages so a rebuild picks up all available Debian
 # security fixes. psql is used by the Antithesis setup/verification scripts;
 # util-linux provides flock for the recovery-liveness script.
+# Graph generation is disabled in this image, avoiding Fontconfig and its
+# transitive font/XML dependencies. Normal source builds retain graph support.
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     bash \
     ca-certificates \
-    libfontconfig1 \
     libpq5 \
     libreadline8t64 \
     libssl3t64 \

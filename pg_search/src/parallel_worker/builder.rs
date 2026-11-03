@@ -207,7 +207,8 @@ impl ParallelProcessLauncher {
                 return Some(ParallelProcessAttach { launcher: self });
             }
 
-            // no workers launched
+            // Detach queues while their shared memory is still mapped.
+            drop(self);
             pg_sys::DestroyParallelContext(pcxt);
             pg_sys::ExitParallelMode();
             None

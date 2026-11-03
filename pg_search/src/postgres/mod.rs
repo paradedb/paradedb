@@ -34,6 +34,7 @@ use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
 
+pub mod access;
 mod build;
 pub mod build_logging;
 mod cost;

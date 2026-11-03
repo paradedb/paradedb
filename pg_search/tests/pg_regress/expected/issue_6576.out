@@ -342,8 +342,8 @@ FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 CROSS JOIN LATERAL unnest(s.tags) AS t
 WHERE s.id @@@ paradedb.match('title', 'dragon')
 ORDER BY s.id, t LIMIT 5;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (s INNER e) CROSS JOIN LATERAL UNNEST (tags)
    Join Cond: e.s_id = s.id
@@ -359,7 +359,7 @@ ORDER BY s.id, t LIMIT 5;
      :             CooperativeExec
      :               PgSearchScan: table=e, segments=1, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=s, segments=1, eager=[tags], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT s.id, s.path || ':' || t AS x
@@ -400,8 +400,8 @@ FROM issue_6576_s s JOIN issue_6576_e e ON e.s_id = s.id
 CROSS JOIN LATERAL unnest(s.tags) AS t
 WHERE s.id @@@ paradedb.match('title', 'dragon')
 ORDER BY s.id, t LIMIT 5;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (s INNER e) CROSS JOIN LATERAL UNNEST (tags)
    Join Cond: e.s_id = s.id
@@ -417,7 +417,7 @@ ORDER BY s.id, t LIMIT 5;
      :             CooperativeExec
      :               PgSearchScan: table=e, segments=1, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+     :               PgSearchScan: table=s, segments=1, eager=[tags], dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (16 rows)
 
 SELECT s.id, point(length(t), 1) AS p

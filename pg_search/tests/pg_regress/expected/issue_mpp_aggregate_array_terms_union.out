@@ -91,7 +91,7 @@ WHERE p.title ||| 'rust'
      :               TantivyFetchExec: fetch=[category]
      :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[category@2]
      :                   CooperativeExec
-     :                     PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :                     PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :                   CooperativeExec
      :                     PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       ProjectionExec: expr=[NULL as __pdb_k0, __pdb_k1@0 as __pdb_k1, 2 as __grouping_id, __pdb_m0@1 as __pdb_m0]
@@ -100,7 +100,7 @@ WHERE p.title ||| 'rust'
      :             ProjectionExec: expr=[tags@0 as a_1_tags]
      :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[tags@1]
      :                 CooperativeExec
-     :                   PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :                   PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :                 CooperativeExec
      :                   PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (27 rows)
@@ -322,8 +322,8 @@ WHERE p.title ||| 'rust'
      :       ┌───── Stage 1 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 4 ── tasks=2, partitions=3
      :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 3), input_partitions=1
@@ -340,8 +340,8 @@ WHERE p.title ||| 'rust'
      :       ┌───── Stage 3 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
 (55 rows)
 
@@ -393,8 +393,8 @@ FROM mpp_arr_posts p
 JOIN mpp_arr_authors a ON p.author_id = a.id
 WHERE p.title ||| 'rust'
   AND a.id @@@ pdb.all();
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
@@ -432,8 +432,8 @@ WHERE p.title ||| 'rust'
      :       ┌───── Stage 1 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 4 ── tasks=2, partitions=3
      :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 3), input_partitions=1
@@ -450,28 +450,29 @@ WHERE p.title ||| 'rust'
      :       ┌───── Stage 3 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 6 ── tasks=2, partitions=3
      :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 3), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
      :     │     UnnestExec
-     :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]
-     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
-     :     │           CoalescePartitionsExec
-     :     │             [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :     │           DistributedLeafExec:
-     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │       TantivyDecodeExec: decode=[keywords]
+     :     │         ProjectionExec: expr=[keywords@0 as p_0_keywords]
+     :     │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
+     :     │             CoalescePartitionsExec
+     :     │               [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │             DistributedLeafExec:
+     :     │               t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │               t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :     └──────────────────────────────────────────────────
      :       ┌───── Stage 5 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
-(76 rows)
+(77 rows)
 
 SELECT
     pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c3_categories' AS categories_match,
@@ -498,8 +499,8 @@ FROM mpp_arr_posts p
 JOIN mpp_arr_authors a ON p.author_id = a.id
 WHERE p.title ||| 'rust'
   AND a.id @@@ pdb.all();
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: mpp_arr_posts_idx (p), mpp_arr_authors_idx (a)
@@ -537,8 +538,8 @@ WHERE p.title ||| 'rust'
      :       ┌───── Stage 1 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 4 ── tasks=2, partitions=2
      :     │ RepartitionExec: partitioning=Hash([__pdb_k1@0], 2), input_partitions=1
@@ -555,28 +556,29 @@ WHERE p.title ||| 'rust'
      :       ┌───── Stage 3 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
      :     ┌───── Stage 6 ── tasks=2, partitions=2
      :     │ RepartitionExec: partitioning=Hash([__pdb_k2@0], 2), input_partitions=1
      :     │   AggregateExec: mode=Partial, gby=[p_0_keywords@0 as __pdb_k2], aggr=[count(1) as __pdb_m0]
      :     │     UnnestExec
-     :     │       ProjectionExec: expr=[keywords@0 as p_0_keywords]
-     :     │         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
-     :     │           CoalescePartitionsExec
-     :     │             [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
-     :     │           DistributedLeafExec:
-     :     │             t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     │             t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │       TantivyDecodeExec: decode=[keywords]
+     :     │         ProjectionExec: expr=[keywords@0 as p_0_keywords]
+     :     │           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@0)], projection=[keywords@2]
+     :     │             CoalescePartitionsExec
+     :     │               [Stage 5] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │             DistributedLeafExec:
+     :     │               t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │               t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"rust","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :     └──────────────────────────────────────────────────
      :       ┌───── Stage 5 ── tasks=2, partitions=4
      :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
      :       │   DistributedLeafExec:
-     :       │     t0: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :       │     t1: PgSearchScan: table=a, segments=2, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t0: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :       │     t1: PgSearchScan: table=a, segments=2, eager=[tags], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :       └──────────────────────────────────────────────────
-(76 rows)
+(77 rows)
 
 SELECT
     pdb.agg('{"terms": {"field": "category", "size": 10}}')::text = :'c3_categories' AS categories_match,

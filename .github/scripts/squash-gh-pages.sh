@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Squashes the commit history of the `gh-pages` branch for a specified remote
-# into a single orphan root commit containing all current results, with compacted query history.
+# into a single orphan root commit with compacted query history and bounded HTML report retention.
 #
 # By default, this script runs safely and prints the resulting commit SHA and
 # push command without pushing to any remote. Pass --push to apply the change.
@@ -84,6 +84,10 @@ cleanup() {
 trap cleanup EXIT
 git worktree add --detach "$COMPACT_WORKTREE" "$OLD_COMMIT" --quiet
 python3 "$SCRIPT_DIR/compact-benchmark-history.py" "$COMPACT_WORKTREE/benchmarks"
+python3 "$SCRIPT_DIR/prune-benchmark-reports.py" "$COMPACT_WORKTREE"
+if [[ -d "$COMPACT_WORKTREE/benchmarker-runs" ]]; then
+  git -C "$COMPACT_WORKTREE" add -u -- benchmarker-runs
+fi
 # Stage only the migrated query history and its dictionary, when present.
 if [[ -f "$COMPACT_WORKTREE/benchmarks/sql-extras.json" ]]; then
   git -C "$COMPACT_WORKTREE" add -f benchmarks/data.js benchmarks/sql-extras.json

@@ -32,7 +32,7 @@ use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder, UInt64Builder,
 };
-use arrow_array::{ArrayRef, UInt64Array};
+use arrow_array::{Array, ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
 use datafusion::common::Result;
 use datafusion::error::DataFusionError;
@@ -200,10 +200,75 @@ impl FFHelper {
         ))
     }
 
+    /// The lists the multi-valued column at `field` holds for `ids`, decoded the way the scan
+    /// decodes an eager list column. `None` when the segment wrote no column for the field.
+    pub(crate) fn list_values(
+        &self,
+        segment_ord: SegmentOrdinal,
+        field: FFIndex,
+        ids: &[DocId],
+    ) -> Result<Option<ArrayRef>> {
+        let Some(field_type) = self
+            .inner()
+            .columns
+            .get(field)
+            .and_then(WhichFastField::field_type)
+            .copied()
+        else {
+            return Err(DataFusionError::Internal(format!(
+                "fast-field helper has no named column at index {field}"
+            )));
+        };
+        match self.column(segment_ord, field) {
+            FFType::Junk => Ok(None),
+            column => column
+                .decode_list_ords(column.fetch_array_values_or_ords_to_arrow(ids, field_type))
+                .map(Some),
+        }
+    }
+
     pub fn num_segments(&self) -> usize {
         self.0
             .as_ref()
             .map_or(0, |inner| inner.segment_caches.len())
+    }
+
+    /// Whether this helper reads a named column at `field`. A helper rebuilt for one lookup
+    /// lays out only the columns that lookup reads, with `Junk` in the gaps.
+    pub(crate) fn lays_out(&self, field: FFIndex) -> bool {
+        self.0.as_ref().is_some_and(|inner| {
+            matches!(inner.columns.get(field), Some(WhichFastField::Named { .. }))
+        })
+    }
+
+    /// A helper over the same reader as this one that also lays out each of `fields` at its
+    /// index, with `Junk` in any gap. The columns this helper lays out keep their places, and
+    /// so does the segment ordering, since no index is reopened.
+    pub(crate) fn with_more_fields(&self, fields: &[(FFIndex, WhichFastField)]) -> Self {
+        let inner = self.inner();
+        let mut columns = inner.columns.clone();
+        for (ff_index, field) in fields {
+            if columns.len() <= *ff_index {
+                columns.resize(ff_index + 1, WhichFastField::Junk(String::new()));
+            }
+            columns[*ff_index] = field.clone();
+        }
+        Self(Some(FFInner {
+            searcher: inner.searcher.clone(),
+            segment_view: inner.segment_view.clone(),
+            _cleanup_admission: Arc::clone(&inner._cleanup_admission),
+            segment_caches: Self::segment_caches(inner.segment_caches.len(), columns.len()),
+            columns,
+        }))
+    }
+
+    /// Whether both helpers read through one reader, i.e. one was widened from the other.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn shares_reader_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(
+            &self.inner()._cleanup_admission,
+            &other.inner()._cleanup_admission,
+        )
     }
 }
 
@@ -510,6 +575,46 @@ impl FFType {
             )),
         }
     }
+
+    /// Turns a list of term ordinals, as [`Self::fetch_array_values_or_ords_to_arrow`] reads a
+    /// multi-valued Text or Bytes column, into the list of the terms they name. Offsets and
+    /// nulls carry over, so a doc with no values stays a NULL list. A list read from any other
+    /// column already holds its values and comes back as it is.
+    pub(crate) fn decode_list_ords(&self, ords_list: ArrayRef) -> Result<ArrayRef> {
+        let list = ords_list
+            .as_any()
+            .downcast_ref::<arrow_array::ListArray>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "expected a list column, found {:?}",
+                    ords_list.data_type()
+                ))
+            })?;
+        let term_ords = || {
+            list.values()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "expected UInt64 term ordinals in a list, found {:?}",
+                        list.values().data_type()
+                    ))
+                })
+        };
+        let terms = match self {
+            FFType::Text(col) => ords_to_string_array(col.clone(), term_ords()?)?,
+            FFType::Bytes(col) => ords_to_bytes_array(col.clone(), term_ords()?)?,
+            _ => return Ok(ords_list),
+        };
+        let decoded = arrow_array::ListArray::try_new(
+            list_item_field(terms.data_type().clone()),
+            list.offsets().clone(),
+            terms,
+            list.nulls().cloned(),
+        )
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        Ok(Arc::new(decoded))
+    }
 }
 
 /// How a named fast field's values are delivered by the scan. Orthogonal to the
@@ -530,7 +635,7 @@ pub enum FieldDelivery {
 /// Arrow models a list as `DataType::List` wrapping the element field rather
 /// than as a parallel set of types, and this follows that: the element type
 /// stays in `field_type` and the nesting is recorded here.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub enum FieldCardinality {
     Scalar,
     List,
@@ -538,7 +643,7 @@ pub enum FieldCardinality {
 
 impl FieldCardinality {
     /// Wrap an element type in this cardinality's Arrow representation.
-    fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
+    pub(crate) fn wrap(self, element: arrow_schema::DataType) -> arrow_schema::DataType {
         match self {
             FieldCardinality::Scalar => element,
             FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
@@ -656,22 +761,11 @@ impl WhichFastField {
                 ..
             } => cardinality.wrap(field_type.arrow_data_type()),
             WhichFastField::Junk(_) => DataType::Null,
+            // One packed word per row, a list as much as a scalar: see `deferred_encode`.
             WhichFastField::Named {
-                cardinality: FieldCardinality::Scalar,
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_data_type(),
-            // The deferred encoding carries one value per row, so nothing can decode a
-            // deferred list yet. Fail here rather than in the scanner's downcast.
-            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
-            WhichFastField::Named {
-                name,
-                cardinality: FieldCardinality::List,
-                delivery: FieldDelivery::Deferred,
-                ..
-            } => panic!(
-                "list column `{name}` cannot be deferred: the deferred encoding is scalar only"
-            ),
             WhichFastField::DeferredCtid(_) => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }
@@ -745,14 +839,11 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     use std::sync::Arc;
 
     // A deferred column is a plain `UInt64` to Arrow; its field's metadata is what marks it.
-    // Only a scalar column can be deferred, so a deferred list falls through to
-    // `arrow_data_type` and is rejected there.
     let fields: Vec<Field> = which_fast_fields
         .iter()
         .map(|wff| match wff {
             WhichFastField::Named {
                 name,
-                cardinality: FieldCardinality::Scalar,
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_field(name),
@@ -1102,7 +1193,7 @@ mod tests {
     }
 
     /// The Arrow type each `(cardinality, delivery)` pair reports, and `to_eager` changing
-    /// only the delivery axis. The fourth pair has its own test below.
+    /// only the delivery axis.
     #[test]
     fn named_axes_arrow_data_type() {
         use FieldCardinality::{List, Scalar};
@@ -1117,12 +1208,11 @@ mod tests {
             text_field(List, Eager).arrow_data_type(),
             DataType::List(list_item_field(DataType::Utf8View))
         );
-        assert_eq!(
-            text_field(Scalar, Deferred).arrow_data_type(),
-            crate::scan::deferred_encode::deferred_data_type()
-        );
-
         for cardinality in [Scalar, List] {
+            assert_eq!(
+                text_field(cardinality, Deferred).arrow_data_type(),
+                crate::scan::deferred_encode::deferred_data_type()
+            );
             assert_eq!(
                 text_field(cardinality, Deferred).to_eager(),
                 text_field(cardinality, Eager)
@@ -1131,16 +1221,20 @@ mod tests {
         assert_eq!(WhichFastField::Ctid.to_eager(), WhichFastField::Ctid);
     }
 
+    /// A deferred list is marked in the schema the same way a deferred scalar is, which is
+    /// what the late materialization rule and the decode look for.
     #[test]
-    #[should_panic(expected = "cannot be deferred")]
-    fn deferred_list_is_rejected() {
-        text_field(FieldCardinality::List, FieldDelivery::Deferred).arrow_data_type();
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot be deferred")]
-    fn build_arrow_schema_rejects_deferred_list() {
-        build_arrow_schema(&[text_field(FieldCardinality::List, FieldDelivery::Deferred)]);
+    fn build_arrow_schema_marks_a_deferred_list() {
+        let schema = build_arrow_schema(&[
+            text_field(FieldCardinality::List, FieldDelivery::Deferred),
+            text_field(FieldCardinality::List, FieldDelivery::Eager),
+        ]);
+        assert!(crate::scan::deferred_encode::is_deferred_field(
+            schema.field(0)
+        ));
+        assert!(!crate::scan::deferred_encode::is_deferred_field(
+            schema.field(1)
+        ));
     }
 
     /// The helper opens a segment's fast fields only when a value is actually read from that

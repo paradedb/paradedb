@@ -120,6 +120,6 @@ runs:
         cargo pgrx start "pg${INPUTS_PG_VERSION}"
 
     - name: Install pgBackRest
-      uses: paradedb/actions/apt-install@v14
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
       with:
         packages: pgbackrest

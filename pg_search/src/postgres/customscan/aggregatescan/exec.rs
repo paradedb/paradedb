@@ -37,7 +37,7 @@ use pgrx::{IntoDatum, JsonB, check_for_interrupts, pg_sys};
 use tantivy::aggregation::Key;
 use tantivy::aggregation::agg_result::{
     AggregationResult as TantivyAggregationResult, AggregationResults as TantivyAggregationResults,
-    BucketResult, MetricResult as TantivyMetricResult,
+    BucketEntry, BucketResult, MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 
@@ -224,19 +224,22 @@ impl From<MetricResult> for AggregateResult {
     }
 }
 
-fn metric_or_filter_to_aggregate_result(
-    result: &TantivyAggregationResult,
-) -> Option<AggregateResult> {
+/// A metric or filter count as its value; anything else serialized to JSON.
+fn to_aggregate_result(result: &TantivyAggregationResult) -> AggregateResult {
     match result {
-        TantivyAggregationResult::MetricResult(metric) => Some(MetricResult(metric.clone()).into()),
+        TantivyAggregationResult::MetricResult(metric) => MetricResult(metric.clone()).into(),
         TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket))
             if filter_bucket.sub_aggregations.0.is_empty() =>
         {
-            Some(AggregateResult::Metric(TantivySingleMetricResult {
+            AggregateResult::Metric(TantivySingleMetricResult {
                 value: Some(filter_bucket.doc_count as f64),
-            }))
+            })
         }
-        _ => None,
+        other => {
+            let json_value = serde_json::to_value(other)
+                .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
+            AggregateResult::Json(json_value)
+        }
     }
 }
 
@@ -410,49 +413,48 @@ impl AggregationResults {
         }
     }
 
-    fn collect_group_keys(
-        map: &HashMap<String, TantivyAggregationResult>,
-        key_accumulator: Vec<TantivyValue>,
-        out: &mut Vec<AggregationResultsRow>,
+    /// Walks the "grouped" terms buckets depth first and calls `visit` once per leaf with its key
+    /// path, its bucket, and each filter's subtree at the same group path (`None` once a filter has
+    /// no bucket for that path).
+    fn visit_groups<'a>(
+        buckets: &'a [BucketEntry],
+        filters: &[Option<&'a HashMap<String, TantivyAggregationResult>>],
+        key_path: &mut Vec<TantivyValue>,
+        visit: &mut impl FnMut(
+            Vec<TantivyValue>,
+            &'a BucketEntry,
+            &[Option<&'a HashMap<String, TantivyAggregationResult>>],
+        ),
     ) {
-        // look only at the "grouped" terms bucket at this level
-        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-            buckets, ..
-        })) = map.get(GroupedKey::NAME)
-        {
-            for bucket_entry in buckets {
-                check_for_interrupts!();
-                // extend the key path with this bucket's key
-                let mut new_keys = key_accumulator.clone();
-                let key_val = match &bucket_entry.key {
-                    Key::Str(s) => TantivyValue(PdbOwnedValue::Str(s.clone())),
-                    Key::I64(i) => TantivyValue(PdbOwnedValue::I64(*i)),
-                    Key::U64(u) => TantivyValue(PdbOwnedValue::U64(*u)),
-                    Key::F64(f) => TantivyValue(PdbOwnedValue::F64(*f)),
-                };
-                new_keys.push(key_val);
+        // A filter without a "grouped" level here is passed down unchanged. The planner nests
+        // every filter like the sentinel, so this only guards against an unexpected shape.
+        let lookups: Vec<_> = filters
+            .iter()
+            .map(|filter| filter.and_then(grouped_buckets).map(BucketLookup::new))
+            .collect();
 
-                // check if this bucket has a child "grouped" terms bucket
-                let has_child_grouped = match bucket_entry.sub_aggregation.0.get(GroupedKey::NAME) {
-                    Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                        buckets,
-                        ..
-                    })) => !buckets.is_empty(),
-                    _ => false,
-                };
-
-                if has_child_grouped {
-                    // not a leaf yet; keep descending
-                    Self::collect_group_keys(&bucket_entry.sub_aggregation.0, new_keys, out);
-                } else {
-                    // leaf: emit ONLY the deepest group path
-                    out.push(AggregationResultsRow {
-                        group_keys: new_keys,
-                        aggregates: Vec::new(),
-                        doc_count: Some(bucket_entry.doc_count),
-                    });
+        let mut filter_subtrees = Vec::with_capacity(filters.len());
+        for bucket_entry in buckets {
+            check_for_interrupts!();
+            filter_subtrees.clear();
+            filter_subtrees.extend(filters.iter().zip(&lookups).map(|(filter, lookup)| {
+                match lookup {
+                    Some(lookup) => lookup
+                        .find(&bucket_entry.key)
+                        .map(|bucket| &bucket.sub_aggregation.0),
+                    None => *filter,
                 }
+            }));
+
+            key_path.push(key_to_value(&bucket_entry.key));
+            match grouped_buckets(&bucket_entry.sub_aggregation.0) {
+                // not a leaf yet; keep descending
+                Some(children) if !children.is_empty() => {
+                    Self::visit_groups(children, &filter_subtrees, key_path, visit)
+                }
+                _ => visit(key_path.clone(), bucket_entry, &filter_subtrees),
             }
+            key_path.pop();
         }
     }
 
@@ -461,60 +463,25 @@ impl AggregationResults {
             return;
         }
 
-        // collect all group key paths first
-        Self::collect_group_keys(&self.0, Vec::new(), out);
-
-        // for each row, chase down aggregate values matching its group keys
-        for row in out.iter_mut() {
-            check_for_interrupts!();
-            let mut current = &self.0;
-            let mut found = true;
-
-            // traverse down into nested "grouped" buckets following group_keys
-            for key in &row.group_keys {
-                if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                    buckets,
-                    ..
-                })) = current.get(GroupedKey::NAME)
-                {
-                    // find the bucket whose key matches this level
-                    let maybe_bucket = buckets.iter().find(|b| match (&b.key, &key.0) {
-                        (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
-                        (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
-                        (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
-                        (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
-                        _ => false,
-                    });
-
-                    if let Some(bucket) = maybe_bucket {
-                        // descend into this bucket’s sub-aggregations
-                        current = &bucket.sub_aggregation.0;
-                    } else {
-                        // no matching bucket found — bail out early
-                        found = false;
-                        break;
-                    }
-                }
-            }
-
-            if !found {
-                continue;
-            }
-
-            // collect any metric results at this nested level
-            let mut entries: Vec<_> = current.iter().collect();
-            entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
-
-            for (_name, result) in entries {
-                if let Some(agg_res) = metric_or_filter_to_aggregate_result(result) {
-                    row.aggregates.push(Some(agg_res));
-                } else {
-                    let json_value = serde_json::to_value(result)
-                        .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
-                    row.aggregates.push(Some(AggregateResult::Json(json_value)));
-                }
-            }
-        }
+        let buckets = grouped_buckets(&self.0).unwrap_or_default();
+        Self::visit_groups(
+            buckets,
+            &[],
+            &mut Vec::new(),
+            &mut |group_keys, bucket, _| {
+                // collect any metric results at this nested level
+                let mut entries: Vec<_> = bucket.sub_aggregation.0.iter().collect();
+                entries.sort_by_key(|(k, _)| k.parse::<usize>().unwrap_or(usize::MAX));
+                out.push(AggregationResultsRow {
+                    group_keys,
+                    aggregates: entries
+                        .into_iter()
+                        .map(|(_, result)| Some(to_aggregate_result(result)))
+                        .collect(),
+                    doc_count: Some(bucket.doc_count),
+                });
+            },
+        );
     }
 
     pub fn flatten_ungrouped(
@@ -630,71 +597,114 @@ impl AggregationResults {
             }
         };
 
-        // collect all group keys from the sentinel
-        let mut rows = Vec::new();
-        Self::collect_group_keys(&sentinel.sub_aggregations.0, Vec::new(), &mut rows);
+        // each filter's subtree, in filter order
+        let filters: Vec<_> = filter_entries
+            .iter()
+            .map(|(_, filter_result)| match filter_result {
+                TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) => {
+                    Some(&filter_bucket.sub_aggregations.0)
+                }
+                _ => None,
+            })
+            .collect();
 
-        // for each row of group keys, collect aggregates
-        for row in &mut rows {
-            check_for_interrupts!();
-            let mut aggregates = Vec::new();
-
-            for (_filter_name, filter_result) in &filter_entries {
-                let mut found_metrics: Vec<Option<AggregateResult>> = Vec::new();
-
-                if let TantivyAggregationResult::BucketResult(BucketResult::Filter(filter_bucket)) =
-                    filter_result
-                {
-                    let mut current = &filter_bucket.sub_aggregations.0;
-                    let mut matched = true;
-
-                    for key in &row.group_keys {
-                        if let Some(TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                            buckets,
-                            ..
-                        })) = current.get(GroupedKey::NAME)
-                        {
-                            if let Some(bucket) = buckets.iter().find(|b| match (&b.key, &key.0) {
-                                (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
-                                (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
-                                (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
-                                (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
-                                _ => false,
-                            }) {
-                                current = &bucket.sub_aggregation.0;
-                            } else {
-                                matched = false;
-                                break;
-                            }
-                        }
-                    }
-
-                    if matched {
-                        for res in current.values() {
-                            if let Some(agg_res) = metric_or_filter_to_aggregate_result(res) {
-                                found_metrics.push(Some(agg_res));
-                            } else {
-                                let json_value = serde_json::to_value(res).unwrap_or_else(|e| {
-                                    pgrx::error!("Failed to serialize aggregate: {}", e)
-                                });
-                                found_metrics.push(Some(AggregateResult::Json(json_value)));
-                            }
-                        }
+        // Walk the sentinel's groups, carrying each filter's matching subtree along.
+        let buckets = grouped_buckets(&sentinel.sub_aggregations.0).unwrap_or_default();
+        Self::visit_groups(
+            buckets,
+            &filters,
+            &mut Vec::new(),
+            &mut |group_keys, bucket, filter_subtrees| {
+                let mut aggregates = Vec::with_capacity(filter_subtrees.len());
+                for subtree in filter_subtrees {
+                    match subtree {
+                        Some(subtree) if !subtree.is_empty() => aggregates
+                            .extend(subtree.values().map(|res| Some(to_aggregate_result(res)))),
+                        // a filter with no metrics for this group means the aggregate is NULL
+                        _ => aggregates.push(None),
                     }
                 }
+                out.push(AggregationResultsRow {
+                    group_keys,
+                    aggregates,
+                    doc_count: Some(bucket.doc_count),
+                });
+            },
+        );
+    }
+}
 
-                // if a bucket has multiple sub aggs but no agg was found, that means the agg is null
-                // and we should insert an empty placeholder
-                if found_metrics.is_empty() {
-                    aggregates.push(None);
-                } else {
-                    aggregates.extend(found_metrics);
-                }
-            }
-
-            row.aggregates = aggregates;
+/// The buckets of the "grouped" terms aggregation at this level, if there is one.
+fn grouped_buckets(map: &HashMap<String, TantivyAggregationResult>) -> Option<&[BucketEntry]> {
+    match map.get(GroupedKey::NAME) {
+        Some(TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. })) => {
+            Some(buckets.as_slice())
         }
+        _ => None,
+    }
+}
 
-        out.extend(rows);
+fn key_to_value(key: &Key) -> TantivyValue {
+    match key {
+        Key::Str(s) => TantivyValue(PdbOwnedValue::Str(s.clone())),
+        Key::I64(i) => TantivyValue(PdbOwnedValue::I64(*i)),
+        Key::U64(u) => TantivyValue(PdbOwnedValue::U64(*u)),
+        Key::F64(f) => TantivyValue(PdbOwnedValue::F64(*f)),
+    }
+}
+
+/// Finds the bucket of one terms level whose key equals a given key, matching keys of the same
+/// variant with `==` (so NaN matches nothing and -0.0 matches 0.0) and returning the first match.
+/// Short bucket lists are scanned; longer ones are indexed once so each lookup is O(1).
+enum BucketLookup<'a> {
+    Scan(&'a [BucketEntry]),
+    Index(HashMap<LookupKey<'a>, &'a BucketEntry>),
+}
+
+#[derive(PartialEq, Eq, Hash)]
+enum LookupKey<'a> {
+    Str(&'a str),
+    I64(i64),
+    U64(u64),
+    F64(u64),
+}
+
+impl<'a> LookupKey<'a> {
+    fn new(key: &'a Key) -> Option<Self> {
+        Some(match key {
+            Key::Str(s) => LookupKey::Str(s),
+            Key::I64(i) => LookupKey::I64(*i),
+            Key::U64(u) => LookupKey::U64(*u),
+            Key::F64(f) if f.is_nan() => return None,
+            // -0.0 == 0.0, so both share one entry
+            Key::F64(f) => LookupKey::F64(if *f == 0.0 { 0 } else { f.to_bits() }),
+        })
+    }
+}
+
+impl<'a> BucketLookup<'a> {
+    const SCAN_LIMIT: usize = 32;
+
+    fn new(buckets: &'a [BucketEntry]) -> Self {
+        if buckets.len() <= Self::SCAN_LIMIT {
+            return BucketLookup::Scan(buckets);
+        }
+        let mut index = HashMap::with_capacity_and_hasher(buckets.len(), rustc_hash::FxBuildHasher);
+        for bucket in buckets {
+            if let Some(key) = LookupKey::new(&bucket.key) {
+                index.entry(key).or_insert(bucket);
+            }
+        }
+        BucketLookup::Index(index)
+    }
+
+    fn find(&self, key: &Key) -> Option<&'a BucketEntry> {
+        let key = LookupKey::new(key)?;
+        match self {
+            BucketLookup::Scan(buckets) => buckets
+                .iter()
+                .find(|b| LookupKey::new(&b.key).as_ref() == Some(&key)),
+            BucketLookup::Index(index) => index.get(&key).copied(),
+        }
     }
 }

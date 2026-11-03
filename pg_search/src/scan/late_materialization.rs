@@ -109,8 +109,9 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
                     .qualified_field_from_column(col)
                     .ok()?;
                 let provider = pg_search_provider_from_scan(scan)?;
+                let indexrel = provider.scan_info.context.indexrel()?;
                 Some(BaseColumn {
-                    indexrelid: provider.scan_info.indexrelid.to_u32(),
+                    indexrelid: indexrel.oid().to_u32(),
                     name: field.name().clone(),
                 })
             } else {

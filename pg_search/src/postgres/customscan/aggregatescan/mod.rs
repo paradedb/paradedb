@@ -125,7 +125,6 @@ use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
-use crate::query::SearchQueryInput;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
 use pgrx::{PgList, PgMemoryContexts, PgTupleDesc, pg_sys};
@@ -946,10 +945,14 @@ impl CustomScan for AggregateScan {
                     .sources()
                     .iter()
                     .map(|s| {
-                        let alias = s.scan_info.alias.as_deref().unwrap_or("unknown");
+                        let alias = s.scan_info.context.alias.as_deref().unwrap_or("unknown");
                         format!(
                             "{} ({})",
-                            PgSearchRelation::open(s.scan_info.indexrelid).name(),
+                            s.scan_info
+                                .context
+                                .indexrel()
+                                .map(|r| r.name())
+                                .expect("should exist"),
                             alias
                         )
                     })
@@ -1395,11 +1398,15 @@ impl AggregateScan {
             .sources()
             .iter()
             .map(|source| {
-                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
+                let rel = source
+                    .scan_info
+                    .context
+                    .indexrel()
+                    .expect("should have an index");
+                SearchIndexManifest::capture(rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
                     panic!(
                         "Failed to capture source manifest for indexrelid {}: {e}",
-                        source.scan_info.indexrelid
+                        rel.oid()
                     )
                 })
             })
@@ -2301,9 +2308,9 @@ impl AggregateScan {
                     .expect("DataFusion state must be initialized");
                 let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
                 for source in df_state.plan.sources() {
-                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
-                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
-                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                    predicate_lock_read_oid(source.scan_info.context.heaprel.oid(), snapshot);
+                    if let Some(indexrel) = source.scan_info.context.indexrel() {
+                        count_index_scan(indexrel);
                     }
                 }
                 Self::resolve_threshold_visibility(df_state);
@@ -2506,19 +2513,17 @@ impl AggregateScan {
         if mode != MvccVisibility::Threshold {
             return;
         }
-        let sources: Vec<(PgSearchRelation, SearchQueryInput)> = df_state
-            .plan
-            .sources()
-            .iter()
-            .map(|source| {
-                (
-                    PgSearchRelation::open(source.scan_info.indexrelid),
-                    source.scan_info.mode.query().clone(),
-                )
-            })
-            .collect();
-        let check =
-            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
+        let sources: Vec<_> = df_state.plan.sources();
+        let check = mode.resolve_filtering_for_sources(sources.iter().map(|s| {
+            (
+                s.scan_info
+                    .context
+                    .indexrel()
+                    .expect("should have an index"),
+                s.scan_info.mode.query(),
+                None,
+            )
+        }));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {

@@ -35,7 +35,6 @@ use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{Access, ResTarget};
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
-use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use pgrx::{PgList, pg_sys};
 
@@ -234,7 +233,8 @@ pub unsafe fn extract_single_table_predicate(
     side: &ScanInfo,
     expr: *mut pg_sys::Node,
 ) -> Option<crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate> {
-    let (_, bm25_idx) = rel_get_bm25_index(side.heaprelid)?;
+    // TODO: is this okay without the checks in rel_get_bm25_index?
+    let bm25_idx = side.context.indexrel.as_ref()?;
 
     // Create a RestrictInfo wrapping the expression for extract_quals
     let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
@@ -252,7 +252,7 @@ pub unsafe fn extract_single_table_predicate(
         rti,
         ri_list.as_ptr().cast(),
         RestrictInfoType::BaseRelation,
-        &bm25_idx,
+        bm25_idx,
         false,
         &mut state,
         false,
@@ -274,8 +274,9 @@ pub unsafe fn all_vars_are_fast_fields_recursive(
         let mut source_found = false;
         for source in sources {
             if source.contains_rti(var_ref.rti) {
-                let context = source.to_source_context();
-                if context
+                if source
+                    .scan_info
+                    .context
                     .resolve_fast_field(ResTarget::Attno(var_ref.attno), Access::Scalar)
                     .is_none()
                 {

@@ -37,7 +37,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::ParallelScanState;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{FilterAnalyzer, combine_with_and};
@@ -441,13 +440,14 @@ impl PgSearchTableProvider {
         let plan_position = self.configured_deferred_ctid_plan_position()?;
         let table_name = self
             .scan_info
+            .context
             .alias
             .clone()
             .unwrap_or_else(|| format!("source_{plan_position}"));
 
         Some(VisibilitySourceMetadata {
             plan_position,
-            heap_oid: self.scan_info.heaprelid,
+            heap_oid: self.scan_info.context.heaprel.oid(),
             table_name,
         })
     }
@@ -468,10 +468,15 @@ impl PgSearchTableProvider {
                     is_bytes,
                     cardinality: *cardinality,
                     canonical: CanonicalColumn {
-                        indexrelid: self.scan_info.indexrelid.to_u32(),
+                        indexrelid: self
+                            .scan_info
+                            .context
+                            .indexrel()
+                            .map(|r| r.oid().to_u32())
+                            .expect("should_exist"),
                         ff_index,
                     },
-                    heap_rti: self.scan_info.heap_rti,
+                    heap_rti: self.scan_info.context.heap_rti,
                     // Resolvable from any fragment: reads the segment list from
                     // the worker's `ParallelScanState` (claiming only divides the scan, not a
                     // reader opened over the whole list).
@@ -604,12 +609,19 @@ impl PgSearchTableProvider {
             Some(ffhelper)
         };
 
-        let table_alias = self.scan_info.alias.clone().unwrap_or_else(|| {
+        let table_alias = self.scan_info.context.alias.clone().unwrap_or_else(|| {
             match self.deferred_ctid_plan_position() {
                 Some(pos) => format!("source_{pos}"),
-                None => format!("table_{}", self.scan_info.heaprelid),
+                None => format!("table_{}", self.scan_info.context.heaprel.oid()),
             }
         });
+
+        let indexrelid = self
+            .scan_info
+            .context
+            .indexrel()
+            .map(|r| r.oid().to_u32())
+            .expect("should have an index");
 
         Ok(Arc::new(
             PgSearchScanPlan::new(
@@ -619,7 +631,7 @@ impl PgSearchTableProvider {
                 None,
                 deferred,
                 ffhelper_arg,
-                self.scan_info.indexrelid.to_u32(),
+                indexrelid,
                 deferred_ctid_plan_position,
                 partition_count,
                 parallel_state,
@@ -770,14 +782,15 @@ impl PgSearchTableProvider {
         let active_fields = self.active_fields();
 
         let (projected_fields, projected_schema) = self.projected_fields_and_schema(projection)?;
-        let heap_relid = self.scan_info.heaprelid;
-        let index_relid = self.scan_info.indexrelid;
         let expr_context = self.expr_context;
         let planstate = self.planstate;
         let parallel_state = self.parallel_state;
 
-        let heap_rel = PgSearchRelation::open(heap_relid);
-        let index_rel = PgSearchRelation::open(index_relid);
+        let index_rel = self
+            .scan_info
+            .context
+            .indexrel()
+            .expect("should have an index");
 
         // Solve runtime Postgres expressions (prepared-statement params, etc.) here in scan()
         // rather than earlier because each process (leader and workers) independently
@@ -835,7 +848,7 @@ impl PgSearchTableProvider {
                 );
                 SearchIndexReader::from_manifest(
                     manifest,
-                    &index_rel,
+                    index_rel,
                     reader_query,
                     self.scan_info.score_needed,
                     expr_ctx,
@@ -843,7 +856,7 @@ impl PgSearchTableProvider {
                 )
             }
             None => SearchIndexReader::open_with_context(
-                &index_rel,
+                index_rel,
                 reader_query,
                 self.scan_info.score_needed,
                 MvccSatisfies::Snapshot,
@@ -862,9 +875,10 @@ impl PgSearchTableProvider {
         // execution; one that reaches here unsettled, as on an EXPLAIN build,
         // checks. A dispatched worker inherits the decision.
         let check_visibility = self.scan_info.mvcc_visibility != MvccVisibility::Raw;
-        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
-            .with_check_visibility(check_visibility)
-            .with_ffhelper(Arc::clone(&scan_ffhelper));
+        let visibility =
+            VisibilityChecker::with_rel_and_snap(&self.scan_info.context.heaprel, snapshot)
+                .with_check_visibility(check_visibility)
+                .with_ffhelper(Arc::clone(&scan_ffhelper));
 
         let pruning = reader.segment_pruning_estimate();
         let total_estimated_rows = self
@@ -901,7 +915,7 @@ impl PgSearchTableProvider {
             scan_ffhelper,
             table_ffhelper,
             visibility,
-            heap_relid,
+            self.scan_info.context.heaprel.oid(),
             projected_schema,
             scan_mode,
             total_estimated_rows,

@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-use super::build::{PlannerRootId, RelNode};
+use super::build::{JoinSource, PlannerRootId, RelNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupportedWindowAggType {
@@ -149,7 +149,7 @@ impl WindowAggDef {
     /// the scan returns and those have to be visible.
     fn try_pdb_agg_from_window_func(
         wf: &WindowFunc,
-        sources: &[SourceContext],
+        sources: &[&SourceContext],
     ) -> Result<Self, String> {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
         let request = unsafe {
@@ -413,11 +413,7 @@ pub fn extract_window_agg(
         );
     }
 
-    let all_sources: Vec<_> = plan
-        .sources()
-        .iter()
-        .map(|s| s.to_source_context())
-        .collect();
+    let all_sources = plan.sources();
 
     let filter = if !wf.aggfilter.is_null() {
         let outer_root_id = PlannerRootId::from(root);
@@ -425,7 +421,7 @@ pub fn extract_window_agg(
             .output_sources()
             .into_iter()
             .filter(|s| s.root_id == Some(outer_root_id))
-            .map(|s| s.to_source_context())
+            .map(|s| &s.scan_info.context)
             .collect();
         let filter_ctx = FilterExprBuildContext::Filter {
             root,
@@ -458,7 +454,8 @@ pub fn extract_window_agg(
             col_info: extract_column_info(wf, &all_sources, agg_type)?,
         }),
         None if is_agg_funcoid(wf.winfnoid.to_u32()) => {
-            WindowAggDef::try_pdb_agg_from_window_func(wf, &all_sources)?
+            let contexts: Vec<_> = all_sources.iter().map(|s| &s.scan_info.context).collect();
+            WindowAggDef::try_pdb_agg_from_window_func(wf, &contexts)?
         }
         None => return Err("unsupported window function was provided".to_string()),
     };
@@ -474,7 +471,7 @@ pub fn extract_window_agg(
 /// The column a SQL window aggregate reads, `None` for `COUNT(*)`.
 fn extract_column_info(
     wf: &WindowFunc,
-    sources: &[SourceContext],
+    sources: &[&JoinSource],
     agg_type: SupportedWindowAggType,
 ) -> Result<Option<ColumnInfo>, String> {
     let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };

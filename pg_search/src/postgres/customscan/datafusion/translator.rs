@@ -602,8 +602,8 @@ pub fn apply_relnode_unnest(df: DataFrame, unnest: &UnnestNode) -> Result<DataFr
                 unnest.unnest_info.source_rti.0
             ))
         })?;
-    let alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+        .execution(source.plan_position);
     let unnested_col_name = format!("{}_{}", alias, unnest.unnest_info.field_name);
 
     // If the source relation was pruned from the join output (e.g. by an internal Anti Join
@@ -762,8 +762,8 @@ pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
 /// JoinScan and AggregateScan use this exact pattern; sharing it keeps the
 /// alias-construction policy in one place.
 pub fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
-    let alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+        .execution(source.plan_position);
     make_col(&alias, field_name)
 }
 
@@ -779,8 +779,8 @@ pub fn make_source_score_col(source: &JoinSource) -> Expr {
 /// source, matching the `{alias}_{field_name}` naming convention established
 /// by `apply_relnode_unnest`.
 pub fn make_source_unnested_col(source: &JoinSource, field_name: &str) -> Expr {
-    let alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+        .execution(source.plan_position);
     col(format!("{}_{}", alias, field_name))
 }
 

@@ -87,7 +87,7 @@ impl From<&OutputColumnInfo> for ChildProjection {
 }
 
 /// Private data stored in the CustomPath/CustomScan for join operations.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
     /// The join clause containing all information about both sides and the join itself.
     pub join_clause: JoinCSClause,

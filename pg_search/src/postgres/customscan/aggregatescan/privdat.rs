@@ -262,7 +262,8 @@ impl TopKSortTarget {
                 }
                 let source = plan.source_at_plan_position(gc.plan_position);
                 let alias = if let Some(src) = source {
-                    RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position)
+                    RelationAlias::new(src.scan_info.context.alias.as_deref())
+                        .execution(src.plan_position)
                 } else {
                     format!("unknown_plan_position_{}", gc.plan_position)
                 };

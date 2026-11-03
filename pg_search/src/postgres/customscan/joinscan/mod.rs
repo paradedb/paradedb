@@ -626,7 +626,7 @@ impl JoinScan {
 
         if all_sources
             .iter()
-            .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
+            .any(|s| s.scan_info.context.indexrel.is_none())
         {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: at least one relation lacks a ParadeDB index",
@@ -793,11 +793,11 @@ impl JoinScan {
             let outer_source = all_sources
                 .iter()
                 .find(|s| s.contains_rti(jk.outer_rti))
-                .map(|s| s.to_source_context());
+                .map(|s| &s.scan_info.context);
             let inner_source = all_sources
                 .iter()
                 .find(|s| s.contains_rti(jk.inner_rti))
-                .map(|s| s.to_source_context());
+                .map(|s| &s.scan_info.context);
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
                     let outer_resolved =
@@ -985,16 +985,21 @@ impl JoinScan {
 
         let manifests = state
             .custom_state()
-            .join_clause
+            .join_clause()
             .plan
             .sources()
             .iter()
             .map(|source| {
-                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
+                let rel = source
+                    .scan_info
+                    .context
+                    .indexrel
+                    .as_ref()
+                    .expect("join scan sources should always have an index");
+                SearchIndexManifest::capture(rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
                     panic!(
                         "Failed to capture source manifest for indexrelid {}: {e}",
-                        source.scan_info.indexrelid
+                        rel.oid(),
                     )
                 })
             })
@@ -1149,7 +1154,7 @@ impl JoinScan {
         };
 
         let mut private_data = PrivateData::new(
-            state.custom_state().join_clause.clone(),
+            state.custom_state().join_clause().clone(),
             state.custom_state().parallel_mode_ok,
         );
         private_data.output_columns = state.custom_state().output_columns.clone();
@@ -1622,7 +1627,7 @@ impl CustomScan for JoinScan {
             };
             let physical_plan = if mpp_eligible(
                 state.custom_state().parallel_mode_ok,
-                &state.custom_state().join_clause.plan,
+                &state.custom_state().join_clause().plan,
             ) {
                 let mpp_plan = build_with(&Self::build_mpp_session_context(None), logical_plan);
                 if mpp_plan_has_data_parallelism(&mpp_plan) {
@@ -1670,7 +1675,7 @@ impl CustomScan for JoinScan {
             // serial path and never builds the distributed plan or captures manifests.
             if mpp_eligible(
                 state.custom_state().parallel_mode_ok,
-                &state.custom_state().join_clause.plan,
+                &state.custom_state().join_clause().plan,
             ) && unsafe { pg_sys::ParallelWorkerNumber } == -1
                 && state.custom_state().logical_plan.is_some()
             {
@@ -1711,7 +1716,7 @@ impl CustomScan for JoinScan {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
                     .unwrap();
-                let mut join_clause = state.custom_state().join_clause_mut().clone();
+                let mut join_clause = state.custom_state().join_clause().clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
                 let plan_sources = join_clause.plan.sources();
@@ -1931,7 +1936,7 @@ impl CustomScan for JoinScan {
                     });
                 }
 
-                let plan_sources = state.custom_state().join_clause.plan.sources();
+                let plan_sources = state.custom_state().join_clause().plan.sources();
                 let output_batch_col_indices: Vec<Option<usize>> = state
                     .custom_state()
                     .output_columns
@@ -1953,8 +1958,9 @@ impl CustomScan for JoinScan {
                             } else if let Some(source) =
                                 plan_sources.iter().find(|s| s.contains_rti(source_rti.0))
                             {
-                                let alias = RelationAlias::new(source.scan_info.alias.as_deref())
-                                    .execution(source.plan_position);
+                                let alias =
+                                    RelationAlias::new(source.scan_info.context.alias.as_deref())
+                                        .execution(source.plan_position);
                                 let unnested_col_name = format!("{}_{}", alias, field_name);
                                 schema
                                     .index_of(&unnested_col_name)
@@ -2684,7 +2690,7 @@ impl JoinScan {
     ) -> Option<*mut pg_sys::TupleTableSlot> {
         let projecting = !state
             .custom_state()
-            .join_clause
+            .join_clause()
             .pg_projected_resnos
             .is_empty();
         let target_slot = if projecting {
@@ -2854,12 +2860,12 @@ impl JoinScan {
                     // use the canonical index for cases of duplicate definitions
                     let agg_index = state
                         .custom_state()
-                        .join_clause
+                        .join_clause()
                         .window_aggs
                         .canonical_index(*agg_index);
                     let window_agg = state
                         .custom_state()
-                        .join_clause
+                        .join_clause()
                         .window_aggs
                         .get(agg_index)
                         .expect("A window agg output column should always have a valid index");

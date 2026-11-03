@@ -89,7 +89,7 @@ pub struct ResolvedSourceField {
 /// table when the same field name exists in several; the bare lookup runs first
 /// because an index field name can itself contain a dot (a JSON sub-field).
 pub fn resolve_source_field(
-    sources: &[SourceContext],
+    sources: &[&SourceContext],
     field: &str,
 ) -> Result<ResolvedSourceField, String> {
     let (mut candidates, mut reasons) = source_field_candidates(sources, field);
@@ -139,7 +139,7 @@ pub fn resolve_source_field(
 
 /// The sources that carry `field`, and the reasons the others turned it down.
 fn source_field_candidates<'a>(
-    sources: &'a [SourceContext],
+    sources: &'a [&SourceContext],
     field: &str,
 ) -> (Vec<(&'a SourceContext, ResolvedFastField)>, Vec<String>) {
     let mut matches = Vec::new();
@@ -147,7 +147,7 @@ fn source_field_candidates<'a>(
     for source in sources {
         let resolved = source.resolve_fast_field(ResTarget::Field(field), Access::Any);
         match validate_source_field_candidate(source, resolved, field) {
-            Ok(Some(r)) => matches.push((source, r)),
+            Ok(Some(r)) => matches.push((*source, r)),
             Ok(None) => {}
             Err(reason) => reasons.push(reason),
         }
@@ -360,18 +360,14 @@ pub unsafe fn extract_join_tree_from_parse(
         }
     }
 
-    let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
     apply_search_filter_or_decline(
         root,
         sources,
         &search_clauses,
         "join predicates",
         "predicate cannot be pushed into the scan",
-        &mut plan,
-        &mut multi_table_clauses,
-    )?;
-
-    Ok((plan, multi_table_clauses))
+        plan,
+    )
 }
 
 /// Try translating `clauses` into a cross-table search filter and, on
@@ -385,11 +381,10 @@ unsafe fn apply_search_filter_or_decline(
     clauses: &[*mut pg_sys::Node],
     source_label: &str,
     err_msg: &str,
-    plan: &mut RelNode,
-    multi_table_clauses: &mut Vec<*mut pg_sys::Expr>,
-) -> Result<(), String> {
+    mut plan: RelNode,
+) -> Result<(RelNode, Vec<*mut pg_sys::Expr>), String> {
     if clauses.is_empty() {
-        return Ok(());
+        return Ok((plan, Vec::new()));
     }
 
     // Custom prepared plans substitute Const nodes before this hook. Generic
@@ -402,7 +397,7 @@ unsafe fn apply_search_filter_or_decline(
         );
     }
 
-    let Some((filter_expr, mt_clauses)) = build_search_filter(root, clauses, sources, plan) else {
+    let Some((filter_expr, mt_clauses)) = build_search_filter(root, clauses, sources, &plan) else {
         pgrx::debug1!(
             "agg-on-join: declining; {} {} predicate(s) untranslatable",
             clauses.len(),
@@ -410,13 +405,11 @@ unsafe fn apply_search_filter_or_decline(
         );
         return Err(err_msg.into());
     };
-    *multi_table_clauses = mt_clauses;
-    let prev = std::mem::take(plan);
-    *plan = RelNode::Filter(Box::new(FilterNode {
-        input: prev,
+    plan = RelNode::Filter(Box::new(FilterNode {
+        input: plan,
         predicate: filter_expr,
     }));
-    Ok(())
+    Ok((plan, mt_clauses))
 }
 
 /// Translates a parse-tree `FromExpr` into a `RelNode` tree.
@@ -828,12 +821,12 @@ unsafe fn extract_non_equi_filter_from_quals(
     let left_rtis: Vec<pg_sys::Index> = left
         .sources()
         .iter()
-        .map(|s| s.scan_info.heap_rti)
+        .map(|s| s.scan_info.context.heap_rti)
         .collect();
     let right_rtis: Vec<pg_sys::Index> = right
         .sources()
         .iter()
-        .map(|s| s.scan_info.heap_rti)
+        .map(|s| s.scan_info.context.heap_rti)
         .collect();
 
     let mut non_equi_nodes = Vec::new();
@@ -1257,7 +1250,7 @@ fn order_chain_by_planner_estimates(
     let parse_order: Vec<pg_sys::Index> = plan
         .sources()
         .iter()
-        .map(|s| s.scan_info.heap_rti)
+        .map(|s| s.scan_info.context.heap_rti)
         .collect();
     if parse_order.len() < 3 {
         return plan;
@@ -1275,7 +1268,7 @@ fn order_chain_by_planner_estimates(
     let mut scans: HashMap<pg_sys::Index, Box<JoinSource>> = plan
         .sources()
         .into_iter()
-        .map(|s| (s.scan_info.heap_rti, Box::new(s.clone())))
+        .map(|s| (s.scan_info.context.heap_rti, Box::new(s.clone())))
         .collect();
     let mut leaves = order.iter().map(|rti| {
         RelNode::Scan(
@@ -1743,7 +1736,7 @@ pub enum FilterExprBuildContext<'a> {
     },
     Filter {
         root: *mut pg_sys::PlannerInfo,
-        sources: &'a [SourceContext],
+        sources: &'a [&'a SourceContext],
         plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
         outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
     },
@@ -2024,11 +2017,14 @@ pub fn all_have_bm25_index(sources: &[SourceContext]) -> bool {
 /// each caller can carry whatever context the user will recognise.
 unsafe fn require_fast_field(
     source: &mut JoinSource,
-    context: &SourceContext,
     attno: pg_sys::AttrNumber,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
-    match context.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar) {
+    match source
+        .scan_info
+        .context
+        .resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)
+    {
         Some(resolved) => {
             source.scan_info.add_field(attno, resolved.field);
             Ok(())
@@ -2045,26 +2041,31 @@ unsafe fn require_fast_field(
 /// error, the same contract as [`require_fast_field`].
 unsafe fn require_named_fast_field(
     source: &mut JoinSource,
-    context: &SourceContext,
     attno: pg_sys::AttrNumber,
     field_name: &str,
     describe: impl FnOnce() -> String,
 ) -> Result<(), String> {
     if field_name.contains('.')
-        && let Some(resolved) =
-            context.resolve_fast_field(ResTarget::Field(field_name), Access::Any)
+        && let Some(resolved) = source
+            .scan_info
+            .context
+            .resolve_fast_field(ResTarget::Field(field_name), Access::Any)
     {
         source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
-    if let Some(resolved) = context.resolve_fast_field(
+    if let Some(resolved) = source.scan_info.context.resolve_fast_field(
         ResTarget::Attno(attno as pg_sys::AttrNumber),
         Access::Scalar,
     ) {
         source.scan_info.add_field(attno, resolved.field);
         return Ok(());
     }
-    if let Some(resolved) = context.resolve_fast_field(ResTarget::Field(field_name), Access::Any) {
+    if let Some(resolved) = source
+        .scan_info
+        .context
+        .resolve_fast_field(ResTarget::Field(field_name), Access::Any)
+    {
         source.scan_info.add_field_by_name(attno, resolved.field);
         return Ok(());
     }
@@ -2108,8 +2109,6 @@ pub unsafe fn populate_required_fields(
     let mut sources = plan.sources_mut();
 
     for source in sources.iter_mut() {
-        let context = source.to_source_context();
-
         // Always add Ctid so the provider schema is never empty (needed for COUNT(*))
         source.scan_info.add_field(
             pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
@@ -2127,7 +2126,7 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != gc.plan_position {
                 continue;
             }
-            require_named_fast_field(source, &context, gc.attno, &gc.field_name, || {
+            require_named_fast_field(source, gc.attno, &gc.field_name, || {
                 format!("GROUP BY column '{}' (attno={})", gc.field_name, gc.attno)
             })?;
         }
@@ -2138,7 +2137,7 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position == r.plan_position {
                     let attno = r.attno;
                     let field_name = &r.field_name;
-                    require_fast_field(source, &context, attno, || {
+                    require_fast_field(source, attno, || {
                         format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;
                 }
@@ -2150,7 +2149,7 @@ pub unsafe fn populate_required_fields(
         for agg in &targetlist.aggregates {
             for ob in &agg.order_by {
                 if source.plan_position == ob.plan_position {
-                    require_fast_field(source, &context, ob.attno, || {
+                    require_fast_field(source, ob.attno, || {
                         format!("aggregate ORDER BY column '{}'", ob.field_name)
                     })?;
                 }
@@ -2172,10 +2171,8 @@ pub unsafe fn populate_required_fields(
                 if source.plan_position != plan_position {
                     continue;
                 }
-                if let Some(attno) = context.get_attno_by_name(&field_name) {
-                    require_fast_field(source, &context, attno, || {
-                        format!("FILTER column '{field_name}'")
-                    })?;
+                if let Some(attno) = source.scan_info.context.get_attno_by_name(&field_name) {
+                    require_fast_field(source, attno, || format!("FILTER column '{field_name}'"))?;
                 }
             }
         }
@@ -2184,7 +2181,7 @@ pub unsafe fn populate_required_fields(
         // would have no data columns and produce empty RecordBatches.
         for &(plan_position, attno) in &join_key_projections {
             if source.plan_position == plan_position {
-                require_fast_field(source, &context, attno, || {
+                require_fast_field(source, attno, || {
                     format!("join key (plan_position={plan_position}, attno={attno})")
                 })?;
             }
@@ -2194,7 +2191,7 @@ pub unsafe fn populate_required_fields(
         // `b.id > 5` that DataFusion evaluates at join time.
         for &(plan_position, attno) in &multi_table_var_positions {
             if source.plan_position == plan_position {
-                require_fast_field(source, &context, attno, || {
+                require_fast_field(source, attno, || {
                     format!("multi-table predicate column (attno={attno})")
                 })?;
             }
@@ -2203,7 +2200,7 @@ pub unsafe fn populate_required_fields(
         // Join filter columns (from JoinNode.filter)
         for &(rti, attno) in &join_filter_vars {
             if source.contains_rti(rti) {
-                require_fast_field(source, &context, attno, || {
+                require_fast_field(source, attno, || {
                     format!("join filter column (attno={attno})")
                 })?;
             }
@@ -2217,7 +2214,9 @@ pub unsafe fn populate_required_fields(
             if source.plan_position != field.plan_position {
                 continue;
             }
-            let resolved = context
+            let resolved = source
+                .scan_info
+                .context
                 .resolve_fast_field(ResTarget::Field(&field.field_name), Access::Any)
                 .ok_or_else(|| format!("pdb.agg field '{}' is not columnar", field.field_name))?;
             source

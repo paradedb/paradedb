@@ -589,7 +589,7 @@ fn build_pdb_aggregate_plan(
                 .unwrap_or_else(|| {
                     panic!("no source at plan_position {}", key.field.plan_position)
                 });
-            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+            let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
                 .execution(source.plan_position);
             ArrayKeyToUnnest {
                 key_idx,
@@ -1080,8 +1080,8 @@ fn build_relnode_df<'a>(
                     mpp_manifests,
                 )
                 .await?;
-                let alias =
-                    RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+                let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+                    .execution(plan_position);
                 Ok(df.alias(&alias)?)
             }
             RelNode::Join(join) => {
@@ -1222,7 +1222,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
                 .sources
                 .iter()
                 .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
-            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+            let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
                 .execution(source.plan_position);
             return Some(datafusion::logical_expr::col(format!(
                 "{}_{}",
@@ -1237,7 +1237,7 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
             .iter()
             .any(|u| source.contains_rti(u.source_rti.0) && u.field_name == field_name)
         {
-            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+            let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
                 .execution(source.plan_position);
             Some(datafusion::logical_expr::col(format!(
                 "{alias}_{field_name}"
@@ -1376,7 +1376,7 @@ async fn build_source_df(
     mpp_manifests: Option<&[SearchIndexManifest]>,
 ) -> Result<DataFrame> {
     let scan_info = source.scan_info.clone();
-    let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
+    let alias = RelationAlias::new(scan_info.context.alias.as_deref()).execution(plan_position);
     let fields: Vec<WhichFastField> = source
         .scan_info
         .fields
@@ -1445,7 +1445,7 @@ async fn build_source_df(
         }
     }
     let display_alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
+        RelationAlias::new(source.scan_info.context.alias.as_deref()).display(plan_position);
 
     provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
     provider.configure_deferred_outputs(&required_early, crate::scan::VisibilityMode::Eager);
@@ -1494,8 +1494,8 @@ fn make_plan_position_col_with(
     let source = plan
         .source_at_plan_position(plan_position)
         .unwrap_or_else(|| panic!("no source at plan_position {plan_position}"));
-    let alias =
-        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    let alias = RelationAlias::new(source.scan_info.context.alias.as_deref())
+        .execution(source.plan_position);
     if is_unnested {
         col(format!("{alias}_{field_name}"))
     } else {

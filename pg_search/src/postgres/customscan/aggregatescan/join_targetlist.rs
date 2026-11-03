@@ -1108,7 +1108,8 @@ unsafe fn extract_raw_window_entry(
                 "`FILTER` on `pdb.agg()` inside `pdb.combine_agg()` is not supported".into(),
             );
         }
-        let mut request = lower_pdb_agg(inner_aggref, context.sources)?;
+        let contexts: Vec<_> = context.sources.iter().collect();
+        let mut request = lower_pdb_agg(inner_aggref, &contexts)?;
         request.assign_plan_positions(|field| {
             context
                 .plan
@@ -1206,13 +1207,14 @@ unsafe fn extract_raw_aggregate_entry(
 ) -> Result<JoinAggregateEntry, String> {
     let aggfnoid = (*aggref).aggfnoid.to_u32();
     let has_distinct = !(*aggref).aggdistinct.is_null();
+    let sources: Vec<_> = context.sources.iter().collect();
     let filter = (!(*aggref).aggfilter.is_null())
         .then(|| {
             FilterExpr::from_pg_node(
                 (*aggref).aggfilter as *mut pg_sys::Node,
                 &FilterExprBuildContext::Filter {
                     root: context.root,
-                    sources: context.sources,
+                    sources: &sources,
                     plan: context.plan,
                     outer_root_id: context.outer_root_id,
                 },
@@ -1228,7 +1230,7 @@ unsafe fn extract_raw_aggregate_entry(
         }
         let mut request = match pdb_request {
             Some(request) => request,
-            None => lower_pdb_agg(aggref, context.sources)?,
+            None => lower_pdb_agg(aggref, &sources)?,
         };
         request.assign_plan_positions(|field| {
             context
@@ -1327,6 +1329,7 @@ pub unsafe fn pdb_agg_route(
     shape: GroupingShape,
 ) -> Option<PdbAggRoute> {
     let sources = collect_join_agg_sources(root, input_rel);
+    let sources: Vec<_> = sources.iter().collect();
     let agg_funcoids = crate::api::agg_funcoids();
     let mut route = PdbAggRoute {
         requests: Vec::new(),
@@ -1353,7 +1356,7 @@ pub unsafe fn pdb_agg_route(
 /// time, the same as on the Tantivy backend.
 unsafe fn lower_pdb_agg(
     aggref: *mut pg_sys::Aggref,
-    sources: &[SourceContext],
+    sources: &[&SourceContext],
 ) -> Result<PdbAggRequest, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
     let arg_expr = |i: usize| args.get_ptr(i).map(|arg| (*arg).expr as *mut pg_sys::Node);
@@ -1375,7 +1378,7 @@ pub unsafe fn lower_pdb_agg_call(
     funcoid: u32,
     spec_arg: Option<*mut pg_sys::Node>,
     visibility_arg: Option<*mut pg_sys::Node>,
-    sources: &[SourceContext],
+    sources: &[&SourceContext],
 ) -> Result<PdbAggRequest, String> {
     let (spec, visibility) = spec_arg
         .and_then(|spec_arg| pdb_agg_spec(funcoid, spec_arg, visibility_arg))

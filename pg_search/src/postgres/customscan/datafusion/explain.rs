@@ -46,7 +46,7 @@ pub fn format_join_level_expr(
                 .iter()
                 .find(|source| source.plan_position == *plan_position)
                 .map(|source| {
-                    RelationAlias::new(source.scan_info.alias.as_deref())
+                    RelationAlias::new(source.scan_info.context.alias.as_deref())
                         .display(source.plan_position)
                 })
                 .unwrap_or_else(|| RelationAlias::new(None).display(*plan_position));

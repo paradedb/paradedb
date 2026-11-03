@@ -747,11 +747,11 @@ unsafe fn collect_join_sources_join_rel(
             let outer_source = all_sources
                 .iter()
                 .find(|s| s.contains_rti(jk.outer_rti))
-                .map(|s| s.to_source_context());
+                .map(|s| &s.scan_info.context);
             let inner_source = all_sources
                 .iter()
                 .find(|s| s.contains_rti(jk.inner_rti))
-                .map(|s| s.to_source_context());
+                .map(|s| &s.scan_info.context);
 
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
@@ -897,7 +897,7 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
     let tables_str = plan
         .output_sources()
         .iter()
-        .map(|s| source_table_name(&s.to_source_context()))
+        .map(|s| source_table_name(&s.scan_info.context))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -1471,7 +1471,10 @@ unsafe fn extract_join_conditions_from_list(
         has_search_predicate: false,
     };
 
-    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
+    let valid_rtis: Vec<pg_sys::Index> = sources
+        .iter()
+        .map(|s| s.scan_info.context.heap_rti)
+        .collect();
     let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
     for ri in list.iter_ptr() {
         let clause = (*ri).clause;
@@ -1585,7 +1588,6 @@ pub(super) unsafe fn collect_required_fields(
         .cloned()
         .collect();
     let mut plan_sources = join_clause.plan.sources_mut();
-    let plan_source_contexts: Vec<_> = plan_sources.iter().map(|s| s.to_source_context()).collect();
 
     for source in &mut plan_sources {
         ensure_ctid(source);
@@ -1641,7 +1643,7 @@ pub(super) unsafe fn collect_required_fields(
                 for rti in rtis {
                     if let Some(source) = plan_sources
                         .iter_mut()
-                        .find(|s| s.scan_info.heap_rti == *rti)
+                        .find(|s| s.scan_info.context.heap_rti == *rti)
                     {
                         ensure_score_bubbling(source);
                     }
@@ -1650,7 +1652,7 @@ pub(super) unsafe fn collect_required_fields(
             OrderByFeature::Score { rti } => {
                 if let Some(source) = plan_sources
                     .iter_mut()
-                    .find(|s| s.scan_info.heap_rti == *rti)
+                    .find(|s| s.scan_info.context.heap_rti == *rti)
                 {
                     ensure_score_bubbling(source);
                 }
@@ -1665,11 +1667,11 @@ pub(super) unsafe fn collect_required_fields(
                 let name = name_wrapper.as_ref();
                 if let Some((alias, col_name)) = name.split_once('.') {
                     let raw_col_name = col_name.trim_matches('"');
-                    for (source, context) in
-                        plan_sources.iter_mut().zip(plan_source_contexts.iter())
-                    {
-                        if context.alias.as_deref() == Some(alias) {
-                            if let Some(attno) = context.get_attno_by_name(raw_col_name) {
+                    for source in plan_sources.iter_mut() {
+                        if source.scan_info.context.alias.as_deref() == Some(alias) {
+                            if let Some(attno) =
+                                source.scan_info.context.get_attno_by_name(raw_col_name)
+                            {
                                 ensure_field(source, attno);
                             }
                             break;
@@ -1678,16 +1680,16 @@ pub(super) unsafe fn collect_required_fields(
                 } else {
                     // Unqualified field name (e.g. from indexed expression) — use RTI
                     // to find the correct source and ensure the column is projected.
-                    for (source, context) in
-                        plan_sources.iter_mut().zip(plan_source_contexts.iter())
-                    {
-                        if context.heap_rti == *rti {
+                    for source in plan_sources.iter_mut() {
+                        if source.scan_info.context.heap_rti == *rti {
                             // Try as a regular column first, then fall back to
                             // expression-indexed field.  The column `name` may
                             // exist in the table but only be indexed via an
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
-                            let added = context
+                            let added = source
+                                .scan_info
+                                .context
                                 .get_attno_by_name(name)
                                 .and_then(|attno| {
                                     try_ensure_field(source, attno)?;
@@ -1741,9 +1743,7 @@ pub(super) unsafe fn collect_required_fields(
                     }
                 }
                 super::build::ChildProjection::IndexedExpression { rti, field_name } => {
-                    for (source, context) in
-                        plan_sources.iter_mut().zip(plan_source_contexts.iter())
-                    {
+                    for source in plan_sources.iter_mut() {
                         if source.contains_rti(*rti) {
                             if source
                                 .scan_info
@@ -1753,7 +1753,9 @@ pub(super) unsafe fn collect_required_fields(
                             {
                                 break;
                             }
-                            let added = context
+                            let added = source
+                                .scan_info
+                                .context
                                 .get_attno_by_name(field_name)
                                 .and_then(|attno| {
                                     try_ensure_field(source, attno)?;
@@ -1812,8 +1814,9 @@ pub(super) unsafe fn collect_required_fields(
                     else {
                         continue;
                     };
-                    let context = source.to_source_context();
-                    match context
+                    match source
+                        .scan_info
+                        .context
                         .resolve_fast_field(ResTarget::Field(&field.field_name), Access::Any)
                     {
                         Some(resolved) => source
@@ -1875,7 +1878,7 @@ unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
         pgrx::warning!(
             "JoinScan: could not resolve fast field for attno {} on relation {}",
             attno,
-            side.scan_info.heaprelid
+            side.scan_info.context.heaprel.oid()
         );
     }
 }
@@ -1887,8 +1890,10 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
     if side.scan_info.fields.iter().any(|f| f.attno == attno) {
         return Some(());
     }
-    let context = side.to_source_context();
-    let resolved = context.resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)?;
+    let resolved = side
+        .scan_info
+        .context
+        .resolve_fast_field(ResTarget::Attno(attno), Access::Scalar)?;
     side.scan_info.add_field(attno, resolved.field);
     Some(())
 }
@@ -1898,8 +1903,11 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
     if side.scan_info.fields.iter().any(|f| f.attno == attno) {
         return;
     }
-    let context = side.to_source_context();
-    if let Some(resolved) = context.resolve_fast_field(ResTarget::Field(field_name), Access::Any) {
+    if let Some(resolved) = side
+        .scan_info
+        .context
+        .resolve_fast_field(ResTarget::Field(field_name), Access::Any)
+    {
         side.scan_info.add_field(attno, resolved.field);
     }
 }
@@ -1912,8 +1920,9 @@ unsafe fn ensure_array_field(side: &mut JoinSource, attno: pg_sys::AttrNumber, f
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
 unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
-    let context = source.to_source_context();
-    let resolved = context
+    let resolved = source
+        .scan_info
+        .context
         .resolve_fast_field(ResTarget::Field(field_name), Access::Any)
         .ok_or(format!("Failed to resolve field {field_name}"))?;
 
@@ -1925,8 +1934,11 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     Ok(())
 }
 
-fn collect_source_rtis(sources: &[SourceContext]) -> Vec<pg_sys::Index> {
-    sources.iter().map(|s| s.heap_rti).collect()
+fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
+    sources
+        .iter()
+        .map(|s| s.scan_info.context.heap_rti)
+        .collect()
 }
 
 /// Returns true if no equivalence class member for this pathkey references any
@@ -2022,9 +2034,8 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     if pathkeys.is_empty() {
         return Ok(());
     }
-    let sources: Vec<_> = sources.iter().map(|s| s.to_source_context()).collect();
 
-    let source_rtis = collect_source_rtis(&sources);
+    let source_rtis = collect_source_rtis(sources);
 
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = &*(*pathkey_ptr).pk_eclass;
@@ -2072,7 +2083,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
             if sources
                 .iter()
-                .any(|s| is_score_func_recursive(expr.cast(), s))
+                .any(|s| is_score_func_recursive(expr.cast(), &s.scan_info.context))
             {
                 continue 'pathkey;
             }
@@ -2096,9 +2107,11 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 }
 
                 let mut is_fast = false;
-                for source in &sources {
-                    if source.heap_rti == varno {
+                for source in sources {
+                    if source.scan_info.context.heap_rti == varno {
                         if source
+                            .scan_info
+                            .context
                             .resolve_fast_field(ResTarget::Attno(varattno), Access::Scalar)
                             .is_some()
                         {
@@ -2106,6 +2119,8 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                             break;
                         }
                         let col_name = source
+                            .scan_info
+                            .context
                             .get_attname(varattno)
                             .map(|f| f.to_string())
                             .unwrap_or_else(|| format!("attno {varattno}"));
@@ -2120,8 +2135,10 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 }
             } else {
                 let mut found = false;
-                for source in &sources {
+                for source in sources {
                     if source
+                        .scan_info
+                        .context
                         .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
                         .is_some()
                     {
@@ -2130,7 +2147,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     }
                 }
 
-                if !found && has_distinct && expression_vars_all_fast(expr.cast(), &sources) {
+                if !found && has_distinct && expression_vars_all_fast(expr.cast(), sources) {
                     found = true;
                 }
 
@@ -2163,7 +2180,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 /// Check if all Var dependencies of an expression are fast fields in any source.
 /// Returns true if ALL Var deps are fast fields, false if any is missing or no vars found.
 /// Also rejects aggregates and window functions which ExecEvalExpr cannot evaluate.
-unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[SourceContext]) -> bool {
+unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSource]) -> bool {
     if pg_sys::contain_agg_clause(expr) || pg_sys::contain_window_function(expr) {
         return false;
     }
@@ -2255,16 +2272,18 @@ unsafe fn column_name_for_var(
     varattno: pg_sys::AttrNumber,
 ) -> String {
     for source in sources {
-        let source = source.to_source_context();
-        if source.heap_rti == varno {
+        if source.scan_info.context.heap_rti == varno {
             // Match the `(tables: ...)` suffix, which names relations the way the query wrote them.
-            let tbl =
-                RelationAlias::new(source.alias.as_deref()).warning_context(source.heaprel.oid());
+            let tbl = RelationAlias::new(source.scan_info.context.alias.as_deref())
+                .warning_context(source.scan_info.context.heaprel.oid());
             // attno 0 is a whole-row reference.
             if varattno == 0 {
                 return format!("{tbl}.*");
             }
-            return source.get_attname_for_display(varattno, &tbl);
+            return source
+                .scan_info
+                .context
+                .get_attname_for_display(varattno, &tbl);
         }
     }
     format!("rti {}, attno {}", varno, varattno)
@@ -2302,15 +2321,17 @@ pub(super) unsafe fn distinct_collations_are_deterministic(root: *mut pg_sys::Pl
 }
 
 pub fn resolve_fast_field_from_join_sources(
-    sources: &[SourceContext],
+    sources: &[&JoinSource],
     varno: pg_sys::Index,
     varattno: pg_sys::AttrNumber,
 ) -> Option<WhichFastField> {
     sources.iter().find_map(|source| {
-        if source.heap_rti != varno {
+        if source.scan_info.context.heap_rti != varno {
             return None;
         }
         source
+            .scan_info
+            .context
             .resolve_fast_field(ResTarget::Attno(varattno), Access::Scalar)
             .map(|r| r.field)
     })
@@ -2379,14 +2400,10 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 ) -> Result<ResolvedExpr, JoinDeclineReason> {
     let plan_for_pg_project_fallback = enable_pg_project_fallback.then_some(plan);
 
-    let sources: Vec<_> = plan
-        .sources()
-        .iter()
-        .map(|s| s.to_source_context())
-        .collect();
+    let sources = plan.sources();
     let tables_str = sources
         .iter()
-        .map(|s| source_table_name(s))
+        .map(|s| source_table_name(&s.scan_info.context))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -2400,7 +2417,11 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                     root,
                     FunctionRti(varno),
                 )
-                .is_some_and(|u| sources.iter().any(|s| s.heap_rti == u.source_rti.0))
+                .is_some_and(|u| {
+                    sources
+                        .iter()
+                        .any(|s| s.scan_info.context.heap_rti == u.source_rti.0)
+                })
             };
         if !is_fast {
             return Err(JoinDeclineReason::new(
@@ -2415,7 +2436,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Case 2: Score function
     if let Some(rti) = get_score_func_rti(expr.cast()) {
-        if sources.iter().any(|s| s.heap_rti == rti) {
+        if sources.iter().any(|s| s.scan_info.context.heap_rti == rti) {
             return Ok(ResolvedExpr::Score { rti });
         }
         return Err(JoinDeclineReason::new(
@@ -2426,9 +2447,14 @@ pub(crate) unsafe fn resolve_target_entry_expr(
     // Case 3: Check if expression matches an indexed expression (existing behavior)
     let matched_source = sources.iter().find_map(|source| {
         let search_field = source
+            .scan_info
+            .context
             .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)?
             .field;
-        Some((source.heap_rti, search_field.name().to_string()))
+        Some((
+            source.scan_info.context.heap_rti,
+            search_field.name().to_string(),
+        ))
     });
     if let Some((rti, field_name)) = matched_source {
         return Ok(ResolvedExpr::IndexedExpression { rti, field_name });
@@ -2489,7 +2515,10 @@ pub(crate) unsafe fn resolve_target_entry_expr(
 
     // Verify score RTIs reference relations in the join
     for score_rti in deps.score_rtis {
-        if !sources.iter().any(|s| s.heap_rti == score_rti) {
+        if !sources
+            .iter()
+            .any(|s| s.scan_info.context.heap_rti == score_rti)
+        {
             pgrx::debug1!(
                 "JoinScan declined: expression depends on score for relation \
                  (rti={}) not found in any source (tables: {})",
@@ -2513,15 +2542,20 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             continue;
         }
 
-        let source = sources.iter().find(|s| s.heap_rti == varno);
+        let source = sources
+            .iter()
+            .find(|s| s.scan_info.context.heap_rti == varno);
         match source {
             Some(source) => {
                 if source
+                    .scan_info
+                    .context
                     .resolve_fast_field(ResTarget::Attno(varattno), Access::Scalar)
                     .is_none()
                 {
                     let col = column_name_for_var(&plan.sources(), varno, varattno);
-                    non_fast_col_info = Some((col, varno, varattno, source.heaprel.oid()));
+                    non_fast_col_info =
+                        Some((col, varno, varattno, source.scan_info.context.heaprel.oid()));
                     break;
                 }
                 input_vars.push(InputVarInfo {
@@ -2538,7 +2572,11 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                         root,
                         FunctionRti(varno),
                     )
-                    .is_some_and(|u| sources.iter().any(|s| s.heap_rti == u.source_rti.0));
+                    .is_some_and(|u| {
+                        sources
+                            .iter()
+                            .any(|s| s.scan_info.context.heap_rti == u.source_rti.0)
+                    });
                 if !is_lateral_unnest {
                     pgrx::debug1!(
                         "JoinScan declined: expression depends on column \
@@ -2847,7 +2885,7 @@ pub(crate) fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Inde
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
     source.scan_info.score_needed = true;
     source.scan_info.add_field(0, WhichFastField::score());
-    Some(source.scan_info.heap_rti)
+    Some(source.scan_info.context.heap_rti)
 }
 
 /// Check if an expression is a `paradedb.score()` call referencing a relation in the given source.
@@ -2888,7 +2926,7 @@ impl JoinSortExprKind {
         root: *mut pg_sys::PlannerInfo,
         check_expr: *mut pg_sys::Expr,
         direction: SortDirection,
-        sources: &[SourceContext],
+        sources: &[&JoinSource],
         output_rtis: &[pg_sys::Index],
         pathkey_equivalence_member: bool,
     ) -> Self {
@@ -2962,7 +3000,7 @@ impl JoinSortExprKind {
                 )
                 && let Some(_source) = sources
                     .iter()
-                    .find(|s| s.heap_rti == unnest_info.source_rti.0)
+                    .find(|s| s.scan_info.context.heap_rti == unnest_info.source_rti.0)
             {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Var {
@@ -2975,8 +3013,12 @@ impl JoinSortExprKind {
             }
 
             for source in sources {
-                if source.heap_rti == varno {
-                    let name = source.get_attname(varattno).map(|f| f.to_string());
+                if source.scan_info.context.heap_rti == varno {
+                    let name = source
+                        .scan_info
+                        .context
+                        .get_attname(varattno)
+                        .map(|f| f.to_string());
                     return Self::Resolved(OrderByInfo {
                         feature: OrderByFeature::Var {
                             rti: varno,
@@ -2991,7 +3033,10 @@ impl JoinSortExprKind {
             // At this point output_rtis.contains(&varno) is guaranteed — we already
             // returned SkipMember/NoMatch above when !output_rtis.contains(&varno).
             debug_assert!(output_rtis.contains(&varno));
-            if !sources.iter().any(|s| s.heap_rti == varno) {
+            if !sources
+                .iter()
+                .any(|s| s.scan_info.context.heap_rti == varno)
+            {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Var {
                         rti: varno,
@@ -3006,17 +3051,17 @@ impl JoinSortExprKind {
         }
 
         for source in sources {
-            if !output_rtis.contains(&source.heap_rti) {
+            if !output_rtis.contains(&source.scan_info.context.heap_rti) {
                 continue;
             }
-            if let Some(resolved) = source.resolve_fast_field(
+            if let Some(resolved) = source.scan_info.context.resolve_fast_field(
                 ResTarget::Expr(check_expr as *mut pg_sys::Node),
                 Access::Scalar,
             ) {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Field {
                         name: resolved.field.name().into(),
-                        rti: source.heap_rti,
+                        rti: source.scan_info.context.heap_rti,
                     },
                     direction,
                 });
@@ -3096,7 +3141,6 @@ pub(super) unsafe fn extract_orderby(
 ) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-    let sources: Vec<_> = sources.iter().map(|s| s.to_source_context()).collect();
 
     if pathkeys.is_empty() || sources.is_empty() {
         return Some(result);
@@ -3172,7 +3216,7 @@ pub(super) unsafe fn extract_orderby(
                 root,
                 check_expr,
                 direction,
-                &sources,
+                sources,
                 output_rtis,
                 true,
             ) {
@@ -3199,7 +3243,7 @@ pub(super) unsafe fn extract_orderby(
             if !pathkey_resolved
                 && has_distinct
                 && nodecast!(Var, T_Var, check_expr).is_none()
-                && expression_vars_all_fast(check_expr.cast(), &sources)
+                && expression_vars_all_fast(check_expr.cast(), sources)
             {
                 pathkey_resolved = true;
             }

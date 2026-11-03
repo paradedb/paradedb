@@ -32,7 +32,6 @@ use crate::api::FieldName;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::stats::persisted_split_points;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::rel::PgSearchRelation;
 use crate::scan::info::RowEstimate;
 use crate::scan::range_partitioning::RangeSplitPoints;
 use crate::scan::table_provider::PgSearchTableProvider;
@@ -666,7 +665,15 @@ fn cached_side_split_points(
     partition_by: &FieldName,
     cache: &mut SplitPointsCache,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
-    let key = (provider.scan_info.indexrelid, partition_by.clone());
+    let key = (
+        provider
+            .scan_info
+            .context
+            .indexrel()
+            .map(|r| r.oid())
+            .expect("should have an index"),
+        partition_by.clone(),
+    );
     if let Some(pts) = cache.get(&key) {
         return Ok(pts.clone());
     }
@@ -715,8 +722,12 @@ fn side_split_points(
     provider: &PgSearchTableProvider,
     partition_by: &FieldName,
 ) -> Result<Option<Vec<PdbOwnedValue>>> {
-    let index_rel = PgSearchRelation::open(provider.scan_info.indexrelid);
-    persisted_split_points(&index_rel, partition_by.as_ref())
+    let index_rel = provider
+        .scan_info
+        .context
+        .indexrel()
+        .expect("should have an index");
+    persisted_split_points(index_rel, partition_by.as_ref())
         .map_err(|e| DataFusionError::Internal(format!("Failed to read segment statistics: {e}")))
 }
 

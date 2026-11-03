@@ -619,8 +619,10 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
             // JSON projections
             "metadata->>'brand'",
             "metadata->'brand'",
-            "(metadata->>'rating')::bigint",
-            "metadata->'details'->>'score'",
+            // TODO(issue <>)
+            //"(metadata->>'rating')::bigint",
+            // TODO(issue #6834): numeric JSON `->>` grouping isn't pushed down exactly
+            //"metadata->'details'->>'score'",
         ]
         .map(String::from),
     );

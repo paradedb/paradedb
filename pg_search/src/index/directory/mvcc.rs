@@ -548,11 +548,16 @@ impl MVCCDirectory {
                         .expect(
                             "LoadedSegmentMetaEntry::Memory should have a mutable SegmentMetaEntry",
                         );
-                    if matches!(&*self.mvcc_style, MvccSatisfies::VacuumMerge { .. }) {
-                        // VACUUM's live-ctid subset differs from the full bound stored in the cache.
-                        build().map(|directory| Arc::new(directory) as Arc<dyn Directory>)
-                    } else {
+                    if matches!(
+                        &*self.mvcc_style,
+                        MvccSatisfies::Snapshot
+                            | MvccSatisfies::ParallelWorker(_)
+                            | MvccSatisfies::LargestSegment
+                    ) {
                         crate::postgres::storage::mutable_cache::get_or_build(&key, build)
+                    } else {
+                        // Maintenance must recheck heap visibility instead of retaining cached dead rows.
+                        build().map(|directory| Arc::new(directory) as Arc<dyn Directory>)
                     }
                     .expect("Failed to index mutable segment.")
                 });

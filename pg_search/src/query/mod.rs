@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::{pdb, resolve_synonym_set};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -889,6 +889,22 @@ impl SearchQueryInput {
             // Everything else -- All, Empty, TermSet, the Boost/ConstScore/ScoreFilter/
             // HeapFilter score-modifying wrappers, DisjunctionMax, MoreLikeThis, ... -- has
             // no reliably-pruning weight, so route to DocSet::cost().
+            _ => false,
+        }
+    }
+
+    /// Whether a synonym set turns this query's token into a union of alternatives. The union
+    /// is a `DisjunctionMax` that Block-WAND does not prune, so a one-token match with a set on
+    /// its field or index is not the single posting list `is_topk_prunable` assumes.
+    pub(crate) fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
+        match self {
+            SearchQueryInput::FieldedQuery {
+                field,
+                query: pdb::Query::Match { .. },
+            } => schema
+                .search_field(field.root())
+                .is_some_and(|search_field| resolve_synonym_set(&search_field, schema).is_some()),
+            SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
             _ => false,
         }
     }

@@ -141,6 +141,15 @@ SET min_parallel_table_scan_size = 0;
 SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
 SELECT id, description FROM products WHERE description &&& 'red sofa' ORDER BY id;
 
+-- A one-token top-k by score is kept serial as Block-WAND prunable. With a set, the token
+-- is a union that does not prune, so the scan gets workers.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
+SET paradedb.enable_synonyms = off;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
+RESET paradedb.enable_synonyms;
+
 RESET debug_parallel_query;
 RESET max_parallel_workers_per_gather;
 RESET parallel_tuple_cost;

@@ -1845,7 +1845,10 @@ fn resolve_search_tokenizer(
 
 /// The set a match query on `search_field` expands with: the field option first, then the index
 /// option. `none` at either level turns expansion off.
-fn resolve_synonym_set(search_field: &SearchField, schema: &SearchIndexSchema) -> Option<String> {
+pub(crate) fn resolve_synonym_set(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<String> {
     if !crate::gucs::enable_synonyms() {
         return None;
     }

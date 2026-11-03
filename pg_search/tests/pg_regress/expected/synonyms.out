@@ -304,6 +304,45 @@ SELECT id, description FROM products WHERE description &&& 'red sofa' ORDER BY i
   7 | A sofa and a couch, both red
 (2 rows)
 
+-- A one-token top-k by score is kept serial as Block-WAND prunable. With a set, the token
+-- is a union that does not prune, so the scan gets workers.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Gather Merge
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on products
+               Table: products
+               Index: idx_products
+               Exec Method: TopKScanExecState
+               Scores: true
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 3
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+SET paradedb.enable_synonyms = off;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather
+   Workers Planned: 1
+   Single Copy: true
+   ->  Limit
+         ->  Custom Scan (ParadeDB Base Scan) on products
+               Table: products
+               Index: idx_products
+               Exec Method: TopKScanExecState
+               Scores: true
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 3
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(12 rows)
+
+RESET paradedb.enable_synonyms;
 RESET debug_parallel_query;
 RESET max_parallel_workers_per_gather;
 RESET parallel_tuple_cost;

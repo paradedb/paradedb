@@ -789,6 +789,7 @@ fn build_relnode_df<'a>(
                     &sources,
                     rctx.output_columns,
                     rctx.lateral_unnests,
+                    "",
                 )
             }
             RelNode::Filter(filter) => {
@@ -869,6 +870,7 @@ fn build_clause_df<'a>(
             sources: &plan_sources,
             output_columns: &private_data.output_columns,
             lateral_unnests: &lateral_unnests,
+            internal_prefix: "",
         };
         let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
         let translated_exprs = unsafe { translate_custom_exprs(&translator, custom_exprs)? };
@@ -1728,6 +1730,7 @@ fn maybe_apply_filter_to_expr(
         .to_datafusion(&FilterExprExecContext {
             targetlist: None,
             plan: Some(plan),
+            internal_prefix: None,
         })
         .ok_or(DataFusionError::Internal(
             "couldn't convert window function predicate to a datafusion predicate".to_string(),

@@ -259,6 +259,7 @@ impl TopKSortTarget {
         &self,
         targetlist: &JoinAggregateTargetList,
         plan: &RelNode,
+        internal_prefix: &str,
     ) -> Column {
         match self {
             TopKSortTarget::Aggregate(idx) => {
@@ -283,7 +284,15 @@ impl TopKSortTarget {
                         if is_lateral_unnest(plan, gc.plan_position, &gc.field_name) {
                             Column::new_unqualified(format!("{alias}_{}", gc.field_name))
                         } else {
-                            Column::new(Some(alias), &gc.field_name)
+                            let field_name = if gc.attno
+                                == pgrx::pg_sys::SelfItemPointerAttributeNumber
+                                    as pgrx::pg_sys::AttrNumber
+                            {
+                                format!("{internal_prefix}{}", gc.field_name)
+                            } else {
+                                gc.field_name.clone()
+                            };
+                            Column::new(Some(alias), &field_name)
                         }
                     }
                     GroupingTransform::TimestampToDate => Column::new_unqualified(format!(

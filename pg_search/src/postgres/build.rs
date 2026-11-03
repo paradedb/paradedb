@@ -20,7 +20,9 @@ use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::build_partitioning::{check_fast_dims, normalized_dims};
+use crate::postgres::build_partitioning::{
+    check_fast_dims, normalized_dims, partition_vector_field,
+};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -248,25 +250,27 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for sort_field in &sort_by {
         check_single_valued(sort_field, "sort_by");
     }
-    for partition_field in options.partition_by() {
-        check_single_valued(&partition_field, "partition_by");
+    let partition_by = options.partition_by();
+    for partition_field in &partition_by {
+        check_single_valued(partition_field, "partition_by");
     }
     // The stored schema does not exist yet, so the checks read the one this build will write.
     let schema = planned_schema(index_relation);
-    let partition_by = options.partition_by();
-    for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
-        if let Err(e) = check_fast_dims(&schema, dims, reloption) {
-            panic!("{e}");
-        }
-    }
+    check_fast_dims(&schema, &sort_by, "sort_by").unwrap_or_else(|e| panic!("{e}"));
 
     // `partition_by` cuts on the raw heap value and prunes on the columnar field, so a
     // normalized one leaves it with boundaries nothing can test against. `sort_by` only lays the
     // segment out, and a normalized one still orders it, so that costs pruning alone.
-    if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
-        panic!(
-            "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
-        );
+    if partition_vector_field(&schema, &partition_by)
+        .unwrap_or_else(|e| panic!("{e}"))
+        .is_none()
+    {
+        check_fast_dims(&schema, &partition_by, "partition_by").unwrap_or_else(|e| panic!("{e}"));
+        if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
+            panic!(
+                "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
+            );
+        }
     }
     for dim in normalized_dims(&schema, &sort_by) {
         warning!(

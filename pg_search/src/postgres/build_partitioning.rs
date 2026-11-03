@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use superkmeans::common::Y_BATCH_SIZE;
 use superkmeans::distance::l2_squared;
 use superkmeans::{SuperKMeans, SuperKMeansConfig};
-use tantivy::schema::{Field, FieldType, Schema};
+use tantivy::schema::{Field, FieldType, Schema, VectorOptions};
 
 use crate::api::FieldName;
 use crate::api::version::Version;
@@ -55,7 +55,7 @@ use crate::postgres::utils::{
     FieldSource, item_pointer_to_u64, resolve_field_value, scalar_datum_to_tantivy_value,
     unwrap_alias_datum,
 };
-use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
+use crate::schema::{CategorizedFieldData, SearchField};
 use crate::vector::metric::VectorMetric;
 use crate::vector::{PgVector, normalize_for_metric};
 
@@ -331,10 +331,9 @@ pub(super) fn plan_partition_boundaries(
     if partition_by.is_empty() {
         return Ok(None);
     }
-    let vector = match indexrel.options().get_field_type(&partition_by[0]) {
-        Some(SearchFieldType::Vector(_, dimensions, metric)) => Some((dimensions, metric)),
-        _ => None,
-    };
+    let schema = indexrel.schema()?;
+    let vector = partition_vector_field(schema.tantivy_schema(), &partition_by)?
+        .map(|options| (options.dim(), options.metric().into()));
     if target_partitions <= 1 {
         return Ok(Some(match vector {
             Some((dimensions, metric)) => BuildPartitioning::Vector(VectorPartitioning {
@@ -367,7 +366,6 @@ pub(super) fn plan_partition_boundaries(
             .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
         (budget.saturating_sub(fixed_bytes) / row_bytes).clamp(1, MAX_SAMPLE_ROWS)
     });
-    let schema = indexrel.schema()?;
     let categorized_fields = schema.categorized_fields();
     if let Some((dimensions, metric)) = vector {
         let projection = CategorizedPartitionField::resolve(&partition_by[0], &categorized_fields)?;
@@ -436,17 +434,6 @@ pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &s
         let Ok(field) = schema.get_field(dim.as_ref()) else {
             bail!("{reloption} field '{dim}' does not exist in the index schema");
         };
-        if reloption == "partition_by"
-            && matches!(
-                schema.get_field_entry(field).field_type(),
-                FieldType::Vector(_)
-            )
-        {
-            if dims.len() != 1 {
-                bail!("a vector partition_by field must be the only partition field");
-            }
-            continue;
-        }
         if !dim_fast(schema, field) {
             bail!(
                 "{reloption} field '{dim}' must be columnar. Add it to the index with 'columnar=true'"
@@ -454,6 +441,24 @@ pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &s
         }
     }
     Ok(())
+}
+
+pub(crate) fn partition_vector_field<'a>(
+    schema: &'a Schema,
+    dims: &[FieldName],
+) -> Result<Option<&'a VectorOptions>> {
+    for dim in dims {
+        let Ok(field) = schema.get_field(dim.as_ref()) else {
+            bail!("partition_by field '{dim}' does not exist in the index schema");
+        };
+        if let FieldType::Vector(options) = schema.get_field_entry(field).field_type() {
+            if dims.len() != 1 {
+                bail!("a vector partition_by field must be the only partition field");
+            }
+            return Ok(Some(options));
+        }
+    }
+    Ok(None)
 }
 
 /// The `dims` whose columnar field orders by a normalized value, so a segment's logical bounds

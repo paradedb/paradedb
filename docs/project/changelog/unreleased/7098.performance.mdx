@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- High-cardinality `GROUP BY` queries on the Aggregate Scan run faster: grouped results are turned into rows in one pass instead of re-searching the bucket tree for every row.

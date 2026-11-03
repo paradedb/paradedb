@@ -15,7 +15,7 @@ enabled = ["dep:antithesis_sdk", "dep:antithesis-instrumentation"]
 
 [dependencies]
 # Match proptest's SDK so qgen links only one ANTITHESIS_CATALOG.
-antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+antithesis_sdk = { version = "0.3.0", default-features = false, features = [
   "full",
 ], optional = true }
 # Coverage shim: provides the sancov symbols and loads libvoidstar at runtime.

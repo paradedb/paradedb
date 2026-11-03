@@ -487,7 +487,7 @@ impl SuiteRunner {
             reconnect_grace,
 
             monitors: Default::default(),
-            sys: Arc::new(RwLock::new(System::new_all())),
+            sys: Arc::new(RwLock::new(System::new_all()?)),
         };
 
         // Probe the server version (informational). Skip it under `SkipSetup`: that mode runs

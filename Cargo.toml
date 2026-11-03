@@ -80,7 +80,7 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stopwords",
 ], default-features = false }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf" }
-tantivy-jieba = "0.20.0"
+tantivy-jieba = "0.21.0"
 
 [patch.crates-io]
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "7f43bdd2f0d25d2121b9e329309dbfe1c3c2c4cf" }

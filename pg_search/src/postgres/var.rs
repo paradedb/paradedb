@@ -550,7 +550,7 @@ pub unsafe fn find_one_var(
     } else if is_a(node, T_Var) {
         let var = node.cast::<pg_sys::Var>();
         Some(var)
-    } else if unsafe { json_path_fieldname(context, node).is_some() } {
+    } else if unsafe { json_path_fieldname(context, node).is_some() } || is_a(node, T_OpExpr) {
         node.find_single_node::<pg_sys::Var>()
     } else {
         None

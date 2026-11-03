@@ -992,7 +992,6 @@ unsafe fn extract_raw_group_column(
         };
         let var_context = VarContext::from_planner(context.root);
         let var = find_one_var(var_context, expr).ok_or_else(unsupported)?;
-        let field_name = find_one_fieldname(var_context, expr).ok_or_else(unsupported)?;
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
         let plan_position = context
@@ -1004,13 +1003,25 @@ unsafe fn extract_raw_group_column(
                      unique output-visible source in the plan tree"
                 )
             })?;
-        (
-            var,
-            attno,
-            field_name.into_inner(),
-            plan_position,
-            find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
-        )
+
+        if let Ok(source) = find_source_by_rti(context.sources, rti, "GROUP BY expression") {
+            let field_name = source
+                .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
+                .map(|r| r.field.name())
+                .ok_or_else(unsupported)?;
+            (
+                var,
+                attno,
+                field_name,
+                plan_position,
+                find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
+            )
+        } else {
+            let field_name = find_one_fieldname(var_context, expr)
+                .map(|f| f.into_inner())
+                .ok_or_else(unsupported)?;
+            (var, attno, field_name, plan_position, None)
+        }
     };
     // A columnar read of an array cannot tell an empty array from NULL, and
     // it has no NULL elements. Check the underlying Var for both plain keys

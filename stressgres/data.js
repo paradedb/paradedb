@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793695051756,
+  "lastUpdate": 1793695076634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112624,6 +112624,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13126252854-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793695073913,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1781.0844304085347,
+            "unit": "median tps",
+            "extra": "avg tps: 1804.4362314514694, max tps: 1991.15449039648, count: 59237"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.021522751762895,
+            "unit": "median tps",
+            "extra": "avg tps: 6.067222123784609, max tps: 7.097999408992178, count: 59237"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1865.9203981090002,
+            "unit": "median tps",
+            "extra": "avg tps: 1863.0551321012329, max tps: 1881.298102170592, count: 59237"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2988.5286891658466,
+            "unit": "median tps",
+            "extra": "avg tps: 2912.5723223627756, max tps: 3238.9240266275406, count: 59237"
+          }
+        ],
+        "publication_id": "13215089513-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -156886,6 +156933,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13126252854-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1dcd761c42e5928ca1e66edbc75c2202ce3a164",
+          "message": "fix: fall back for string_agg with a non-constant separator (#7161)\n\n# Ticket(s) Closed\n\n- Closes #7150\n\n## What\n\nQueries using `string_agg` with a non-constant separator (a column, for\nexample) now fall back to Postgres instead of running on the aggregate\nscan.\n\n## Why\n\nThe scan only reads constant separators. For anything else it silently\nused `,`, so `string_agg(name, sep ORDER BY id)` returned `x,y,z`\ninstead of `x;y|z`.\n\n## How\n\n`join_targetlist.rs` no longer defaults to `,` when it can't read the\nseparator as a constant. It returns \"not supported\" instead, which\ntriggers the normal fallback. I didn't add per-row separator support\nbecause the aggregate holds a single separator string.\n\n## Tests\n\nAdded the issue's repro to `aggregate_join_fallback.sql`. It now returns\n`x;y|z` with a fallback warning, and a constant separator still gives\nthe same result.\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-03T06:52:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b1dcd761c42e5928ca1e66edbc75c2202ce3a164"
+        },
+        "date": 1793695076523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06301804615358644, max background_merging: 2.0, count: 59237"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.345614622429978, max cpu: 9.805924, count: 59237"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.501221721116025, max mem: 26.50390625, count: 59237"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.642933911248378, max cpu: 9.766023, count: 59237"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 43.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.34717658252021, max mem: 43.36328125, count: 59237"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45307,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45046.071087327175, max block_count: 45307.0, count: 59237"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.754579063760826, max segment_count: 19.0, count: 59237"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.110256,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.058097716870257, max cpu: 34.408604, count: 59237"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 37.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.43640871362071, max mem: 37.45703125, count: 59237"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.505990882210576, max cpu: 9.780948, count: 59237"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 43.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.77321580051319, max mem: 43.796875, count: 59237"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.486129903874381, max cpu: 9.770992, count: 59237"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.35888906796006, max mem: 43.36328125, count: 59237"
+          }
+        ],
+        "publication_id": "13215089513-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

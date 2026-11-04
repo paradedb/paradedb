@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793782115235,
+  "lastUpdate": 1793782138251,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -509282,6 +509282,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13279251723-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782135894,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3978.1058781257266,
+            "unit": "median tps",
+            "extra": "avg tps: 3979.0368638691803, max tps: 4564.346679154061, count: 58925"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4519.166271903792,
+            "unit": "median tps",
+            "extra": "avg tps: 4536.690283695237, max tps: 5959.351772362297, count: 58925"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.24223729762468,
+            "unit": "median tps",
+            "extra": "avg tps: 164.9187360236292, max tps: 2937.6830165719016, count: 58925"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.065759830811945,
+            "unit": "median tps",
+            "extra": "avg tps: 40.23987296661513, max tps: 555.100278754337, count: 58925"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.190549080816723,
+            "unit": "median tps",
+            "extra": "avg tps: 40.86474644260232, max tps: 583.9292032399694, count: 58925"
+          }
+        ],
+        "publication_id": "13306915491-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -523972,6 +524025,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13279251723-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782138181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5779686,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.318755345877942, max cpu: 4.628737, count: 58925"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.52597309874841, max mem: 21.59765625, count: 58925"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.153162946050723, max cpu: 4.6966734, count: 58925"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.697619656873144, max mem: 20.97265625, count: 58925"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.449669404027368, max cpu: 32.82853, count: 58925"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.763121486529485, max mem: 21.76953125, count: 58925"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.031090369113, max document_count: 10002.0, count: 58925"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.034416631312, max document_count: 10002.0, count: 58925"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58925"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.25963,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.525628734822234, max cpu: 35.351883, count: 58925"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.36290424798472, max mem: 66.3828125, count: 58925"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.216318,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.417056350794105, max cpu: 35.351883, count: 58925"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.57388046245227, max mem: 66.1171875, count: 58925"
+          }
+        ],
+        "publication_id": "13306915491-other"
       }
     ]
   }

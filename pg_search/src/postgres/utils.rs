@@ -443,7 +443,10 @@ pub enum FieldSource {
     Heap { attno: usize },
 
     /// Expression index (scalar result)
-    Expression { att_idx: usize },
+    Expression {
+        att_idx: usize,
+        attno: Option<usize>,
+    },
 
     /// Field extracted from a composite type
     CompositeField {
@@ -465,15 +468,10 @@ impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
     /// column's value as it is, so it names that column; a computed expression or a
     /// composite field has no single column to read back.
-    pub fn heap_attno(&self, index: &PgSearchRelation) -> Option<usize> {
+    pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),
-            FieldSource::Expression { att_idx } => {
-                let expr = index.index_expressions().get_ptr(att_idx)?;
-                let var = unsafe { nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast())) }?;
-                let varattno = unsafe { (*var).varattno };
-                (varattno > 0).then(|| (varattno - 1) as usize)
-            }
+            FieldSource::Expression { attno, .. } => attno,
             FieldSource::CompositeField { .. } => None,
         }
     }
@@ -563,7 +561,7 @@ pub unsafe fn resolve_field_value(
 ) -> (pg_sys::Datum, bool) {
     match source {
         FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
-        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::Expression { att_idx, .. } => expr_results[*att_idx],
         FieldSource::CompositeField {
             expression_idx,
             field_idx,
@@ -763,10 +761,14 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
+                let node = expression.cast();
                 let source = FieldSource::Expression {
                     att_idx: expression_idx,
+                    attno: nodecast!(Var, T_Var, strip_tokenizer_cast(node))
+                        .map(|var| (*var).varattno)
+                        .filter(|&attno| attno > 0)
+                        .map(|attno| (attno - 1) as usize),
                 };
-                let node = expression.cast();
 
                 let typoid = pg_sys::exprType(node);
                 let mut attname = None;

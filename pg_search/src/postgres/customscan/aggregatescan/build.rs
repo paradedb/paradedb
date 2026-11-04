@@ -33,6 +33,7 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::node::NodeExt;
 use crate::postgres::search_operator_relations;
 use crate::postgres::utils::sort_json_keys;
@@ -476,15 +477,16 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         )
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
-        let targetlist = TargetList::from_pg(args, heap_rti, index)?;
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
+        let index = context
+            .indexrel
+            .as_ref()
+            .expect("should always have an index here");
+
+        let targetlist = TargetList::from_pg(args, context)?;
         // OrderBy is optional - if we can't extract it but there IS a sort clause,
         // use unpushable() to remember that ordering exists
-        let orderby = match OrderByClause::from_pg(args, heap_rti, index) {
+        let orderby = match OrderByClause::from_pg(args, context) {
             Ok(o) => o,
             Err(_) => {
                 let has_sort_clause = unsafe {
@@ -500,13 +502,13 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         // `None` without a LIMIT, or when a DISTINCT or window stage above the
         // grouping needs every bucket.
         let limit_offset = args.grouping_limit_offset();
-        let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
+        let quals = SearchQueryClause::from_pg(args, context)?;
 
         // The planner can simplify the operator out of the quals, so the query as written counts too.
         if !gucs::enable_custom_scan_without_operator()
             && !quals.uses_our_operator()
             && !targetlist.uses_our_operator()
-            && !unsafe { search_operator_relations::applies_to(args.root, heap_rti) }
+            && !unsafe { search_operator_relations::applies_to(args.root, context.heap_rti) }
         {
             return Err(CustomScanBuildError::NotInteresting);
         }

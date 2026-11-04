@@ -74,7 +74,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
@@ -145,12 +145,15 @@ mod tests {
     fn test_fields() -> Vec<WhichFastField> {
         vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::InvalidOid)),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::InvalidOid),
+            ),
+            WhichFastField::eager_scalar(
                 "price".to_string(),
                 SearchFieldType::F64(pg_sys::InvalidOid),
             ),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
                 "quantity".to_string(),
                 SearchFieldType::I64(pg_sys::InvalidOid),
             ),
@@ -762,7 +765,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
@@ -1032,7 +1035,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         unsafe {
             pg_sys::CommandCounterIncrement();

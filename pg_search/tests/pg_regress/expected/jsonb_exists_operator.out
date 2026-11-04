@@ -115,8 +115,8 @@ SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.al
 
 -- Test 7: NOT EXISTS using JSONB ? operator
 EXPLAIN SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.all() ORDER BY id;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort  (cost=10.02..10.03 rows=1 width=68)
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on jsonb_exists_test  (cost=10.00..10.01 rows=1 width=68)
@@ -125,16 +125,16 @@ EXPLAIN SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @
          Segment Count: 1
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(data ? 'first_name'::text)"}]}}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-(9 rows)
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"always_filters":[{"heap_filter":"(NOT (data ? 'first_name'::text))"}]}}]}}
+(10 rows)
 
 SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.all() ORDER BY id;
  id | description |                       data                        
 ----+-------------+---------------------------------------------------
   3 | Engineer    | {"last_name": "Wilson"}
-  4 | CEO         | 
   6 | Intern      | {"address": {"zip": "10001", "city": "New York"}}
-(3 rows)
+(2 rows)
 
 -- Test 8: ? matches PostgreSQL for arrays, string scalars, dotted keys,
 -- null values and arrays of objects (#7027)

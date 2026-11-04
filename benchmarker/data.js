@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793693415226,
+  "lastUpdate": 1793778762704,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -70945,6 +70945,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13213572477-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793778761511,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.671,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.713,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.55,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.628,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.281,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13305600563-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -70985,6 +71053,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13213572477-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793778762694,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6957.787558018976,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7646.780556824247,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.03223227216277,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13305600563-throughput"
       }
     ]
   }

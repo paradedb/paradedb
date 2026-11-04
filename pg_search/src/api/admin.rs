@@ -568,12 +568,8 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.cluster_radii();
-            rows.push((
-                segment_reader.segment_id().short_uuid_string(),
-                sizes,
-                radii,
-            ));
+            // The stored format carries no cluster radii.
+            rows.push((segment_reader.segment_id().short_uuid_string(), sizes, None));
         }
     }
 

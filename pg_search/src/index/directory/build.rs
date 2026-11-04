@@ -333,6 +333,46 @@ impl FileHandle for BuildFileReader {
         file.read_exact_at(&mut data, range.start)?;
         Ok(OwnedBytes::new(data))
     }
+
+    fn prefetch(&self, range: Range<usize>) {
+        let end = range.end.min(self.len);
+        if range.start >= end {
+            return;
+        }
+        // The lock is held only while the descriptor is resolved and the advice issued.
+        let file = self.file.lock();
+        let _ = file.file.with(|handle| {
+            let fd = unsafe { pg_sys::FileGetRawDesc(handle) };
+            if fd >= 0 {
+                advise_will_need(fd, range.start, end - range.start);
+            }
+            Ok(())
+        });
+    }
+}
+
+/// Tells the kernel that `len` bytes at `offset` of `fd` are about to be read, so it can start
+/// reading them in. Errors are ignored: the advice is a hint.
+fn advise_will_need(fd: std::os::raw::c_int, offset: usize, len: usize) {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::posix_fadvise(
+            fd,
+            offset as libc::off_t,
+            len as libc::off_t,
+            libc::POSIX_FADV_WILLNEED,
+        );
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let advisory = libc::radvisory {
+            ra_offset: offset as libc::off_t,
+            ra_count: len.min(libc::c_int::MAX as usize) as libc::c_int,
+        };
+        libc::fcntl(fd, libc::F_RDADVISE, &advisory as *const libc::radvisory);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let _ = (fd, offset, len);
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -371,6 +411,35 @@ mod tests {
             reader.read_bytes_slice(0..32).unwrap().as_ref(),
             &data[..32]
         );
+    }
+
+    /// Prefetching is advisory: announcing a range, in part or past the end, changes nothing
+    /// about the bytes a read returns.
+    #[pg_test]
+    fn test_build_directory_prefetch_then_read() {
+        let directory = BuildDirectory::new();
+        let path = Path::new("prefetch.fast");
+        let data: Vec<_> = (0..pg_sys::BLCKSZ as usize * 2 + 5)
+            .map(|i| (i * 7) as u8)
+            .collect();
+        let mut writer = directory.open_write(path).unwrap();
+        writer.write_all(&data).unwrap();
+        writer.terminate().unwrap();
+        let reader = directory.open_read(path).unwrap();
+        for range in [
+            0..data.len(),
+            100..200,
+            data.len() - 3..data.len() + 10,
+            data.len()..data.len(),
+        ] {
+            reader.prefetch(range.clone());
+            let end = range.end.min(data.len());
+            assert_eq!(
+                reader.read_bytes_slice(range.start..end).unwrap().as_ref(),
+                &data[range.start..end]
+            );
+        }
+        assert_eq!(reader.read_bytes().unwrap().as_ref(), data);
     }
 
     #[pg_test]

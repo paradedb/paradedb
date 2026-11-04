@@ -89,6 +89,13 @@ impl FileHandle for SegmentComponentReader {
     fn storage_block_len(&self) -> Option<usize> {
         Some(bm25_max_free_space())
     }
+
+    fn prefetch(&self, range: Range<usize>) {
+        let end = range.end.min(self.len());
+        if range.start < end {
+            self.block_list.prefetch(range.start..end);
+        }
+    }
 }
 
 impl HasLen for SegmentComponentReader {
@@ -155,6 +162,50 @@ mod tests {
                 }
                 assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
             }
+        }
+    }
+
+    /// Prefetching is advisory: announcing a range on a finalized or an uncommitted component,
+    /// in full, in part, or past its end, changes nothing about the bytes a read returns.
+    #[pg_test]
+    unsafe fn test_segment_component_prefetch_then_read() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data)").unwrap();
+        let relation_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let page_size = bm25_max_free_space();
+        let len = 3 * page_size + 17;
+        let bytes: Vec<u8> = (1..=255).cycle().take(len).collect();
+        let segment = format!("{}.vec", uuid::Uuid::new_v4());
+        let path = Path::new(segment.as_str());
+        let mut writer = unsafe { SegmentComponentWriter::new(&indexrel, path) };
+        writer.write_all(&bytes).unwrap();
+        let file_entry = writer.file_entry();
+        writer.terminate().unwrap();
+
+        for finalized in [false, true] {
+            let reader = if finalized {
+                SegmentComponentReader::new(&indexrel, file_entry, None)
+            } else {
+                SegmentComponentReader::new_uncommitted(&indexrel, file_entry, None)
+            };
+            for range in [
+                0..len,
+                page_size - 1..page_size + 1,
+                2 * page_size..len + page_size,
+                len..len,
+                len + 1..len + 2,
+            ] {
+                reader.prefetch(range.clone());
+                let end = range.end.min(len);
+                let expected = &bytes[range.start.min(end)..end];
+                assert_eq!(reader.read_bytes(range).unwrap().as_ref(), expected);
+            }
+            assert_eq!(reader.read_bytes(0..len).unwrap().as_ref(), bytes);
         }
     }
 }

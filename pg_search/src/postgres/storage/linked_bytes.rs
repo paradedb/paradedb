@@ -508,6 +508,25 @@ impl LinkedBytesList {
         OwnedBytes::new(data)
     }
 
+    /// Asks the buffer manager to start reading the blocks holding `range`, ahead of a read of
+    /// it. Advisory: a block the list cannot resolve, as in an unfinalized component, ends the
+    /// request.
+    pub fn prefetch(&self, range: Range<usize>) {
+        if range.is_empty() {
+            return;
+        }
+        const ITEM_SIZE: usize = bm25_max_free_space();
+        let rel = self.bman.buffer_access().rel().as_ptr();
+        for block_ord in range.start / ITEM_SIZE..=(range.end - 1) / ITEM_SIZE {
+            let Some(blockno) = self.block_for_ord(block_ord) else {
+                return;
+            };
+            unsafe {
+                pg_sys::PrefetchBuffer(rel, pg_sys::ForkNumber::MAIN_FORKNUM, blockno);
+            }
+        }
+    }
+
     unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
         // SAFETY: Postgres backends are single-threaded.
         let cache = self.cache.get();

@@ -216,8 +216,9 @@ impl CustomScanClause<AggregateScan> for TargetList {
     }
 }
 
-/// True if `expr` can be evaluated once per query: no column references, aggregates, window
-/// functions, set-returning functions or sub-selects, and not volatile.
+/// True if `expr` does not depend on the row or the aggregation: no column references, aggregates, window
+/// functions, set-returning functions or SubPlans, and not volatile. Uncorrelated scalar subqueries
+/// reach us as InitPlan Params and are accepted.
 unsafe fn is_row_independent(expr: *mut pg_sys::Expr) -> bool {
     let node = expr.cast::<pg_sys::Node>();
     !pg_sys::contain_var_clause(node)

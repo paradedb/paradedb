@@ -47,5 +47,61 @@ runs:
         publish_baseline: ${{ inputs.publish_baseline }}
         pages_directory: benchmarks
         alert_threshold: ${{ inputs.alert_threshold }}
-        comment_on_regression: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        # We comment and alert rather than failing, so regressions are reported on GitHub.
+        # A PR comment run gets the ratios from the summary step below instead.
+        comment_on_regression: ${{ github.event_name != 'issue_comment' }}
         comment_summary: ${{ github.event_name == 'pull_request' }}
+
+    # github-action-benchmark only comments on the PR for `pull_request` events.
+    - name: Comment Summary on the PR
+      if: github.event_name == 'issue_comment'
+      shell: python3 {0}
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.issue.number }}
+        COMPARISON_FILE: ${{ steps.metrics.outputs.comparison_file }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
+
+        prefix = "window.BENCHMARK_DATA = "
+        comparison = json.loads(Path(os.environ["COMPARISON_FILE"]).read_text().removeprefix(prefix))
+        [(suite, entries)] = comparison["entries"].items()
+        current = entries[-1]
+        baseline = entries[-2] if len(entries) > 1 else {"commit": {"id": ""}, "benches": []}
+        baseline_benches = {b["name"]: b for b in baseline["benches"]}
+
+        def value(bench):
+            return f"`{bench['value']:.6g}` {bench['unit']}" + (f" (`{bench['range']}`)" if bench.get("range") else "")
+
+        def table(benches):
+            rows = [
+                f"| Benchmark | Current: {current['commit']['id'][:7]} | Baseline: {baseline['commit']['id'][:7]} | Ratio |",
+                "|-|-|-|-|",
+            ]
+            for bench in benches:
+                prev = baseline_benches.get(bench["name"])
+                if prev:
+                    ratio = f"`{bench['value'] / prev['value']:.2f}`" if prev["value"] else ""
+                    rows.append(f"| `{bench['name']}` | {value(bench)} | {value(prev)} | {ratio} |")
+                else:
+                    rows.append(f"| `{bench['name']}` | {value(bench)} | | |")
+            return rows
+
+        # The filter does not apply to the index build, so the index rows are in a collapsed section.
+        queries = [b for b in current["benches"] if b["unit"] == "mean ms"]
+        indexes = [b for b in current["benches"] if b["unit"] != "mean ms"]
+        lines = [f"### {suite}", "", *table(queries), ""]
+        if indexes:
+            lines += ["<details><summary>Index build</summary>", "", *table(indexes), "", "</details>", ""]
+        lines.append(f"[Workflow run]({os.environ['RUN_URL']})")
+
+        subprocess.run(
+            ["gh", "pr", "comment", os.environ["PR_NUMBER"], "--repo", os.environ["GITHUB_REPOSITORY"], "--body-file", "-"],
+            input="\n".join(lines),
+            text=True,
+            check=True,
+        )

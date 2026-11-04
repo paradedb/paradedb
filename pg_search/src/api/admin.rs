@@ -530,7 +530,7 @@ fn vector_config(
     Ok(TableIterator::new(rows))
 }
 
-/// Per-cluster posting-list sizes and ball-bound radii for a single vector
+/// Per-cluster posting-list sizes for a single vector
 /// `field` of `index`, one row per segment that stores that field, in cluster
 /// order.
 #[pg_extern]
@@ -539,14 +539,7 @@ fn vector_clusters(
     index: IndexOid,
     field: String,
 ) -> anyhow::Result<
-    TableIterator<
-        'static,
-        (
-            name!(segno, String),
-            name!(cluster_sizes, Option<Vec<i64>>),
-            name!(cluster_radii, Option<Vec<f32>>),
-        ),
-    >,
+    TableIterator<'static, (name!(segno, String), name!(cluster_sizes, Option<Vec<i64>>))>,
 > {
     let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
@@ -568,12 +561,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.cluster_radii();
-            rows.push((
-                segment_reader.segment_id().short_uuid_string(),
-                sizes,
-                radii,
-            ));
+            rows.push((segment_reader.segment_id().short_uuid_string(), sizes));
         }
     }
 

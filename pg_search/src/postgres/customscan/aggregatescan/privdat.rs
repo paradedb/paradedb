@@ -60,6 +60,12 @@ pub enum FilterExpr {
     ColumnRef(ColumnRef),
     LitInt(i64),
     LitFloat(f64),
+    /// Exact Decimal128 coefficient and scale. Keep the coefficient as text so
+    /// JSON plan serialization never rounds integers outside the i64/u64 range.
+    LitDecimal {
+        value: String,
+        scale: i8,
+    },
     LitBool(bool),
     LitString(String),
     BinOp {
@@ -92,6 +98,7 @@ impl TreeNode for FilterExpr {
             | Self::ColumnRef(_)
             | Self::LitInt(_)
             | Self::LitFloat(_)
+            | Self::LitDecimal { .. }
             | Self::LitBool(_)
             | Self::LitString(_)
             | Self::SearchTag { .. } => Ok(TreeNodeRecursion::Continue),
@@ -131,6 +138,7 @@ impl TreeNode for FilterExpr {
             | Self::ColumnRef(_)
             | Self::LitInt(_)
             | Self::LitFloat(_)
+            | Self::LitDecimal { .. }
             | Self::LitBool(_)
             | Self::LitString(_)
             | Self::SearchTag { .. }) => Transformed::no(leaf),
@@ -189,6 +197,7 @@ impl FilterExpr {
             | FilterExpr::ColumnRef { .. }
             | FilterExpr::LitInt(_)
             | FilterExpr::LitFloat(_)
+            | FilterExpr::LitDecimal { .. }
             | FilterExpr::LitBool(_)
             | FilterExpr::LitString(_) => {}
         }

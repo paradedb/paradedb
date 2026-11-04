@@ -66,6 +66,7 @@ use std::sync::Arc;
 
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::{Result, ScalarValue, internal_err};
+use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{Column, lit};
 use datafusion::physical_expr::utils::collect_columns;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -74,6 +75,7 @@ use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceCh
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFType, FieldCardinality};
+use crate::postgres::customscan::datafusion::carry_value::CARRY_VALUE_NAME;
 use crate::scan::deferred_encode::{deferred_data_type, is_deferred_field};
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::deferred_placement_rule::same_columns;
@@ -283,6 +285,20 @@ fn collect_scans<'a>(
     }
 }
 
+/// True if the only reader of input column `idx` is a `pdb_carry_value`, which carries a
+/// group-key-dependent column to the output: its packed term passes through, and the
+/// decode runs above the aggregate (see `carry_value`).
+fn only_carried(agg: &AggregateExec, idx: usize) -> bool {
+    let reads =
+        |expr: &Arc<dyn PhysicalExpr>| collect_columns(expr).iter().any(|c| c.index() == idx);
+    !agg.group_expr().expr().iter().any(|(e, _)| reads(e))
+        && !agg.filter_expr().iter().flatten().any(reads)
+        && agg
+            .aggr_expr()
+            .iter()
+            .all(|a| a.fun().name() == CARRY_VALUE_NAME || !a.expressions().iter().any(reads))
+}
+
 /// Splits `agg` into a partial aggregate on ordinals, the decode of its groups, and the
 /// final aggregate on strings. A `Partial` aggregate already has its final above, so it
 /// only gets the decode lifted over it.
@@ -296,7 +312,8 @@ fn two_phase(agg: &AggregateExec) -> Result<Option<Arc<dyn ExecutionPlan>>> {
             .schema()
             .fields()
             .iter()
-            .any(|f| is_deferred_field(f))
+            .enumerate()
+            .any(|(idx, f)| is_deferred_field(f) && !only_carried(agg, idx))
         {
             return internal_err!(
                 "DeferredAggregate: {} reads a deferred column without a decode below it",

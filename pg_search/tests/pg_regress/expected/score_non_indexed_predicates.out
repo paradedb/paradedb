@@ -699,8 +699,8 @@ WHERE description ||| 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -708,7 +708,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 100.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"in_stock"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"technology","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(price < 100.00)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(NOT in_stock)"}]}}]}}]}}
 (8 rows)
 
 SELECT 

@@ -1033,7 +1033,16 @@ pub fn extract_quals(
             match boolexpr.boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(Qual::And(quals)),
                 pg_sys::BoolExprType::OR_EXPR => Some(Qual::Or(quals)),
-                pg_sys::BoolExprType::NOT_EXPR => Some(Qual::Not(Box::new(quals.pop()?))),
+                pg_sys::BoolExprType::NOT_EXPR => match quals.pop()? {
+                    // Negating the heap filter's match set would keep rows where the
+                    // expression is NULL, so let Postgres evaluate the whole `NOT`).
+                    Qual::HeapExpr { .. } => Some(Qual::HeapExpr {
+                        expr_node: node,
+                        expr_desc: deparse_expr(Some(context), indexrel, node),
+                        search_query_input: Box::new(SearchQueryInput::All),
+                    }),
+                    inner => Some(Qual::Not(Box::new(inner))),
+                },
                 _ => panic!("unexpected `BoolExprType`: {}", boolexpr.boolop),
             }
         }

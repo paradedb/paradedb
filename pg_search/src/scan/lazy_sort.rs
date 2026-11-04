@@ -43,8 +43,8 @@ use tantivy::index::SegmentId;
 use crate::api::OrderByInfo;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::{
-    MultiSegmentSearchResults, RaLookupWeights, SearchIndexReader, TopKAuxiliaryCollector,
-    TopKLimit, TopKOffset, TopKSearch, TopKWindow,
+    MultiSegmentSearchResults, RaLookupWeights, SearchIndexReader, SegmentBatching,
+    TopKAuxiliaryCollector, TopKLimit, TopKOffset, TopKSearch, TopKWindow,
 };
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
@@ -375,19 +375,19 @@ impl LazySegmentTarget {
                     all_segments_claimed,
                 );
                 if let Some(ref orderby_info) = lazy_sort.orderby_info {
-                    let segment_batches: Box<dyn Iterator<Item = Vec<SegmentId>>> =
-                        if parallel_state.is_some() {
-                            Box::new(seg_iter.map(|id| vec![id]))
-                        } else {
-                            Box::new(std::iter::once(seg_iter.collect()))
-                        };
+                    let batching = if parallel_state.is_some() {
+                        SegmentBatching::PerSegment
+                    } else {
+                        SegmentBatching::Global
+                    };
                     reader.search_top_k_in_segments(
-                        segment_batches,
+                        seg_iter,
                         orderby_info,
                         pull.window.limit.0,
                         pull.window.offset.0,
                         aux_collector,
                         shared_threshold_state,
+                        batching,
                     )
                 } else {
                     let mut res = reader.search_top_k_unordered_in_segments(

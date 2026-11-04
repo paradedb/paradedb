@@ -163,7 +163,7 @@ fn rebuilt_columns(entries: &[(usize, &DeferredLookupRebuild)]) -> Vec<(FFIndex,
         .map(|(ff_index, rb)| {
             (
                 *ff_index,
-                WhichFastField::eager(rb.field_name.clone(), rb.field_type),
+                WhichFastField::eager_scalar(rb.field_name.clone(), rb.field_type),
             )
         })
         .collect()

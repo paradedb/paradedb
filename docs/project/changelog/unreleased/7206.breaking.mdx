@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- Removed per-cluster radius pruning and its build, storage, and query costs from IVF vector indexes. Existing IVF indexes require `REINDEX`. `paradedb.vector_clusters` now returns only `segno` and `cluster_sizes`; radius-related EXPLAIN counters have also been removed.

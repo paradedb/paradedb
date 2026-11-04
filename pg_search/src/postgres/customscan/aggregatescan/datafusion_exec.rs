@@ -48,6 +48,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{
     ColumnRef, CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
 };
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
+use crate::postgres::customscan::datafusion::carry_value::carry_value;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
@@ -170,10 +171,15 @@ pub async fn build_join_aggregate_plan(
         if gc.row_value {
             // PostgreSQL's Agg node reads such a column from one row of the group.
             let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
-            row_values.push((
-                gc_idx,
-                first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
-            ));
+            // Every row of the group holds the same value of a dependent column, so
+            // any row will do: no row order to carry, and a deferred string can pass
+            // through undecoded (see `carry_value`).
+            let expr = if gc.dependent {
+                carry_value(column)
+            } else {
+                first_value(column, row_order.clone())
+            };
+            row_values.push((gc_idx, expr.alias(targetlist.row_value_name(gc_idx))));
             group_df_indices.push(usize::MAX);
             continue;
         }
@@ -1312,6 +1318,11 @@ impl FilterExpr {
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
+            FilterExpr::LitDecimal { value, scale } => Some(lit(ScalarValue::Decimal128(
+                Some(value.parse().ok()?),
+                38,
+                *scale,
+            ))),
             FilterExpr::LitBool(v) => Some(lit(*v)),
             FilterExpr::LitString(v) => Some(lit(v.clone())),
             FilterExpr::BinOp { left, op, right } => {

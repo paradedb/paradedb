@@ -33,7 +33,9 @@ use crate::postgres::customscan::basescan::projections::snippet::{
 };
 use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::node::{NodeExt, WalkControl};
-use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
+use crate::postgres::var::VarContext;
+use crate::postgres::var::find_one_fieldname;
+use crate::postgres::var::find_one_var;
 use pgrx::{Internal, PgList, pg_extern, pg_guard, pg_sys};
 use std::ptr::addr_of_mut;
 use tantivy::snippet::SnippetGenerator;
@@ -347,9 +349,10 @@ pub unsafe fn pullout_funcexprs(
         {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
             for arg in args.iter_ptr() {
-                if let Some((var, fieldname)) =
-                    find_one_var_and_fieldname(VarContext::Planner(root), arg)
-                {
+                if let (Some(var), Some(fieldname)) = (
+                    find_one_var(VarContext::Planner(root), arg),
+                    find_one_fieldname(VarContext::Planner(root), arg),
+                ) {
                     let same_layer = (*var).varno as i32 == rti
                         || (rte_is_partitioned(root, (*var).varno as pg_sys::Index)
                             && rte_is_parent(

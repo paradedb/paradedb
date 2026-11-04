@@ -12,7 +12,7 @@ SELECT segno, vector_field, vector_format, quantized_storage,
 FROM paradedb.vector_info('search_idx', 'embedding');
 ```
 
-`configured_layers` lists the bit width of each quantization layer in scoring order. Vector fields with at least 64 dimensions use `[1, 1]` quantization by default; lower-dimensional fields remain unquantized. Set `"quantization": false` in a field's `vector_fields` configuration to disable quantization explicitly. A field with no configured quantization reports `configured_quantized = false` and `NULL` for `configured_layers`, `configured_bytes_per_row`, and `configured_format`.
+`configured_layers` lists the bit width of each quantization layer in scoring order. Vector fields with at least 64 dimensions use `[1, 1]` quantization by default; lower-dimensional fields remain unquantized. Set the index option `quantization = 0` to disable quantization for all vector fields, or use `quantization = '[1,4]'` to set a shared layer schedule. A field with no configured quantization reports `configured_quantized = false` and `NULL` for `configured_layers`, `configured_bytes_per_row`, and `configured_format`.
 
 The `configured_*` columns describe field policy, not evidence that codes are stored. `quantized_storage` reports whether that specific segment has quantized slots. Small flat segments report `false` even when policy enables quantization; a mixed flat/IVF index can therefore contain both values. The other columns describe each segment's actual vector and cluster layout.
 

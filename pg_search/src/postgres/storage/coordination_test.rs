@@ -156,3 +156,11 @@ mod tests {
     #[pg_test]
     fn bootstrap_test_server() {}
 }
+
+#[pg_extern]
+unsafe fn test_hold_cleanup_admission(index: PgRelation) {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let metadata = MetaPage::open(&index);
+    let _admission = metadata.cleanup_lock_for_vacuum();
+    merge_pause();
+}

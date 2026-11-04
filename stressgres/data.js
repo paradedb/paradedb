@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793782138251,
+  "lastUpdate": 1793782162214,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -488692,6 +488692,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13279470144-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782159705,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 38.09155700097652,
+            "unit": "median tps",
+            "extra": "avg tps: 57.99338052727935, max tps: 532.2510186286527, count: 58763"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.550993064891358,
+            "unit": "median tps",
+            "extra": "avg tps: 32.22031194787401, max tps: 355.54784163915866, count: 58763"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.53625657402566,
+            "unit": "median tps",
+            "extra": "avg tps: 132.7620711194596, max tps: 1227.6858345706862, count: 58763"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.708845495345514,
+            "unit": "median tps",
+            "extra": "avg tps: 31.2563598616389, max tps: 271.94648406663066, count: 58763"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 49.57535297683024,
+            "unit": "median tps",
+            "extra": "avg tps: 79.98610972185143, max tps: 541.6955816657406, count: 58763"
+          }
+        ],
+        "publication_id": "13305664163-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -501552,6 +501605,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13279470144-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782162112,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 21.3125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 20.835889638250258, max partition_index_size:MB: 25.96875, count: 58763"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.177091142487765, max cpu: 32.495163, count: 58763"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.825460496507155, max mem: 56.31640625, count: 58763"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.852100416680624, max cpu: 36.658714, count: 58763"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.0874143008781, max mem: 64.59375, count: 58763"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.688212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.128598680778726, max cpu: 27.639154, count: 58763"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 42.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.11803412117319, max mem: 42.21875, count: 58763"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.9775,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.84389144486009, max cpu: 41.241055, count: 58763"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 55.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.08575502707912, max mem: 63.58984375, count: 58763"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.88582140054692, max cpu: 32.09169, count: 58763"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.165634027257795, max mem: 62.6171875, count: 58763"
+          }
+        ],
+        "publication_id": "13305664163-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

@@ -23,6 +23,7 @@ on:
     paths:
       - ".github/scripts/**"
       - ".github/workflows/check-released-migrations.yml"
+      - ".github/workflows/publish-github-release.yml"
       - "pg_search/sql/**"
 
 permissions:

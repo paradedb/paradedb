@@ -27,7 +27,7 @@ humantime = "2.3.0"
 image = { version = "0.25.9", optional = true }
 libc = "0.2.190"
 openssl = "0.10.78"
-parking_lot = "0.12.5"
+parking_lot = "0.13.0"
 pgrx-pg-config = "=0.19.3"
 plotters = { version = "0.3.7", optional = true }
 postgres = "0.19.13"
@@ -39,7 +39,7 @@ serde_json = { version = "1.0.149", features = [
   "arbitrary_precision",
 ] }
 shutdown_hooks = "0.1.0"
-sysinfo = { version = "0.39.6", features = ["multithread"] }
+sysinfo = { version = "0.40.1", features = ["multithread"] }
 toml = "1.1.6"
 url = "2.5.8"
 

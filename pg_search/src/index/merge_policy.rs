@@ -198,7 +198,7 @@ impl LayeredMergePolicy {
         }
     }
 
-    fn retain(&mut self, to_keep: HashSet<SegmentId>) {
+    pub(crate) fn retain(&mut self, to_keep: HashSet<SegmentId>) {
         self.mergeable_segments
             .retain(|segment_id, _| to_keep.contains(segment_id));
     }

@@ -1,24 +1,8 @@
 name: Benchmark pg_search (Benchmarker Cohere)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/actions/setup-benchmark-cluster/**"
-      - ".github/actions/setup-pg-search-build-environment/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/actions/setup-postgres/**"
-      - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/publish-benchmark-results/**"
-      - ".github/actions/stage-benchmark-results/**"
-      - ".github/workflows/publish-benchmark-results.yml"
-      - ".github/actions/setup-benchmarker/**"
-      - ".github/workflows/benchmark-pg_search-benchmarker-cohere.yml"
-      - "benchmarks/cohere/**"
-      - "benchmarks/datasets/cohere/**"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -49,6 +33,11 @@ permissions:
 
 jobs:
   cohere:
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
     name: Cohere ${{ matrix.size }} (ParadeDB)
     if: >-
       github.event_name != 'pull_request' ||
@@ -120,7 +109,7 @@ jobs:
 
       - name: Create pdbench checkout token
         id: pdbench_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -159,8 +148,11 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Restore Cohere heap snapshot
@@ -171,9 +163,10 @@ jobs:
           (cd benchmarks && cargo run --release -- restore-heap \
             --dataset cohere --size "$COHERE_SIZE" \
             --pgdata /home/runner/.pgrx/data-18 --stanza bench \
-            --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots \
+            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
             --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
             --repo-s3-key-type shared)
+          echo "max_worker_processes = 32" >> /home/runner/.pgrx/data-18/postgresql.auto.conf
           (cd pg_search && cargo pgrx start pg18)
 
       - name: Refresh pg_search and build index
@@ -209,7 +202,7 @@ jobs:
 
       - name: Import published ground-truth fixtures
         env:
-          FIXTURE_SOURCE: s3://paradedb-benchmarks/datasets/cohere/queries
+          FIXTURE_SOURCE: s3://paradedb-benchmark/datasets/cohere/v1/queries
         run: |
           set -euo pipefail
           python3 -m venv .cohere-fixtures
@@ -225,7 +218,6 @@ jobs:
 
           db = duckdb.connect()
           db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
-          db.execute("CREATE SECRET (TYPE s3, PROVIDER credential_chain);")
           url = os.environ["PARADEDB_URL"].replace("'", "''")
           db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
           for query in ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct"):

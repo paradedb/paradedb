@@ -157,6 +157,13 @@ pub struct JoinGroupColumn {
     /// of the group, as in PostgreSQL's Agg node.
     #[serde(default)]
     pub row_value: bool,
+
+    /// A row value that the group keys decide (they hold its table's primary
+    /// key), so every row of the group has the same value and any of them
+    /// will do. Only set for strings: carried as a deferred term rather than a
+    /// group key, it is decoded once per output row instead of once per input row.
+    #[serde(default)]
+    pub dependent: bool,
 }
 
 /// The NUMERIC field type an aggregate has to handle, or `None` when the
@@ -937,7 +944,14 @@ unsafe fn extract_raw_group_column(
         GroupColumnOrigin::Dependent => "functionally dependent output column".to_string(),
         GroupColumnOrigin::RowValue => "output column".to_string(),
     };
-    let row_value = matches!(origin, GroupColumnOrigin::RowValue);
+    let dependent = matches!(origin, GroupColumnOrigin::Dependent)
+        && nodecast!(Var, T_Var, strip_relabel(expr)).is_some_and(|var| {
+            matches!(
+                pg_sys::getBaseType((*var).vartype),
+                pg_sys::TEXTOID | pg_sys::VARCHAROID
+            )
+        });
+    let row_value = dependent || matches!(origin, GroupColumnOrigin::RowValue);
     let mut node = expr;
     let mut transform = GroupingTransform::Identity;
     if !context.shape.is_distinct()
@@ -1043,6 +1057,7 @@ unsafe fn extract_raw_group_column(
         numeric,
         transform,
         row_value,
+        dependent,
     })
 }
 
@@ -1257,8 +1272,9 @@ unsafe fn extract_raw_aggregate_entry(
     }
     let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
     if is_string_agg {
-        agg_kind =
-            AggKind::StringAgg(extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into()));
+        agg_kind = AggKind::StringAgg(extract_string_agg_separator(aggref).ok_or(
+            "string_agg with a non-constant separator is not supported for aggregate-on-join",
+        )?);
     }
     let field_refs = extract_aggref_field_refs(context, aggref, is_string_agg)?;
     let order_by =

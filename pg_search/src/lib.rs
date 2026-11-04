@@ -150,6 +150,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::options::init();
     postgres::build_logging::init();
     gucs::init();
+    postgres::mutable_sweep::init();
     // A term dictionary walk is one tantivy call that runs for seconds on a big segment, and
     // pg_search's own checks sit between segments.
     tantivy_common::interrupt::set_interrupt_check(check_for_interrupts);
@@ -221,6 +222,9 @@ pub mod pg_test {
 
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
-        vec!["shared_preload_libraries='pg_search'"]
+        vec![
+            "shared_preload_libraries='pg_search'",
+            "paradedb.mutable_sweep_interval=0",
+        ]
     }
 }

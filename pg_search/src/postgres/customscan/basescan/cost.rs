@@ -20,11 +20,13 @@
 //! `create_custom_path` (mod.rs) computes each method's path cost ([`estimate_path_cost`]) and its
 //! [`WorkerPathPolicy`] ([`decide_scan_parallelism`]).
 //!
-//! A costable scan is costed by its work, emits both a serial and a partial path, and clears
+//! A costable bulk scan is costed by its work, emits both a serial and a partial path, and clears
 //! PostgreSQL's native paths -- otherwise the honest scan-work cost lets PostgreSQL's own ParadeDB index
 //! scan (correct, but without fast-field / Block-WAND execution) undercut us. PostgreSQL then costs
 //! the Gather and picks serial vs parallel, which it can only do once it sees the upper plan (a bulk
-//! `SELECT` ships every row; a `COUNT(*)` collapses rows in a Partial Aggregate first). pg_search
+//! `SELECT` ships every row; a `COUNT(*)` collapses rows in a Partial Aggregate first). LIMIT
+//! fallbacks below an external sort preserve native alternatives unless custom projections require
+//! otherwise: an ordered index may avoid the sort, and a covering index may avoid heap fetches. pg_search
 //! overrides that choice only where PostgreSQL gets it wrong: an effective LIMIT (it costs the Gather
 //! on `rel->rows`, not the `k` rows that cross), prunable top-K (Block-WAND is invisible to it), a
 //! join (`parallel_setup_cost` dwarfs the per-scan work), or grouping (it under-costs the serial
@@ -63,7 +65,8 @@ pub(super) enum WorkerPathPolicy {
     /// prunable top-K, no workers to split across, or a serial verdict from the cost-model-limited or
     /// row-heuristic test.
     SerialOnly { reason: WorkerDecisionReason },
-    /// Emit exactly one partial (parallel-aware) path, binding PostgreSQL to parallel. Used where
+    /// Emit exactly one partial (parallel-aware) custom path, normally binding PostgreSQL to parallel.
+    /// A LIMIT fallback may offer this path alongside native alternatives instead. Used where
     /// pg_search must force parallel: an uncostable sorted scan, a parallel row-heuristic verdict, a
     /// cost-model-limited winner ([`cost_test_limited`]), or a `debug_parallel_query`-forced costable
     /// scan.

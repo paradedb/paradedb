@@ -86,57 +86,74 @@ mod tests {
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
-            .with_ffhelper(Arc::clone(&ffhelper));
+        // A small hint changes emitted batches without truncating the scan.
+        for batch_size_hint in [None, Some(7)] {
+            let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot)
+                .with_ffhelper(Arc::clone(&ffhelper));
 
-        let partition = crate::scan::execution_plan::ScanState {
-            source_idx: None,
-            planner_estimated_rows: 0,
-            scanner_config: crate::scan::execution_plan::ScannerConfig {
-                which_fast_fields: fields.clone(),
-                heap_relid: heap_oid.into(),
-                batch_size_hint: None,
-                score_needed: false,
-                scan_mode: crate::scan::ScanMode::all(),
-            },
-            ffhelper: Arc::clone(&ffhelper),
-            visibility: Box::new(visibility),
-            reader: reader.clone(),
-        };
+            let partition = crate::scan::execution_plan::ScanState {
+                source_idx: None,
+                planner_estimated_rows: 0,
+                scanner_config: crate::scan::execution_plan::ScannerConfig {
+                    which_fast_fields: fields.clone(),
+                    heap_relid: heap_oid.into(),
+                    batch_size_hint,
+                    score_needed: false,
+                    scan_mode: crate::scan::ScanMode::all(),
+                },
+                ffhelper: Arc::clone(&ffhelper),
+                visibility: Box::new(visibility),
+                reader: reader.clone(),
+            };
 
-        let plan = PgSearchScanPlan::new(
-            Some(partition),
-            build_arrow_schema(&fields),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            None,
-            0,
-            None,
-            1,
-            None,
-            None,
-        );
+            let plan = PgSearchScanPlan::new(
+                Some(partition),
+                build_arrow_schema(&fields),
+                SearchQueryInput::All,
+                None,
+                Vec::new(),
+                None,
+                0,
+                None,
+                1,
+                None,
+                None,
+            );
 
-        let task_ctx = Arc::new(TaskContext::default());
-        let mut stream = plan.execute(0, task_ctx).unwrap();
+            let task_ctx = Arc::new(TaskContext::default());
+            let mut stream = plan.execute(0, task_ctx).unwrap();
 
-        let mut row_count = 0;
+            let mut ids = Vec::new();
+            let mut batch_count = 0;
 
-        // Use a runtime to block on the stream
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            while let Some(batch) = stream.next().await {
-                let batch = batch.unwrap();
-                row_count += batch.num_rows();
-                // Basic verification
-                assert_eq!(batch.num_columns(), 2); // ctid and id
+            // Use a runtime to block on the stream
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                while let Some(batch) = stream.next().await {
+                    let batch = batch.unwrap();
+                    batch_count += 1;
+                    if let Some(hint) = batch_size_hint {
+                        assert!(batch.num_rows() > 0 && batch.num_rows() <= hint);
+                    }
+                    let values = batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<arrow_array::Int64Array>()
+                        .unwrap();
+                    ids.extend(values.values().iter().copied());
+                    // Basic verification
+                    assert_eq!(batch.num_columns(), 2); // ctid and id
+                }
+            });
+
+            ids.sort_unstable();
+            assert_eq!(ids, (1..=100).collect::<Vec<_>>());
+            if batch_size_hint.is_some() {
+                assert!(batch_count > 1);
             }
-        });
-
-        assert_eq!(row_count, 100);
+        }
     }
 
     // ==================== Filter Pushdown Test Helpers ====================

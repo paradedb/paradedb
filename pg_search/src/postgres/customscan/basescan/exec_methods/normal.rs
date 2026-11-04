@@ -20,7 +20,6 @@ use tantivy::{DocId, SegmentOrdinal};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
-use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::pg_sys;
 
 const BATCH_SIZE: usize = 8192;
@@ -32,12 +31,6 @@ enum PreparedItem {
 }
 
 pub struct NormalScanExecState {
-    limit_offset: Option<LimitOffset>,
-    limit: Option<usize>,
-    emitted: usize,
-    last_emitted: Option<usize>,
-    batch_scale: usize,
-
     can_use_visibility_map: bool,
     slot: *mut pg_sys::TupleTableSlot,
 
@@ -54,14 +47,9 @@ pub struct NormalScanExecState {
     batch_ctids: Vec<Option<u64>>,
 }
 
-impl NormalScanExecState {
-    pub fn new(limit_offset: Option<LimitOffset>) -> Self {
+impl Default for NormalScanExecState {
+    fn default() -> Self {
         Self {
-            limit_offset,
-            limit: None,
-            emitted: 0,
-            last_emitted: None,
-            batch_scale: 1,
             can_use_visibility_map: false,
             slot: std::ptr::null_mut(),
             search_results: None,
@@ -74,38 +62,14 @@ impl NormalScanExecState {
             batch_ctids: Vec::with_capacity(BATCH_SIZE),
         }
     }
+}
 
+impl NormalScanExecState {
     fn refill_batch(&mut self, state: &mut BaseScanState) -> bool {
         self.prepared_batch.clear();
         self.batch_idx = 0;
 
         loop {
-            match self.last_emitted {
-                None => {
-                    self.batch_scale = 1;
-                    self.last_emitted = Some(self.emitted);
-                }
-                Some(last) if self.emitted == last => {
-                    self.batch_scale = (self.batch_scale * 2).min(BATCH_SIZE);
-                }
-                Some(_) => {
-                    self.batch_scale = 1;
-                    self.last_emitted = Some(self.emitted);
-                }
-            }
-
-            let needed = match self.limit {
-                Some(lim) => {
-                    let rem = lim.saturating_sub(self.emitted);
-                    if rem == 0 {
-                        BATCH_SIZE
-                    } else {
-                        rem.saturating_mul(self.batch_scale).min(BATCH_SIZE)
-                    }
-                }
-                None => BATCH_SIZE,
-            };
-
             self.batch_doc_ids.clear();
             self.batch_scores.clear();
 
@@ -119,7 +83,7 @@ impl NormalScanExecState {
                     let ord = seg.segment_ord();
                     seg_ord = Some(ord);
                     let mut exhausted = false;
-                    while self.batch_doc_ids.len() < needed {
+                    while self.batch_doc_ids.len() < BATCH_SIZE {
                         if let Some((score, doc_address)) = seg.next() {
                             self.batch_doc_ids.push(doc_address.doc_id);
                             self.batch_scores.push(score);
@@ -188,12 +152,6 @@ impl NormalScanExecState {
     }
 }
 
-impl Default for NormalScanExecState {
-    fn default() -> Self {
-        Self::new(None)
-    }
-}
-
 impl ExecMethod for NormalScanExecState {
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         let cstate_ref = unsafe { &*cstate };
@@ -204,9 +162,6 @@ impl ExecMethod for NormalScanExecState {
         // executor-level quals (e.g. RLS SubPlan expressions). Virtual slots lack
         // the full scan tuple descriptor that ExecQual requires.
         self.can_use_visibility_map = state.targetlist_len == 0 && cstate_ref.ss.ps.qual.is_null();
-
-        let estate = unsafe { (*cstate).ss.ps.state };
-        self.limit = self.limit_offset.as_ref().and_then(|lo| lo.resolve(estate));
     }
 
     fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
@@ -245,7 +200,6 @@ impl ExecMethod for NormalScanExecState {
 
         match item {
             PreparedItem::Virtual => {
-                self.emitted += 1;
                 let slot = self.slot;
                 unsafe {
                     let slot = &mut *slot;
@@ -259,17 +213,10 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn increment_visible(&mut self) {
-        self.emitted += 1;
-    }
-
     fn reset(&mut self, _state: &mut BaseScanState) {
         self.did_query = false;
         self.search_results = None;
         self.prepared_batch.clear();
         self.batch_idx = 0;
-        self.emitted = 0;
-        self.last_emitted = None;
-        self.batch_scale = 1;
     }
 }

@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- Corrected Base Scan row and cost estimates for queries that sort outside the index before applying `LIMIT`, improving parallel plan selection while retaining the existing Columnar execution batch hint. LIMIT fallbacks retain native ordered and index-only alternatives, including for generic parallel plans. Consecutive string dictionary ordinals now reuse the current decoder without repeated index lookups, and string/binary decoding preserves views across multiple Arrow buffers (#5701).

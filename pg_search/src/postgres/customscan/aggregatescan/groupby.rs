@@ -19,12 +19,14 @@ use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause, GroupingPushdownDeclineReason,
+    can_decode_group_key_cast,
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::node::{NodeExt, WalkControl};
 use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname, find_var_relation};
-use crate::schema::SearchFieldType;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 use pgrx::pg_sys;
 use pgrx::{PgList, pg_guard};
 
@@ -48,6 +50,59 @@ impl GroupByClause {
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.grouping_columns.clone()
     }
+}
+
+/// Reject stripped casts that the backend's result decoder cannot evaluate.
+pub(super) fn validate_grouping_casts(
+    expr: *mut pg_sys::Node,
+    stripped: *mut pg_sys::Node,
+    supports_io_cast: impl Fn(pg_sys::Oid, pg_sys::Oid) -> bool,
+) -> Result<(), String> {
+    let expected_type = unsafe { pg_sys::exprType(expr) };
+    let needs_evaluation = expr.walk(|node| unsafe {
+        if node == stripped {
+            return WalkControl::SkipChildren;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_CoerceToDomain => WalkControl::Break,
+            pg_sys::NodeTag::T_CoerceViaIO => {
+                let cast = &*node.cast::<pg_sys::CoerceViaIO>();
+                if cast.resulttype == expected_type
+                    && supports_io_cast(pg_sys::exprType(cast.arg.cast()), expected_type)
+                {
+                    WalkControl::Continue
+                } else {
+                    WalkControl::Break
+                }
+            }
+            _ => WalkControl::Continue,
+        }
+    });
+    if needs_evaluation {
+        return Err("grouping cast requires PostgreSQL evaluation".into());
+    }
+    Ok(())
+}
+
+/// Validate a Tantivy grouping cast, using an indexed expression when required.
+pub(super) fn resolve_grouping_cast(
+    expr: *mut pg_sys::Node,
+    stripped: *mut pg_sys::Node,
+    index_expressions: &PgList<pg_sys::Expr>,
+    schema: &SearchIndexSchema,
+    heap_rti: pg_sys::Index,
+) -> Result<Option<String>, String> {
+    let cast_validation = validate_grouping_casts(expr, stripped, can_decode_group_key_cast);
+    let indexed_field = if cast_validation.is_err() {
+        find_matching_fast_field(expr, index_expressions, schema.clone(), heap_rti)
+    } else {
+        None
+    };
+    if let Some(field) = indexed_field {
+        return Ok(Some(field.name()));
+    }
+    cast_validation?;
+    Ok(None)
 }
 
 impl CustomScanClause<AggregateScan> for GroupByClause {
@@ -103,10 +158,25 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                 let member = unsafe { &*member };
                 let (expr, is_unnest) =
                     strip_unnest_and_relabel(member.em_expr as *mut pg_sys::Node);
-
                 let var_context = VarContext::from_planner(args.root);
 
-                let (field_name, attno) = if let Some((var, field_name)) =
+                let indexed_field = match resolve_grouping_cast(
+                    member.em_expr.cast(),
+                    expr,
+                    &index_expressions,
+                    &schema,
+                    _heap_rti,
+                ) {
+                    Ok(field) => field,
+                    Err(error) => {
+                        last_error = Some(error);
+                        continue;
+                    }
+                };
+
+                let (field_name, attno) = if let Some(field_name) = indexed_field {
+                    (field_name, 0)
+                } else if let Some((var, field_name)) =
                     unsafe { find_one_var_and_fieldname(var_context, expr) }
                 {
                     // JSON operator expression or complex field access
@@ -158,14 +228,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             );
                         }
 
-                        // Because AggregateScan bypasses Postgres's ExecProject for grouping columns
-                        // and maps them directly to INDEX_VARs pointing at the final scan slot,
-                        // Postgres expects the slot to contain the Datum of the *cast* type (e.g. TEXTOID),
-                        // not the base column type.
-                        // This approach is only valid for known-safe casts (handled in `group_key_to_datum`),
-                        // where the grouping and comparison semantics of the internal fast field value
-                        // are strictly equivalent to the semantics of the projected value. If they were
-                        // different, we would need to evaluate grouping expressions natively via ExecProject.
+                        // `group_key_to_datum` needs the indexed type to decode supported casts.
                         let original_type_oid = search_field.field_type().typeoid().value();
                         let string_null_sentinel = matches!(
                             search_field.field_type(),

@@ -337,7 +337,7 @@ impl RowMatcher {
             .iter()
             .filter_map(|(_, categorized)| match categorized.source {
                 FieldSource::Heap { .. } => None,
-                FieldSource::Expression { att_idx } => Some(att_idx),
+                FieldSource::Expression { att_idx, .. } => Some(att_idx),
                 FieldSource::CompositeField { expression_idx, .. } => Some(expression_idx),
             })
             .collect();

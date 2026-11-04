@@ -381,7 +381,7 @@ mod tests {
         let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot)
             .expect("manifest capture");
 
-        let fields = vec![WhichFastField::eager(
+        let fields = vec![WhichFastField::eager_scalar(
             "id",
             SearchFieldType::I64(pg_sys::INT8OID),
         )];

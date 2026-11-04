@@ -36,8 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         baseline:
-          - {format: V4, ref: 3cc797ec22607e661bdf81a11653865d8fe203d1}
-          - {format: V5, ref: bc7418949ddcd6e2129a320b92afc466c74a35a1}
+          - { format: V4, ref: 3cc797ec22607e661bdf81a11653865d8fe203d1 }
+          - { format: V5, ref: bc7418949ddcd6e2129a320b92afc466c74a35a1 }
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted

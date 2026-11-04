@@ -865,6 +865,7 @@ dependencies = [
  "clap",
  "distrs",
  "duckdb",
+ "regex",
  "rstest",
  "serde",
  "serde_json",

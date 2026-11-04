@@ -86,6 +86,7 @@ cargo run -- --help
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
+- `--query-filter`: Runs only the queries whose name (`{query}` or `{query} - {variant}`) matches this regex. The dirty (`% visible`) runs of a matching query also run.
 - `--vacuum`: Controls whether `VACUUM FULL ANALYZE`, followed by `VACUUM ANALYZE` to update the visibility map, runs before the queries. Defaults to `true`.
 
 ## Notable Heap Options

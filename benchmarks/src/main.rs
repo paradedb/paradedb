@@ -18,6 +18,7 @@
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use paradedb::{Window, confidence_interval_half_width, mean, percentile};
+use regex::Regex;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -112,6 +113,11 @@ struct BenchmarkArgs {
     /// useful for iterating on queries against an already-indexed database.
     #[arg(long, default_value_t = false)]
     skip_index: bool,
+
+    /// Only run the queries whose name matches this regex (e.g. `^bucket_` or
+    /// `count_filter - basescan`).
+    #[arg(long)]
+    query_filter: Option<Regex>,
 
     /// Number of runs to execute for each query.
     #[arg(long, default_value = "3", value_parser = parse_positive_usize)]
@@ -693,7 +699,13 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>
     // Parse each query once (reused below for execution). Resolve their `{{ param }}` references
     // (e.g. per-query probes/ef_search scaled by dataset_size) from config.toml [params], the same
     // templating used for index DDL.
-    let parsed_queries = load_benchmark_queries(Path::new(&queries_dir))?;
+    let mut parsed_queries = load_benchmark_queries(Path::new(&queries_dir))?;
+    if let Some(filter) = &args.query_filter {
+        parsed_queries.retain(|q| filter.is_match(&q.query_type));
+        if parsed_queries.is_empty() {
+            bail!("No query in `{queries_dir}` matches `{filter}`");
+        }
+    }
     let query_stmts: Vec<String> = parsed_queries.iter().map(|q| q.query.clone()).collect();
     let query_params = resolve_template_params(
         &mut utility_conn,

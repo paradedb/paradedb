@@ -147,7 +147,8 @@ embedding: { metric: :ip }      # inner product
 
 <Note>
   Only pgvector's `vector` type is supported. The `halfvec`, `sparsevec`, and
-  `bit` types are not yet indexable.
+  `bit` types are not yet indexable. Each ParadeDB index currently supports one
+  vector field, whose dimensions must be declared with `vector(N)`.
 </Note>
 
 <Note>
@@ -161,7 +162,7 @@ embedding: { metric: :ip }      # inner product
 ## Index Options
 
 ParadeDB uses a SPANN-style vector index, which is similar to an IVF index but with additional structures to improve
-recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and apply to every vector field in the index. They are read each time a segment is clustered: during `CREATE INDEX` and `REINDEX`, and whenever a merge writes a segment with at least `paradedb.vector_clustering_threshold` documents. Changing them with `ALTER INDEX ... SET` affects only segments clustered afterwards; run `REINDEX` to recluster existing segments. An example:
+recall and latency, especially over large datasets. The following `WITH` options control how vectors are clustered and apply to the vector field in the index. They are read each time a segment is clustered: during `CREATE INDEX` and `REINDEX`, and whenever a merge writes a segment with at least `paradedb.vector_clustering_threshold` documents. Changing them with `ALTER INDEX ... SET` affects only segments clustered afterwards; run `REINDEX` to recluster existing segments. An example:
 
 <CodeGroup>
 ```sql SQL

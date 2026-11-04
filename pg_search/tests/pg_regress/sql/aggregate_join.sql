@@ -1132,6 +1132,102 @@ GROUP BY p.category
 ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- Search predicates (|||, &&&, @@@) inside FILTER are evaluated during the
+-- scan as tagged queries: each scan emits one boolean column per predicate,
+-- and the DataFusion aggregate filter reads that column.
+
+-- Test 17.6: a FILTER search predicate that also appears in a cross-table WHERE
+-- reuses the scan's existing tag, combined with a column comparison
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 500 AND p.description ||| 'laptop') AS pricey_laptops
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop' OR t.tag_name ||| 'fitness'
+GROUP BY p.category;
+
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 500 AND p.description ||| 'laptop') AS pricey_laptops
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop' OR t.tag_name ||| 'fitness'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 17.7: FILTER parity — tag reuse
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 500 AND p.description ||| 'laptop') AS pricey_laptops
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop' OR t.tag_name ||| 'fitness'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 17.8: FILTER-only search predicates on both tables, with each operator
+-- and NOT, each get a tag of their own
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category,
+       COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
+       COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
+       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
+       COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
+       COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category;
+
+SELECT p.category,
+       COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
+       COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
+       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
+       COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
+       COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 17.9: FILTER parity — FILTER-only search predicates
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       COUNT(*) FILTER (WHERE p.description ||| 'gaming') AS gaming,
+       COUNT(*) FILTER (WHERE p.description &&& 'laptop kids') AS kids_laptops,
+       MAX(p.price) FILTER (WHERE p.description @@@ pdb.term('laptop')) AS max_laptop_price,
+       COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags,
+       COUNT(*) FILTER (WHERE NOT (t.tag_name ||| 'tech')) AS other_tags
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 17.10: ranking groups by a search-filtered aggregate
+SELECT p.category,
+       COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop' OR t.tag_name ||| 'fitness'
+GROUP BY p.category
+ORDER BY COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') DESC, p.category
+LIMIT 2;
+
+-- Test 17.11: FILTER parity — ranking
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') AS tech_tags
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description ||| 'laptop' OR t.tag_name ||| 'fitness'
+GROUP BY p.category
+ORDER BY COUNT(*) FILTER (WHERE t.tag_name ||| 'tech') DESC, p.category
+LIMIT 2;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- =====================================================================
 -- SECTION 28: EXPLAIN ANALYZE Metrics Output
 -- =====================================================================

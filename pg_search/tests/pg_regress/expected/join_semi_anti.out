@@ -111,8 +111,8 @@ WHERE NOT EXISTS (
 AND table_a.category ### 'target_category'
 ORDER BY table_a.id ASC
 LIMIT 10;
-                                                                                         QUERY PLAN                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
    Relation Tree: table_a ANTI table_b
@@ -125,7 +125,7 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[table_a]
      :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
      :         CooperativeExec
-     :           PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
+     :           PgSearchScan: table=table_b, segments={included=0, pruned=1}, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
      :         CooperativeExec
      :           PgSearchScan: table=table_a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
 (15 rows)

@@ -435,7 +435,7 @@ pub struct CategorizedFieldData {
     pub is_json: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SearchIndexSchema {
     schema: Schema,
     bm25_options: BM25IndexOptions,
@@ -544,6 +544,40 @@ impl SearchIndexSchema {
     pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
         self.bm25_options
             .get_field_type(&FieldName::from(name.as_ref()))
+    }
+
+    pub fn search_field_with_data(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Option<(SearchField, CategorizedFieldData)> {
+        let search_field = self.search_field(name)?;
+        let data = self
+            .categorized_fields()
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .map(|(_, d)| d.clone())?;
+        Some((search_field, data))
+    }
+
+    /// `attno` is the 1-based attno
+    pub fn search_field_with_data_by_attno(
+        &self,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<(SearchField, CategorizedFieldData)> {
+        if attno < 0 {
+            return None;
+        }
+        let attno = (attno - 1) as usize;
+        let fields = self.categorized_fields();
+        let matches =
+            |(_, d): &&(SearchField, CategorizedFieldData)| d.source.heap_attno() == Some(attno);
+        // A column indexed both plainly and through a tokenizer cast: prefer the plain one.
+        fields
+            .iter()
+            .filter(matches)
+            .find(|(_, d)| matches!(d.source, FieldSource::Heap { .. }))
+            .or_else(|| fields.iter().find(matches))
+            .cloned()
     }
 
     /// The field type and declared scale of `name` when the column is NUMERIC,
@@ -820,6 +854,11 @@ impl SearchField {
 
     pub fn is_fast(&self) -> bool {
         self.field_entry.is_fast()
+    }
+
+    /// returns the search field type only if that type is numeric
+    pub fn numeric_field_type(&self) -> Option<SearchFieldType> {
+        self.field_type.is_numeric().then(|| self.field_type())
     }
 
     pub fn is_numeric_fast(&self) -> bool {

@@ -111,6 +111,18 @@ pub enum SearchQueryInput {
         tie_breaker: Option<f32>,
     },
     Empty,
+    /// A deferred expression that evaluated to SQL NULL (unknown). A filter
+    /// keeps a row only when its predicate is true, so NULL matches nothing,
+    /// the same as `Empty`. The two differ under negation: `NOT NULL` is NULL,
+    /// which also matches nothing, while `NOT Empty` matches every row. The
+    /// query builder therefore turns a boolean with `Null` in `must_not` into a
+    /// query that matches nothing.
+    ///
+    /// Only a direct `Null` child of `must_not` is handled this way. SQL query
+    /// wrappers such as `boost` and `const_score` are STRICT, so a SQL NULL
+    /// argument makes the entire wrapper NULL. The boolean builder instead
+    /// omits optional SQL NULL arguments; it does not embed them as `Null`.
+    Null,
     MoreLikeThis {
         #[serde(flatten)]
         options: MoreLikeThisOptions,
@@ -211,6 +223,7 @@ macro_rules! visit_search_query_input {
             SearchQueryInput::Uninitialized
             | SearchQueryInput::All
             | SearchQueryInput::Empty
+            | SearchQueryInput::Null
             | SearchQueryInput::MoreLikeThis { .. }
             | SearchQueryInput::Parse { .. }
             | SearchQueryInput::TermSet { .. }
@@ -451,6 +464,80 @@ impl SearchQueryInput {
         }
     }
 
+    /// Returns `true` if `self` produces a flat/constant BM25 score across all matching documents
+    /// (e.g. `All`, `ConstScore`, `Range`, `TermSet`), making it unsuitable for BM25 Top-K pruning.
+    pub(crate) fn is_constant_score(&self) -> bool {
+        match self {
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::Null
+            | SearchQueryInput::ConstScore { .. }
+            | SearchQueryInput::TermSet { .. } => true,
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::HeapFilter {
+                indexed_query: query,
+                ..
+            } => query.is_constant_score(),
+            SearchQueryInput::ScoreFilter { query, .. } => {
+                query.as_deref().is_none_or(Self::is_constant_score)
+            }
+            SearchQueryInput::Boolean { must, should, .. } => {
+                (must.is_empty() && should.is_empty())
+                    || must
+                        .iter()
+                        .chain(should.iter())
+                        .all(Self::is_constant_score)
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.is_empty() || disjuncts.iter().all(Self::is_constant_score)
+            }
+            SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::PostgresExpression { .. } => false,
+            SearchQueryInput::FieldedQuery { query, .. } => query.is_constant_score(),
+        }
+    }
+
+    /// Estimates a relative upper bound on the BM25 score of `self`, accounting for query-level
+    /// `Boost`, `ConstScore`, `Boolean` sums, and `DisjunctionMax`.
+    pub(crate) fn estimate_max_score(&self) -> f64 {
+        match self {
+            SearchQueryInput::Uninitialized | SearchQueryInput::Empty | SearchQueryInput::Null => {
+                0.0
+            }
+            SearchQueryInput::All | SearchQueryInput::TermSet { .. } => 1.0,
+            SearchQueryInput::ConstScore { score, .. } => (*score as f64).max(0.0),
+            SearchQueryInput::Boost { query, factor } => {
+                (*factor as f64).max(0.0) * query.estimate_max_score()
+            }
+            SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::HeapFilter {
+                indexed_query: query,
+                ..
+            } => query.estimate_max_score(),
+            SearchQueryInput::ScoreFilter { query, .. } => {
+                query.as_deref().map_or(1.0, Self::estimate_max_score)
+            }
+            SearchQueryInput::Boolean { must, should, .. } => must
+                .iter()
+                .chain(should.iter())
+                .map(Self::estimate_max_score)
+                .sum::<f64>()
+                .max(1.0),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
+                .iter()
+                .map(Self::estimate_max_score)
+                .fold(0.0_f64, f64::max)
+                .max(1.0),
+            SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::PostgresExpression { .. } => 1.0,
+            SearchQueryInput::FieldedQuery { query, .. } => query.estimate_max_score(),
+        }
+    }
+
     pub fn index_oid(&self) -> Option<pg_sys::Oid> {
         match self {
             SearchQueryInput::WithIndex { oid, .. } => Some(*oid),
@@ -557,6 +644,9 @@ impl SearchQueryInput {
                 Self::is_full_scan_query(indexed_query)
             }
 
+            // A NULL predicate matches no row, so it can never be a full scan.
+            SearchQueryInput::Null => false,
+
             // All other variants are not full scans
             _ => false,
         }
@@ -567,6 +657,7 @@ impl SearchQueryInput {
             SearchQueryInput::Uninitialized
             | SearchQueryInput::All
             | SearchQueryInput::Empty
+            | SearchQueryInput::Null
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. } => false,
 
@@ -868,6 +959,7 @@ impl SearchQueryInput {
                 Self::Uninitialized
                 | Self::All
                 | Self::Empty
+                | Self::Null
                 | Self::Boolean { .. }
                 | Self::Boost { .. }
                 | Self::ConstScore { .. }
@@ -1077,12 +1169,25 @@ fn check_range_bounds(
     // to match the indexed format (see SortableDecimal in range.rs)
     let lower_bound = convert_numrange_bound(typeoid, lower_bound, index_created_by_version);
     let upper_bound = convert_numrange_bound(typeoid, upper_bound, index_created_by_version);
+    // The ranges in an INT4RANGEOID or INT8RANGEOID field hold integers, so the bounds become the
+    // integer bounds that admit the same integers
+    let (lower_bound, upper_bound) = match typeoid {
+        PgOid::BuiltIn(PgBuiltInOids::INT4RANGEOID | PgBuiltInOids::INT8RANGEOID) => {
+            let field_type = crate::schema::SearchFieldType::Range(typeoid.value());
+            numeric::clamp_int_range_bounds(&field_type, lower_bound, upper_bound)?
+        }
+        _ => (lower_bound, upper_bound),
+    };
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
-        // Excluded U64 needs to be canonicalized
-        (_, Bound::Excluded(PdbOwnedValue::U64(n))) => Bound::Included(PdbOwnedValue::U64(n + 1)),
-        // Excluded I64 needs to be canonicalized
-        (_, Bound::Excluded(PdbOwnedValue::I64(n))) => Bound::Included(PdbOwnedValue::I64(n + 1)),
+        // Excluded U64 needs to be canonicalized, unless it is the maximum, which has no next value
+        (_, Bound::Excluded(PdbOwnedValue::U64(n))) if n < u64::MAX => {
+            Bound::Included(PdbOwnedValue::U64(n + 1))
+        }
+        // Excluded I64 needs to be canonicalized, unless it is the maximum
+        (_, Bound::Excluded(PdbOwnedValue::I64(n))) if n < i64::MAX => {
+            Bound::Included(PdbOwnedValue::I64(n + 1))
+        }
         // Excluded date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
@@ -1137,10 +1242,14 @@ fn check_range_bounds(
     };
 
     let upper_bound = match (typeoid, upper_bound.clone()) {
-        // Included U64 needs to be canonicalized
-        (_, Bound::Included(PdbOwnedValue::U64(n))) => Bound::Excluded(PdbOwnedValue::U64(n + 1)),
-        // Included I64 needs to be canonicalized
-        (_, Bound::Included(PdbOwnedValue::I64(n))) => Bound::Excluded(PdbOwnedValue::I64(n + 1)),
+        // Included U64 needs to be canonicalized, unless it is the maximum
+        (_, Bound::Included(PdbOwnedValue::U64(n))) if n < u64::MAX => {
+            Bound::Excluded(PdbOwnedValue::U64(n + 1))
+        }
+        // Included I64 needs to be canonicalized, unless it is the maximum
+        (_, Bound::Included(PdbOwnedValue::I64(n))) if n < i64::MAX => {
+            Bound::Excluded(PdbOwnedValue::I64(n + 1))
+        }
         // Included Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
@@ -1360,6 +1469,22 @@ impl SearchQueryInput {
                 must_not,
                 minimum_should_match,
             } => {
+                // `NOT NULL` is NULL, and a filter keeps a row only when the
+                // predicate is true, so a NULL under `must_not` makes the whole
+                // boolean match nothing. `must_not: [Empty]` is different: it
+                // excludes nothing, so the boolean can still match rows.
+                if must_not
+                    .iter()
+                    .any(|input| matches!(input, SearchQueryInput::Null))
+                {
+                    let query = Box::new(EmptyQuery);
+                    return Ok(builder.build_leaf(
+                        query,
+                        || "Null Boolean Query".to_string(),
+                        cloned_for_estimate,
+                    ));
+                }
+
                 // ---------------------------------
                 // We use B::split_for_parent() to avoid cloning for QueryOnlyBuilder.
                 //
@@ -1559,6 +1684,10 @@ impl SearchQueryInput {
                 let query = Box::new(EmptyQuery);
                 Ok(builder.build_leaf(query, || "Empty Query".to_string(), cloned_for_estimate))
             }
+            SearchQueryInput::Null => {
+                let query = Box::new(EmptyQuery);
+                Ok(builder.build_leaf(query, || "Null Query".to_string(), cloned_for_estimate))
+            }
             SearchQueryInput::MoreLikeThis { options, document } => {
                 let mlt_builder = MoreLikeThisQueryBuilder::new(options, index_created_by_version);
                 let mut fields_map = HashMap::default();
@@ -1607,6 +1736,12 @@ impl SearchQueryInput {
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
                         let field_type = search_field.field_entry().field_type();
 
+                        // A number that no integer of the field equals matches nothing, so it is
+                        // left out.
+                        if numeric::is_outside_int_domain(&value, &search_field.field_type()) {
+                            return Ok(None);
+                        }
+
                         // The tantivy `FieldType` can't tell a scaled `Numeric64` or an encoded
                         // `NumericBytes` column from a plain `I64` or `Bytes` one, so the term has
                         // to be converted from the schema-level type, same as a single `Term`.
@@ -1623,9 +1758,10 @@ impl SearchQueryInput {
                             field.path().as_deref(),
                             index_created_by_version,
                         )
+                        .map(Some)
                     })
                     .collect::<Result<Vec<_>>>()?;
-                let query = Box::new(TermSetQuery::new(terms));
+                let query = Box::new(TermSetQuery::new(terms.into_iter().flatten()));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -1831,7 +1967,11 @@ pub fn value_to_term(
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             // so we should use the field type to assign the term type
             match field_type {
-                FieldType::I64(_) => Term::from_field_i64(field, *u64 as i64),
+                FieldType::I64(_) => Term::from_field_i64(
+                    field,
+                    i64::try_from(*u64)
+                        .map_err(|_| anyhow::anyhow!("{u64} is out of range for an i64 field"))?,
+                ),
                 FieldType::U64(_) => Term::from_field_u64(field, *u64),
                 _ => panic!("invalid field type for u64 value"),
             }
@@ -1945,7 +2085,8 @@ impl Serialize for PostgresPointer {
             serializer.serialize_none()
         } else {
             unsafe {
-                let s = pg_sys::nodeToString(self.0.cast());
+                let stripped = crate::postgres::utils::strip_placeholder_vars_deep(self.0.cast());
+                let s = pg_sys::nodeToString(stripped.cast());
                 let cstr = core::ffi::CStr::from_ptr(s)
                     .to_str()
                     .map_err(serde::ser::Error::custom)?;
@@ -2196,6 +2337,9 @@ mod tests {
         // Empty query is not a full scan
         assert!(!SearchQueryInput::Empty.is_full_scan_query());
 
+        // Null matches no row, so it is not a full scan
+        assert!(!SearchQueryInput::Null.is_full_scan_query());
+
         // Uninitialized is not a full scan
         assert!(!SearchQueryInput::Uninitialized.is_full_scan_query());
 
@@ -2350,6 +2494,17 @@ mod tests {
                 must: vec![SearchQueryInput::All],
                 should: vec![],
                 must_not: vec![SearchQueryInput::Empty, create_term_query()],
+                minimum_should_match: None,
+            }
+            .is_full_scan_query()
+        );
+
+        // Must with All, MustNot with Null → not full scan (NOT NULL matches nothing)
+        assert!(
+            !SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![SearchQueryInput::Null],
                 minimum_should_match: None,
             }
             .is_full_scan_query()
@@ -2579,5 +2734,43 @@ mod tests {
         assert_eq!(read_only_order.len(), 10);
         assert_eq!(read_only_order, mutable_order);
         assert_eq!(query, mutable_query);
+    }
+
+    #[pg_test]
+    fn check_range_bounds_keeps_bounds_at_the_maximum() {
+        use super::{PgBuiltInOids, PgOid, check_range_bounds};
+        use std::ops::Bound::{Excluded, Included};
+
+        let int8 = PgOid::BuiltIn(PgBuiltInOids::INT8OID);
+        for (lower, upper) in [
+            (
+                Excluded(PdbOwnedValue::I64(i64::MAX)),
+                Included(PdbOwnedValue::I64(i64::MAX)),
+            ),
+            (
+                Excluded(PdbOwnedValue::U64(u64::MAX)),
+                Included(PdbOwnedValue::U64(u64::MAX)),
+            ),
+        ] {
+            assert_eq!(
+                check_range_bounds(int8, lower.clone(), upper.clone(), None).unwrap(),
+                (lower, upper)
+            );
+        }
+    }
+
+    #[test]
+    fn value_to_term_rejects_u64_beyond_i64_field() {
+        use super::value_to_term;
+        use tantivy::schema::{Field, FieldType, NumericOptions};
+
+        let field = Field::from_field_id(0);
+        let field_type = FieldType::I64(NumericOptions::default());
+        let term = |value| value_to_term(field, &value, &field_type, None, None);
+        assert_eq!(
+            term(PdbOwnedValue::U64(i64::MAX as u64)).unwrap(),
+            tantivy::Term::from_field_i64(field, i64::MAX)
+        );
+        assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
     }
 }

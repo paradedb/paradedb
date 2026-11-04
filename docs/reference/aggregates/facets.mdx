@@ -128,16 +128,96 @@ await dbContext
 
 ## Facets with `GROUP BY`
 
-In a `GROUP BY` query, a bare `pdb.agg(...)` computes an aggregation per group. To compute a single facet across all matching rows alongside grouped results, wrap `pdb.agg(...)` in `pdb.combine_agg(...) OVER ()`. Standard `OVER ()` window aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) over group columns or group aggregates are pushed down alongside it:
+In a `GROUP BY` query, a bare `pdb.agg(...)` computes an aggregation per group. To compute a single facet across all matching rows alongside grouped results, wrap `pdb.agg(...)` in `pdb.combine_agg(...) OVER ()`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
   in_stock,
   COUNT(*) AS group_rows,
-  COUNT(*) OVER () AS total_groups,
-  pdb.combine_agg(pdb.agg('{"terms": {"field": "rating"}}')) OVER () AS ratings
+  pdb.combine_agg(pdb.agg('{"value_count": {"field": "id"}}')) OVER () AS total
 FROM mock_items
 WHERE description ||| 'shoes'
 GROUP BY in_stock
 ORDER BY in_stock;
 ```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    inStock: mockItems.inStock,
+    groupRows: sql<number>`count(*)::int`,
+    total: search.combineAgg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .groupBy(mockItems.inStock)
+  .orderBy(mockItems.inStock);
+```
+
+```python Django
+from django.db.models import Count, F, Window
+from paradedb import Agg, CombineAgg, MatchAny, ParadeDB
+
+list(
+    MockItem.objects.filter(description=ParadeDB(MatchAny('shoes')))
+    .values(stock=F('in_stock'))
+    .annotate(
+        group_rows=Count('id'),
+        total=Window(CombineAgg(Agg('{"value_count": {"field": "id"}}'))),
+    )
+    .order_by('stock')
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        MockItem.in_stock,
+        func.count().label("group_rows"),
+        pdb.combine_agg(pdb.agg(facets.value_count(field="id"))).over().label("total"),
+    )
+    .where(search.match_any(MockItem.description, "shoes"))
+    .group_by(MockItem.in_stock)
+    .order_by(MockItem.in_stock)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+scope = MockItem.search(:description).match_any("shoes")
+builder = scope.builder
+total = builder.combine_agg(builder.agg('{"value_count":{"field":"id"}}')).over.as("total")
+
+scope.select(:in_stock, Arel.sql("COUNT(*) AS group_rows"), total)
+     .group(:in_stock)
+     .order(:in_stock)
+     .to_a
+```
+
+```cs EF Core
+await dbContext.MockItems
+    .Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
+    .GroupBy(item => item.InStock)
+    .Select(group => new
+    {
+        InStock = group.Key,
+        GroupRows = group.Count(),
+        Total = EF.Functions.CombineAggOver(new { value_count = new { field = "id" } })
+    })
+    .OrderBy(row => row.InStock)
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+Standard `OVER ()` window aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) over group columns or group aggregates are pushed down alongside it. These cross-group facet helpers require ParadeDB 0.26.2 or newer.

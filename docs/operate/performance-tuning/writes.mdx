@@ -28,7 +28,7 @@ than they can be merged down.
 ALTER INDEX search_idx SET (layer_sizes = '100KB, 1MB');
 ```
 
-Setting `layer_sizes` to `0` disables foreground merging, and setting `background_layer_sizes` to `0` disables background merging.
+Setting `layer_sizes` to `0` disables foreground merging, and setting `background_layer_sizes` to `0` disables write-triggered background merging. Periodic mutable sweeps have a separate control described below.
 
 ## Increasing Work Memory for Bulk Updates
 
@@ -46,7 +46,11 @@ Since many write operations can be running concurrently, this value should be ra
 ## Increasing Mutable Segment Size
 
 The `mutable_segment_rows` setting enables use of mutable segments, which buffer new rows in order to amortize the cost of indexing them.
-By default, it is set to `1000`, which means that 1000 writes are buffered before being flushed.
+By default, it is set to `1000`, which means that up to 1000 writes are buffered before being flushed.
+
+A dedicated background worker in each database with `pg_search` periodically flushes underfilled mutable segments.
+`paradedb.mutable_sweep_interval` defaults to `1s` and can be changed through server configuration and a config reload.
+Set it to `0` to disable periodic sweeps. Sweeping is independent of `background_layer_sizes` and `paradedb.global_enable_background_merging`.
 
 ```sql
 ALTER INDEX search_idx SET (mutable_segment_rows = 1000);

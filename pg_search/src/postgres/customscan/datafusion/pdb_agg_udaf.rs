@@ -847,7 +847,14 @@ fn pdb_udaf_human_display<U: AggregateUDFImpl>(
     match params.args.first() {
         Some(Expr::Literal(literal, _)) => {
             let request = request_from_literal(literal)?;
-            Ok(format!("{}({})", udf.name(), request.agg_json))
+            // Without the FILTER, a spec computed both filtered and unfiltered
+            // (two aggregates) would print as the same call twice.
+            let filter = params
+                .filter
+                .as_ref()
+                .map(|filter| format!(" FILTER (WHERE {filter})"))
+                .unwrap_or_default();
+            Ok(format!("{}({}){filter}", udf.name(), request.agg_json))
         }
         _ => udaf_default_human_display(udf, params),
     }

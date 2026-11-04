@@ -1,5 +1,0 @@
----
-header: stability
----
-
-Fixed a primary being unable to complete a fast shutdown while a background merge worker waited for a missing synchronous standby. Merge workers now commit locally, as autovacuum does (#6708).

@@ -483,29 +483,29 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l4.description ||| 'deepest'
 ORDER BY l1.id
 LIMIT 5;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: l1.name, l2.name, l3.name, l4.name, l1.id
-   Relation Tree: ((l1 INNER l2) INNER l3) INNER l4
-   Join Cond: l3.l4_id = l4.id, l2.l3_id = l3.id, l1.l2_id = l2.id
+   Relation Tree: ((l3 INNER l4) INNER l2) INNER l1
+   Join Cond: l1.l2_id = l2.id, l2.l3_id = l3.id, l3.l4_id = l4.id
    Limit: 5
    Order By: l1.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@1 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2, ctid_3@4 as ctid_3]
-     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[l1, l2, l3, l4]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@4)], projection=[ctid_0@2, id@3, ctid_1@4, ctid_2@5, ctid_3@0]
-     :         CooperativeExec
-     :           PgSearchScan: table=l4, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"deepest","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l3_id@3, id@2)], projection=[ctid_0@0, id@1, ctid_1@2, ctid_2@4, l4_id@5]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@2)], projection=[ctid_0@0, id@2, ctid_1@3, l3_id@4]
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@4 as col_5, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2, ctid_3@3 as ctid_3]
+     :   SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[l3, l4, l2, l1]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_0@0, ctid_1@1, ctid_2@2, ctid_3@4, id@6]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l3_id@2)], projection=[ctid_0@0, ctid_1@2, ctid_2@3, id@4]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@2)], projection=[ctid_0@2, id@3, ctid_1@0]
      :             CooperativeExec
-     :               PgSearchScan: table=l1, segments=1, dynamic_filters=1, query="all"
+     :               PgSearchScan: table=l4, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"deepest","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
-     :               PgSearchScan: table=l2, segments=1, dynamic_filters=1, query="all"
+     :               PgSearchScan: table=l3, segments=1, dynamic_filters=1, query="all"
      :           CooperativeExec
-     :             PgSearchScan: table=l3, segments=1, dynamic_filters=2, query="all"
+     :             PgSearchScan: table=l2, segments=1, dynamic_filters=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=l1, segments=1, dynamic_filters=2, query="all"
 (21 rows)
 
 SELECT l1.name, l2.name, l3.name, l4.name

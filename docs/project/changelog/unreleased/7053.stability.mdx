@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed `COUNT(array_column)` and `COUNT(array_column) OVER ()` counting array elements instead of non-NULL rows, including empty arrays and arrays containing only NULLs.

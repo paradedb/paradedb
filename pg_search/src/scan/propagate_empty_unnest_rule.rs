@@ -22,12 +22,14 @@ use datafusion::common::tree_node::Transformed;
 use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{Aggregate, EmptyRelation, Expr, LogicalPlan};
 use datafusion::optimizer::optimizer::ApplyOrder;
+use datafusion::optimizer::propagate_empty_relation::PropagateEmptyRelation;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 
 use crate::postgres::customscan::datafusion::topk_agg::TOPK_AS_AGG_NAME;
 
-/// Optimizer rule that propagates [`EmptyRelation`] through [`LogicalPlan::Unnest`]
-/// and through the Top-K aggregate.
+/// Optimizer rule that extends DataFusion's [`PropagateEmptyRelation`] to also
+/// propagate [`EmptyRelation`] through [`LogicalPlan::Unnest`] and the Top-K
+/// aggregate.
 ///
 /// DataFusion's built-in `PropagateEmptyRelation` rule does not handle `LogicalPlan::Unnest`,
 /// and it keeps an aggregate without group keys over an empty input, since such an
@@ -40,6 +42,11 @@ use crate::postgres::customscan::datafusion::topk_agg::TOPK_AS_AGG_NAME;
 /// row holding an empty `__topk` list, which the `unnest` always placed above it turns
 /// back into zero rows; so the aggregate can become an empty relation with its own
 /// schema, and the `Unnest` and the rest of the plan empty out after it.
+///
+/// By delegating all other nodes to [`PropagateEmptyRelation`] and replacing the built-in
+/// rule in the optimizer rule list, a single bottom-up pass collapses arbitrary alternating
+/// chains of `Projection`, `Unnest`, `Aggregate(topk_as_agg)`, `Limit`, etc., rather than
+/// ping-ponging one `Projection -> Unnest` boundary per optimizer pass.
 #[derive(Default, Debug)]
 pub struct PropagateEmptyUnnestRule;
 
@@ -73,14 +80,14 @@ impl OptimizerRule for PropagateEmptyUnnestRule {
     fn rewrite(
         &self,
         plan: LogicalPlan,
-        _config: &dyn OptimizerConfig,
+        config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
         let schema = match &plan {
             LogicalPlan::Unnest(unnest) if is_empty(&unnest.input) => &unnest.schema,
             LogicalPlan::Aggregate(agg) if is_topk_aggregate(agg) && is_empty(&agg.input) => {
                 &agg.schema
             }
-            _ => return Ok(Transformed::no(plan)),
+            _ => return PropagateEmptyRelation::new().rewrite(plan, config),
         };
         Ok(Transformed::yes(LogicalPlan::EmptyRelation(
             EmptyRelation {
@@ -93,13 +100,16 @@ impl OptimizerRule for PropagateEmptyUnnestRule {
 
 #[cfg(test)]
 mod tests {
-    use crate::postgres::customscan::limit_offset::LimitOffset;
-
     use super::*;
+    use crate::postgres::customscan::datafusion::topk_agg::{TOPK_AGG_ROWS_COL_NAME, topk_as_agg};
+    use crate::postgres::customscan::limit_offset::LimitOffset;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::common::DFSchema;
+    use datafusion::functions::core::expr_ext::FieldAccessor;
+    use datafusion::functions_aggregate::count::count_all;
     use datafusion::logical_expr::builder::LogicalPlanBuilder;
-    use datafusion::optimizer::OptimizerContext;
+    use datafusion::logical_expr::col;
+    use datafusion::optimizer::{Optimizer, OptimizerContext};
 
     #[test]
     fn propagate_empty_unnest_rule_transforms_empty_child() -> Result<()> {
@@ -143,11 +153,6 @@ mod tests {
 
     #[test]
     fn propagate_empty_unnest_rule_transforms_topk_aggregate_over_empty_child() -> Result<()> {
-        use crate::postgres::customscan::datafusion::topk_agg::{
-            TOPK_AGG_ROWS_COL_NAME, topk_as_agg,
-        };
-        use datafusion::logical_expr::col;
-
         let topk = topk_as_agg(
             &[col("id"), col("ctid")],
             vec![],
@@ -174,8 +179,6 @@ mod tests {
 
     #[test]
     fn propagate_empty_unnest_rule_keeps_other_aggregates_over_empty_child() -> Result<()> {
-        use datafusion::functions_aggregate::count::count_all;
-
         let plan = LogicalPlanBuilder::from(id_ctid_rows(false)?)
             .aggregate(Vec::<Expr>::new(), vec![count_all()])?
             .build()?;
@@ -204,6 +207,60 @@ mod tests {
         let config = OptimizerContext::default();
         let transformed = rule.rewrite(unnest_plan, &config)?;
         assert!(!transformed.transformed);
+        Ok(())
+    }
+
+    /// Regression test: multiple `Projection -> Unnest` layers plus `topk_as_agg`
+    /// and `Limit` over an empty input must collapse to a single `EmptyRelation` in
+    /// one bottom-up pass of `PropagateEmptyUnnestRule`.
+    #[test]
+    fn propagate_empty_unnest_rule_collapses_deep_unnest_and_topk_chain() -> Result<()> {
+        let list_utf8 = DataType::List(Arc::new(Field::new("item", DataType::Utf8, true)));
+        let schema = Arc::new(DFSchema::try_from_qualified_schema(
+            "t",
+            &Schema::new(vec![
+                Field::new("id", DataType::Int64, true),
+                Field::new("tags1", list_utf8.clone(), true),
+                Field::new("tags2", list_utf8, true),
+            ]),
+        )?);
+        let base = LogicalPlan::EmptyRelation(EmptyRelation {
+            produce_one_row: false,
+            schema,
+        });
+        let topk = topk_as_agg(&[col("id")], vec![], &LimitOffset::from_k(36), &[], false);
+        let plan = LogicalPlanBuilder::from(base)
+            .project(vec![
+                col("t.id"),
+                col("t.tags1").alias("t_tags1"),
+                col("t.tags2"),
+            ])?
+            .unnest_column("t_tags1")?
+            .project(vec![
+                col("t.id"),
+                col("t_tags1"),
+                col("t.tags2").alias("t_tags2"),
+            ])?
+            .unnest_column("t_tags2")?
+            .project(vec![col("t.id").alias("id")])?
+            .aggregate(Vec::<Expr>::new(), vec![topk.alias(TOPK_AGG_ROWS_COL_NAME)])?
+            .unnest_column(TOPK_AGG_ROWS_COL_NAME)?
+            .project(vec![col(TOPK_AGG_ROWS_COL_NAME).field("c0").alias("id")])?
+            .limit(9, Some(27))?
+            .project(vec![col("id").alias("col_1")])?
+            .build()?;
+        let expected_schema = Arc::clone(plan.schema());
+
+        let optimizer = Optimizer::with_rules(vec![Arc::new(PropagateEmptyUnnestRule)]);
+        let config = OptimizerContext::new().with_max_passes(1);
+        let optimized = optimizer.optimize(plan, &config, |_, _| {})?;
+        match optimized {
+            LogicalPlan::EmptyRelation(EmptyRelation {
+                produce_one_row: false,
+                schema,
+            }) => assert_eq!(schema, expected_schema),
+            other => panic!("expected EmptyRelation, got:\n{other}"),
+        }
         Ok(())
     }
 }

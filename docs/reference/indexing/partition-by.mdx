@@ -58,7 +58,9 @@ idx = Index(
     indexing.ParadeDBField(MockItem.description),
     indexing.ParadeDBField(MockItem.rating),
     postgresql_using="paradedb",
-    postgresql_with={'partition_by': 'rating', 'target_segment_count': 16},
+    postgresql_with=dict(indexing.IndexOptions(
+        partition_by=['rating'], target_segment_count=16,
+    )),
 )
 
 with engine.begin() as conn:
@@ -147,7 +149,7 @@ Columns specified in `partition_by` must meet the following constraints:
 
 ## Performance Tuning
 
-By default, `CREATE INDEX` sets `target_segment_count` equal to the number of CPUs on the system. When using `partition_by`, we recommend setting `target_segment_count` to 2–4X the CPU core count (or parallel worker count).
+When using `partition_by`, we recommend setting `target_segment_count` to 2–4X the parallel worker count. By default, `CREATE INDEX` sets `target_segment_count` equal to 2X `max_parallel_workers_per_gather`.
 
 Over-partitioning creates narrower value ranges per segment, allowing queries to prune more non-matching data and helping the planner align partition boundaries across tables during parallel joins. However, creating too many segments increases per-segment scan and metadata overhead. Sizing `target_segment_count` to 2–4X CPU cores strikes a practical balance between pruning granularity and resource usage.
 

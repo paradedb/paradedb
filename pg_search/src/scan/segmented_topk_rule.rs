@@ -58,6 +58,8 @@ use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMerge
 use datafusion::physical_plan::{ChildrenPropertiesMode, ExecutionPlan, ReplaceChildrenOptions};
 
 use crate::gucs;
+use crate::index::fast_fields_helper::FieldCardinality;
+use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
@@ -219,6 +221,34 @@ pub(crate) fn resolve_physical_index(
     Some(physical_idx)
 }
 
+/// The deferred columns of `decode` that `order` sorts by, each with its sort column, resolved
+/// against `input_schema` (the decode's input). `None` when one of them is a list: below the
+/// decode a list is its doc address, which orders nothing, so the `SortExec` keeps that sort
+/// and no `SegmentedTopKExec` takes it over.
+pub(crate) fn deferred_sort_keys<'o, 'd>(
+    order: &'o LexOrdering,
+    decode: &'d TantivyDecodeExec,
+    input_schema: &datafusion::arrow::datatypes::SchemaRef,
+) -> Option<Vec<(&'o Column, &'d PhysicalDeferredField)>> {
+    let mut keys = Vec::new();
+    for sort in order.iter() {
+        let Some(col) = sort.expr.downcast_ref::<Column>() else {
+            continue;
+        };
+        let Some(idx) = resolve_physical_index(col, input_schema) else {
+            continue;
+        };
+        let Some(field) = decode.deferred_fields().iter().find(|d| d.col_idx == idx) else {
+            continue;
+        };
+        if field.cardinality == FieldCardinality::List {
+            return None;
+        }
+        keys.push((col, field));
+    }
+    Some(keys)
+}
+
 /// Recursively search below `plan` for a `TantivyDecodeExec` whose deferred
 /// fields include a sort column. If found, inject a `SegmentedTopKExec` below
 /// the lookup and rebuild the plan tree up to `plan`.
@@ -248,56 +278,34 @@ fn try_inject_below_lookup(
             let lookup_child = &lookup_child;
             let input_schema = lookup_child.schema();
 
-            // Check if ANY sort column is one of the deferred fields, using
-            // physical index resolution to handle join-reordered schemas.
-            let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
-                if let Some(col) = expr.expr.downcast_ref::<Column>() {
-                    if let Some(physical_idx) = resolve_physical_index(col, &input_schema) {
-                        lookup
-                            .deferred_fields()
-                            .iter()
-                            .any(|d| d.col_idx == physical_idx)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            });
+            // The deferred columns the sort ranks by, or nothing at all when one of them is
+            // a list.
+            let Some(sort_keys) = deferred_sort_keys(&sort_exprs, lookup, &input_schema) else {
+                return Ok(None);
+            };
 
-            if has_deferred_sort_col {
+            if !sort_keys.is_empty() {
                 // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that the
                 // shared `DynamicFilterPhysicalExpr` can traverse them during the
                 // pushdown pass that reached this scan subtree.
                 let lookup_child = &wrap_blocking_nodes(Arc::clone(lookup_child))?;
                 let stk_schema = lookup_child.schema();
 
-                // Collect all deferred columns found in the sort expressions,
-                // resolving logical → physical indices for each.
+                // Each sort key at its physical index in the STK's input.
                 let mut deferred_columns = Vec::new();
-                for expr in &sort_exprs {
-                    if let Some(col) = expr.expr.downcast_ref::<Column>()
-                        && let Some(lookup_idx) = resolve_physical_index(col, &input_schema)
-                        && let Some(field) = lookup
-                            .deferred_fields()
-                            .iter()
-                            .find(|d| d.col_idx == lookup_idx)
-                    {
-                        let sort_col_idx =
-                            resolve_physical_index(col, &stk_schema).ok_or_else(|| {
-                                DataFusionError::Internal(format!(
-                                    "SegmentedTopK: column '{}' not found in child schema",
-                                    col.name()
-                                ))
-                            })?;
-                        deferred_columns.push(
-                            crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                sort_col_idx,
-                                canonical: field.canonical.clone(),
-                                rebuild: field.rebuild.clone(),
-                            },
-                        );
-                    }
+                for (col, field) in &sort_keys {
+                    let sort_col_idx =
+                        resolve_physical_index(col, &stk_schema).ok_or_else(|| {
+                            DataFusionError::Internal(format!(
+                                "SegmentedTopK: column '{}' not found in child schema",
+                                col.name()
+                            ))
+                        })?;
+                    deferred_columns.push(crate::scan::segmented_topk_exec::DeferredSortColumn {
+                        sort_col_idx,
+                        canonical: field.canonical.clone(),
+                        rebuild: field.rebuild.clone(),
+                    });
                 }
 
                 // If the sort requires deferred columns from multiple different indexes (tables),

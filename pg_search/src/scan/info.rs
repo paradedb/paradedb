@@ -123,14 +123,22 @@ pub struct TaggedQuery {
 /// Execution mode for a scan, encapsulating its search query.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ScanMode {
-    /// Standard scan executing its own query.
+    /// Standard scan executing its own query (`SA` and `RA` both filter and score by `query`).
     Standard { query: Box<SearchQueryInput> },
-    /// Scan participating in predicate tagging (e.g. in a disjunctive search join).
+    /// Scan participating in predicate tagging (e.g. in a disjunctive `HashJoinExec`).
+    /// Filters by `base_query` and emits boolean `__{alias}_tag_{i}` columns for `local_queries`.
     Tagged {
         /// Base query (e.g. non-search restrictions like `w.year >= 2024`, or `All`).
         base_query: Box<SearchQueryInput>,
         /// The single-table search predicates lifted from this scan, if any.
         local_queries: Vec<TaggedQuery>,
+    },
+    /// Scan participating in a tagless disjunctive `RankJoinExec` (`base_query` is `All`).
+    /// `SA` filters and scores by the union of `disjunct_queries`, while `RA` matches all
+    /// documents and scores by `disjunct_queries` (`0.0` when no disjunct matches). No tag columns are emitted.
+    Disjunctive {
+        /// Local disjunct search queries from the cross-table `OR`.
+        disjunct_queries: Vec<SearchQueryInput>,
     },
 }
 
@@ -155,6 +163,11 @@ impl ScanMode {
         }
     }
 
+    /// Creates a tagless disjunctive scan mode for `RankJoinExec` with local disjuncts.
+    pub fn disjunctive(disjunct_queries: Vec<SearchQueryInput>) -> Self {
+        Self::Disjunctive { disjunct_queries }
+    }
+
     /// Returns a new `ScanMode` with the base or standard query replaced.
     pub fn with_base_query(self, base_query: SearchQueryInput) -> Self {
         match self {
@@ -165,6 +178,13 @@ impl ScanMode {
                 base_query: Box::new(base_query),
                 local_queries,
             },
+            Self::Disjunctive { disjunct_queries } => {
+                debug_assert!(
+                    matches!(base_query, SearchQueryInput::All),
+                    "ScanMode::Disjunctive requires SearchQueryInput::All base query"
+                );
+                Self::Disjunctive { disjunct_queries }
+            }
         }
     }
 
@@ -173,6 +193,7 @@ impl ScanMode {
         match self {
             Self::Standard { query } => query,
             Self::Tagged { base_query, .. } => base_query,
+            Self::Disjunctive { .. } => &SearchQueryInput::All,
         }
     }
 
@@ -186,6 +207,98 @@ impl ScanMode {
             } => {
                 base_query.needs_tokenizer()
                     || local_queries.iter().any(|tq| tq.query.needs_tokenizer())
+            }
+            Self::Disjunctive { disjunct_queries } => {
+                disjunct_queries.iter().any(|q| q.needs_tokenizer())
+            }
+        }
+    }
+
+    /// Whether any query in this scan mode contains runtime `PostgresExpression` nodes.
+    pub fn has_postgres_expressions(&self) -> bool {
+        match self {
+            Self::Standard { query } => query.has_postgres_expressions(),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.has_postgres_expressions()
+                    || local_queries
+                        .iter()
+                        .any(|tq| tq.query.has_postgres_expressions())
+            }
+            Self::Disjunctive { disjunct_queries } => disjunct_queries
+                .iter()
+                .any(|q| q.has_postgres_expressions()),
+        }
+    }
+
+    /// Whether any query in this scan mode contains parameterized heap filters.
+    pub fn has_parameters(&self) -> bool {
+        match self {
+            Self::Standard { query } => query.has_parameters(),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.has_parameters()
+                    || local_queries.iter().any(|tq| tq.query.has_parameters())
+            }
+            Self::Disjunctive { disjunct_queries } => {
+                disjunct_queries.iter().any(|q| q.has_parameters())
+            }
+        }
+    }
+
+    /// Initialize runtime `PostgresExpression` nodes in this scan mode against `planstate`.
+    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        match self {
+            Self::Standard { query } => {
+                query.init_postgres_expressions(planstate);
+            }
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.init_postgres_expressions(planstate);
+                for tq in local_queries {
+                    tq.query.init_postgres_expressions(planstate);
+                }
+            }
+            Self::Disjunctive { disjunct_queries } => {
+                for q in disjunct_queries {
+                    q.init_postgres_expressions(planstate);
+                }
+            }
+        }
+    }
+
+    /// Solve all runtime `PostgresExpression` and parameterized heap filters in this scan mode.
+    /// Resets `ecxt_per_tuple_memory` once up front, then solves each query with the no-reset
+    /// variant (rule 2 in `solve_expr.rs`).
+    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
+        match self {
+            Self::Standard { query } => {
+                query.solve_postgres_expressions_no_reset(expr_context);
+            }
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => {
+                base_query.solve_postgres_expressions_no_reset(expr_context);
+                for tq in local_queries {
+                    tq.query.solve_postgres_expressions_no_reset(expr_context);
+                }
+            }
+            Self::Disjunctive { disjunct_queries } => {
+                for q in disjunct_queries {
+                    q.solve_postgres_expressions_no_reset(expr_context);
+                }
             }
         }
     }

@@ -183,6 +183,28 @@ DELETE FROM visibility_stats_docs WHERE id = 1;
 SELECT check_sparse_visibility_stats();
 DROP FUNCTION check_sparse_visibility_stats();
 
+-- Stale visibility map warning: fires once per query when >=50% of scanned blocks
+-- and >= paradedb.visibility_map_warning_threshold blocks are dirty.
+DROP INDEX visibility_stats_idx;
+CREATE INDEX visibility_stats_idx ON visibility_stats_docs USING paradedb(id, title)
+    WITH (sort_by = 'ctid ASC NULLS FIRST', mutable_segment_rows = 0,
+          target_segment_count = 2, layer_sizes = '10TB', background_layer_sizes = '0');
+VACUUM visibility_stats_docs;
+SET paradedb.visibility_map_warning_threshold = 100;
+-- Clean visibility map: no warning.
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+-- Dirty the majority of blocks across both segments: warns once per statement.
+UPDATE visibility_stats_docs SET padding = 'stale' WHERE id % 5 = 0;
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+-- Suppressed when paradedb.planner_warnings = 'off'.
+SET paradedb.planner_warnings = 'off';
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+RESET paradedb.planner_warnings;
+-- Silenced again after VACUUM refreshes the visibility map.
+VACUUM visibility_stats_docs;
+SELECT count(*) FROM visibility_stats_docs WHERE title === 'database';
+RESET paradedb.visibility_map_warning_threshold;
+
 DROP FUNCTION check_visibility_stats(text);
 DROP TABLE visibility_stats_docs;
 \i common/common_cleanup.sql

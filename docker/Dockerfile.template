@@ -1,20 +1,6 @@
 # Note: Debian Trixie = Debian 13
 FROM postgres:@@PG_VERSION_MAJOR@@-trixie
 
-# %%ANTITHESIS_BEGIN%%
-# Install the locally built, Antithesis-instrumented pg_search package.
-ARG COMMIT_SHA
-COPY pg_search-antithesis-trixie-amd64-pg@@PG_VERSION_MAJOR@@-${COMMIT_SHA}.deb /tmp/pg_search.deb
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends /tmp/pg_search.deb; \
-    rm /tmp/pg_search.deb; \
-    apt-get dist-clean; \
-    mkdir /symbols; \
-    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so; \
-    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so.dbg /symbols/pg_search.so.dbg
-# %%ANTITHESIS_END%%
-# %%STANDARD_BEGIN%%
 # Install pg_search from GitHub Releases
 RUN set -eux; \
     apt-get update; \
@@ -31,7 +17,6 @@ RUN set -eux; \
     apt-get purge -y --auto-remove curl; \
     rm /tmp/pg_search.deb; \
     apt-get dist-clean
-# %%STANDARD_END%%
 # %%BARMAN_BEGIN%%
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to

@@ -298,6 +298,30 @@ ORDER BY 1 DESC
 LIMIT 3;
 
 -- =====================================================================
+-- string_agg with a non-constant separator varies per row, so it falls back
+-- instead of joining with the default ",". A constant separator still pushes down.
+-- =====================================================================
+CREATE TABLE fb_sa (id INT PRIMARY KEY, name TEXT, sep TEXT);
+CREATE TABLE fb_sb (id INT PRIMARY KEY, a_id INT);
+INSERT INTO fb_sa VALUES (1, 'x', '-'), (2, 'y', ';'), (3, 'z', '|');
+INSERT INTO fb_sb VALUES (1, 1), (2, 2), (3, 3);
+CREATE INDEX fb_sa_idx ON fb_sa USING paradedb (id, (name::pdb.literal));
+CREATE INDEX fb_sb_idx ON fb_sb USING paradedb (id, a_id);
+SET paradedb.enable_join_custom_scan = off;
+
+SELECT string_agg(fb_sa.name, fb_sa.sep ORDER BY fb_sa.id)
+FROM fb_sa JOIN fb_sb ON fb_sb.a_id = fb_sa.id
+WHERE fb_sa.id @@@ pdb.all();
+
+SELECT string_agg(fb_sa.name, ';' ORDER BY fb_sa.id)
+FROM fb_sa JOIN fb_sb ON fb_sb.a_id = fb_sa.id
+WHERE fb_sa.id @@@ pdb.all();
+
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE fb_sb;
+DROP TABLE fb_sa;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE fb_reviews;

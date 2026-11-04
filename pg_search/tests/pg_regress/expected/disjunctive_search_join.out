@@ -299,23 +299,23 @@ LIMIT 10;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, r.name, o.name
-   Relation Tree: (w INNER r) INNER o
-   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Relation Tree: (r INNER o) INNER w
+   Join Cond: w.researcher_id = r.id, r.org_id = o.id
    Join Predicate: (w:{"with_index":{"query":{"match":{"field":"abstract","value":"compaction","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR r:{"with_index":{"query":{"match":{"field":"bio","value":"compiler","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR o:{"with_index":{"query":{"match":{"field":"location","value":"Munich","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: w.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
-     :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"location","value":"Munich","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
+     : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[r, o, w]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], filter=__w_2_tag_0@2 OR __r_0_tag_0@0 OR __o_1_tag_0@1, projection=[ctid_0@0, ctid_1@3, ctid_2@5, id@7]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@2)], projection=[ctid_0@3, id@4, __r_0_tag_0@6, ctid_1@0, __o_1_tag_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"location","value":"Munich","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"bio","value":"compiler","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"abstract","value":"compaction","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"abstract","value":"compaction","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
@@ -402,23 +402,23 @@ LIMIT 10;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, r.name, o.name
-   Relation Tree: (w INNER r) INNER o
-   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Relation Tree: (r INNER o) INNER w
+   Join Cond: w.researcher_id = r.id, r.org_id = o.id
    Join Predicate: (w:{"with_index":{"query":{"match":{"field":"abstract","value":"consensus","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR r:{"with_index":{"query":{"match":{"field":"bio","value":"distributed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR o:{"with_index":{"query":{"match":{"field":"field","value":"Cloud","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: w.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
-     :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"field","value":"Cloud","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
+     : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[r, o, w]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], filter=__w_2_tag_0@2 OR __r_0_tag_0@0 OR __o_1_tag_0@1, projection=[ctid_0@0, ctid_1@3, ctid_2@5, id@7]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@2)], projection=[ctid_0@3, id@4, __r_0_tag_0@6, ctid_1@0, __o_1_tag_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"field","value":"Cloud","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"bio","value":"distributed","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"abstract","value":"consensus","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"abstract","value":"consensus","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name
@@ -443,23 +443,23 @@ FROM work_items w
 JOIN researchers r ON w.researcher_id = r.id
 JOIN organisations o ON r.org_id = o.id
 WHERE (w.abstract ||| 'compaction' OR r.bio ||| 'compiler' OR o.location ||| 'Munich');
-                                                                                                                                   QUERY PLAN                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: (count(*))
    Backend: DataFusion
-   Indexes: work_items_bm25_idx (w), researchers_bm25_idx (r), organisations_bm25_idx (o)
+   Indexes: researchers_bm25_idx (r), organisations_bm25_idx (o), work_items_bm25_idx (w)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, org_id@1)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[]
-     :     CooperativeExec
-     :       PgSearchScan: table=o, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"location","value":"Munich","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@0)], projection=[__w_0_tag_0@4, org_id@0, __r_1_tag_0@2]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, researcher_id@0)], filter=__w_2_tag_0@2 OR __r_0_tag_0@0 OR __o_1_tag_0@1, projection=[]
+     :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, org_id@1)], projection=[id@2, __r_0_tag_0@4, __o_1_tag_0@1]
+     :       CooperativeExec
+     :         PgSearchScan: table=o, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"location","value":"Munich","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :       CooperativeExec
      :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"bio","value":"compiler","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :       CooperativeExec
-     :         PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"abstract","value":"compaction","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     CooperativeExec
+     :       PgSearchScan: table=w, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"abstract","value":"compaction","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)
 
 SELECT count(*)
@@ -532,23 +532,23 @@ LIMIT 10;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: w.id, w.title, r.name, o.name
-   Relation Tree: (w INNER r) INNER o
-   Join Cond: r.org_id = o.id, w.researcher_id = r.id
+   Relation Tree: (r INNER o) INNER w
+   Join Cond: w.researcher_id = r.id, r.org_id = o.id
    Join Predicate: (w:{"with_index":{"query":{"match":{"field":"title","value":"NonExistentTitle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR r:{"with_index":{"query":{"match":{"field":"name","value":"Alice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}} OR o:{"with_index":{"query":{"match":{"field":"name","value":"NonExistentOrg","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}})
    Limit: 10
    Order By: w.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[w, r, o]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@4)], filter=__w_0_tag_0@0 OR __r_1_tag_0@1 OR __o_2_tag_0@2, projection=[ctid_0@3, id@4, ctid_1@6, ctid_2@0]
-     :         CooperativeExec
-     :           PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"NonExistentOrg","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, researcher_id@1)], projection=[ctid_0@4, id@6, __w_0_tag_0@7, ctid_1@0, org_id@1, __r_1_tag_0@3]
+     : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2]
+     :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[r, o, w]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, researcher_id@1)], filter=__w_2_tag_0@2 OR __r_0_tag_0@0 OR __o_1_tag_0@1, projection=[ctid_0@0, ctid_1@3, ctid_2@5, id@7]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, org_id@2)], projection=[ctid_0@3, id@4, __r_0_tag_0@6, ctid_1@0, __o_1_tag_0@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=o, segments=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"NonExistentOrg","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :           CooperativeExec
      :             PgSearchScan: table=r, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"name","value":"Alice","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"title","value":"NonExistentTitle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=w, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"title","value":"NonExistentTitle","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (19 rows)
 
 SELECT w.id, w.title, r.name AS researcher_name, o.name AS org_name

@@ -43,11 +43,10 @@ use pgrx::pg_sys;
 use crate::index::mvcc::SegmentView;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::PartitionSink;
 use datafusion_distributed::shm::{
-    CooperativeDrainSet, InProcessWorkerResolver, MppDataStreamKey, MppFrameHeader, MppMesh,
-    MppPartitionSink, ShmChannelResolver, WorkerSession, collect_task_metrics, proc_for_task,
-    run_execute_task_loop, run_worker_fragment,
+    CooperativeDrainSet, InProcessWorkerResolver, MppFrameHeader, MppMesh, MppSender,
+    ShmChannelResolver, WorkerSession, collect_task_metrics, run_execute_task_loop,
+    run_worker_fragment,
 };
 use datafusion_proto::physical_plan::DeduplicatingProtoConverter;
 use tokio_util::sync::CancellationToken;
@@ -55,8 +54,10 @@ use tokio_util::sync::CancellationToken;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_cap;
-use crate::postgres::customscan::mpp::interrupt::{HeldInterrupts, check_for_interrupts};
-use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
+use crate::postgres::customscan::mpp::interrupt::{
+    HeldInterrupts, cancel_pending, check_for_interrupts,
+};
+use crate::postgres::customscan::mpp::worker_fragments::FragmentAssignment;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
@@ -192,6 +193,8 @@ async fn take_set_plan_draining(
         if let std::task::Poll::Ready(result) = futures::poll!(take.as_mut()) {
             return result;
         }
+        // Nothing else polls the cancel/die flags during the plan wait.
+        mesh.check_interrupt()?;
         mesh.try_drain_pass()?;
         tokio::task::yield_now().await;
     }
@@ -199,8 +202,12 @@ async fn take_set_plan_draining(
 
 /// All fragment futures share this type. The alias keeps `Vec<FragmentFuture>` legible and silences
 /// clippy::type_complexity.
-type FragmentFuture = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>> + Send>,
+type FragmentFuture<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>>
+            + Send
+            + 'a,
+    >,
 >;
 
 /// Extract an error message string from a `pgrx`-raised panic payload (`ErrorReportWithLevel` or
@@ -223,37 +230,26 @@ fn downcast_pgrx_panic_payload(payload: &(dyn std::any::Any + Send)) -> Option<S
 }
 
 /// Spawns the execution task loop for a worker fragment over `run_execute_task_loop`.
-fn spawn_fragment_execution_task(
+fn spawn_fragment_execution_task<'a>(
     mesh: Arc<MppMesh>,
-    stage_id: u32,
-    task_idx: u32,
-    per_partition_sinks: Vec<Box<dyn PartitionSink>>,
+    outbound_senders: &'a [Option<MppSender>],
+    fragment: &FragmentAssignment,
     plan: Arc<dyn ExecutionPlan>,
     task_ctx: Arc<TaskContext>,
-) -> FragmentFuture {
+    token: CancellationToken,
+) -> FragmentFuture<'a> {
+    let stage_id = fragment.stage_id;
+    let task_idx = fragment.task_idx;
+    let n_partitions = plan.properties().output_partitioning().partition_count();
     Box::pin(async move {
-        let mut sinks_opt: Vec<_> = per_partition_sinks.into_iter().map(Some).collect();
-        let n_partitions = sinks_opt.len();
-
-        // The cancellation token is never cancelled on this path; worker interrupts bail via
-        // the cooperative drain pass.
-        let token = CancellationToken::new();
-
         run_execute_task_loop(
             &mesh,
+            outbound_senders,
             stage_id,
             task_idx,
             n_partitions,
             token,
-            move |_request, _headers, range| {
-                let len = range.end - range.start;
-                let mut task_sinks = Vec::with_capacity(len);
-                for sink in sinks_opt.iter_mut().take(range.end).skip(range.start) {
-                    task_sinks.push(
-                        sink.take()
-                            .expect("mpp worker: partition sink already claimed"),
-                    );
-                }
+            move |_request, _headers, range, task_sinks| {
                 let plan = Arc::clone(&plan);
                 let task_ctx = Arc::clone(&task_ctx);
                 async move {
@@ -359,6 +355,10 @@ pub(crate) fn run_mpp_worker(
     // it waits), then decode synchronously: decode injects `parallel_state`, a raw pointer that
     // must stay off the produce futures.
     let frames: Vec<SetPlanFrame> = {
+        // Same holdoff as the fragment run below: the plan wait bails on a cancel/die with a
+        // plain error, and PG acts on the interrupt itself once the runtime is off the stack.
+        // Otherwise the cancel would surface as a plan-frame failure.
+        let held = HeldInterrupts::hold();
         let collected = runtime.block_on(async {
             let mut frames = Vec::with_capacity(fragments.len());
             for fragment in &fragments {
@@ -369,6 +369,8 @@ pub(crate) fn run_mpp_worker(
             }
             Ok::<_, datafusion::common::DataFusionError>(frames)
         });
+        drop(held);
+        check_for_interrupts();
         match collected {
             Ok(frames) => frames,
             Err(e) => {
@@ -409,6 +411,20 @@ pub(crate) fn run_mpp_worker(
             }
         }
     }
+    // `checkout_segment_for_source` answers a pool index past the DSM's table with `None`,
+    // which a scan reads as "no segments left". Refuse the plan instead of scanning nothing.
+    for plan in &plans {
+        crate::scan::execution_plan::visit_scan_nodes(plan, &mut |scan| {
+            if let Some(idx) = scan.source_idx()
+                && idx >= plan_sources_count
+            {
+                pgrx::error!(
+                    "mpp worker: scan claims from segment pool {idx} but the DSM holds \
+                     {plan_sources_count} pools (proc={this_proc})"
+                );
+            }
+        });
+    }
 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
@@ -419,84 +435,12 @@ pub(crate) fn run_mpp_worker(
     let held = HeldInterrupts::hold();
     let mesh_for_block = Arc::clone(worker_mesh);
     let outcome = runtime.block_on(async move {
-        let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
+        let token = CancellationToken::new();
+        let outbound_senders = worker_session.outbound_senders();
+        let mut futures: Vec<FragmentFuture<'_>> = Vec::with_capacity(fragments.len());
         let mut executed_fragments: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> =
             Vec::with_capacity(fragments.len());
         for (fragment, frag_plan) in fragments.iter().zip(&plans) {
-            let n_out = frag_plan
-                .properties()
-                .output_partitioning()
-                .partition_count();
-            // Build a `PartitionSink` per output partition. For each partition `q` emitted by this
-            // fragment, look up the destination proc via `fragment.routing`, clone the right
-            // outbound sender, and wrap it as a sink the produce loop pushes through.
-            let mut per_partition_sinks: Vec<Box<dyn PartitionSink>> = Vec::with_capacity(n_out);
-            for q in 0..n_out {
-                let dest_proc = match &fragment.routing {
-                    FragmentRouting::Coalesce { dest_proc } => *dest_proc,
-                    // A partition outside the table means the decoded plan's partitioning
-                    // drifted from the blob the leader routed; name it instead of panicking
-                    // on the index.
-                    FragmentRouting::Hashed { consumer_task, .. } => {
-                        let Some(&task) = consumer_task.get(q) else {
-                            return Err(datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: partition {q} outside routing table of len {} \
-                                 (stage_id={} task_idx={})",
-                                consumer_task.len(),
-                                fragment.stage_id,
-                                fragment.task_idx,
-                            )));
-                        };
-                        proc_for_task(n_workers, task)
-                    }
-                };
-                let q_u32 = u32::try_from(q).map_err(|_| {
-                    datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch: output partition {q} exceeds transport u32 \
-                         (stage_id={} task_idx={})",
-                        fragment.stage_id, fragment.task_idx,
-                    ))
-                })?;
-                let stream_key = MppDataStreamKey::new(fragment.stage_id, fragment.task_idx, q_u32);
-                crate::mpp_log!(
-                    "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
-                     task_idx={}) partition={q} → dest_proc={dest_proc}",
-                    fragment.stage_id,
-                    fragment.task_idx,
-                );
-                if dest_proc == mesh_for_block.this_proc {
-                    per_partition_sinks.push(mesh_for_block.open_local_partition_sink(stream_key));
-                } else {
-                    let base = match worker_session
-                        .outbound_senders()
-                        .get(dest_proc as usize)
-                        .and_then(|s| s.as_ref())
-                    {
-                        Some(s) => s,
-                        None => {
-                            return Err(datafusion::common::DataFusionError::Internal(format!(
-                                "mpp worker dispatch: outbound_senders[{dest_proc}] is None \
-                                 (unattached); fragment stage_id={} task_idx={}",
-                                fragment.stage_id, fragment.task_idx,
-                            )));
-                        }
-                    };
-                    // Attach the worker mesh as the cooperative drain so a full outbound
-                    // ring doesn't block the backend thread. The spin pulls every inbound
-                    // drain while retrying the send, breaking the symmetric-send stall
-                    // pattern where every peer is blocked sending to a full peer.
-                    per_partition_sinks.push(Box::new(MppPartitionSink::new(
-                        base.clone_with_header(MppFrameHeader::batch(
-                            stream_key,
-                            mesh_for_block.this_proc,
-                        ))
-                        .with_cooperative_drain(
-                            Arc::clone(&mesh_for_block) as Arc<dyn CooperativeDrainSet>
-                        ),
-                    )));
-                }
-            }
-
             // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary
             // nodes inside the fragment's plan know their `(task_index, task_count)`.
             let cfg = session_arc
@@ -531,16 +475,15 @@ pub(crate) fn run_mpp_worker(
             ));
             futures.push(spawn_fragment_execution_task(
                 Arc::clone(&mesh_for_block),
-                fragment.stage_id,
-                fragment.task_idx,
-                per_partition_sinks,
+                outbound_senders,
+                fragment,
                 plan,
                 task_ctx,
+                token.clone(),
             ));
         }
         // The metrics frames go to the leader after the fragments finish.
-        let metrics_sender_base = worker_session
-            .outbound_senders()
+        let metrics_sender_base = outbound_senders
             .first()
             .and_then(|s| s.as_ref())
             .map(|s| s.clone_with_header(MppFrameHeader::task_metrics(0, 0, this_proc)));
@@ -558,6 +501,23 @@ pub(crate) fn run_mpp_worker(
         // within 30 s the dispatcher surfaces an error instead of letting the backend spin
         // forever.
         let mut frag_stream: futures::stream::FuturesUnordered<_> = futures.into_iter().collect();
+        // A cancel or die that lands while a fragment is idle in its request wait reaches no
+        // send spin and no consumer pull, the only places that poll the flags (a drain pass
+        // only moves frames). The leader is already waiting for this worker to exit and
+        // releases nothing before that, so the wait would never end on its own. Cancelling
+        // the token unwinds the request loops.
+        let interrupt_watch = {
+            let token = token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    if cancel_pending() {
+                        token.cancel();
+                        return;
+                    }
+                }
+            })
+        };
         let join_fut = async {
             while let Some(res) = frag_stream.next().await {
                 res?;
@@ -580,6 +540,8 @@ pub(crate) fn run_mpp_worker(
         } else {
             join_fut.await
         };
+        interrupt_watch.abort();
+        drop(frag_stream);
 
         // Report each fragment's metrics to the leader, even after a fragment error: partial
         // metrics still tell the user where the time went. Best-effort like every transport's

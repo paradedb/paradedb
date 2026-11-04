@@ -37,7 +37,6 @@ use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
@@ -89,6 +88,7 @@ use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
+use crate::postgres::pgstat::{count_heap_fetch, count_index_scan, count_index_tuples};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
@@ -99,7 +99,6 @@ use crate::postgres::utils::{
 };
 use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
-use crate::schema::SearchIndexSchema;
 use crate::vector::metric::VectorMetric;
 use crate::{DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
@@ -107,6 +106,8 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
+
+use super::pullup::SourceContext;
 
 #[derive(Default)]
 pub struct BaseScan;
@@ -158,6 +159,14 @@ impl BaseScan {
             .indexrel
             .as_ref()
             .expect("custom_state.indexrel should already be open");
+        let shares_leaders_scan = state
+            .custom_state()
+            .parallel
+            .as_ref()
+            .is_some_and(|parallel| !parallel.is_leader());
+        if !shares_leaders_scan {
+            count_index_scan(indexrel);
+        }
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
@@ -349,7 +358,7 @@ impl BaseScan {
         if quals.is_some()
             && !state.uses_our_operator
             && !allow_without_operator
-            && search_operator_relations::applies_to(root, rti)
+            && search_operator_relations::applies_to_scan(root, rti)
         {
             state.uses_our_operator = true;
             if !join_clauses_contain_search_predicate(builder.args().rel) {
@@ -886,7 +895,10 @@ impl CustomScan for BaseScan {
             // every row as it does for `pdb.all()`.
             let whole_where_folded_away = matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
-                && search_operator_relations::applies_to(builder.args().root, builder.args().rti);
+                && search_operator_relations::applies_to_scan(
+                    builder.args().root,
+                    builder.args().rti,
+                );
 
             if matches!(ri_type, RestrictInfoType::None)
                 && !has_window_aggs
@@ -1004,21 +1016,8 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            // TODO(#6078): planner costing does not yet account for segment-statistics pruning;
-            // execution may skip some of these segments.
-            let segment_count = {
-                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-                crate::index::open_index(directory)
-                    .expect("custom_scan: should be able to open index");
-                segment_count.load(Ordering::Relaxed)
-            };
-            let schema = bm25_index
-                .schema()
-                .expect("custom_scan: should have a schema");
-            let index_expressions = bm25_index.index_expressions();
-            let topk_pathkey_info =
-                pullup_topk_pathkeys(rti, &schema, root, Some(&index_expressions));
+            let source_context = SourceContext::new(rti, table, Some(bm25_index), None);
+            let topk_pathkey_info = pullup_topk_pathkeys(&source_context, root);
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
@@ -1087,9 +1086,7 @@ impl CustomScan for BaseScan {
                 exec_methods::fast_fields::collect_fast_fields(
                     target_list,
                     &referenced_columns,
-                    rti,
-                    &table,
-                    &bm25_index,
+                    &source_context,
                     false,
                 )
                 .into_iter()
@@ -1104,9 +1101,10 @@ impl CustomScan for BaseScan {
             };
 
             // Seeded only by the final `else` branch's selectivity open (every other branch leaves
-            // it `None`). It feeds the TopK cost memo so the worker decision reuses that open
-            // instead of opening the index a second time.
+            // them `None`). They feed the TopK cost memo and segment count so the worker decision
+            // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
+            let mut precomputed_segment_count: Option<usize> = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
@@ -1117,23 +1115,36 @@ impl CustomScan for BaseScan {
                 match estimation_query.resolve(&query) {
                     Ok(indexable) => {
                         // Ask the index. This is the one branch that opens, so reuse that same
-                        // open's cost for the TopK worker decision instead of opening twice.
-                        let (sel, cost) =
-                            estimate_selectivity_and_cost(&bm25_index, indexable.clone(), None);
-                        precomputed_query_cost = cost;
-                        sel.unwrap_or(UNKNOWN_SELECTIVITY)
+                        // open's cost and segment count for the worker decision instead of opening
+                        // twice.
+                        let estimated = estimate_selectivity_and_cost(
+                            source_context.indexrel().unwrap(),
+                            indexable.clone(),
+                            None,
+                        );
+                        precomputed_query_cost = estimated.query_cost;
+                        precomputed_segment_count = estimated.segment_count;
+                        estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
                     }
                     Err(guess) => guess,
                 }
             };
+
+            let segment_count = precomputed_segment_count.unwrap_or_else(|| {
+                SearchIndexReader::estimate_segment_count(
+                    source_context.indexrel().unwrap(),
+                    &source_context.schema().unwrap(),
+                    estimation_query.resolve(&query).ok(),
+                )
+            });
 
             // Use planning_estimate for costing so parameterized limits still
             // contribute a non-zero row estimate (otherwise the parallel-worker
             // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
-            custom_private.set_heaprelid(table.oid());
-            custom_private.set_indexrelid(bm25_index.oid());
+            custom_private.set_heaprelid(source_context.heaprel.oid());
+            custom_private.set_indexrelid(source_context.indexrel().unwrap().oid());
             custom_private.set_range_table_index(rti);
             custom_private.set_query(query.clone());
             custom_private.set_limit_offset(limit_offset.clone());
@@ -1155,7 +1166,7 @@ impl CustomScan for BaseScan {
             // Use RowEstimate enum to distinguish between known and unknown row counts.
             // Unknown is used when the table hasn't been ANALYZEd.
             // TODO: Convert to use RowEstimate::from_reltuples.
-            let row_estimate = match table.reltuples() {
+            let row_estimate = match source_context.heaprel.reltuples() {
                 Some(reltuples) if reltuples > 0.0 => {
                     let estimated = (reltuples as f64 * selectivity).max(1.0) as u64;
                     RowEstimate::Known(estimated)
@@ -1171,7 +1182,7 @@ impl CustomScan for BaseScan {
             let harvested_bitmap = bitmap_intersection::BitmapPlanner::from_query(
                 root,
                 builder.args().rel,
-                bm25_index.oid(),
+                source_context.indexrel().unwrap().oid(),
                 &quals,
                 row_estimate.known_rows().map(|rows| rows as f64),
             )
@@ -1185,7 +1196,7 @@ impl CustomScan for BaseScan {
                 &custom_private,
                 &topk_pathkey_info,
                 limit_is_explicit,
-                table.name(),
+                source_context.heaprel.name(),
             );
 
             //
@@ -1230,7 +1241,7 @@ impl CustomScan for BaseScan {
                     (_, RowEstimate::Known(_)) => costable_drive_cost(
                         &query,
                         &estimation_query,
-                        &bm25_index,
+                        source_context.indexrel().unwrap(),
                         &quals,
                         builder.args().root,
                         &mut cost_memo,
@@ -1755,6 +1766,13 @@ impl CustomScan for BaseScan {
         }
 
         if explainer.is_analyze() {
+            state
+                .custom_state()
+                .search_reader
+                .as_ref()
+                .map(SearchIndexReader::segment_pruning_estimate)
+                .unwrap_or_default()
+                .explain(explainer);
             explainer.add_unsigned_integer(
                 "Heap Fetches",
                 state
@@ -1863,7 +1881,7 @@ impl CustomScan for BaseScan {
                 // Get or create a search reader for estimates.
                 // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
                 // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
-                //   reader using MvccSatisfies::LargestSegment for estimation purposes only
+                //   reader using SearchIndexReader::mvcc_for_estimation for estimation purposes only
                 let query_tree =
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
@@ -1878,20 +1896,23 @@ impl CustomScan for BaseScan {
                             .as_ref()
                             .expect("indexrel should be open");
 
+                        let query_for_estimates = base_query.without_heap_filters();
+                        let mvcc_style =
+                            SearchIndexReader::mvcc_for_estimation(indexrel, &query_for_estimates);
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
-                            base_query.without_heap_filters(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
+                            query_for_estimates.clone(),
+                            false,      // don't need scores for estimates
+                            mvcc_style, // Use snapshot when prunable, largest segment otherwise
+                            None,       // No expr_context needed for estimates
+                            None,       // No planstate needed for estimates
                             base_query.needs_tokenizer(),
                             None,
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 
                         temp_reader
-                            .build_query_tree_with_estimates(base_query.without_heap_filters())
+                            .build_query_tree_with_estimates(query_for_estimates)
                             .expect("building query tree with estimates should not fail")
                     };
 
@@ -2042,6 +2063,11 @@ impl CustomScan for BaseScan {
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
             let next = exec_method.next(state.custom_state_mut());
+            // A `Virtual` row comes out of the index like an index-only scan's, so it counts as
+            // read too. Only a row fetched from the heap below counts as fetched.
+            if !matches!(next, ExecState::Eof) {
+                count_index_tuples(state.custom_state().indexrel(), 1);
+            }
 
             // get the next matching document from our search results and look for it in the heap
             match next {
@@ -2052,16 +2078,13 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::FromHeap {
-                    ctid,
-                    score,
-                    doc_address: _,
-                } => {
+                ExecState::FromHeap { ctid, score } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
                             Some(slot) => {
                                 exec_method.increment_visible();
+                                count_heap_fetch(state.custom_state().indexrel());
                                 slot
                             }
 
@@ -2385,7 +2408,7 @@ fn validate_topk_expectation(
         ),
         PathKeyInfo::Unusable(UnusableReason::NotSortable) => (
             "ORDER BY columns cannot be pushed down to the index".to_string(),
-            "Ensure ORDER BY columns are indexed. Numeric columns are fast by default. \
+            "Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. \
                  For string columns, use pdb.literal tokenizer"
                 .to_string(),
         ),
@@ -2608,6 +2631,9 @@ fn compute_exec_which_fast_fields(
         let indexrel = custom_state.indexrel();
         let execution_rti = custom_state.execution_rti;
         let heaprel = custom_state.heaprel();
+
+        let context =
+            SourceContext::new(execution_rti, heaprel.clone(), Some(indexrel.clone()), None);
         //
         // In order for our planned ExecMethodType to be accurate, this must always be a
         // subset of the fast fields which were extracted at planning time.
@@ -2617,9 +2643,7 @@ fn compute_exec_which_fast_fields(
             // in our execution-time target list, so there is no need to extract from other
             // positions.
             &HashSet::default(),
-            execution_rti,
-            heaprel,
-            indexrel,
+            &context,
             true,
         )
     };
@@ -2959,18 +2983,14 @@ fn replace_window_agg_with_placeholder(
 /// This function must be kept in sync with `validate_topk_compatibility` in `hook.rs` to ensure
 /// that queries validated during the planner hook phase can be executed by the custom scan.
 unsafe fn pullup_topk_pathkeys(
-    rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
+    source_context: &SourceContext,
     root: *mut pg_sys::PlannerInfo,
-    index_expressions: Option<&PgList<pg_sys::Expr>>,
 ) -> PathKeyInfo {
     match extract_pathkey_styles_with_sortability_check(
         root,
-        rti,
-        schema,
+        source_context,
         |search_field| search_field.is_raw_sortable(),
         |search_field| search_field.is_lower_sortable(),
-        index_expressions,
     ) {
         PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPK_FEATURES => {
             // Top K is the base scan's only executor which supports sorting, and supports up to
@@ -3034,6 +3054,7 @@ fn base_query_has_search_predicates(
         SearchQueryInput::All => false,
         SearchQueryInput::Uninitialized => false,
         SearchQueryInput::Empty => false,
+        SearchQueryInput::Null => false,
 
         SearchQueryInput::WithIndex { oid, query } => {
             // Only consider search predicates for the current table's index

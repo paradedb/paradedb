@@ -1,0 +1,197 @@
+-- COUNT(col) over a GROUP BY col is served by the bucket's doc_count. The NULL group
+-- must still count 0, and keys whose NULL sentinel a real value can match must keep
+-- their metric.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CREATE TABLE count_key (
+    id SERIAL PRIMARY KEY,
+    a TEXT,
+    b TEXT,
+    flag BOOLEAN
+);
+INSERT INTO count_key (a, b, flag) VALUES
+    ('x', 'p', true),
+    ('x', NULL, true),
+    ('y', 'p', false),
+    ('y', NULL, NULL),
+    (NULL, 'p', NULL),
+    (NULL, 'q', NULL),
+    (NULL, NULL, NULL),
+    (NULL, NULL, NULL);
+CREATE INDEX count_key_idx ON count_key
+USING paradedb (id, (a::pdb.literal), (b::pdb.literal), flag);
+-- Text key: COUNT(a) is served by doc_count, so no value_count metric
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT a, COUNT(a), COUNT(*)
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY a ORDER BY a NULLS LAST;
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.count_key
+   Output: a, pdb.agg_fn('COUNT'::text), pdb.agg_fn('COUNT(*)'::text)
+   Index: count_key_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(a), COUNT(*)
+     Group By: a
+     Aggregate Definition: {"grouped":{"terms":{"field":"a","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+-- NULL key
+SELECT a, COUNT(a), COUNT(*)
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY a ORDER BY a NULLS LAST;
+ a | count | count 
+---+-------+-------
+ x |     2 |     2
+ y |     2 |     2
+   |     0 |     4
+(3 rows)
+
+-- Two-column GROUP BY, second key NULL
+SELECT a, b, COUNT(b), COUNT(*)
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY a, b ORDER BY a NULLS LAST, b NULLS LAST;
+ a | b | count | count 
+---+---+-------+-------
+ x | p |     1 |     1
+ x |   |     0 |     1
+ y | p |     1 |     1
+ y |   |     0 |     1
+   | p |     1 |     1
+   | q |     1 |     1
+   |   |     0 |     2
+(7 rows)
+
+-- NULL group has the most rows
+SELECT a, COUNT(a)
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY a ORDER BY COUNT(a) DESC, a NULLS LAST;
+ a | count 
+---+-------
+ x |     2
+ y |     2
+   |     0
+(3 rows)
+
+SELECT a, COUNT(a)
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY a ORDER BY COUNT(a) DESC, a NULLS LAST LIMIT 1;
+ a | count 
+---+-------
+ x |     2
+(1 row)
+
+-- A FILTER changes which rows count, so the group's doc_count can't serve it
+SELECT a, COUNT(a) FILTER (WHERE b = 'p')
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY a ORDER BY a NULLS LAST;
+ a | count 
+---+-------
+ x |     1
+ y |     1
+   |     0
+(3 rows)
+
+-- Bool key
+SELECT flag, COUNT(flag), COUNT(*)
+FROM count_key WHERE id @@@ pdb.all()
+GROUP BY flag ORDER BY flag NULLS LAST;
+ flag | count | count 
+------+-------+-------
+      |     0 |     5
+ f    |     1 |     1
+ t    |     2 |     2
+(3 rows)
+
+-- Real values equal to a NULL sentinel keep their count. The table has no NULLs, so
+-- PostgreSQL's answer is exact; the keys are not projected because how those groups are
+-- labelled is a separate issue (#6627).
+CREATE TABLE count_sentinel (
+    id SERIAL PRIMARY KEY,
+    big BIGINT,
+    ts TIMESTAMP
+);
+INSERT INTO count_sentinel (big, ts) VALUES
+    (1, '2024-01-01'),
+    (9223372036854775807, 'infinity'),
+    (9223372036854775807, 'infinity'),
+    (-9223372036854775808, '-infinity');
+CREATE INDEX count_sentinel_idx ON count_sentinel USING paradedb (id, big, ts);
+-- bigint key: COUNT(big) keeps its value_count metric
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT COUNT(big), COUNT(*)
+FROM count_sentinel WHERE id @@@ pdb.all()
+GROUP BY big ORDER BY 2, 1;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (pdb.agg_fn('COUNT'::text)), (pdb.agg_fn('COUNT(*)'::text)), big
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('COUNT'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.count_sentinel
+         Output: pdb.agg_fn('COUNT'::text), pdb.agg_fn('COUNT(*)'::text), big
+         Index: count_sentinel_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(big), COUNT(*)
+           Group By: big
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"big","missing":null}}},"terms":{"field":"big","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT COUNT(big), COUNT(*)
+FROM count_sentinel WHERE id @@@ pdb.all()
+GROUP BY big ORDER BY 2, 1;
+ count | count 
+-------+-------
+     1 |     1
+     1 |     1
+     2 |     2
+(3 rows)
+
+SELECT COUNT(ts), COUNT(*)
+FROM count_sentinel WHERE id @@@ pdb.all()
+GROUP BY ts ORDER BY 2, 1;
+ count | count 
+-------+-------
+     1 |     1
+     1 |     1
+     2 |     2
+(3 rows)
+
+-- JSON key: strings, numbers equal to the NULL sentinels, and a missing key. Only the
+-- string sentinel bucket reads as NULL.
+CREATE TABLE count_json (
+    id SERIAL PRIMARY KEY,
+    meta JSONB
+);
+INSERT INTO count_json (meta) VALUES
+    ('{"c": 1}'),
+    ('{"c": -9223372036854775808}'),
+    ('{"c": -9223372036854775808}'),
+    ('{"c": 1.7976931348623157e308}'),
+    ('{"c": 18446744073709551615}'),
+    ('{"c": "x"}'),
+    ('{"c": "x"}'),
+    ('{}');
+CREATE INDEX count_json_idx ON count_json
+USING paradedb (id, (meta::pdb.literal_normalized));
+SELECT COUNT(meta->>'c'), COUNT(*)
+FROM count_json WHERE id @@@ pdb.all()
+GROUP BY meta->>'c' ORDER BY 2, 1;
+ count | count 
+-------+-------
+     0 |     1
+     1 |     1
+     1 |     1
+     1 |     1
+     2 |     2
+     2 |     2
+(6 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE count_key;
+DROP TABLE count_sentinel;
+DROP TABLE count_json;

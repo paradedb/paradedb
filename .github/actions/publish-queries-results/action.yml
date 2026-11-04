@@ -1,0 +1,51 @@
+name: Publish Queries Results
+description: Publish Queries benchmark results to gh-pages
+
+inputs:
+  source_directory:
+    description: "Source directory used by the benchmark"
+    required: false
+    default: "."
+  dataset:
+    description: "Benchmark dataset (e.g. logs, docs, stackoverflow)"
+    required: true
+  size:
+    description: "Pre-sampled dataset size (e.g. 100k, 1m, 20m)"
+    required: true
+  index:
+    description: "Index variant (e.g. bm25). Uses datasets/{dataset}/indexes/{index}.sql."
+    required: true
+  ref:
+    description: "Full SHA of the commit benchmarked"
+    required: true
+  github_token:
+    description: "GitHub token to authenticate with"
+    required: true
+  publish_baseline:
+    description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only main runs update the baseline. All runs compare against it."
+    required: false
+    default: "false"
+  alert_threshold:
+    description: >-
+      Ratio of current to baseline value above which github-action-benchmark alerts
+      (e.g. 115%).
+    required: false
+    default: "115%"
+
+runs:
+  using: composite
+  steps:
+    - name: Publish Benchmark Metrics
+      id: metrics
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-queries
+        name: "pg_search '${{ inputs.dataset }} (${{ inputs.index }})' (${{ inputs.size }} rows)"
+        ref: ${{ inputs.ref }}
+        metrics_file: ${{ inputs.source_directory }}/benchmarks/results_${{ inputs.dataset }}_${{ inputs.index }}_${{ inputs.size }}.json
+        github_token: ${{ inputs.github_token }}
+        publish_baseline: ${{ inputs.publish_baseline }}
+        pages_directory: benchmarks
+        alert_threshold: ${{ inputs.alert_threshold }}
+        comment_on_regression: true # We comment and alert rather than failing, so regressions are reported on GitHub
+        comment_summary: ${{ github.event_name == 'pull_request' }}

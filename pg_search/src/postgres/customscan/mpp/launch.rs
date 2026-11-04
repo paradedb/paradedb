@@ -231,6 +231,7 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
 /// combinations unrepresentable. Held only by the leader; builder-launched workers reconstruct
 /// their state from DSM and never carry this.
 #[derive(Default)]
+#[allow(clippy::large_enum_variant)]
 pub enum MppLifecycle {
     /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
     /// teardown already reclaimed the leader state.
@@ -376,8 +377,8 @@ fn launch_mpp(
     let cap = producer_worker_cap();
     let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
 
-    // The finished physical stages contain all routing metadata, so build the real payload before
-    // sizing DSM. A failure is a codec bug, and no workers have been started at this point.
+    // The finished physical stages determine the stage sizing list, so build the real payload
+    // before sizing DSM. A failure is a codec bug, and no workers have been started at this point.
     let t_payload = std::time::Instant::now();
     let payload = match dispatch_payload_from_stages(&stages) {
         Ok(p) => p,

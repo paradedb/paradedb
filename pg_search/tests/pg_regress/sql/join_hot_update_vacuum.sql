@@ -58,6 +58,32 @@ CREATE TEMP TABLE hot_users_roots AS
 SELECT ctid AS root_ctid FROM hot_users WHERE id IN (2, 4);
 
 UPDATE hot_users SET rating = rating + 1 WHERE id IN (2, 4);
+
+-- VACUUM can't prune the old row versions while another backend holds a snapshot that
+-- predates the update. A background merger left by an earlier test keeps one for its whole
+-- merge, so wait for every other snapshot in this database to go away first.
+DO $$
+DECLARE
+    deadline timestamptz := clock_timestamp() + interval '2 minutes';
+    holders text;
+BEGIN
+    LOOP
+        PERFORM pg_stat_clear_snapshot();
+        SELECT string_agg(format('%s (%s)', pid, coalesce(backend_type, '?')), ', ' ORDER BY pid)
+        INTO holders
+        FROM pg_stat_activity
+        WHERE pid <> pg_backend_pid()
+          AND backend_xmin IS NOT NULL
+          AND (datname = current_database() OR datname IS NULL);
+        EXIT WHEN holders IS NULL;
+        IF clock_timestamp() > deadline THEN
+            RAISE WARNING 'still holding a snapshot: %', holders;
+            EXIT;
+        END IF;
+        PERFORM pg_sleep(0.1);
+    END LOOP;
+END
+$$;
 VACUUM (FREEZE, TRUNCATE false) hot_users;
 
 -- The scan only keeps a root ctid while the page is all-visible, and the root only loses its

@@ -4,7 +4,7 @@
 Unified release artifact assembler for ParadeDB:
 - Assembles unreleased SQL migration fragments into pg_search--<prev>--<target>.sql
 - Assembles unreleased changelog fragments into docs/project/changelog/<version>.mdx
-- Registers new versions in docs navigation, snippets, and installation examples
+- Registers new versions in docs navigation and installation examples
 """
 
 # pylint: disable=too-many-lines,fixme
@@ -83,6 +83,25 @@ def get_existing_sql_targets(sql_dir):
         if match:
             targets.append(match.group(1))
     return targets
+
+
+def latest_released_sql_version(sql_dir):
+    """Return the newest released version present in this checkout's SQL chain."""
+    released_targets = set(get_git_tags()) & set(get_existing_sql_targets(sql_dir))
+    return max(released_targets, key=parse_semver, default=None)
+
+
+def handle_latest_sql_version_command(args, repo_root):
+    """Print the migration tip, optionally restricted to tagged releases for discovery."""
+    sql_dir = repo_root / "pg_search" / "sql"
+    version = (
+        latest_released_sql_version(sql_dir)
+        if args.released
+        else max(get_existing_sql_targets(sql_dir), key=parse_semver, default=None)
+    )
+    if version is None:
+        sys.exit("Could not find a matching version in the checked-out SQL chain")
+    print(f"v{version}")
 
 
 def resolve_prev_version(repo_root, sql_dir, target_version, explicit_prev):
@@ -459,13 +478,15 @@ def render_changelog(version, headers_map, grouped, extras):
 
 def format_changelog_item(item_str):
     """Ensure changelog item starts with a bullet point."""
-    formatted_lines = []
-    for i, line in enumerate(item_str.strip().splitlines()):
-        if i == 0 and not line.strip().startswith("-"):
-            formatted_lines.append(f"- {line}")
-        else:
-            formatted_lines.append(line)
-    return "\n".join(formatted_lines)
+    lines = item_str.strip().splitlines()
+    if not lines:
+        return ""
+    if lines[0].lstrip().startswith("-"):
+        return "\n".join(lines)
+    return "\n".join(
+        f"- {line}" if i == 0 else (f"  {line}" if line.strip() else "")
+        for i, line in enumerate(lines)
+    )
 
 
 def semver_key(page_str):
@@ -641,14 +662,8 @@ def update_docs_json(docs_json_path, new_version, is_latest=True, repo_root=None
         return False
 
 
-def update_version_snippet(repo_root, clean_ver):
-    """Update the shared version snippet and current installation examples."""
-    snippet_file = repo_root / "docs" / "snippets" / "version.mdx"
-    snippet_file.parent.mkdir(parents=True, exist_ok=True)
-    content = f'export const version = "{clean_ver}";\n'
-    with open(snippet_file, "w", encoding="utf-8") as f:
-        f.write(content)
-    print(f"✅ Updated {snippet_file} with version '{clean_ver}'")
+def update_docs_version_examples(repo_root, clean_ver):
+    """Update current installation and upgrade examples in docs."""
     update_installation_version(repo_root, clean_ver)
     update_kubernetes_version(repo_root, clean_ver)
     update_digitalocean_version(repo_root, clean_ver)
@@ -725,6 +740,29 @@ def update_digitalocean_version(repo_root, clean_ver):
     install_file.write_text(content, encoding="utf-8")
 
 
+def update_changelog_indexing(repo_root, version, is_latest):
+    """Keep only the latest release notes indexable, including on main sync."""
+    changelog_dir, _, _ = get_changelog_dirs(repo_root)
+    target = changelog_dir / f"{version}.mdx"
+    if not target.is_file():
+        raise FileNotFoundError(f"Missing release notes: {target}")
+
+    pages = changelog_dir.glob("*.mdx") if is_latest else [target]
+    for page in pages:
+        if not re.fullmatch(r"\d+\.\d+\.\d+", page.stem):
+            continue
+        content = page.read_text(encoding="utf-8")
+        parts = content.split("---", 2)
+        if len(parts) != 3 or parts[0]:
+            raise ValueError(f"Missing changelog frontmatter: {page}")
+        frontmatter = re.sub(r"^noindex:.*\n?", "", parts[1], flags=re.MULTILINE)
+        if not (is_latest and page == target):
+            frontmatter = frontmatter.rstrip("\n") + "\nnoindex: true\n"
+        updated = "---" + frontmatter + "---" + parts[2]
+        if updated != content:
+            page.write_text(updated, encoding="utf-8")
+
+
 def assemble_changelog_files(
     repo_root, clean_ver, preserve_fragments=False, is_latest=True
 ):
@@ -742,13 +780,14 @@ def assemble_changelog_files(
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"✅ Generated changelog: {output_path}")
+    update_changelog_indexing(repo_root, clean_ver, is_latest)
 
     if docs_json.exists():
         update_docs_json(docs_json, clean_ver, is_latest, repo_root=repo_root)
 
     if not preserve_fragments:
         if is_latest:
-            update_version_snippet(repo_root, clean_ver)
+            update_docs_version_examples(repo_root, clean_ver)
         for fpath in files:
             print(f"Removing consumed fragment: {fpath.name}")
             fpath.unlink()
@@ -925,11 +964,12 @@ def handle_changelog_command(args, repo_root):
     clean_ver = clean_version(target_version)
 
     if args.register_only:
+        update_changelog_indexing(repo_root, clean_ver, args.is_latest)
         docs_json = repo_root / "docs" / "docs.json"
         if docs_json.exists():
             update_docs_json(docs_json, clean_ver, args.is_latest, repo_root=repo_root)
         if args.is_latest:
-            update_version_snippet(repo_root, clean_ver)
+            update_docs_version_examples(repo_root, clean_ver)
         return
 
     assemble_changelog_files(
@@ -1447,6 +1487,13 @@ def build_parser():
         dest="command", required=True, help="Subcommand to execute"
     )
 
+    latest_sql_parser = subparsers.add_parser(
+        "latest-sql-version", help="Print the newest SQL migration target"
+    )
+    latest_sql_parser.add_argument(
+        "--released", action="store_true", help="Only consider tagged releases"
+    )
+
     sql_parser = subparsers.add_parser("sql", help="Assemble SQL migration scripts")
     add_common_args(sql_parser)
     sql_parser.add_argument(
@@ -1480,7 +1527,7 @@ def build_parser():
     cl_parser.add_argument(
         "--register-only",
         action="store_true",
-        help="Only update docs navigation, version snippet, and installation examples",
+        help="Only update docs navigation, release indexing, and installation examples",
     )
     cl_parser.add_argument(
         "--is-latest",
@@ -1593,6 +1640,7 @@ def main():
     repo_root = Path(args.repo_root or default_root)
 
     commands = {
+        "latest-sql-version": handle_latest_sql_version_command,
         "sql": handle_sql_command,
         "changelog": handle_changelog_command,
         "all": handle_all_command,

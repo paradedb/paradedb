@@ -355,6 +355,37 @@ impl PdbOwnedValue {
         }
     }
 
+    /// Returns `true` if every non-null [`ScalarValue`] of Arrow `data_type` is supported by
+    /// [`Self::from_execution_scalar`] for `field_type`.
+    pub fn supports_execution_data_type(
+        data_type: &DataType,
+        field_type: &SearchFieldType,
+    ) -> bool {
+        matches!(
+            (data_type, field_type),
+            (
+                DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64,
+                SearchFieldType::I64(_)
+            ) | (
+                DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64,
+                SearchFieldType::U64(_)
+            ) | (
+                DataType::Float32 | DataType::Float64 | DataType::Int32 | DataType::Int64,
+                SearchFieldType::F64(_)
+            ) | (DataType::Boolean, SearchFieldType::Bool(_))
+                | (
+                    DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
+                    SearchFieldType::Text(_)
+                        | SearchFieldType::Tokenized(..)
+                        | SearchFieldType::Uuid(_)
+                )
+                | (
+                    DataType::Int64 | DataType::Float64,
+                    SearchFieldType::Numeric64(_, _)
+                )
+        )
+    }
+
     /// Converts this [`PdbOwnedValue`] into a DataFusion [`ScalarValue`] representation matching
     /// the column's Arrow [`DataType`].
     ///

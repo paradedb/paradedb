@@ -32,7 +32,9 @@ use std::io::Write;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tantivy::columnar::{Cardinality, ColumnarReader, DynamicColumn, DynamicColumnHandle};
+use tantivy::columnar::{
+    Cardinality, ColumnType, ColumnarReader, DynamicColumn, DynamicColumnHandle,
+};
 use tantivy::directory::CompositeWrite;
 use tantivy::directory::error::OpenReadError;
 use tantivy::index::{Segment, SegmentComponent, SegmentReader};
@@ -51,7 +53,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 
 /// The plugin that writes and merges the `.stats` component.
-pub(crate) struct StatsPlugin;
+struct StatsPlugin;
 
 /// Attaches the plugin to an index. Every `Index` pg_search writes or merges through must call
 /// this: tantivy restores only its built-in plugins, and the index metadata lists `stats` as
@@ -187,6 +189,15 @@ fn empirical_stats(
     }
     stats.sort_by_key(|(field, _)| field.field_id());
     Ok(stats)
+}
+
+pub(super) fn column_stats_without_dictionary(
+    handle: &DynamicColumnHandle,
+) -> tantivy::Result<Option<EmpiricalStats>> {
+    if matches!(handle.column_type(), ColumnType::Bytes | ColumnType::Str) {
+        return Ok(None);
+    }
+    column_stats(handle)
 }
 
 fn column_stats(handle: &DynamicColumnHandle) -> tantivy::Result<Option<EmpiricalStats>> {

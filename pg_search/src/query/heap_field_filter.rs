@@ -44,6 +44,8 @@ pub struct HeapFieldFilter {
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
     #[serde(skip)]
     heap_fetch_state: Option<HeapFetchState>,
+    #[serde(skip)]
+    scratch_context: Option<pg_sys::MemoryContext>,
 }
 
 impl Clone for HeapFieldFilter {
@@ -53,9 +55,22 @@ impl Clone for HeapFieldFilter {
             heap_filter: self.heap_filter.clone(),
             initialized_expression: None,
             heap_fetch_state: None,
+            scratch_context: None,
         }
     }
 }
+
+crate::impl_safe_drop!(HeapFieldFilter, |self| {
+    unsafe {
+        if let Some(context) = self
+            .scratch_context
+            .take()
+            .filter(|_| crate::postgres::utils::IsTransactionState())
+        {
+            pg_sys::MemoryContextDelete(context);
+        }
+    }
+});
 
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &HeapFieldFilter) -> bool {
@@ -75,6 +90,7 @@ impl HeapFieldFilter {
             heap_filter,
             initialized_expression: None,
             heap_fetch_state: None,
+            scratch_context: None,
         }
     }
 
@@ -141,12 +157,30 @@ impl HeapFieldFilter {
                 return false;
             }
 
-            // Evaluate the expression
-            let mut is_null = false;
-            let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+            let scratch_context = self.scratch_context.get_or_insert_with(|| {
+                pg_sys::AllocSetContextCreateExtended(
+                    (*econtext).ecxt_per_query_memory,
+                    c"HeapFieldFilter scratch context".as_ptr(),
+                    pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
+                )
+            });
 
-            // Convert the result to a boolean
-            bool::from_datum(result, is_null).unwrap_or(false)
+            let mut scratch = PgMemoryContexts::For(*scratch_context);
+            let (result, is_null) = scratch.switch_to(|_| {
+                let mut is_null = false;
+                let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+                (result, is_null)
+            });
+
+            let res = bool::from_datum(result, is_null).unwrap_or(false);
+
+            // A rejected candidate never reaches the scan's per-row reset, so the
+            // expression's scratch memory is reclaimed here, or it grows per candidate.
+            scratch.reset();
+
+            res
         })();
 
         // Restore original scan tuple

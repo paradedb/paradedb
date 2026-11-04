@@ -18,6 +18,7 @@
 mod definitions;
 mod validation;
 
+use crate::postgres::utils::ActiveSnapshotGuard;
 use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
@@ -516,6 +517,23 @@ impl ParsedTypmod {
         }
         Some(prop)
     }
+
+    /// Reads a boolean option written as `key=true`, `key=false`, or just `key` (which means
+    /// true). A keyless `true`/`false` only counts at `index`, the option's positional slot.
+    ///
+    /// Unlike [`Self::try_get`], this never mistakes a different option for `key`: with
+    /// `try_get`, `columnar=true` in slot 0 would be read as a value for `remove_emojis`.
+    pub fn get_flag(&self, key: &str, index: usize) -> Option<bool> {
+        for (i, prop) in self.properties.iter().enumerate() {
+            match prop {
+                Property::Boolean(Some(k), b) if k == key => return Some(*b),
+                Property::String(None, s) if s == key => return Some(true),
+                Property::Boolean(None, b) if i == index => return Some(*b),
+                _ => {}
+            }
+        }
+        None
+    }
 }
 
 /// A prepared statement kept for the life of the backend.
@@ -625,6 +643,9 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
         return Ok(parsed_typmod.clone());
     }
 
+    // Logical replication can load tokenizers during pre-commit cleanup, without
+    // an active snapshot or portal. SPI needs a snapshot for this cache miss.
+    let _snapshot = ActiveSnapshotGuard::ensure();
     let parsed_typmod = ParsedTypmod::try_from(
         Spi::connect(|client| {
             static STMT: OnceLock<StmtHolder> = OnceLock::new();
@@ -654,6 +675,67 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
     remember_added(AddedEntry::Load(typmod));
     cache.lock().insert(typmod, parsed_typmod.clone());
     Ok(parsed_typmod)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::pg_test;
+    use std::panic::AssertUnwindSafe;
+
+    #[pg_test]
+    fn load_typmod_without_snapshot_or_portal() {
+        let id = Spi::get_one::<i32>(
+            "SELECT paradedb._save_typmod(ARRAY['alias=replication_snapshot'])",
+        )
+        .unwrap()
+        .unwrap();
+        LOAD_CACHE.get_or_init(Default::default).lock().remove(&id);
+
+        // Reproduce the apply worker's pre-commit context. Register the test
+        // query's snapshots so they survive being popped, then restore them.
+        let portal = unsafe { pg_sys::ActivePortal };
+        let mut snapshots = Vec::new();
+        unsafe {
+            while pg_sys::ActiveSnapshotSet() {
+                snapshots.push(pg_sys::RegisterSnapshot(pg_sys::GetActiveSnapshot()));
+                pg_sys::PopActiveSnapshot();
+            }
+            pg_sys::ActivePortal = std::ptr::null_mut();
+        }
+
+        pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+            assert_eq!(load_typmod(id).unwrap().len(), 1);
+            assert!(!unsafe { pg_sys::ActiveSnapshotSet() });
+            // A cache hit must also leave the caller without a snapshot.
+            assert_eq!(load_typmod(id).unwrap().len(), 1);
+            assert!(!unsafe { pg_sys::ActiveSnapshotSet() });
+        }))
+        .finally(|| unsafe {
+            pg_sys::ActivePortal = portal;
+            while pg_sys::ActiveSnapshotSet() {
+                pg_sys::PopActiveSnapshot();
+            }
+            for &snapshot in snapshots.iter().rev() {
+                pg_sys::PushActiveSnapshot(snapshot);
+                pg_sys::UnregisterSnapshot(snapshot);
+            }
+        })
+        .execute();
+    }
+
+    #[pg_test]
+    fn load_typmod_preserves_existing_snapshot() {
+        let id =
+            Spi::get_one::<i32>("SELECT paradedb._save_typmod(ARRAY['alias=existing_snapshot'])")
+                .unwrap()
+                .unwrap();
+        LOAD_CACHE.get_or_init(Default::default).lock().remove(&id);
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        assert_eq!(load_typmod(id).unwrap().len(), 1);
+        assert_eq!(unsafe { pg_sys::GetActiveSnapshot() }, snapshot);
+    }
 }
 
 pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result<i32> {

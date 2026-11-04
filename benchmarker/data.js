@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793817664539,
+  "lastUpdate": 1793817687999,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -54588,6 +54588,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13306015398-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "499fb26f9d4d977704348534475762a6ca5d2e3b",
+          "message": "perf: remove vector probe floor and radius overhead (#7211)\n\nUpdate Tantivy to main at `2ee9e2e3ba57a80536378b7d9b83b08bd6c30e94`,\nwhich includes the merged removal of the default 16-cluster probe floor\nand lazy rotation initialization. Small probe settings can request fewer\nclusters while routing still selects at least one.\n\nLatest Tantivy also removes cluster-radius metadata. Include the\npg_search compatibility changes from #7206: remove the radius column and\nEXPLAIN counters, migrate `paradedb.vector_clusters`, and report\nincompatible centroid formats with a `REINDEX` hint. Existing IVF\nindexes require `REINDEX`.\n\nKeep the filtered-vector fixture's explicit 10% probe budget. Correct\ntwo CI assertions: the concurrent backpressure test now includes the\nbounded remainder of one incomplete merge batch, calculated from the\nlayer size and smallest segment, alongside the existing merge trigger\nand concurrent-writer allowance. The aggregate-join generator compares\nfloating AVG/STDDEV/VARIANCE results with absolute tolerance `1e-9` or\nrelative tolerance `1e-12`, avoiding false failures at\ndecimal-formatting boundaries. Group keys, other aggregates, row counts,\nand index integrity remain checked; production behavior is unchanged.\n\nRebased onto ParadeDB main at\n`44cf1813a17b65e837e6a8b698d82ba933441f53`.\n\nValidation: all 20 query-generator tests passed on PostgreSQL 18.3 with\nthe failing CI dataset seed, including both clean and churn\naggregate-join cases (256 property cases each). The backpressure test\npassed 20 repetitions, and a negative control with merging disabled\ncorrectly rejected 960 unmerged segments. The CI variance SQL replay\nreproduced raw differences of approximately `4e-12`; the comparison\nregression accepts rounding noise and rejects a `1e-6` error. Earlier\nvalidation of this dependency refresh passed all ten vector SQL suites\nplus setup and three filtered-scan repetitions. Fresh CI follows this\nupdate. Existing Cohere benchmark results predate the dependency\nrefresh.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T16:48:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/499fb26f9d4d977704348534475762a6ca5d2e3b"
+        },
+        "date": 1793817685023,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 7.294,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 7.843,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 8.224,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 7.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 8.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 8.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 8.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 9.17,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 9.425,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 7.297,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 7.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 8.314,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 7.702,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 8.234,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 8.637,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 8.286,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 8.916,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.209,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.076,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.271,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.405,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 7.687,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.316,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.418,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13351977594-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -57637,6 +57795,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13306015398-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "499fb26f9d4d977704348534475762a6ca5d2e3b",
+          "message": "perf: remove vector probe floor and radius overhead (#7211)\n\nUpdate Tantivy to main at `2ee9e2e3ba57a80536378b7d9b83b08bd6c30e94`,\nwhich includes the merged removal of the default 16-cluster probe floor\nand lazy rotation initialization. Small probe settings can request fewer\nclusters while routing still selects at least one.\n\nLatest Tantivy also removes cluster-radius metadata. Include the\npg_search compatibility changes from #7206: remove the radius column and\nEXPLAIN counters, migrate `paradedb.vector_clusters`, and report\nincompatible centroid formats with a `REINDEX` hint. Existing IVF\nindexes require `REINDEX`.\n\nKeep the filtered-vector fixture's explicit 10% probe budget. Correct\ntwo CI assertions: the concurrent backpressure test now includes the\nbounded remainder of one incomplete merge batch, calculated from the\nlayer size and smallest segment, alongside the existing merge trigger\nand concurrent-writer allowance. The aggregate-join generator compares\nfloating AVG/STDDEV/VARIANCE results with absolute tolerance `1e-9` or\nrelative tolerance `1e-12`, avoiding false failures at\ndecimal-formatting boundaries. Group keys, other aggregates, row counts,\nand index integrity remain checked; production behavior is unchanged.\n\nRebased onto ParadeDB main at\n`44cf1813a17b65e837e6a8b698d82ba933441f53`.\n\nValidation: all 20 query-generator tests passed on PostgreSQL 18.3 with\nthe failing CI dataset seed, including both clean and churn\naggregate-join cases (256 property cases each). The backpressure test\npassed 20 repetitions, and a negative control with merging disabled\ncorrectly rejected 960 unmerged segments. The CI variance SQL replay\nreproduced raw differences of approximately `4e-12`; the comparison\nregression accepts rounding noise and rejects a `1e-6` error. Earlier\nvalidation of this dependency refresh passed all ten vector SQL suites\nplus setup and three filtered-scan repetitions. Fresh CI follows this\nupdate. Existing Cohere benchmark results predate the dependency\nrefresh.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T16:48:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/499fb26f9d4d977704348534475762a6ca5d2e3b"
+        },
+        "date": 1793817686151,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 135.63287705679855,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 127.69099698037793,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 116.0545689177588,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 135.57063154929833,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 129.19882157678688,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 120.11433849974581,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 155.20044320171755,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 146.42229331610116,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 118.21385043112507,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13351977594-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -70042,6 +70268,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13306015398-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "499fb26f9d4d977704348534475762a6ca5d2e3b",
+          "message": "perf: remove vector probe floor and radius overhead (#7211)\n\nUpdate Tantivy to main at `2ee9e2e3ba57a80536378b7d9b83b08bd6c30e94`,\nwhich includes the merged removal of the default 16-cluster probe floor\nand lazy rotation initialization. Small probe settings can request fewer\nclusters while routing still selects at least one.\n\nLatest Tantivy also removes cluster-radius metadata. Include the\npg_search compatibility changes from #7206: remove the radius column and\nEXPLAIN counters, migrate `paradedb.vector_clusters`, and report\nincompatible centroid formats with a `REINDEX` hint. Existing IVF\nindexes require `REINDEX`.\n\nKeep the filtered-vector fixture's explicit 10% probe budget. Correct\ntwo CI assertions: the concurrent backpressure test now includes the\nbounded remainder of one incomplete merge batch, calculated from the\nlayer size and smallest segment, alongside the existing merge trigger\nand concurrent-writer allowance. The aggregate-join generator compares\nfloating AVG/STDDEV/VARIANCE results with absolute tolerance `1e-9` or\nrelative tolerance `1e-12`, avoiding false failures at\ndecimal-formatting boundaries. Group keys, other aggregates, row counts,\nand index integrity remain checked; production behavior is unchanged.\n\nRebased onto ParadeDB main at\n`44cf1813a17b65e837e6a8b698d82ba933441f53`.\n\nValidation: all 20 query-generator tests passed on PostgreSQL 18.3 with\nthe failing CI dataset seed, including both clean and churn\naggregate-join cases (256 property cases each). The backpressure test\npassed 20 repetitions, and a negative control with merging disabled\ncorrectly rejected 960 unmerged segments. The CI variance SQL replay\nreproduced raw differences of approximately `4e-12`; the comparison\nregression accepts rounding noise and rejects a `1e-6` error. Earlier\nvalidation of this dependency refresh passed all ten vector SQL suites\nplus setup and three filtered-scan repetitions. Fresh CI follows this\nupdate. Existing Cohere benchmark results predate the dependency\nrefresh.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T16:48:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/499fb26f9d4d977704348534475762a6ca5d2e3b"
+        },
+        "date": 1793817687986,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.3302060736166667,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4331.359375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13351977594-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -71856,6 +72115,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13306015398-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "499fb26f9d4d977704348534475762a6ca5d2e3b",
+          "message": "perf: remove vector probe floor and radius overhead (#7211)\n\nUpdate Tantivy to main at `2ee9e2e3ba57a80536378b7d9b83b08bd6c30e94`,\nwhich includes the merged removal of the default 16-cluster probe floor\nand lazy rotation initialization. Small probe settings can request fewer\nclusters while routing still selects at least one.\n\nLatest Tantivy also removes cluster-radius metadata. Include the\npg_search compatibility changes from #7206: remove the radius column and\nEXPLAIN counters, migrate `paradedb.vector_clusters`, and report\nincompatible centroid formats with a `REINDEX` hint. Existing IVF\nindexes require `REINDEX`.\n\nKeep the filtered-vector fixture's explicit 10% probe budget. Correct\ntwo CI assertions: the concurrent backpressure test now includes the\nbounded remainder of one incomplete merge batch, calculated from the\nlayer size and smallest segment, alongside the existing merge trigger\nand concurrent-writer allowance. The aggregate-join generator compares\nfloating AVG/STDDEV/VARIANCE results with absolute tolerance `1e-9` or\nrelative tolerance `1e-12`, avoiding false failures at\ndecimal-formatting boundaries. Group keys, other aggregates, row counts,\nand index integrity remain checked; production behavior is unchanged.\n\nRebased onto ParadeDB main at\n`44cf1813a17b65e837e6a8b698d82ba933441f53`.\n\nValidation: all 20 query-generator tests passed on PostgreSQL 18.3 with\nthe failing CI dataset seed, including both clean and churn\naggregate-join cases (256 property cases each). The backpressure test\npassed 20 repetitions, and a negative control with merging disabled\ncorrectly rejected 960 unmerged segments. The CI variance SQL replay\nreproduced raw differences of approximately `4e-12`; the comparison\nregression accepts rounding noise and rejects a `1e-6` error. Earlier\nvalidation of this dependency refresh passed all ten vector SQL suites\nplus setup and three filtered-scan repetitions. Fresh CI follows this\nupdate. Existing Cohere benchmark results predate the dependency\nrefresh.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T16:48:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/499fb26f9d4d977704348534475762a6ca5d2e3b"
+        },
+        "date": 1793817687074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 6097.49,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 7713.79,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 10183.67,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 6050.77,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 7198.13,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 9309.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 2364.01,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3296.86,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 7368.64,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13351977594-buffers"
       }
     ],
     "benchmarker hackernews (latency)": [

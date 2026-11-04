@@ -20,34 +20,11 @@ runs:
       env:
         INPUTS_PRIOR_PG_SEARCH_VERSION: ${{ inputs.prior_pg_search_version }}
       run: |
+        python3 "${GITHUB_ACTION_PATH}/test_select_fixtures.py"
         SQL_DIR="$(mktemp -d)"
-        PRIOR="${INPUTS_PRIOR_PG_SEARCH_VERSION#v}"
-        for case_dir in "${GITHUB_ACTION_PATH}"/*; do
-          [ -d "$case_dir" ] || continue
-          # These fixtures require pre-0.26 tokenizer behavior or vector storage.
-          # Keep them on the pinned older rows; newer releases cannot build them.
-          case "$(basename "$case_dir")" in
-            regex_tokenizers|key_field_tokenizers|vector_storage)
-              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" = '0.26.0' ]; then
-                echo "Skipping $(basename "$case_dir"): requires a release before 0.26.0"
-                continue
-              fi
-              ;;
-            tokenizer_recent_options)
-              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" != '0.26.0' ]; then
-                echo "Skipping $(basename "$case_dir"): requires 0.26.0 or later"
-                continue
-              fi
-              ;;
-            regex_pattern_names)
-              if [ "$(printf '%s\n%s\n' '0.26.0' "$PRIOR" | sort -V | head -n 1)" != '0.26.0' ]; then
-                echo "Skipping $(basename "$case_dir"): requires 0.26.0 or later"
-                continue
-              fi
-              ;;
-          esac
-          cp -R "$case_dir" "$SQL_DIR/"
-        done
+        python3 "${GITHUB_ACTION_PATH}/select_fixtures.py" \
+          --prior "${INPUTS_PRIOR_PG_SEARCH_VERSION}" \
+          --destination "$SQL_DIR"
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
         echo "UPGRADE_TARGET_REF=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 

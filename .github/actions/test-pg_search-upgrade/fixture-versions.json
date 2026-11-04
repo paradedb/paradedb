@@ -1,0 +1,36 @@
+{
+  "codecs": {},
+  "key_field_tokenizers": {
+    "max_version_exclusive": "0.26.0",
+    "reason": "Legacy key-field / regex representation replaced in 0.26.0."
+  },
+  "kitchen_sink": {},
+  "numeric": {},
+  "numeric_scale": {},
+  "range_tokenizers": {},
+  "regex_pattern_names": {
+    "min_version": "0.26.0",
+    "reason": "Pattern-specific names introduced by 93d455f8b."
+  },
+  "regex_tokenizers": {
+    "max_version_exclusive": "0.26.0",
+    "reason": "Legacy key-field / regex representation replaced in 0.26.0."
+  },
+  "tokenizer_compatibility": {
+    "min_version": "0.25.0",
+    "reason": "Combined fixture validated on 0.25.0 and 0.26.3; earlier releases retain the original Unicode fixture."
+  },
+  "tokenizer_recent_options": {
+    "min_version": "0.26.0",
+    "reason": "Chinese conversion b12272911 and Jieba search mode 5d93a1cf9."
+  },
+  "vector_storage": {
+    "min_version": "0.25.0",
+    "max_version_exclusive": "0.26.0",
+    "reason": "Stable vector indexes start at 0.25.0; fixture targets pre-0.26 storage."
+  },
+  "unicode_words_tokenizers": {
+    "max_version_exclusive": "0.25.0",
+    "reason": "Retain existing Unicode upgrade coverage before the broader fixture is available."
+  }
+}

@@ -22,8 +22,9 @@ workers. Both tools use the same database and index throughout a run.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
    After the sweeps, CI downloads diagnostics from the latest successful main
-   push preceding this workflow run with an unexpired artifact for that corpus
-   size. `pdbench compare --html` compares each query at matched recall
+   run preceding this workflow run, including scheduled and manual runs, with
+   unexpired diagnostics and dashboards for that corpus and the run's main
+   commit. Backfills of a different commit are excluded. `pdbench compare --html` compares each query at matched recall
    and saves offline HTML reports, text deltas, labeled JSON inputs, and commit
    provenance under `comparison/` in the diagnostics artifact. The job summary
    identifies the baseline run and report filenames. The PR comment's **Reports**

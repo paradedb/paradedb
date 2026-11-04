@@ -38,8 +38,8 @@ pub enum TargetListEntry {
     // so we store the index of the grouping column in the GROUP BY list
     GroupingColumn(usize),
     Aggregate(AggregateType),
-    // a constant output column, such as `'label'` in `SELECT 'label', pdb.agg(...)`; its value
-    // is read from the plan's target list at execution time
+    // a row-independent output column, such as `'label'` or a prepared-statement parameter in
+    // `SELECT 'label', pdb.agg(...)`; its value is computed by the output projection
     Constant,
 }
 
@@ -199,9 +199,9 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 entries.push(TargetListEntry::Aggregate(aggregate));
-            } else if unsafe { (*expr).type_ } == pg_sys::NodeTag::T_Const {
-                // A constant does not depend on the aggregation, so every output row
-                // carries the same value.
+            } else if unsafe { is_row_independent(expr) } {
+                // Does not depend on the aggregation, so every output row carries the same
+                // value. It is evaluated at execution time (a Param may be bound late).
                 entries.push(TargetListEntry::Constant);
             } else {
                 return Err("Expression is neither a grouping column nor a single Aggref".into());
@@ -214,4 +214,16 @@ impl CustomScanClause<AggregateScan> for TargetList {
             uses_our_operator,
         })
     }
+}
+
+/// True if `expr` can be evaluated once per query: no column references, aggregates, window
+/// functions, set-returning functions or sub-selects, and not volatile.
+unsafe fn is_row_independent(expr: *mut pg_sys::Expr) -> bool {
+    let node = expr.cast::<pg_sys::Node>();
+    !pg_sys::contain_var_clause(node)
+        && !pg_sys::contain_agg_clause(node)
+        && !pg_sys::contain_window_function(node)
+        && !pg_sys::contain_volatile_functions(node)
+        && !pg_sys::contain_subplans(node)
+        && !pg_sys::expression_returns_set(node)
 }

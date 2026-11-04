@@ -40,8 +40,7 @@ jobs:
 
     steps:
       # gettext provides envsubst, which sigstore/cosign-installer needs and which
-      # is not on PATH by default. Use macOS Git for checkout to avoid falling back
-      # to a source archive, which excludes .github and our local actions.
+      # is not on PATH by default.
       - name: Install Dependencies
         run: |
           # The GitHub macOS runner images ship with aws/tap pre-tapped but untrusted,

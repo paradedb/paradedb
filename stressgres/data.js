@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793782162214,
+  "lastUpdate": 1793782188326,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112718,6 +112718,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13279226589-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782185525,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1790.8318006422264,
+            "unit": "median tps",
+            "extra": "avg tps: 1813.1611018901447, max tps: 2001.1759004645728, count: 59226"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.024237685965885,
+            "unit": "median tps",
+            "extra": "avg tps: 6.067300346127684, max tps: 7.170995231772213, count: 59226"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1861.8362496224095,
+            "unit": "median tps",
+            "extra": "avg tps: 1861.9405993624262, max tps: 1877.0128388914354, count: 59226"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2980.730945328034,
+            "unit": "median tps",
+            "extra": "avg tps: 2906.1100134131234, max tps: 3228.255342582636, count: 59226"
+          }
+        ],
+        "publication_id": "13308390982-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -157182,6 +157229,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13279226589-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782188216,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 1.0624219092965927, max background_merging: 3.0, count: 59226"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.38603690112456, max cpu: 9.852891, count: 59226"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.329688133167867, max mem: 27.33984375, count: 59226"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.707596136168549, max cpu: 9.8209715, count: 59226"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.70617251608246, max mem: 44.7265625, count: 59226"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45340,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45081.46057474758, max block_count: 45340.0, count: 59226"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.062995981494614, max segment_count: 20.0, count: 59226"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.088022,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.958376574560774, max cpu: 36.471085, count: 59226"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 39.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 39.907439168397325, max mem: 39.9296875, count: 59226"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.449650806003055, max cpu: 9.204219, count: 59226"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 44.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.889148927413636, max mem: 44.91796875, count: 59226"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.395952991199862, max cpu: 9.810936, count: 59226"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.725937246732855, max mem: 44.73046875, count: 59226"
+          }
+        ],
+        "publication_id": "13308390982-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

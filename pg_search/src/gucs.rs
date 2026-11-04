@@ -324,12 +324,14 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// IVF probe fraction before selectivity normalization.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.07905694150420949);
+static VECTOR_PROBE_SCALE_POWER: GucSetting<f64> = GucSetting::<f64>::new(4.0);
 
-/// Returns the maximum IVF probe fraction.
+/// Returns the IVF probe fraction before selectivity normalization.
 pub fn vector_cluster_max_probe() -> f32 {
-    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+    let probe = VECTOR_CLUSTER_MAX_PROBE.get();
+    let power = VECTOR_PROBE_SCALE_POWER.get();
+    (probe * (probe / 0.125).min(1.0).powf(power - 1.0)) as f32
 }
 
 static VECTOR_PROBE_SELECTIVITY_EXPONENT: GucSetting<f64> = GucSetting::<f64>::new(-0.86);
@@ -676,8 +678,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF probe fraction for vector ORDER BY queries",
-        c"Scaled by filter selectivity before resolving the work budget. 1.0 allows exhaustive search.",
+        c"Per-segment IVF probe setting for vector ORDER BY queries",
+        c"Mapped through the probe scale and filter selectivity before resolving the work budget. 1.0 allows exhaustive search.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -686,9 +688,20 @@ pub fn init() {
     );
 
     GucRegistry::define_float_guc(
+        c"paradedb.vector_probe_scale_power",
+        c"Power of the shared probe scale below 0.125",
+        c"Applies to filtered and unfiltered queries. 1.0 disables the scale mapping; values at or above 0.125 are unchanged.",
+        &VECTOR_PROBE_SCALE_POWER,
+        1.0,
+        8.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
         c"paradedb.vector_probe_selectivity_exponent",
         c"Intercept of the filter-cost exponent used to normalize vector probe budgets",
-        c"The exponent is clipped to [0, 2]. Set both normalization parameters to zero for the original probe scale.",
+        c"The exponent is clipped to [0, 2]. Set both selectivity parameters to zero and scale power to 1 for the original probe scale.",
         &VECTOR_PROBE_SELECTIVITY_EXPONENT,
         -2.0,
         2.0,
@@ -1368,6 +1381,37 @@ mod tests {
     use super::*;
     use crate::postgres::rel::PgSearchRelation;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn test_vector_probe_scale_preserves_equivalent_fractions() {
+        assert_eq!(vector_cluster_max_probe(), 0.02_f32);
+        for power in [1.0, 2.0, 4.0, 8.0] {
+            Spi::run(&format!("SET paradedb.vector_probe_scale_power = {power}")).unwrap();
+            let mut previous = 0.0;
+            for fraction in [
+                0.000001_f64,
+                0.001,
+                0.00703,
+                0.02,
+                0.0672,
+                0.1,
+                0.125,
+                0.217,
+                1.0,
+            ] {
+                let probe = if fraction < 0.125 {
+                    0.125 * (fraction / 0.125).powf(1.0 / power)
+                } else {
+                    fraction
+                };
+                Spi::run(&format!("SET paradedb.vector_cluster_max_probe = {probe}")).unwrap();
+                let effective = vector_cluster_max_probe();
+                assert_eq!(effective, fraction as f32);
+                assert!(effective > previous);
+                previous = effective;
+            }
+        }
+    }
 
     macro_rules! assert_approx_eq {
         ($a:expr, $b:expr, $percent:expr) => {{

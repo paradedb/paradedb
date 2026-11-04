@@ -73,14 +73,15 @@ These settings affect `pdb.agg`, `GROUP BY`, and faceted search. See [Aggregate 
 
 These settings affect vector queries over `pgvector`'s `vector` type. See [Indexing Vectors](/reference/indexing/indexing-vectors) and [Tuning Recall and Latency](/reference/vector/tuning).
 
-| Setting                                      | Default         | Context | Description                                                                                           |
-| -------------------------------------------- | --------------- | ------- | ----------------------------------------------------------------------------------------------------- |
-| `paradedb.vector_cluster_max_probe`          | `0.02`          | user    | Per-segment vector probe fraction, normalized by filter selectivity before resolving the work budget. |
-| `paradedb.vector_probe_selectivity_exponent` | `-0.86`         | user    | Intercept of the filter-cost exponent used to normalize vector probe budgets.                         |
-| `paradedb.vector_probe_selectivity_slope`    | `-0.73`         | user    | Non-positive slope of the normalization exponent against log probe fraction.                          |
-| `paradedb.vector_clustering_threshold`       | `500`           | user    | Segment document-count threshold at which merged vector storage switches from flat to IVF.            |
-| `paradedb.vector_fixed_probe_cost_rows`      | Tantivy default | user    | Fixed per-probe cost used by the IVF probe-budget model; mainly for testing and calibration.          |
-| `paradedb.vector_stats`                      | `off`           | user    | Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`; for diagnostics.            |
+| Setting                                      | Default               | Context | Description                                                                                  |
+| -------------------------------------------- | --------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `paradedb.vector_cluster_max_probe`          | `0.07905694150420949` | user    | Per-segment vector probe setting, mapped through the shared scale and filter selectivity.    |
+| `paradedb.vector_probe_scale_power`          | `4`                   | user    | Power of the shared probe scale below `0.125`; `1` disables this mapping.                    |
+| `paradedb.vector_probe_selectivity_exponent` | `-0.86`               | user    | Intercept of the filter-cost exponent used to normalize vector probe budgets.                |
+| `paradedb.vector_probe_selectivity_slope`    | `-0.73`               | user    | Non-positive slope of the normalization exponent against log probe fraction.                 |
+| `paradedb.vector_clustering_threshold`       | `500`                 | user    | Segment document-count threshold at which merged vector storage switches from flat to IVF.   |
+| `paradedb.vector_fixed_probe_cost_rows`      | Tantivy default       | user    | Fixed per-probe cost used by the IVF probe-budget model; mainly for testing and calibration. |
+| `paradedb.vector_stats`                      | `off`                 | user    | Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`; for diagnostics.   |
 
 ## Parallel Execution
 

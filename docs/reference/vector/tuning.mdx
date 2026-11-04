@@ -7,28 +7,41 @@ canonical: https://www.paradedb.com/docs/reference/vector/tuning
 Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. One session-level setting controls this tradeoff:
 
 ```sql
-SET paradedb.vector_cluster_max_probe = 0.02;
+SET paradedb.vector_cluster_max_probe = 0.07905694150420949;
 ```
 
-<ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
-  Controls each segment's probe-work budget. Unfiltered queries scale the
-  segment's capacity directly; filtered queries normalize that fraction using
-  the filter's match rate so similar recall levels need more similar settings.
-  Must be between `0.000001` and `1.0`, where `1.0` allows an exhaustive scan.
-  Recall still depends on the query and filter, so measure it on your workload.
+<ParamField
+  body="paradedb.vector_cluster_max_probe"
+  default={0.07905694150420949}
+>
+  Controls each segment's probe-work budget through a nonlinear scale shared by
+  filtered and unfiltered queries. Filtered queries additionally normalize using
+  their match rate. Must be between `0.000001` and `1.0`, where `1.0` allows an
+  exhaustive scan. Recall still depends on the query and filter, so measure it
+  on your workload.
 </ParamField>
 
-Filtered queries use `budget = max_probe * cluster_count * c^exponent`, where
-`c = open_share + (1 - open_share) * match_fraction` and
-`exponent = clamp(-0.86 - 0.73 * ln(max_probe), 0, 2)`. The same resolved budget
-controls routing, scan termination, and automatic router bypass. Cluster-open
-and row charges are unchanged. Existing filtered-query probe settings should
-be retuned for this scale.
+First, the setting `q` maps to an effective fraction
+`f = q * min(q / 0.125, 1)^(power - 1)`, with `power = 4` by default.
+The default setting maps to `f = 0.02`. Settings at or above `0.125` are
+unchanged. Below that point, the scale compresses the range of settings
+needed across selectivities, at the cost of more sensitivity to small changes
+in the setting. This is a change of scale, not a reduction in search work.
 
-For calibration, `paradedb.vector_probe_selectivity_exponent` sets the intercept
-(default `-0.86`, range `[-2, 2]`) and
-`paradedb.vector_probe_selectivity_slope` sets the log-probe slope
-(default `-0.73`, range `[-1, 0]`). Set both to zero to use the original probe scale.
+Filtered queries then use `budget = f * cluster_count * c^exponent`, where
+`c = open_share + (1 - open_share) * match_fraction` and
+`exponent = clamp(-0.86 - 0.73 * ln(f), 0, 2)`. The same resolved budget
+controls routing, scan termination, and automatic router bypass. Cluster-open
+and row charges are unchanged. Existing probe settings, including unfiltered
+settings below `0.125`, need calibration again.
+
+For calibration, `paradedb.vector_probe_scale_power` sets the shared scale
+power (default `4`, range `[1, 8]`).
+`paradedb.vector_probe_selectivity_exponent` sets the filter exponent's
+intercept (default `-0.86`, range `[-2, 2]`) and
+`paradedb.vector_probe_selectivity_slope` sets its slope against `ln(f)`
+(default `-0.73`, range `[-1, 0]`). Set the power to `1` and both selectivity
+parameters to zero to use the original probe scale.
 
 <Note>
   Recall also depends on the index's `training_sample_ratio` and

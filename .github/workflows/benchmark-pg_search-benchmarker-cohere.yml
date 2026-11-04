@@ -247,17 +247,20 @@ jobs:
             const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
               workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
-              branch: 'main', event: 'push', status: 'success', per_page: 100,
+              branch: 'main', status: 'success', per_page: 100,
             });
             for await (const { data: runs } of pages) {
               for (const run of runs) {
                 // Keep the baseline stable if a newer main run finishes first.
                 if (run.run_number >= context.runNumber) continue;
+                if (!['push', 'schedule', 'workflow_dispatch'].includes(run.event)) continue;
                 const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
                   ...context.repo, run_id: run.id, per_page: 100,
                 });
                 const artifact = artifacts.find(a => a.name === name && !a.expired);
                 if (!artifact) continue;
+                const dashboards = `benchmarker-dashboards-cohere-${process.env.COHERE_SIZE}-${run.head_sha}`;
+                if (!artifacts.some(a => a.name === dashboards && !a.expired)) continue;
                 core.setOutput('run_id', run.id);
                 core.setOutput('commit', run.head_sha);
                 core.setOutput('url', run.html_url);
@@ -266,7 +269,7 @@ jobs:
               }
             }
             await core.summary.addHeading('pdbench mainline comparison', 3)
-              .addRaw(`Skipped: no successful main push has an unexpired ${name} artifact.\n`)
+              .addRaw(`Skipped: no successful main run has unexpired diagnostics and dashboards for its main commit.\n`)
               .write();
 
       - name: Download mainline pdbench baseline

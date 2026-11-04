@@ -63,20 +63,25 @@ jobs:
             pg_version: 18
 
     steps:
-      # Force reinstall git to make sure it is in PATH. gettext provides envsubst,
-      # which sigstore/cosign-installer needs and which isn't on PATH by default.
+      # gettext provides envsubst, which sigstore/cosign-installer needs and which
+      # is not on PATH by default. Use macOS Git to avoid the Homebrew reinstall
+      # breaking Git and causing checkout to fall back to a source archive.
       - name: Install Dependencies
         run: |
           # The GitHub macOS runner images ship with aws/tap pre-tapped but untrusted,
           # which makes Homebrew print a "taps are not trusted" warning on every brew
           # invocation. We don't use it, so untap it to keep the logs clean.
           brew untap aws/tap || true
-          brew reinstall git
           brew install gettext
           echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          /usr/bin/git --version
 
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify Git Checkout
+        run: git rev-parse --is-inside-work-tree
 
       # Used to upload the release to GitHub Releases. We force install gh to make sure it is in PATH.
       - name: Install GitHub CLI

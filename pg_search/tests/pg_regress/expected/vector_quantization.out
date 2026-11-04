@@ -330,7 +330,7 @@ SELECT
         AS exact_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
         AS routing_flat,
-    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NULL
         AS bound_flat,
     jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
         AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'

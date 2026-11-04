@@ -1,0 +1,93 @@
+name: Test Vector Storage Compatibility
+description: Read real V4 and V5 indexes across binary upgrades and rollbacks, then rebuild them
+
+inputs:
+  pg_version:
+    description: PostgreSQL major version
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # This revision pins Tantivy 7f43bdd2: .vec V4 and .centroids V3.
+    # Keep the baseline fixed so the test continues crossing the format boundary after merge.
+    - name: Checkout the V4 writer and reader
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: 3cc797ec22607e661bdf81a11653865d8fe203d1
+        path: vector-storage-baseline
+        persist-credentials: false
+
+    - name: Install the V4 binary
+      shell: bash
+      working-directory: vector-storage-baseline/pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      run: |
+        set -euo pipefail
+        cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
+        cp "$(/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config --pkglibdir)/pg_search.so" \
+          "$RUNNER_TEMP/vector-storage-v4.so"
+
+    - name: Create and query V4 indexes
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        FIXTURES: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        echo "shared_preload_libraries = 'pg_search'" >> "$HOME/.pgrx/data-${PG_MAJOR}/postgresql.conf"
+        echo "max_worker_processes = 32" >> "$HOME/.pgrx/data-${PG_MAJOR}/postgresql.conf"
+        cargo pgrx start "pg${PG_MAJOR}"
+        createdb -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/setup.sql"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/verify.sql"
+        cargo pgrx stop "pg${PG_MAJOR}"
+
+    - name: Install the current binary
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+      run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
+
+    - name: Reject old storage and rebuild with the current binary
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        FIXTURES: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        cargo pgrx start "pg${PG_MAJOR}"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/rebuild.sql"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/verify.sql"
+        cargo pgrx stop "pg${PG_MAJOR}"
+
+    # Keep the SQL catalog unchanged throughout. Existing ALTER EXTENSION tests cover
+    # catalog migrations; this test exercises the storage reader/writer in each binary.
+    - name: Restore the V4 binary and rebuild newer storage
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        FIXTURES: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        sudo install -m 755 "$RUNNER_TEMP/vector-storage-v4.so" \
+          "$(/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config --pkglibdir)/pg_search.so"
+        cargo pgrx start "pg${PG_MAJOR}"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/rebuild.sql"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/verify.sql"
+
+    - name: Stop Postgres and print logs
+      if: always()
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+      run: |
+        cargo pgrx stop "pg${PG_MAJOR}"
+        cat "$HOME/.pgrx/${PG_MAJOR}.log"

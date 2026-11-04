@@ -530,9 +530,9 @@ fn vector_config(
     Ok(TableIterator::new(rows))
 }
 
-/// Per-cluster posting-list sizes and ball-bound radii for a single vector
-/// `field` of `index`, one row per segment that stores that field, in cluster
-/// order.
+/// Per-cluster posting-list sizes for a single vector `field` of `index`, one
+/// row per segment, in cluster order. The legacy `cluster_radii` column remains
+/// NULL for SQL compatibility; cluster radius bounds are no longer stored.
 #[pg_extern]
 #[allow(clippy::type_complexity)]
 fn vector_clusters(
@@ -568,12 +568,7 @@ fn vector_clusters(
             let sizes = vector_index
                 .cluster_sizes()?
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.cluster_radii();
-            rows.push((
-                segment_reader.segment_id().short_uuid_string(),
-                sizes,
-                radii,
-            ));
+            rows.push((segment_reader.segment_id().short_uuid_string(), sizes, None));
         }
     }
 

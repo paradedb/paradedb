@@ -340,9 +340,9 @@ pub(super) struct ScanParallelismInputs<'a> {
     /// True when a `GROUP BY` / `SELECT DISTINCT` sits above this scan; routes it through the row
     /// heuristic because PG under-costs the serial HashAggregate for non-collapsing grouping.
     pub(super) has_grouping: bool,
-    /// True when a synonym rule turns the match's token into a union of alternatives. The union
-    /// is a `DisjunctionMax` that Block-WAND does not prune, so the one-token match no longer
-    /// qualifies for the prunable short-circuit.
+    /// True when a synonym rule turns the match's token into a group of alternatives. The group
+    /// prunes less than one term, so the one-token match does not take the prunable
+    /// short-circuit.
     pub(super) synonyms_expand: bool,
 }
 

@@ -48,8 +48,8 @@ use std::ffi::CStr;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur, PhrasePrefixQuery, PhraseQuery,
-    Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
-    TermSetQuery,
+    Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery,
+    SynonymQuery, TermQuery, TermSetQuery,
 };
 use tantivy::query_grammar::{self, UserInputAst, UserInputBound, UserInputLeaf, UserInputLiteral};
 use tantivy::schema::FieldType;
@@ -1903,8 +1903,9 @@ fn expand_match(
     })
 }
 
-/// Whether the set on `search_field` turns the match `value` into a union of alternatives,
-/// which Block-WAND does not prune. A token in no rule stays one `TermQuery`.
+/// Whether the set on `search_field` turns the match `value` into a group of alternatives. A
+/// group of common words prunes less than one term, so the one-token match leaves the serial
+/// short-circuit. A token in no rule stays one `TermQuery`.
 pub(crate) fn match_expands_with_synonyms(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
@@ -2362,23 +2363,35 @@ fn match_query(
             let query: Box<dyn TantivyQuery> = match expansion.alternatives {
                 None => typed_leaf(term(&expansion.tokens[0])?),
                 Some(alternatives) => {
-                    // The alternatives of one input score once, with the best of them. A row
-                    // with both "sofa" and "couch" is not a better match for "sofa" than a row
-                    // with one.
-                    let mut disjuncts = alternatives
+                    let single_words = alternatives
                         .iter()
-                        .map(|alternative| {
-                            if *alternative == expansion.tokens && alternative.len() == 1 {
-                                Ok(typed_leaf(term(&alternative[0])?))
-                            } else {
-                                exact_leaf(alternative)
-                            }
-                        })
-                        .collect::<anyhow::Result<Vec<_>>>()?;
-                    if disjuncts.len() == 1 {
-                        disjuncts.remove(0)
+                        .all(|alternative| alternative.len() == 1);
+                    if alternatives.len() > 1 && single_words && distance == 0 && !prefix {
+                        // One term over the group: the frequencies add up under one idf, and
+                        // Block-WAND gets a bound per block, which a DisjunctionMax cannot give.
+                        let terms = alternatives
+                            .iter()
+                            .map(|alternative| term(&alternative[0]))
+                            .collect::<anyhow::Result<Vec<_>>>()?;
+                        Box::new(SynonymQuery::new(terms))
                     } else {
-                        Box::new(DisjunctionMaxQuery::new(disjuncts))
+                        // A phrase or a fuzzy typed token has no per-block bound, so the group
+                        // scores as its best alternative.
+                        let mut disjuncts = alternatives
+                            .iter()
+                            .map(|alternative| {
+                                if *alternative == expansion.tokens && alternative.len() == 1 {
+                                    Ok(typed_leaf(term(&alternative[0])?))
+                                } else {
+                                    exact_leaf(alternative)
+                                }
+                            })
+                            .collect::<anyhow::Result<Vec<_>>>()?;
+                        if disjuncts.len() == 1 {
+                            disjuncts.remove(0)
+                        } else {
+                            Box::new(DisjunctionMaxQuery::new(disjuncts))
+                        }
                     }
                 }
             };

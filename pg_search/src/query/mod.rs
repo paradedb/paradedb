@@ -893,9 +893,9 @@ impl SearchQueryInput {
         }
     }
 
-    /// Whether a synonym rule turns this query's token into a union of alternatives. The union
-    /// is a `DisjunctionMax` that Block-WAND does not prune, so such a one-token match is not
-    /// the single posting list `is_topk_prunable` assumes. A token in no rule still is.
+    /// Whether a synonym rule turns this query's token into a group of alternatives. The group
+    /// prunes less than the single posting list `is_topk_prunable` assumes, so such a one-token
+    /// match keeps its workers. A token in no rule still is one posting list.
     pub(crate) fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
         match self {
             SearchQueryInput::FieldedQuery {

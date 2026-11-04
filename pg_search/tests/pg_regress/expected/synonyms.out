@@ -262,15 +262,15 @@ SELECT id, description FROM products WHERE description ||| 'running shoes' ORDER
   4 | Running shoes for marathons
 (1 row)
 
--- Scoring: the alternatives of one input share a DisjunctionMax, so the row with both "sofa" and
--- "couch" scores once for that input, with the best alternative, and not twice.
+-- Scoring: the alternatives of one input are one term, with the frequencies summed under one
+-- idf, so the row with both "sofa" and "couch" scores a little above the row with one.
 SELECT id, description, paradedb.score(id) FROM products WHERE description ||| 'sofa' ORDER BY id;
  id |          description           |   score   
 ----+--------------------------------+-----------
   1 | A red sofa for the living room | 1.0608165
   2 | Leather couch with cushions    | 1.3862944
-  3 | Antique divan                  |  2.384951
-  7 | A sofa and a couch, both red   | 1.0608165
+  3 | Antique divan                  | 1.7427702
+  7 | A sofa and a couch, both red   | 1.5741148
 (4 rows)
 
 -- Conjunction: every group must match.
@@ -627,7 +627,7 @@ SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_n
 (1 row)
 
 -- A one-token top-k by score is kept serial as Block-WAND prunable. A rule turns the token
--- into a union that does not prune, so the scan gets workers.
+-- into a group, which prunes less than one term, so the scan gets workers.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
                                                                                                   QUERY PLAN                                                                                                  

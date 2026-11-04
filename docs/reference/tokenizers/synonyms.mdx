@@ -106,9 +106,10 @@ A few things stay exact:
 
 ## Scoring
 
-All the alternatives of one term share one score. A row that has both `sofa` and `couch` scores once for that term, with
-the better of the two, not twice. A directed rule replaces the term you typed, so `sneakers` scores as the phrase
-`running shoes`.
+All the alternatives of one term count as that one term. Their frequencies add up, and the idf is the one of the most
+common alternative, so a row that has both `sofa` and `couch` scores a little above a row with one of them, and a rare
+synonym gets no boost of its own. A group with a multi-word alternative, or a fuzzy term, scores as its best alternative
+instead. A directed rule replaces the term you typed, so `sneakers` scores as the phrase `running shoes`.
 
 ## Limits
 

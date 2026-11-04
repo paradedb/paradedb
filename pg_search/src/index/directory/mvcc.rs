@@ -1400,20 +1400,32 @@ mod tests {
             .map(|r| r.segment_id())
             .collect();
 
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM t WHERE data ||| 'c'").unwrap(),
+            Some(5)
+        );
+
         // The mutable segment's log grows past the captured view.
         Spi::run("INSERT INTO t (data) SELECT 'd' FROM generate_series(1, 7);").unwrap();
         let fresh =
             SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
-        let fresh_mutable = fresh
-            .segment_readers()
+        let fresh_view = fresh.segment_view();
+        let fresh_mutable = fresh_view
+            .entries()
             .iter()
-            .find(|r| r.segment_id() == mutable[0].id)
-            .expect("mutable segment still there");
+            .filter(|entry| entry.source_id() == mutable[0].source_id())
+            .collect::<Vec<_>>();
         assert_eq!(
-            fresh_mutable.max_doc(),
+            fresh_mutable
+                .iter()
+                .map(|entry| entry.max_doc())
+                .sum::<u32>(),
             12,
             "a plain snapshot sees the new rows"
         );
+        if crate::gucs::enable_mutable_segment_cache() {
+            assert_eq!(fresh_mutable.len(), 2, "reuse the prefix and add a tail");
+        }
 
         // A replaying reader sees what the origin saw.
         let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))

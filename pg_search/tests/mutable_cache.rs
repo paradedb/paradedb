@@ -86,25 +86,19 @@ fn backend_exit_releases_cache_resources(
             .unwrap()
             .get(0)
     });
-    let (waiter, keeper) = if building {
+    let keeper = if building {
         let mut waiter = connect();
-        let waiter_pid: i32 = waiter
-            .query_one("SELECT pg_backend_pid()", &[])
-            .unwrap()
-            .get(0);
         let handle = spawn(move || {
             waiter.query_one(
                 "SELECT tests.test_mutable_cache_access($1, false, false)",
                 &[&id],
             )
         });
-        wait_until("query waiting for cache builder", || {
-            control.query_one(
-                "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1 AND wait_event='Extension')",
-                &[&waiter_pid],
-            ).unwrap().get(0)
+        wait_until("reader finishing while the cache builder is parked", || {
+            handle.is_finished()
         });
-        (Some(handle), None)
+        assert!(handle.join().unwrap().unwrap().get::<_, bool>(0));
+        None
     } else {
         let mut keeper = connect();
         let keeper_pid: i32 = keeper
@@ -128,7 +122,7 @@ fn backend_exit_releases_cache_resources(
             .unwrap()
             .get(0);
         assert_eq!(readers, 2);
-        (None, Some((keeper_pid, handle)))
+        Some((keeper_pid, handle))
     };
     let signal = if terminate {
         "pg_terminate_backend"
@@ -142,12 +136,6 @@ fn backend_exit_releases_cache_resources(
             .get::<_, bool>(0)
     );
     assert!(victim.join().unwrap().is_err());
-    if let Some(waiter) = waiter {
-        wait_until("waiter recovering after builder exits", || {
-            waiter.is_finished()
-        });
-        assert!(waiter.join().unwrap().unwrap().get::<_, bool>(0));
-    }
     if let Some((pid, keeper)) = keeper {
         wait_until("only the surviving reader's pin remaining", || {
             control

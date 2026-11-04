@@ -28,6 +28,10 @@ on:
       probe_baseline_ref:
         description: "Optional ABI-compatible commit for a same-index probe overhead diagnostic"
         default: ""
+      probe_allocator_check:
+        description: "Compare restart latency with glibc transparent huge pages enabled and disabled"
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -320,7 +324,7 @@ jobs:
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
       - name: Measure selected operating points with k6
-        if: inputs.probe_baseline_ref == ''
+        if: inputs.probe_baseline_ref == '' && !inputs.probe_allocator_check
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
@@ -380,8 +384,14 @@ jobs:
             --baseline-library "$RUNNER_TEMP/probe-baseline.so"
           cat benchmark-artifacts/probe-overhead/summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check allocator effects across PostgreSQL restarts
+        if: inputs.probe_allocator_check
+        run: |
+          python3 benchmarks/cohere/probe_restart.py --directory benchmark-artifacts
+          cat benchmark-artifacts/probe-restart/summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Stage Benchmarker results
-        if: inputs.probe_baseline_ref == ''
+        if: inputs.probe_baseline_ref == '' && !inputs.probe_allocator_check
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
@@ -415,6 +425,6 @@ jobs:
   publish-results:
     name: Publish Benchmark Results
     needs: cohere
-    if: always() && !cancelled() && inputs.probe_baseline_ref == '' && (needs.cohere.result == 'success' || needs.cohere.result == 'failure')
+    if: always() && !cancelled() && inputs.probe_baseline_ref == '' && !inputs.probe_allocator_check && (needs.cohere.result == 'success' || needs.cohere.result == 'failure')
     uses: ./.github/workflows/publish-benchmark-results.yml
     secrets: inherit

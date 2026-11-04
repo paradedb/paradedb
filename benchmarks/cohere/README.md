@@ -71,6 +71,15 @@ artifact, and restores the candidate library afterward. Diagnostic runs skip
 normal result publication; their separate pdbench and k6 timings do not replace
 the standard benchmark results.
 
+`probe_allocator_check` runs a separate restart diagnostic with the candidate
+binary and one fixed unfiltered 95% point. It compares glibc's huge-page allocator
+with small and inflated resident heaps against `glibc.malloc.hugetlb=0`, three
+times each. Heap states are selected before timing, with up to 12 startup attempts;
+all attempts and any selection failures are recorded. PostgreSQL's explicit
+`huge_pages` configuration is unchanged. The diagnostic records k6 timings,
+server planning/execution totals, and memory metadata under `probe-restart/`.
+It restores the original environment afterward and skips normal publication.
+
 Results begin new `benchmarker cohere-1m` and `benchmarker cohere-10m` histories.
 The old server-time samples are not comparable to k6's client-observed latency
 and throughput. Index build time (minutes) and size (MiB) have a separate

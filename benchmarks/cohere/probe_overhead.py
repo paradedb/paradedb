@@ -69,7 +69,7 @@ def record_machine(destination, installed):
     with installed.open("rb") as library:
         digest = hashlib.file_digest(library, "sha256").hexdigest()
     metadata = {"postmaster_pid": pid, "library_sha256": digest}
-    for name in ("status", "stat", "maps", "numa_maps", "smaps_rollup"):
+    for name in ("status", "stat", "maps", "numa_maps", "smaps", "smaps_rollup"):
         source = Path(f"/proc/{pid}/{name}")
         try:
             (destination / f"postmaster-{name}.txt").write_text(
@@ -81,12 +81,29 @@ def record_machine(destination, installed):
         "cpu": ["lscpu", "-J"],
         "processes": ["ps", "-C", "postgres", "-o", "pid,ppid,psr,pcpu,pmem,rss,comm"],
         "kernel": ["uname", "-a"],
+        "libc": ["ldd", "--version"],
     }.items():
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         (destination / f"{name}.txt").write_text(result.stdout + result.stderr)
     (destination / "meminfo.txt").write_text(
         Path("/proc/meminfo").read_text(encoding="utf-8")
     )
+    (destination / "vmstat.txt").write_text(
+        Path("/proc/vmstat").read_text(encoding="utf-8")
+    )
+    thp = Path("/sys/kernel/mm/transparent_hugepage")
+    metadata["thp"] = {
+        str(setting.relative_to(thp)): setting.read_text().strip()
+        for setting in [thp / "enabled", *thp.glob("hugepages-*/enabled")]
+        if setting.exists()
+    }
+    metadata["allocator_environment"] = [
+        value
+        for value in Path(f"/proc/{pid}/environ")
+        .read_text(encoding="utf-8", errors="replace")
+        .split("\0")
+        if value.startswith("GLIBC_TUNABLES=")
+    ]
     (destination / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 

@@ -28,6 +28,7 @@
 //! `partition_by` fields.
 
 use anyhow::{Result, bail};
+use std::hash::BuildHasher;
 use std::ptr::addr_of_mut;
 use std::sync::Arc;
 
@@ -48,6 +49,7 @@ use crate::index::stats;
 use crate::index::stats::VectorPartition;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
+use crate::postgres::options::DEFAULT_VECTOR_PARTITION_SHARDS;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BorrowedBuffer;
@@ -116,7 +118,7 @@ impl BuildPartitioning {
             Self::Range(tree) => tree.partition_count(),
             Self::Vector(model) => {
                 assert_ne!(model.dimensions, 0, "vector dimensions must be nonzero");
-                (model.centroids.len() / model.dimensions).max(1)
+                (model.centroids.len() / model.dimensions).max(1) * model.shards
             }
         }
     }
@@ -128,7 +130,7 @@ impl BuildPartitioning {
         let centroid = model
             .centroids
             .chunks_exact(model.dimensions)
-            .nth(partition)?;
+            .nth(partition / model.shards)?;
         Some(Arc::new(VectorPartition {
             field: model.field.as_ref().to_string(),
             centroid: centroid.to_vec(),
@@ -165,7 +167,9 @@ impl PartitionRouter {
             }
             Self::Vector { model, projection } => {
                 let vector = unsafe { projection.project(ctid, created_by_version, get_field)? };
-                Ok(model.route(vector.as_ref()))
+                let cluster = model.route(vector.as_ref());
+                let shard = rustc_hash::FxBuildHasher.hash_one(ctid) as usize % model.shards;
+                Ok(cluster * model.shards + shard)
             }
         }
     }
@@ -184,6 +188,7 @@ pub(super) struct VectorPartitioning {
     dimensions: usize,
     metric: VectorMetric,
     centroids: Vec<f32>,
+    shards: usize,
 }
 
 struct VectorSample {
@@ -290,6 +295,7 @@ impl VectorPartitioning {
             dimensions,
             metric,
             centroids,
+            shards: 1,
         })
     }
 
@@ -334,6 +340,15 @@ pub(super) fn plan_partition_boundaries(
     let schema = indexrel.schema()?;
     let vector = partition_vector_field(schema.tantivy_schema(), &partition_by)?
         .map(|options| (options.dim(), options.metric().into()));
+    let shards = if vector.is_some()
+        && target_partitions > 1
+        && indexrel.options().explicit_target_segment_count().is_none()
+    {
+        DEFAULT_VECTOR_PARTITION_SHARDS
+    } else {
+        1
+    };
+    let target_partitions = target_partitions.div_ceil(shards);
     if target_partitions <= 1 {
         return Ok(Some(match vector {
             Some((dimensions, metric)) => BuildPartitioning::Vector(VectorPartitioning {
@@ -341,6 +356,7 @@ pub(super) fn plan_partition_boundaries(
                 dimensions,
                 metric,
                 centroids: Vec::new(),
+                shards,
             }),
             None => BuildPartitioning::Range(KdTree::unpartitioned(partition_by)),
         }));
@@ -380,12 +396,14 @@ pub(super) fn plan_partition_boundaries(
                 |row, vector| sample.insert(row, vector),
             )?
         };
-        return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
+        let mut model = VectorPartitioning::train(
             partition_by[0].clone(),
             metric,
             sample,
             target_partitions.max(1),
-        )?)));
+        )?;
+        model.shards = shards;
+        return Ok(Some(BuildPartitioning::Vector(model)));
     }
     let projection = PartitionField::resolve_dims(&partition_by, &categorized_fields)?;
     let mut sample = Vec::new();
@@ -967,6 +985,153 @@ mod tests {
                     Spi::run("DROP INDEX vector_partition_idx").unwrap();
                 }
             }
+        }
+    }
+
+    #[pg_test]
+    fn vector_partition_default_shards() {
+        use crate::api::{OrderByFeature, OrderByInfo, QueryVector, SortDirection};
+        use crate::index::reader::index::SearchIndexReader;
+        use crate::query::SearchQueryInput;
+
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE vector_shards (id bigint, region int, emb vector(2));
+             INSERT INTO vector_shards
+             SELECT i, (i-1)/512, ARRAY[((i-1)/512)*1000, i%17]::vector
+             FROM generate_series(1,4096) i;
+             INSERT INTO vector_shards VALUES (4097, NULL, NULL), (4098, NULL, '[0,0]');
+             SET max_parallel_workers = 8;",
+        )
+        .unwrap();
+        for (workers, option) in [(0, ""), (2, ", partition_by = 'emb'")] {
+            Spi::run(&format!(
+                "SET max_parallel_maintenance_workers = {workers};
+                 SET max_parallel_workers_per_gather = {workers};
+                 CREATE INDEX vector_shards_idx ON vector_shards
+                 USING paradedb (id, region, emb vector_l2_ops)
+                 WITH (background_layer_sizes = '0'{option});"
+            ))
+            .unwrap();
+            for rebuild in [false, true] {
+                if rebuild {
+                    Spi::run("REINDEX INDEX vector_shards_idx").unwrap();
+                }
+                let (_, indexrel) = open_rels("vector_shards", "vector_shards_idx");
+                assert_eq!(indexrel.options().target_segment_count(), 64);
+                let reader = SearchIndexReader::open(
+                    &indexrel,
+                    SearchQueryInput::All,
+                    false,
+                    MvccSatisfies::Snapshot,
+                )
+                .unwrap();
+                assert_eq!(reader.segment_ids().len(), 64);
+                assert_eq!(reader.search().count(), 4098);
+                let field = reader.searcher().schema().get_field("emb").unwrap();
+                let centroids: std::collections::HashMap<_, _> = reader
+                    .searcher()
+                    .segment_readers()
+                    .iter()
+                    .map(|segment| {
+                        let centroid = stats::SegmentStats::of_reader(segment)
+                            .unwrap()
+                            .unwrap()
+                            .vector_partition(field)
+                            .unwrap()
+                            .unwrap();
+                        (segment.segment_id(), centroid)
+                    })
+                    .collect();
+                let mut counts = std::collections::HashMap::new();
+                for segment in reader.searcher().segment_readers() {
+                    let centroid = &centroids[&segment.segment_id()];
+                    counts
+                        .entry(centroid.iter().map(|v| v.to_bits()).collect::<Vec<_>>())
+                        .or_insert_with(Vec::new)
+                        .push(segment.num_docs());
+                }
+                assert_eq!(counts.len(), 8);
+                for sizes in counts.values() {
+                    assert_eq!(sizes.len(), 8);
+                    assert!(
+                        sizes.iter().max().unwrap() <= &(2 * sizes.iter().min().unwrap()),
+                        "{sizes:?}"
+                    );
+                }
+                let mut nearest = Vec::new();
+                for x in [0.0, 7000.0] {
+                    let order = OrderByInfo {
+                        feature: OrderByFeature::VectorDistance {
+                            name: FieldName::from("emb"),
+                            rti: 0,
+                            query_vector: QueryVector::Resolved(vec![x, 0.0]),
+                            metric: VectorMetric::L2,
+                        },
+                        direction: SortDirection::AscNullsLast,
+                    };
+                    let ids = reader.vector_segment_order(&order).unwrap().unwrap();
+                    assert_eq!(ids.len(), 64);
+                    assert!(
+                        ids[..8]
+                            .iter()
+                            .all(|id| centroids[id] == centroids[&ids[0]])
+                    );
+                    let distances = ids
+                        .iter()
+                        .map(|id| l2_squared(&[x, 0.0], &centroids[id]))
+                        .collect::<Vec<_>>();
+                    assert!(distances.windows(2).all(|pair| pair[0] <= pair[1]));
+                    nearest.push(centroids[&ids[0]].clone());
+                }
+                assert_ne!(nearest[0], nearest[1]);
+            }
+            Spi::run("DROP INDEX vector_shards_idx").unwrap();
+        }
+        for option in ["target_segment_count = 4", "partition_by = 'emb'"] {
+            if option == "partition_by = 'emb'" {
+                unsafe {
+                    pg_sys::SetConfigOption(
+                        c"paradedb.global_target_segment_count".as_ptr(),
+                        c"4".as_ptr(),
+                        pg_sys::GucContext::PGC_SIGHUP,
+                        pg_sys::GucSource::PGC_S_FILE,
+                    );
+                }
+            }
+            Spi::run(&format!(
+                "CREATE INDEX vector_shards_idx ON vector_shards USING paradedb (id, emb)
+                 WITH ({option});"
+            ))
+            .unwrap();
+            let (heaprel, indexrel) = open_rels("vector_shards", "vector_shards_idx");
+            assert_eq!(indexrel.options().target_segment_count(), 4);
+            let model = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+                .unwrap()
+                .unwrap();
+            let BuildPartitioning::Vector(model) = model else {
+                panic!("expected vector partitioning")
+            };
+            assert_eq!(model.shards, 1);
+            assert_eq!(model.centroids.len() / model.dimensions, 4);
+            drop(indexrel);
+            drop(heaprel);
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT count(*) FROM paradedb.index_info('vector_shards_idx')"
+                )
+                .unwrap(),
+                Some(4)
+            );
+            Spi::run("DROP INDEX vector_shards_idx").unwrap();
+        }
+        unsafe {
+            pg_sys::SetConfigOption(
+                c"paradedb.global_target_segment_count".as_ptr(),
+                c"0".as_ptr(),
+                pg_sys::GucContext::PGC_SIGHUP,
+                pg_sys::GucSource::PGC_S_FILE,
+            );
         }
     }
 

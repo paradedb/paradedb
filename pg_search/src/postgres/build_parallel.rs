@@ -1628,15 +1628,16 @@ pub(crate) mod plan {
         }
 
         // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker.
-        // A partitioned build with a target the user set is honored past that floor: its
-        // partition count comes from the kd-tree, not from the workers, so a small table gets
-        // the partitions it asked for. A plain build cuts on the worker layout instead, and
-        // its count under the floor would depend on the machine.
+        // Explicit partition targets and the vector default are independent of the worker
+        // layout, so honor them past that floor.
         let byte_size = plan::estimate_heap_byte_size(heaprel);
         let options = indexrel.options();
         let explicit_partitioned =
             options.explicit_target_segment_count().is_some() && !options.partition_by().is_empty();
-        if byte_size <= 15 * 1024 * 1024 && !explicit_partitioned {
+        if byte_size <= 15 * 1024 * 1024
+            && !explicit_partitioned
+            && !options.is_vector_partitioned()
+        {
             pgrx::debug1!(
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
             );

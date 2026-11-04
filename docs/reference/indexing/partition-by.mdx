@@ -9,7 +9,7 @@ canonical: https://www.paradedb.com/docs/reference/indexing/partition-by
   and internal planner behaviors may change in future releases.
 </Warning>
 
-By default, a ParadeDB index does not partition rows across segments. By using the `partition_by`
+By default, a ParadeDB index without a vector field does not partition rows across segments. By using the `partition_by`
 option in `CREATE INDEX`, you can partition the index space along one or more columns:
 
 The following example uses the demo table’s `rating` field as a partition key. In your application, use the tenant or organization identifier that appears in your filters.
@@ -93,7 +93,13 @@ modelBuilder.Entity<MockItem>()
 
 <Note>
   When an index includes a vector field, `partition_by` defaults to that field
-  unless explicitly set.
+  unless explicitly set. Without an explicit `target_segment_count` (including
+  `paradedb.global_target_segment_count`), a vector-partitioned build targets
+  eight coarse clusters, each sharded by a hash of `ctid` into eight segments:
+  64 segments in total. Small tables or samples with fewer distinct vectors can
+  produce fewer clusters or nonempty segments. An explicit segment target keeps
+  one segment per coarse cluster. Parallel vector scans prioritize the nearest
+  coarse clusters and let workers claim their segments individually.
 </Note>
 
 Partitioning an index provides two key benefits:

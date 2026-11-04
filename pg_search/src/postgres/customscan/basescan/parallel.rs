@@ -232,6 +232,27 @@ unsafe fn leader_publish_query(
     let query = serde_json::to_vec(state.custom_state().search_query_input())
         .expect("should be able to serialize query");
     unsafe { pscan_state.publish_query(query_area(state), &query) };
+    if let Some(mut order) = state
+        .custom_state()
+        .orderby_info()
+        .as_ref()
+        .and_then(|orders| orders.first())
+        .cloned()
+        && order.is_vector_distance()
+    {
+        unsafe { order.resolve_query_vector(state.csstate.ss.ps.state, state.planstate()) };
+        let reader = state
+            .custom_state()
+            .search_reader
+            .as_ref()
+            .expect("parallel leader should hold the segment view");
+        if let Some(segments) = reader
+            .vector_segment_order(&order)
+            .expect("vector partition centroids should be readable")
+        {
+            pscan_state.prioritize_segments_for_source(0, &segments);
+        }
+    }
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,

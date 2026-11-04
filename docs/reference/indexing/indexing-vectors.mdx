@@ -151,6 +151,12 @@ embedding: { metric: :ip }      # inner product
   vector field, whose dimensions must be declared with `vector(N)`.
 </Note>
 
+By default, vector indexes partition rows into eight coarse clusters and shard each
+cluster into eight segments, targeting 64 segments. Parallel filtered searches can
+distribute a nearby cluster's shards across workers. Setting `target_segment_count`
+explicitly keeps one segment per coarse cluster. See [Index Partitioning](/reference/indexing/partition-by)
+for overrides and small-table behavior.
+
 <Note>
   If you track index build progress with
   [`pg_stat_progress_create_index`](https://www.postgresql.org/docs/current/progress-reporting.html#CREATE-INDEX-PROGRESS-REPORTING),

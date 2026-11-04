@@ -1,0 +1,81 @@
+\i common/common_setup.sql
+SET client_min_messages = ERROR;
+CREATE EXTENSION IF NOT EXISTS vector;
+SET paradedb.vector_cluster_max_probe = 1;
+SET paradedb.vector_clustering_threshold = 64;
+SET max_parallel_maintenance_workers = 0;
+
+CREATE TABLE vector_shard_items (id bigint, category int, emb vector(2));
+INSERT INTO vector_shard_items
+SELECT i, i % 3, ARRAY[((i-1)/1024)*1000, i%31]::vector
+FROM generate_series(1,8192) i;
+CREATE TABLE vector_shard_oracle AS TABLE vector_shard_items;
+CREATE INDEX vector_shard_idx ON vector_shard_items
+USING paradedb (id, category, emb vector_l2_ops)
+WITH (background_layer_sizes = '0', max_leaf_size = 8, training_sample_ratio = 1.0);
+ANALYZE vector_shard_items;
+
+SELECT count(*) AS segments FROM paradedb.index_info('vector_shard_idx');
+
+SET max_parallel_workers_per_gather = 2;
+SET parallel_leader_participation = off;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET paradedb.min_rows_per_worker = 0;
+SET vector_shards.query = '[0,0]';
+
+DO $$
+DECLARE
+    plan jsonb;
+    scan jsonb;
+    claims bigint;
+    distinct_claims bigint;
+BEGIN
+    EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, FORMAT JSON)
+        SELECT id FROM vector_shard_items WHERE id @@@ pdb.all() AND category = 1
+        ORDER BY emb <-> current_setting(''vector_shards.query'')::vector, id LIMIT 20'
+    INTO plan;
+    scan := jsonb_path_query_first(plan, '$.** ? (@."Index" == "vector_shard_idx")');
+    ASSERT scan IS NOT NULL AND (scan->>'Parallel Aware')::boolean, plan::text;
+    ASSERT scan->>'Tantivy Query' LIKE '%category%' AND NOT scan ? 'Filter', plan::text;
+    ASSERT (jsonb_path_query_first(plan, '$.**."Workers Launched"') #>> '{}')::int > 0, plan::text;
+    SELECT count(*), count(DISTINCT id) INTO claims, distinct_claims
+    FROM jsonb_each((scan->>'Parallel Workers')::jsonb) w,
+         LATERAL jsonb_array_elements_text(w.value->'claimed_segments') s(id);
+    ASSERT claims = 64 AND distinct_claims = 64, plan::text;
+END
+$$;
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE vector_shards_query(vector) AS
+SELECT ARRAY(
+    SELECT id FROM vector_shard_items WHERE id @@@ pdb.all() AND category = 1
+    ORDER BY emb <-> $1, id LIMIT 20
+) = ARRAY(
+    SELECT id FROM vector_shard_oracle WHERE category = 1
+    ORDER BY emb <-> $1, id LIMIT 20
+) AS matches_exhaustive;
+EXECUTE vector_shards_query('[0,0]');
+EXECUTE vector_shards_query('[7000,0]');
+
+INSERT INTO vector_shard_items VALUES (9001, 1, '[-100,0]');
+INSERT INTO vector_shard_oracle VALUES (9001, 1, '[-100,0]');
+EXECUTE vector_shards_query('[-100,0]');
+
+SET max_parallel_workers_per_gather = 0;
+DISCARD PLANS;
+EXECUTE vector_shards_query('[0,0]');
+EXECUTE vector_shards_query('[7000,0]');
+EXECUTE vector_shards_query('[-100,0]');
+DEALLOCATE vector_shards_query;
+
+DROP TABLE vector_shard_items, vector_shard_oracle;
+RESET plan_cache_mode;
+RESET max_parallel_workers_per_gather;
+RESET parallel_leader_participation;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET paradedb.min_rows_per_worker;
+RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_clustering_threshold;
+RESET max_parallel_maintenance_workers;

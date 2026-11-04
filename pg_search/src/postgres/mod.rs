@@ -245,6 +245,8 @@ struct ParallelScanPayloadLayout {
     all_counts: Range<usize>,
     /// Concatenated 16-byte segment UUIDs for all sources, in ascending source-index order.
     all_ids: Range<usize>,
+    /// Per-source ordinals in checkout order, independent of the frozen reader view.
+    claim_order: Range<usize>,
     /// One `u32` per source: remaining unclaimed segments. Lets every source in a
     /// multi-source MPP plan be partitioned across workers, not just the planner-chosen
     /// partitioning source.
@@ -296,6 +298,10 @@ impl ParallelScanPayloadLayout {
         let all_ids_layout = Layout::from_size_align(total_segs * SEGMENT_ID_SIZE, 1)?;
         let (layout, all_ids_offset) = layout.extend(all_ids_layout)?;
         let all_ids_range = all_ids_offset..(all_ids_offset + all_ids_layout.size());
+
+        let claim_order_layout = Layout::array::<u32>(total_segs)?;
+        let (layout, claim_order_offset) = layout.extend(claim_order_layout)?;
+        let claim_order = claim_order_offset..(claim_order_offset + claim_order_layout.size());
 
         let remaining_layout = Layout::array::<u32>(n_sources)?;
         let (layout, remaining_offset) = layout.extend(remaining_layout)?;
@@ -357,6 +363,7 @@ impl ParallelScanPayloadLayout {
         Ok(Self {
             all_counts: all_counts_range,
             all_ids: all_ids_range,
+            claim_order,
             remaining_by_source: remaining_range,
             all_max_docs: all_max_docs_range,
             all_deleted_docs: all_deleted_docs_range,
@@ -413,6 +420,16 @@ impl ParallelScanPayload {
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[ids_range]).unwrap();
         for (entry, target) in entries.iter().zip(ids_slice.iter_mut()) {
             target.copy_from_slice(entry.id.uuid_bytes());
+        }
+        let order_range = self.layout.claim_order.clone();
+        let order: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[order_range]).unwrap();
+        for (ordinal, slot) in all_nsegments
+            .iter()
+            .flat_map(|&count| 0..count as u32)
+            .zip(order)
+        {
+            *slot = ordinal;
         }
         let encoded: Vec<(u8, u32, u32)> = entries.iter().map(|e| encode_docs(e.docs)).collect();
         let max_range = self.layout.all_max_docs.clone();
@@ -1029,6 +1046,40 @@ impl ParallelScanState {
         }
     }
 
+    /// Publish priorities before the first checkout of a round. Concurrent participants may
+    /// propose the same ordering; once any segment is claimed the queue stays frozen.
+    pub(crate) fn prioritize_segments_for_source(
+        &mut self,
+        source_idx: usize,
+        segments: &[SegmentId],
+    ) {
+        self.wait_for_initialization();
+        let priorities: crate::api::HashMap<_, _> = segments
+            .iter()
+            .enumerate()
+            .map(|(rank, id)| (*id.uuid_bytes(), rank))
+            .collect();
+        let ids = self.payload.source_ids(source_idx);
+        let mut order: Vec<u32> = (0..ids.len() as u32).collect();
+        order.sort_by_key(|&ordinal| {
+            std::cmp::Reverse(
+                priorities
+                    .get(&ids[ordinal as usize])
+                    .copied()
+                    .unwrap_or(usize::MAX),
+            )
+        });
+        let offset = self.payload.source_flat_offset(source_idx);
+        let _mutex = self.acquire_mutex();
+        if self.payload.remaining_by_source_mut()[source_idx] as usize != order.len() {
+            return;
+        }
+        let range = self.payload.layout.claim_order.clone();
+        let slots: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.payload.data_mut()[range]).unwrap();
+        slots[offset..offset + order.len()].copy_from_slice(&order);
+    }
+
     /// Source-aware segment checkout. For the first source (index 0), also records the
     /// claim in the per-segment `claims` array (which is sized to that source's segment
     /// count, so subsequent sources have no slot to write).
@@ -1067,14 +1118,15 @@ impl ParallelScanState {
                 continue;
             }
 
-            // segments are claimed back-to-front; the per-source ids were organized
-            // smallest-to-largest by num_docs in `ParallelScanPayload::init`, so
-            // claiming back-to-front gives largest-first.
-            let claimed_idx = {
+            let queue_idx = {
                 let slot = self.payload.remaining_by_source_mut().get_mut(source_idx)?;
                 *slot -= 1;
                 *slot as usize
             };
+            let claimed_idx = self
+                .payload
+                .source_u32s(self.payload.layout.claim_order.clone(), source_idx)[queue_idx]
+                as usize;
             if writes_claims {
                 self.payload.claims_mut()[claimed_idx] = parallel_worker_number;
             }
@@ -1354,6 +1406,35 @@ mod tests {
     use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
     use crate::index::segment_pruning::STATS_OPENS;
     use std::sync::atomic::Ordering::Relaxed;
+
+    #[pg_test]
+    fn prioritized_checkout_preserves_segment_view_and_rescans() {
+        let (index_rel, _) = segmented_index_fixture("prioritized_claims", 4, false);
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let view = reader.segment_view();
+        let ids = view.ids().collect::<Vec<_>>();
+        let state = unsafe { &mut *test_support::parallel_state_for_view(view.clone()) };
+        let mut order = vec![ids[1], ids[3], ids[0], ids[2]];
+        for _ in 0..2 {
+            state.prioritize_segments_for_source(0, &order);
+            assert_eq!(state.segment_view().entries(), view.entries());
+            assert_eq!(state.checkout_segment_for_source(0), Some(order[0]));
+            state.prioritize_segments_for_source(0, &ids);
+            for id in &order[1..] {
+                assert_eq!(state.checkout_segment_for_source(0), Some(*id));
+            }
+            assert_eq!(state.checkout_segment_for_source(0), None);
+            assert!(state.payload.claims().iter().all(|&claim| claim == -1));
+            state.reset();
+            order.reverse();
+        }
+    }
 
     /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
     /// reads statistics for segments it does not own.

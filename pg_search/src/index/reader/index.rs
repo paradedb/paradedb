@@ -2081,6 +2081,47 @@ impl SearchIndexReader {
         )
     }
 
+    pub(crate) fn vector_segment_order(
+        &self,
+        order: &OrderByInfo,
+    ) -> Result<Option<Vec<SegmentId>>> {
+        let Some((name, query, metric)) = order.as_vector_distance() else {
+            return Ok(None);
+        };
+        let field = self.schema.tantivy_schema().get_field(&name.root())?;
+        let query = crate::vector::PgVector(query.to_vec());
+        let mut priorities = Vec::new();
+        let mut has_centroids = false;
+        for reader in self.searcher.segment_readers() {
+            let centroid = SegmentStats::of_reader(reader)?
+                .map(|stats| stats.vector_partition(field))
+                .transpose()?
+                .flatten();
+            let distance = match centroid {
+                Some(centroid) => {
+                    anyhow::ensure!(centroid.len() == query.0.len(), "vector dimension mismatch");
+                    has_centroids = true;
+                    match metric {
+                        crate::vector::metric::VectorMetric::L2 => {
+                            superkmeans::distance::l2_squared(&query.0, &centroid)
+                        }
+                        crate::vector::metric::VectorMetric::Cosine
+                        | crate::vector::metric::VectorMetric::InnerProduct => {
+                            -query.dot(&centroid)
+                        }
+                    }
+                }
+                None => f32::INFINITY,
+            };
+            priorities.push((reader.segment_id(), distance, reader.num_docs()));
+        }
+        if !has_centroids {
+            return Ok(None);
+        }
+        priorities.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.2.cmp(&a.2)));
+        Ok(Some(priorities.into_iter().map(|(id, _, _)| id).collect()))
+    }
+
     /// Search the Tantivy index for the Top K matching documents in specific segments.
     /// Segments are consumed lazily, except when vector collection uses global batching.
     ///

@@ -36,7 +36,7 @@ jobs:
       max-parallel: 2 # Avoid exhausting regional capacity for the large bare-metal benchmark runners
       matrix:
         suite:
-          - partitioned-table.toml
+          - logical-replication-multi-subscriber.toml
         cache_mode: ["on"]
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
@@ -51,7 +51,7 @@ jobs:
     env:
       pg_version: 18
       CACHE_MODE: ${{ matrix.cache_mode }}
-      POST_CLEANUP: "on"
+      POST_CLEANUP: "off"
 
     steps:
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
@@ -266,10 +266,11 @@ jobs:
           ref: ${{ steps.commit_info.outputs.commit_sha }}
 
       - name: Measure quiescent allocation and page reuse
+        if: env.POST_CLEANUP == 'on'
         run: python .github/diagnostics/post_cleanup.py
 
       - name: Upload cleanup measurements
-        if: always()
+        if: always() && env.POST_CLEANUP == 'on'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: cache-post-cleanup-${{ github.run_attempt }}

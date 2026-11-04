@@ -603,16 +603,16 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
 ORDER BY p.views DESC NULLS LAST, p.id ASC
 LIMIT 5;
-                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: u INNER p
    Join Cond: u.id = p.user_id
    Limit: 5
    Order By: p.views desc nulls last, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, views@3 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=2, output_bytes=320.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, views@4, id@5], fetch=5, metrics=[output_rows=2, output_bytes=320.0 KB, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, views@3 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=2, output_bytes=80.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@1)], projection=[ctid_0@0, id@1, ctid_1@2, views@4, id@5], fetch=5, metrics=[output_rows=2, output_bytes=80.0 B, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[u], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=u, segments={included=1, pruned=1}, query={"range":{"field":"id","lower_bound":null,"upper_bound":{"included":1}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
@@ -641,16 +641,16 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id <= 1 AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: u INNER p
    Join Cond: u.id = p.user_id
    Limit: 5
    Order By: pdb.score(p) desc, p.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, pdb.score(p)@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=2, output_bytes=288.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@2)], projection=[ctid_0@0, id@1, pdb.score(p)@2, ctid_1@3, id@5], fetch=5, metrics=[output_rows=2, output_bytes=288.0 KB, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     : ProjectionExec: expr=[id@1 as col_1, id@4 as col_2, pdb.score(p)@2 as col_3, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, user_id@2)], projection=[ctid_0@0, id@1, pdb.score(p)@2, ctid_1@3, id@5], fetch=5, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[u], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=u, segments={included=1, pruned=1}, query={"range":{"field":"id","lower_bound":null,"upper_bound":{"included":1}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]

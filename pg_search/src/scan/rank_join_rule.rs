@@ -64,11 +64,14 @@
 //!      build side is selective `< paradedb.rank_join_unscored_selectivity_threshold`, or for
 //!      `OrderByFeature::VectorDistance` when `K > 1,000` or `paradedb.enable_rank_join = false`),
 //!      [`try_rewrite_lazy_sort_probe_join`] places the sorted branch on the probe (right) side of
-//!      `HashJoinExec(mode=CollectLeft)`, pushes any outer [`VisibilityFilterExec`] below the
-//!      `HashJoinExec` onto its build and probe inputs (allowing `LimitPushdown` to push
-//!      `fetch=K` directly into `HashJoinExec`), and configures the probe leaf scan with
-//!      `LazySortConfig` (`LazyParallelMode::Unpartitioned`). For `OrderByFeature::Score` and
-//!      `OrderByFeature::Field`, this rewrite is gated on the selective build side fitting within
+//!      `HashJoinExec` (`PartitionMode::Partitioned` when range co-partitioned, or
+//!      `PartitionMode::CollectLeft` otherwise), disables output batch coalescing
+//!      (`with_coalesce_batches(false)`) on `HashJoinExec` along the probe spine, pushes any outer
+//!      [`VisibilityFilterExec`] below the `HashJoinExec` onto its build and probe inputs
+//!      (allowing `LimitPushdown` to push `fetch=K` directly into `HashJoinExec`), and configures
+//!      the probe leaf scan with `LazySortConfig` (`LazyParallelMode::WorkerPool`). For
+//!      `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite is gated on the selective
+//!      build side fitting within
 //!      `paradedb.hash_join_inlist_pushdown_max_distinct_values` and the probe leaf supporting
 //!      indexed `InList` pushdown on the join keys, so the build side's `InList` dynamic filter
 //!      restricts the probe's `TopDocs` / Block-Max WAND collector directly.
@@ -107,7 +110,8 @@
 //!   decode nodes (`TantivyDecodeExec`) and range-partitioned join modes are already placed.
 //!   Because `RankJoinExec` requires in-memory `DynamicFilterPhysicalExpr` RPC channels within
 //!   each task and cross-stage dynamic filters are not yet supported (TODO:
-//!   <https://github.com/paradedb/paradedb/issues/5559>), `subtree_join_partition_mode`
+//!   <https://github.com/paradedb/paradedb/issues/5559>,
+//!   <https://github.com/paradedb/paradedb/issues/7242>), `subtree_join_partition_mode`
 //!   selects `PartitionMode::Partitioned` (preserving `RangePartitioned` leaf scans for single-stage
 //!   MPP execution) iff every `HashJoinExec` in the subtree was range co-partitioned on the same
 //!   partition count (`> 1`); otherwise it falls back to `PartitionMode::CollectLeft` and collapses
@@ -262,6 +266,9 @@ impl PhysicalOptimizerRule for RankJoinRule {
             ));
         }
 
+        // Until on-demand `pdb.vector_score` evaluation on arbitrary `DocId`s is supported
+        // outside `TopDocs::order_by_similarity` (<https://github.com/paradedb/paradedb/issues/7141>),
+        // a vector `ORDER BY` leaf must be placed on the ordered `SA` / probe spine by this rule.
         if any_scan(&rewritten, |s| {
             s.vector_order_by().is_some() && s.lazy_sort().is_none_or(|ls| ls.ordering.is_none())
         }) {
@@ -305,7 +312,8 @@ impl SubtreeScoreStats {
         estimated_rows: u64,
     ) -> Option<Self> {
         let base_has_score = !base_query.is_constant_score();
-        let disjuncts_have_score = disjunct_queries.iter().any(|q| !q.is_constant_score());
+        let disjuncts_have_score =
+            !disjunct_queries.is_empty() && disjunct_queries.iter().all(|q| !q.is_constant_score());
         if is_score_sort && !base_has_score && !disjuncts_have_score {
             return None;
         }
@@ -550,7 +558,8 @@ fn try_rewrite_under_sort(
 /// cross-stage dynamic filters. Otherwise returns `PartitionMode::CollectLeft`.
 ///
 /// TODO: Support cross-stage dynamic filters for full MPP `RankJoinExec` execution across
-/// non-co-partitioned stages: <https://github.com/paradedb/paradedb/issues/5559>.
+/// non-co-partitioned stages: <https://github.com/paradedb/paradedb/issues/5559>,
+/// <https://github.com/paradedb/paradedb/issues/7242>.
 fn subtree_join_partition_mode(node: &Arc<dyn ExecutionPlan>) -> Result<PartitionMode> {
     let mut expected_partitions: Option<usize> = None;
     let mut all_co_partitioned = true;
@@ -1684,12 +1693,14 @@ fn advance_probe_join_context(
 /// `< rank_join_unscored_selectivity_threshold`, or for `OrderByFeature::VectorDistance` when
 /// `estimated_rows < rank_join_min_rows`, `k > MAX_RANK_JOIN_K`, or `enable_rank_join = false`).
 ///
-/// Places the sorted branch on the probe (right) side of `HashJoinExec(mode=CollectLeft)`,
-/// pushes any outer [`VisibilityFilterExec`] below `HashJoinExec` onto its build and probe
-/// inputs (so `EnforceSorting` + `LimitPushdown` convert `SortExec(fetch=K)` into
+/// Places the sorted branch on the probe (right) side of `HashJoinExec`
+/// (`PartitionMode::Partitioned` when range co-partitioned, or `PartitionMode::CollectLeft`
+/// otherwise), disables output batch coalescing (`with_coalesce_batches(false)`) on `HashJoinExec`
+/// along the probe spine, pushes any outer [`VisibilityFilterExec`] below `HashJoinExec` onto its
+/// build and probe inputs (so `EnforceSorting` + `LimitPushdown` convert `SortExec(fetch=K)` into
 /// `HashJoinExec(fetch=K)`), and configures the probe leaf `PgSearchScanPlan` with
-/// `LazySortConfig` (`OrderByFeature::VectorDistance`, `OrderByFeature::Score`, or
-/// `OrderByFeature::Field` plus any secondary tie-breakers).
+/// `LazySortConfig` (`LazyParallelMode::WorkerPool`, supporting `OrderByFeature::VectorDistance`,
+/// `OrderByFeature::Score`, or `OrderByFeature::Field` plus any secondary tie-breakers).
 ///
 /// For `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite requires the build
 /// side's estimated row count to fit within `paradedb.hash_join_inlist_pushdown_max_distinct_values`
@@ -1864,6 +1875,7 @@ fn try_rewrite_lazy_sort_probe_join(
                 .builder()
                 .with_new_children(vec![build_left, new_right])?
                 .with_partition_mode(mode)
+                .with_coalesce_batches(false)
                 .build_exec()?;
             Ok(Some(new_join))
         }
@@ -1896,6 +1908,7 @@ fn try_rewrite_lazy_sort_probe_join(
             let updated = join
                 .builder()
                 .with_new_children(vec![new_left, build_left])?
+                .with_coalesce_batches(false)
                 .build()?;
             // Delegate to `HashJoinExec::swap_inputs`, which wraps unprojected `Inner` joins in
             // `reorder_output_after_swap` (`ProjectionExec`) rather than setting an embedded
@@ -1948,6 +1961,8 @@ fn resolve_scan_order_by(
     } else if field_sort_policy == FieldSortPolicy::Allowed
         && scan.is_sortable_fast_field(col.index())
     {
+        // TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key:
+        // <https://github.com/paradedb/paradedb/issues/7244>.
         OrderByFeature::Field {
             name: FieldName::from(field_name.clone()),
             rti: 0,

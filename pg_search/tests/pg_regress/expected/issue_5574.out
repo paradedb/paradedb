@@ -40,7 +40,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) EXECUTE issue_5574_page(5);
    Limit: $1
    Order By: c.parent_id asc
    DataFusion Physical Plan: 
-     : SortExec: TopK(fetch=1000), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
      :   ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0]
      :     VisibilityFilterExec: tables=[p, c], pruned=[c]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@0)]

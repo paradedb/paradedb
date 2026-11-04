@@ -66,10 +66,11 @@ use crate::scan::range_partitioning::RangePartitioning;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LazyParallelMode {
     /// Claims segments from the shared `ParallelScanState` worker pool (when present)
-    /// and shares the cross-worker Top-K threshold on the initial window pull.
+    /// and, for single-table `BaseScan` (`source_idx.is_none()`), shares the cross-worker
+    /// Top-K threshold on the initial window pull.
     WorkerPool,
-    /// Ignores `ParallelScanState` so a single-task `RankJoinExec` or `HashJoinExec` probe
-    /// leaf scan searches all segments in the index without cross-worker threshold sharing.
+    /// Ignores `ParallelScanState` so a single-task `RankJoinExec` leaf scan searches all
+    /// segments in the index without cross-worker segment claiming or threshold sharing.
     Unpartitioned,
 }
 
@@ -192,10 +193,11 @@ impl std::fmt::Debug for LazySortConfig {
 ///
 /// TODO: Make Sorted Access (`SA`) truly lazy/incremental across pulls instead of re-executing
 /// `search_top_k_in_segments` (or `search_top_k_segments_with_range_filter`) from scratch with an
-/// increasing `offset` on each retry. Re-running `TopDocs` with `offset + limit` re-traverses and
-/// re-scores all `offset` previously emitted documents on every pull; maintaining stateful
-/// per-segment cursors or passing the last emitted `(sort_key, DocAddress)` bound into the
-/// collector would allow each pull to collect only `limit` new documents.
+/// increasing `offset` on each retry: <https://github.com/paradedb/paradedb/issues/7243>.
+/// Re-running `TopDocs` with `offset + limit` re-traverses and re-scores all `offset` previously
+/// emitted documents on every pull; maintaining stateful per-segment cursors or passing the last
+/// emitted `(sort_key, DocAddress)` bound into the collector would allow each pull to collect only
+/// `limit` new documents.
 enum WindowStep {
     FirstPull,
     Retry { chunk_size: usize },
@@ -695,7 +697,7 @@ impl LazySortStreamState {
         // `AllComplete` before the probe stream is polled, and the scored child of a root
         // single-sided `NRJN` join has no lookup filter).
         let is_rank_join_leaf = matches!(lazy_sort.parallel_mode, LazyParallelMode::Unpartitioned)
-            && dynamic_filters.first().is_some_and(|df| {
+            && dynamic_filters.iter().any(|df| {
                 matches!(
                     DynamicFilterTracking::classify(df),
                     DynamicFilterTracking::Watching(_)
@@ -926,13 +928,16 @@ impl LazySortStreamState {
                 datafusion::common::ScalarValue::Boolean(None),
             ),
         };
-        // DataFusion's `push_down_filters` places each operator's `self_filters` before its
-        // incoming `parent_filters`, and `RankJoinExec::gather_filters_for_pushdown` always
-        // attaches its own lookup filter whenever `parent_filters` is non-empty, so `first()`
-        // is guaranteed to be the direct parent `RankJoinExec`'s filter.
-        if let Some(df) = self.dynamic_filters.first()
-            && let Some(dyn_filter) = df.downcast_ref::<DynamicFilterPhysicalExpr>()
-        {
+        // Find the `Watching` lookup filter pushed down by our parent `RankJoinExec` and
+        // update it with the exhaustion sentinel.
+        if let Some(dyn_filter) = self.dynamic_filters.iter().find_map(|df| {
+            matches!(
+                DynamicFilterTracking::classify(df),
+                DynamicFilterTracking::Watching(_)
+            )
+            .then(|| df.downcast_ref::<DynamicFilterPhysicalExpr>())
+            .flatten()
+        }) {
             let _ = dyn_filter.update(sentinel);
         }
     }

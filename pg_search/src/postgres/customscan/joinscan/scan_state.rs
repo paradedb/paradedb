@@ -1913,9 +1913,10 @@ fn apply_sort(
     // When LIMIT/OFFSET is parameterized, `df.limit(...)` is deferred until execution
     // (`bind_runtime_limit_offset`). Seed `Sort.fetch` with the planning estimate so
     // logical barrier/reduction rules (`VisibilityFilterOptimizerRule`,
-    // `LateMaterializationRule`) and plain `EXPLAIN` (`RankJoinRule`) see a Top-K `Sort`;
-    // `bind_runtime_limit_offset` replaces `Sort.fetch` with the resolved `skip + fetch`
-    // at execution time.
+    // `LateMaterializationRule`) and unbound `EXPLAIN (GENERIC_PLAN)` (`RankJoinRule`)
+    // see a Top-K `Sort`; `bind_runtime_limit_offset` replaces `Sort.fetch` with the
+    // resolved `skip + fetch` whenever parameter values are bound (`EXPLAIN EXECUTE` and
+    // execution).
     let parameterized_fetch = join_clause
         .limit_offset
         .as_ref()

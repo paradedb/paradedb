@@ -519,8 +519,8 @@ LIMIT 10;
    Limit: 10
    Order By: ts_multi.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4], fetch=10, metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=1200.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=60, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=640.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4], fetch=10, metrics=[output_rows=10, output_bytes=640.0 B, output_batches=1, build_mem_used=1200.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=60, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
      :     VisibilityFilterExec: tables=[ts_outer], metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1, ctids_fetched=60, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"val","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":60}}}]}}, metrics=[output_rows=60, output_bytes=960.0 B, output_batches=1]
@@ -565,8 +565,8 @@ LIMIT 10;
    Limit: 10
    Order By: ts_sorted.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4], fetch=10, metrics=[output_rows=10, output_bytes=256.0 KB, output_batches=1, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
+     : ProjectionExec: expr=[id@1 as col_1, id@3 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1], metrics=[output_rows=10, output_bytes=640.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, fk@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4], fetch=10, metrics=[output_rows=10, output_bytes=640.0 B, output_batches=1, build_mem_used=2000.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=100, input_batches=1, input_rows=20, avg_fanout=100% (20/20), probe_hit_rate=100% (20/20)]
      :     VisibilityFilterExec: tables=[ts_outer], metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1, ctids_fetched=100, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=ts_outer, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"match":{"field":"val","value":"doc","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"id","lower_bound":null,"upper_bound":{"included":100}}}]}}, metrics=[output_rows=100, output_bytes=1600.0 B, output_batches=1]

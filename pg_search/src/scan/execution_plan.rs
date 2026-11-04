@@ -428,7 +428,8 @@ impl PgSearchScanPlan {
     /// Collapses a range-partitioned or multi-partition scan to a single `Shared` partition
     /// (`UnknownPartitioning(1)`). Used when a rank join cannot be co-partitioned in a single
     /// stage and therefore falls back to `PartitionMode::CollectLeft`
-    /// (TODO: <https://github.com/paradedb/paradedb/issues/5559>).
+    /// (TODO: <https://github.com/paradedb/paradedb/issues/5559>,
+    /// <https://github.com/paradedb/paradedb/issues/7242>).
     pub(crate) fn into_single_shared_partition(mut self) -> Self {
         self.global_partition_count = 1;
         self.range_split_points = None;
@@ -887,6 +888,9 @@ impl PgSearchScanPlan {
     /// Returns `true` if `col_idx` refers to a scalar, non-deferred fast-field column backed by
     /// a static fast-value type (`U64`, `I64`, `F64`, `Bool`, or `Date`) that can be sorted via
     /// Tantivy's specialized `SortByStaticFastValue` Top-K collector in `LazySortMode`.
+    ///
+    /// TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key in
+    /// `RankJoinRule` and `RankJoinExec`: <https://github.com/paradedb/paradedb/issues/7244>.
     pub fn is_sortable_fast_field(&self, col_idx: usize) -> bool {
         self.check_scalar_search_field(col_idx, |delivery, sf| {
             delivery == crate::index::fast_fields_helper::FieldDelivery::Eager
@@ -1704,6 +1708,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                 "ScanMode::Disjunctive cannot execute without lazy_sort (RankJoinExec)".to_string(),
             ));
         }
+        // `WhichFastField::VectorScore` is currently only populated via `TopDocs::order_by_similarity`
+        // in `search_top_k_in_segments` (<https://github.com/paradedb/paradedb/issues/7141>).
         if lazy_sort.as_ref().is_none_or(|ls| ls.initial_window <= 0.0)
             && (self.vector_order_by().is_some()
                 || scanner_config

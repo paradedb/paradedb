@@ -1809,6 +1809,18 @@ async fn generated_rank_join(database: Db) {
             other => other,
         };
         let is_vector_order = matches!(effective_order, RankJoinOrderKind::VectorDistance { .. });
+        let n_scored = match effective_order {
+            RankJoinOrderKind::VectorDistance { .. } => 0,
+            RankJoinOrderKind::FastField if !use_disjunctive => 0,
+            RankJoinOrderKind::FastField => visible_tables.len(),
+            RankJoinOrderKind::Score(n) => {
+                if use_disjunctive {
+                    visible_tables.len()
+                } else {
+                    n.min(visible_tables.len())
+                }
+            }
+        };
 
         let (select_table, order_by) = match effective_order {
             RankJoinOrderKind::VectorDistance {
@@ -1826,15 +1838,6 @@ async fn generated_rank_join(database: Db) {
                 (vec_table, parts.join(", "))
             }
             RankJoinOrderKind::FastField | RankJoinOrderKind::Score(_) => {
-                let n_scored = if use_disjunctive {
-                    visible_tables.len()
-                } else {
-                    match effective_order {
-                        RankJoinOrderKind::FastField => 0,
-                        RankJoinOrderKind::Score(n) => n.min(visible_tables.len()),
-                        RankJoinOrderKind::VectorDistance { .. } => unreachable!(),
-                    }
-                };
                 let score_sep = if !use_disjunctive && multiply_scores {
                     " * "
                 } else {
@@ -1902,11 +1905,9 @@ async fn generated_rank_join(database: Db) {
             && !join_clause.contains(".name =")
             && !join_clause.contains(".big_numeric =")
             && extra_base_where.is_none()
-            && (matches!(
-                effective_order,
-                RankJoinOrderKind::FastField | RankJoinOrderKind::VectorDistance { .. }
-            ) || descending)
+            && (n_scored == 0 || descending)
             && !gucs.parallel_workers
+            && gucs.filter_pushdown
             && table_wheres
                 .iter()
                 .all(|w| matches!(w, WhereExpr::Atom { is_indexed: true, .. }))
@@ -1935,14 +1936,14 @@ async fn generated_rank_join(database: Db) {
                     candidate: sides.baseline.clone(),
                 };
                 qgen_oracle!(
-                    "qgen: generated_rank_join - vector HashJoinExec + LazySortExec planned",
+                    "qgen: generated_rank_join - vector HashJoinExec + lazy_sort planned",
                     compare_plan_retrying_on(
                         &baseline_plan_sides,
                         &bm25_query,
                         &bm25_query,
                         &pool,
                         &setup_sql,
-                        &["LazySortExec"],
+                        &["lazy_sort="],
                         &["Sort Key:", "RankJoinExec"],
                     )
                 )?;

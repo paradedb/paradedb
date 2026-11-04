@@ -1645,6 +1645,15 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
+            let runtime_limit_offset = join_clause
+                .limit_offset
+                .as_ref()
+                .filter(|lo| lo.has_any_param())
+                .and_then(|lo| {
+                    let mut resolved = lo.clone();
+                    resolved.resolve_mut(state.csstate.ss.ps.state)?;
+                    Some((resolved.static_offset()?, resolved.static_limit()?))
+                });
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_for_explain(
                     bytes,
@@ -1652,6 +1661,7 @@ impl CustomScan for JoinScan {
                     expr_context.as_ptr(),
                 )
                 .expect("Failed to deserialize logical plan");
+                let logical_plan = bind_runtime_limit_offset(logical_plan, runtime_limit_offset);
                 runtime
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")

@@ -702,8 +702,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
@@ -802,8 +802,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id desc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=256.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=288.0 KB, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=108.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
@@ -1014,16 +1014,16 @@ WHERE c.id @@@ pdb.all()
   AND p.category = 'beta'
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=1, output_bytes=224.0 KB, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=1, avg_fanout=100% (1/1), probe_hit_rate=100% (1/1)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=1, avg_fanout=100% (1/1), probe_hit_rate=100% (1/1)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"category","value":"beta"}}]}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
@@ -1043,8 +1043,8 @@ WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
   AND c.id + p.id > 0
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1052,8 +1052,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=256.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=288.0 KB, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
@@ -1142,8 +1142,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=224.0 KB, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
@@ -1188,8 +1188,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=224.0 KB, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
@@ -1251,8 +1251,8 @@ LIMIT 1;
    Limit: 1
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=1, metrics=[output_rows=1, output_bytes=224.0 KB, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=1, metrics=[output_rows=1, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
@@ -1357,8 +1357,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=224.0 KB, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
@@ -1550,8 +1550,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
      :     CooperativeExec
      :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
@@ -1595,8 +1595,8 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=192.0 KB, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=224.0 KB, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=112.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]

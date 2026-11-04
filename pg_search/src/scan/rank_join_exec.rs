@@ -1948,6 +1948,8 @@ impl RankedInputCursor {
     fn evaluate_batch(&self, batch: &RecordBatch) -> Result<(Vec<f64>, Vec<Option<OwnedRow>>)> {
         let num_rows = batch.num_rows();
         let score_arr = self.sort_expr.expr.evaluate(batch)?.into_array(num_rows)?;
+        // TODO: Support string and bytes primary sort columns in single-sided (`NRJN`) rank joins:
+        // <https://github.com/paradedb/paradedb/issues/7244>.
         let score_f64_arr = match score_arr.data_type() {
             DataType::Float64 => score_arr,
             DataType::Boolean => {

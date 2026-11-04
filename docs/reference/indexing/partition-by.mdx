@@ -91,6 +91,11 @@ modelBuilder.Entity<MockItem>()
 
 </CodeGroup>
 
+<Note>
+  When an index includes a vector field, `partition_by` defaults to that field
+  unless explicitly set.
+</Note>
+
 Partitioning an index provides two key benefits:
 
 - Accelerating search and filter queries

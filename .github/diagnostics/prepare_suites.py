@@ -85,4 +85,9 @@ SELECT greatest(0,coalesce(max(pg_wal_lsn_diff(s.received_lsn,o.remote_lsn)),0))
 FROM pg_stat_subscription s CROSS JOIN pg_replication_origin_status o;
 """
 '''
+if os.environ.get("POST_CLEANUP") == "on":
+    before, tail = text.split("[server.teardown]", 1)
+    teardown, after = tail.split("[server.monitor]", 1)
+    teardown = re.sub(r'sql = """[\s\S]*?"""', 'sql = ""', teardown, count=1)
+    text = before + "[server.teardown]" + teardown + "[server.monitor]" + after
 path.write_text(text, encoding="utf-8")

@@ -121,7 +121,7 @@ impl BuildPartitioning {
         }
     }
 
-    pub(super) fn vector_partition(&self, partition: usize) -> Option<Arc<VectorPartition>> {
+    pub(super) fn vector_partition(&self, partition: usize) -> Option<Arc<VectorPartition<f32>>> {
         let Self::Vector(model) = self else {
             return None;
         };

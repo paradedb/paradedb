@@ -66,7 +66,7 @@ impl PendingSegment {
     fn set_partition_metadata(
         &mut self,
         bounds: Option<Arc<LogicalBoundsByField>>,
-        partition: Option<Arc<VectorPartition>>,
+        partition: Option<Arc<VectorPartition<f32>>>,
     ) {
         if let Some(writer) = self
             .writer
@@ -229,7 +229,7 @@ pub struct SerialIndexWriter {
     schema: SearchIndexSchema,
     disk_guard: Option<DiskSpaceGuard>,
     logical_bounds: Option<Arc<LogicalBoundsByField>>,
-    vector_partition: Option<Arc<VectorPartition>>,
+    vector_partition: Option<Arc<VectorPartition<f32>>>,
     build: Option<BuildSegments>,
 }
 
@@ -376,7 +376,7 @@ impl SerialIndexWriter {
         self.logical_bounds = bounds;
     }
 
-    pub(crate) fn set_vector_partition(&mut self, partition: Option<Arc<VectorPartition>>) {
+    pub(crate) fn set_vector_partition(&mut self, partition: Option<Arc<VectorPartition<f32>>>) {
         assert!(
             self.pending_segment.is_none(),
             "partition must be set before writing rows"

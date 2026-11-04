@@ -60,9 +60,9 @@ const VECTOR_PARTITION_IDX: usize = 2;
 
 /// The build's coarse centroid, used for global vector routing.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct VectorPartition {
+pub(crate) struct VectorPartition<T> {
     pub(crate) field: String,
-    pub(crate) centroid: Vec<f32>,
+    pub(crate) centroid: Vec<T>,
 }
 
 /// Empirical `min`/`max` of one fast field within one segment. `nullable` is false only when

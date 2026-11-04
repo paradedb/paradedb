@@ -89,7 +89,7 @@ impl SegmentPlugin for StatsPlugin {
 /// `.fast` file, which the built-in plugins serialize before this one runs.
 pub(crate) struct StatsWriter {
     logical: Option<Arc<LogicalBoundsByField>>,
-    vector_partition: Option<Arc<VectorPartition>>,
+    vector_partition: Option<Arc<VectorPartition<f32>>>,
 }
 
 impl StatsWriter {
@@ -97,7 +97,7 @@ impl StatsWriter {
         self.logical = Some(bounds);
     }
 
-    pub(crate) fn set_vector_partition(&mut self, partition: Arc<VectorPartition>) {
+    pub(crate) fn set_vector_partition(&mut self, partition: Arc<VectorPartition<f32>>) {
         self.vector_partition = Some(partition);
     }
 }
@@ -141,7 +141,7 @@ fn write_stats(
     segment: &Segment,
     schema: &Schema,
     logical: Option<&LogicalBoundsByField>,
-    vector_partition: Option<&VectorPartition>,
+    vector_partition: Option<&VectorPartition<f32>>,
 ) -> tantivy::Result<()> {
     let empirical = empirical_stats(segment, schema)?;
     let mut write = CompositeWrite::wrap(segment.open_write(stats_component())?);
@@ -308,7 +308,7 @@ fn column_stats(handle: &DynamicColumnHandle) -> tantivy::Result<Option<Empirica
 fn merged_partition_metadata(
     readers: &[SegmentReader],
     schema: &Schema,
-) -> tantivy::Result<(Option<LogicalBoundsByField>, Option<VectorPartition>)> {
+) -> tantivy::Result<(Option<LogicalBoundsByField>, Option<VectorPartition<f32>>)> {
     let mut sources = Vec::with_capacity(readers.len());
     for reader in readers {
         match SegmentStats::of_reader(reader)? {

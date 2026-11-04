@@ -31,13 +31,7 @@ permissions:
 
 jobs:
   test-vector-storage-compatibility:
-    name: Test vector storage upgrade and rollback (${{ matrix.baseline.format }})
-    strategy:
-      fail-fast: false
-      matrix:
-        baseline:
-          - { format: V4, ref: 3cc797ec22607e661bdf81a11653865d8fe203d1 }
-          - { format: V5, ref: bc7418949ddcd6e2129a320b92afc466c74a35a1 }
+    name: Test vector storage upgrade and rollback (V4/V5)
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -73,7 +67,7 @@ jobs:
         uses: ./.github/actions/test-vector-storage-compatibility
         with:
           pg_version: 18
-          baseline_ref: ${{ matrix.baseline.ref }}
+          baseline_ref: bbeade35089a52073741d40ec9dcd16133b26c84
 
   # Test the newest release in this checkout's SQL chain and the pinned legacy release.
   discover-upgrade-starting-points:

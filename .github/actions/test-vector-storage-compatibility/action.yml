@@ -13,7 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # Pinned baselines keep testing the format boundary after the new writer merges.
+    # The pinned baseline keeps testing the format boundary after the new writer merges.
     - name: Checkout the baseline writer and reader
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:

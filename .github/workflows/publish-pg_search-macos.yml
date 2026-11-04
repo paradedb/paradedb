@@ -64,8 +64,7 @@ jobs:
 
     steps:
       # gettext provides envsubst, which sigstore/cosign-installer needs and which
-      # is not on PATH by default. Use macOS Git to avoid the Homebrew reinstall
-      # breaking Git and causing checkout to fall back to a source archive.
+      # is not on PATH by default.
       - name: Install Dependencies
         run: |
           # The GitHub macOS runner images ship with aws/tap pre-tapped but untrusted,

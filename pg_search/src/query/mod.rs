@@ -26,7 +26,6 @@ pub(crate) mod proximity;
 mod range;
 mod score;
 pub(crate) mod segment_pruning;
-#[allow(dead_code)]
 pub mod synonyms;
 pub mod tid_bitmap_stream;
 

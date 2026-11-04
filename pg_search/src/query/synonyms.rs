@@ -17,20 +17,32 @@
 
 //! Query-time synonym expansion.
 //!
-//! A set is a list of Solr-format rules. It is compiled against the analyzer of the query, so
-//! stemming and lowercasing apply to the rules and to the query alike. The compiled form is an
-//! FST over the rule keys plus one blob of alternatives, the `SynonymMap` layout from Lucene.
+//! A set is the rows of `pdb.synonym_rules` that share a `set_name`, one Solr-format rule each.
+//! A set is compiled against the analyzer of the query, so stemming and lowercasing apply to the
+//! rules and to the query alike. The compiled form, an FST over the rule keys plus one blob of
+//! alternatives, is kept per backend until a rule change drops it through a relcache
+//! invalidation.
 
 use crate::api::HashMap;
+use crate::postgres::utils::ActiveSnapshotGuard;
+use parking_lot::Mutex;
+use pgrx::trigger_support::{PgTrigger, PgTriggerOperation};
+use pgrx::{Spi, pg_guard, pg_sys};
+use std::ffi::CStr;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy_fst::{Map, MapBuilder, Streamer};
 use thiserror::Error;
+use tokenizers::SearchTokenizer;
 
 /// A side of a rule past this many terms compiles to the square of that many alternatives.
 const MAX_RULE_TERMS: usize = 256;
 
 #[derive(Debug, Error)]
 pub enum SynonymError {
+    #[error("synonym set '{0}' does not exist")]
+    NotFound(String),
     #[error("synonym set '{set}' has an invalid rule '{rule}': {reason}")]
     InvalidRule {
         set: String,
@@ -39,6 +51,8 @@ pub enum SynonymError {
     },
     #[error("the stored form of synonym set '{set}' does not load: {reason}")]
     Stored { set: String, reason: String },
+    #[error(transparent)]
+    Spi(#[from] pgrx::spi::Error),
     #[error(transparent)]
     Fst(#[from] tantivy_fst::Error),
 }
@@ -137,6 +151,7 @@ pub struct Expansion {
 impl Expansion {
     /// True when the expansion builds one `TermQuery`, the shape Block-WAND prunes. A token in
     /// no rule, or a rule whose one alternative is one word, is a single term.
+    #[allow(dead_code)]
     pub fn is_single_term(&self) -> bool {
         match &self.alternatives {
             None => true,
@@ -146,6 +161,7 @@ impl Expansion {
 
     /// Keeps at most `max` alternatives, in rule order. The typed tokens survive the cap, so a
     /// long rule never drops what the user typed.
+    #[allow(dead_code)]
     pub fn cap(&mut self, max: usize) {
         let Some(alternatives) = &mut self.alternatives else {
             return;
@@ -325,10 +341,12 @@ impl SynonymFst {
         })
     }
 
+    #[allow(dead_code)]
     pub fn to_bytes(&self) -> (Vec<u8>, Vec<u8>) {
         (self.keys.as_fst().to_vec(), self.blob.clone())
     }
 
+    #[allow(dead_code)]
     pub fn from_bytes(set: &str, fst: Vec<u8>, blob: Vec<u8>) -> Result<Self, SynonymError> {
         let stored = |reason: String| SynonymError::Stored {
             set: set.to_string(),
@@ -414,6 +432,204 @@ impl SynonymFst {
         }
         expansions
     }
+}
+
+/// Identifies an analyzer configuration by its `SearchTokenizer` as JSON text. A field with no
+/// tokenizer config has an empty key.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct AnalyzerKey(String);
+
+impl AnalyzerKey {
+    pub fn new(tokenizer: Option<&SearchTokenizer>) -> Self {
+        Self(tokenizer.map_or_else(String::new, |tokenizer| {
+            serde_json::to_string(&tokenizer.to_stored_value())
+                .expect("a tokenizer config serializes")
+        }))
+    }
+}
+
+/// Per backend: the compiled sets read so far, by set and analyzer.
+type CompiledSets = HashMap<String, HashMap<AnalyzerKey, Arc<SynonymFst>>>;
+
+static CACHE: OnceLock<Mutex<CompiledSets>> = OnceLock::new();
+
+/// The relation id of `pdb.synonym_sets`, so the relcache callback can tell its invalidation
+/// from any other table's. Set whenever the cache fills, since a catalog lookup is not safe
+/// inside the callback.
+static SETS_RELID: AtomicU32 = AtomicU32::new(0);
+
+/// Moves on every invalidation of `pdb.synonym_sets`. A fill that started before one read the
+/// set as it was, so it does not go into the cache.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn cache() -> &'static Mutex<CompiledSets> {
+    CACHE.get_or_init(Default::default)
+}
+
+fn cached(name: &str, key: &AnalyzerKey) -> Option<Arc<SynonymFst>> {
+    cache().lock().get(name)?.get(key).cloned()
+}
+
+/// A transaction with its own snapshot can read a version of the set older than the
+/// invalidations it has processed, and nothing later would drop that copy.
+fn uses_transaction_snapshot() -> bool {
+    unsafe { pg_sys::XactIsoLevel >= pg_sys::XACT_REPEATABLE_READ as i32 }
+}
+
+fn remember(name: &str, key: AnalyzerKey, compiled: Arc<SynonymFst>, generation: u64) {
+    if generation != GENERATION.load(Ordering::Relaxed) || uses_transaction_snapshot() {
+        return;
+    }
+    SETS_RELID.store(relid(c"synonym_sets").to_u32(), Ordering::Relaxed);
+    cache()
+        .lock()
+        .entry(name.to_string())
+        .or_default()
+        .insert(key, compiled);
+}
+
+fn relid(table: &CStr) -> pg_sys::Oid {
+    unsafe {
+        let namespace = pg_sys::get_namespace_oid(c"pdb".as_ptr(), false);
+        pg_sys::get_relname_relid(table.as_ptr(), namespace)
+    }
+}
+
+pub fn register_relcache_callback() {
+    unsafe {
+        pg_sys::CacheRegisterRelcacheCallback(Some(relcache_callback), pg_sys::Datum::from(0));
+    }
+}
+
+/// Runs for every relcache invalidation in this backend, so it does nothing but compare ids.
+#[pg_guard]
+unsafe extern "C-unwind" fn relcache_callback(_arg: pg_sys::Datum, relid: pg_sys::Oid) {
+    let ours = relid == pg_sys::InvalidOid || relid.to_u32() == SETS_RELID.load(Ordering::Relaxed);
+    if ours {
+        GENERATION.fetch_add(1, Ordering::Relaxed);
+        if let Some(cache) = CACHE.get() {
+            cache.lock().clear();
+        }
+    }
+}
+
+/// The set's version and rules, read together so they belong to one snapshot.
+fn load_rules(name: &str) -> Result<(i64, Vec<String>), SynonymError> {
+    let _snapshot = ActiveSnapshotGuard::ensure();
+    Spi::connect(|client| {
+        let rows = client.select(
+            "SELECT s.version, r.rule::pg_catalog.text \
+             FROM pdb.synonym_sets s \
+             LEFT JOIN pdb.synonym_rules r ON r.set_name = s.name \
+             WHERE s.name = $1",
+            None,
+            &[name.into()],
+        )?;
+        let rows = rows
+            .map(|row| {
+                let version = row
+                    .get::<i64>(1)?
+                    .expect("synonym_sets.version is NOT NULL");
+                Ok::<_, pgrx::spi::Error>((version, row.get::<String>(2)?))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(&(version, _)) = rows.first() else {
+            return Err(SynonymError::NotFound(name.to_string()));
+        };
+        let rules = rows.into_iter().filter_map(|(_, rule)| rule).collect();
+        Ok((version, rules))
+    })
+}
+
+/// The set `name` compiled against `analyzer`, which must be the analyzer `tokenizer` builds,
+/// because the copy is kept by `tokenizer`.
+pub fn compiled_set(
+    name: &str,
+    tokenizer: Option<&SearchTokenizer>,
+    analyzer: &mut TextAnalyzer,
+) -> Result<Arc<SynonymFst>, SynonymError> {
+    let key = AnalyzerKey::new(tokenizer);
+    if let Some(hit) = cached(name, &key) {
+        return Ok(hit);
+    }
+    let generation = GENERATION.load(Ordering::Relaxed);
+    let (_, rules) = load_rules(name)?;
+    let compiled = Arc::new(SynonymFst::compile(name, &rules, analyzer)?);
+    remember(name, key, compiled.clone(), generation);
+    Ok(compiled)
+}
+
+/// The sets a statement on `pdb.synonym_rules` touched, from its transition tables. A
+/// `TRUNCATE` has none and touches every set.
+pub fn changed_sets(trigger: &PgTrigger) -> Result<Vec<String>, SynonymError> {
+    if matches!(trigger.op(), Ok(PgTriggerOperation::Truncate)) {
+        return Spi::connect(|client| {
+            Ok(client
+                .select("SELECT name FROM pdb.synonym_sets", None, &[])?
+                .map(|row| row.get::<String>(1))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect())
+        });
+    }
+    let tables: Vec<String> = [
+        trigger.old_transition_table_name(),
+        trigger.new_transition_table_name(),
+    ]
+    .into_iter()
+    .filter_map(|table| table.ok().flatten())
+    .map(pgrx::spi::quote_identifier)
+    .collect();
+    let trigger_data = trigger.trigger_data() as *const pg_sys::TriggerData as *mut _;
+    Spi::connect(|client| {
+        // A transition table is only visible to SPI once registered, after the connect.
+        let registered = unsafe { pg_sys::SPI_register_trigger_data(trigger_data) };
+        if registered != pg_sys::SPI_OK_TD_REGISTER as i32 {
+            panic!("could not register the trigger's transition tables with SPI");
+        }
+        let mut sets = Vec::new();
+        for table in tables {
+            let sql = format!("SELECT DISTINCT set_name FROM {table}");
+            let rows = client.select(sql.as_str(), None, &[])?;
+            for row in rows {
+                sets.push(
+                    row.get::<String>(1)?
+                        .expect("synonym_rules.set_name is NOT NULL"),
+                );
+            }
+        }
+        sets.sort();
+        sets.dedup();
+        Ok(sets)
+    })
+}
+
+/// Runs after a statement changed the rules of `name`. It bumps the set's version and tells
+/// every backend to drop its copy.
+pub fn rules_changed(name: &str) -> Result<(), SynonymError> {
+    Spi::connect_mut(|client| {
+        client.update(
+            "UPDATE pdb.synonym_sets \
+             SET version = version + 1, updated_at = pg_catalog.now() \
+             WHERE name = $1",
+            None,
+            &[name.into()],
+        )?;
+        Ok::<_, SynonymError>(())
+    })?;
+    // The invalidation reaches this backend at the next command. The writer's own later
+    // statements in this transaction must see the new rules before that.
+    cache().lock().remove(name);
+    unsafe { pg_sys::CacheInvalidateRelcacheByRelid(relid(c"synonym_sets")) };
+    Ok(())
+}
+
+/// Runs after rows of `pdb.synonym_sets` were deleted. A set deleted while it has no rules fires
+/// no rule trigger, and its copies would stay in memory.
+pub fn sets_removed() {
+    cache().lock().clear();
+    unsafe { pg_sys::CacheInvalidateRelcacheByRelid(relid(c"synonym_sets")) };
 }
 
 #[cfg(test)]

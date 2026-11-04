@@ -340,9 +340,9 @@ macro_rules! add_filters {
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
 //
-// Ensure that new variants are added to `from_json_value`. We don't use serde_json to ser/de the
-// SearchTokenizer, because our bincode serialization format is incompatible
-// with the "tagged" format we use in our public API.
+// Ensure that new variants are added to `from_json_value` and to the `SearchTokenizerDef` mirror
+// below. We don't use serde_json to ser/de the SearchTokenizer, because our bincode serialization
+// format is incompatible with the "tagged" format we use in our public API.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SearchTokenizer {
@@ -435,7 +435,17 @@ pub enum SearchTokenizer {
     },
 }
 
-#[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
+#[derive(
+    Default,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    strum_macros::VariantNames,
+    AsRefStr,
+)]
 pub enum LinderaLanguage {
     #[default]
     Unspecified,
@@ -450,6 +460,97 @@ impl Default for SearchTokenizer {
             remove_emojis: false,
             filters: SearchTokenizerFilters::default(),
         }
+    }
+}
+
+/// `SearchTokenizer` as serde's own enum form, the one its `Serialize` emits. `Deserialize` on
+/// `SearchTokenizer` reads the tagged `{"type": ...}` form of the SQL API instead. Nothing
+/// writes that form, and it has no name for every variant. A stored config comes back through
+/// this mirror.
+#[derive(Deserialize)]
+#[serde(remote = "SearchTokenizer")]
+enum SearchTokenizerDef {
+    Simple(SearchTokenizerFilters),
+    Keyword,
+    KeywordDeprecated,
+    Raw(SearchTokenizerFilters),
+    LiteralNormalized(SearchTokenizerFilters),
+    WhiteSpace(SearchTokenizerFilters),
+    RegexTokenizer {
+        pattern: String,
+        filters: SearchTokenizerFilters,
+    },
+    ChineseCompatible {
+        chinese_convert: Option<ConvertMode>,
+        filters: SearchTokenizerFilters,
+    },
+    SourceCode(SearchTokenizerFilters),
+    Ngram {
+        min_gram: usize,
+        max_gram: usize,
+        prefix_only: bool,
+        #[serde(default)]
+        positions: bool,
+        filters: SearchTokenizerFilters,
+    },
+    EdgeNgram {
+        min_gram: usize,
+        max_gram: usize,
+        token_chars: Vec<String>,
+        filters: SearchTokenizerFilters,
+    },
+    ChineseLinderaDeprecated(SearchTokenizerFilters),
+    ChineseLindera {
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
+    JapaneseLinderaDeprecated(SearchTokenizerFilters),
+    JapaneseLindera {
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
+    KoreanLinderaDeprecated(SearchTokenizerFilters),
+    KoreanLindera {
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
+    ICUTokenizer(SearchTokenizerFilters),
+    Jieba {
+        chinese_convert: Option<ConvertMode>,
+        search_mode: bool,
+        filters: SearchTokenizerFilters,
+    },
+    LinderaDeprecated(LinderaLanguage, SearchTokenizerFilters),
+    Lindera {
+        language: LinderaLanguage,
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+        nfkc: bool,
+        reading_form: bool,
+    },
+    UnicodeWordsDeprecated {
+        remove_emojis: bool,
+        filters: SearchTokenizerFilters,
+    },
+    UnicodeWords {
+        remove_emojis: bool,
+        filters: SearchTokenizerFilters,
+    },
+    RegexTokenizerDeprecated {
+        pattern: String,
+        filters: SearchTokenizerFilters,
+    },
+}
+
+impl SearchTokenizer {
+    /// The config in the form `from_stored_value` reads back, for a table column that keys
+    /// something compiled per analyzer.
+    pub fn to_stored_value(&self) -> serde_json::Value {
+        serde_json::to_value(self).expect("a tokenizer config serializes")
+    }
+
+    pub fn from_stored_value(value: serde_json::Value) -> Result<Self> {
+        Ok(SearchTokenizerDef::deserialize(value)?)
     }
 }
 
@@ -1014,6 +1115,100 @@ impl SearchNormalizer {
 mod tests {
     use super::*;
     use rstest::*;
+
+    #[test]
+    fn stored_value_round_trips_every_variant() {
+        use strum::VariantNames;
+
+        let filters = SearchTokenizerFilters {
+            lowercase: Some(true),
+            stemmer: Some(Language::English),
+            stopwords_language: Some(vec![Language::English, Language::French]),
+            stopwords: Some(vec!["the".to_string()]),
+            remove_long: Some(255),
+            ..Default::default()
+        };
+        let f = || filters.clone();
+        let every_variant = vec![
+            SearchTokenizer::Simple(f()),
+            SearchTokenizer::Keyword,
+            SearchTokenizer::KeywordDeprecated,
+            SearchTokenizer::Raw(f()),
+            SearchTokenizer::LiteralNormalized(f()),
+            SearchTokenizer::WhiteSpace(f()),
+            SearchTokenizer::RegexTokenizer {
+                pattern: "\\w+".to_string(),
+                filters: f(),
+            },
+            SearchTokenizer::ChineseCompatible {
+                chinese_convert: Some(ConvertMode::default()),
+                filters: f(),
+            },
+            SearchTokenizer::SourceCode(f()),
+            SearchTokenizer::Ngram {
+                min_gram: 2,
+                max_gram: 3,
+                prefix_only: false,
+                positions: true,
+                filters: f(),
+            },
+            SearchTokenizer::EdgeNgram {
+                min_gram: 1,
+                max_gram: 4,
+                token_chars: vec!["letter".to_string()],
+                filters: f(),
+            },
+            SearchTokenizer::ChineseLinderaDeprecated(f()),
+            SearchTokenizer::ChineseLindera {
+                filters: f(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::JapaneseLinderaDeprecated(f()),
+            SearchTokenizer::JapaneseLindera {
+                filters: f(),
+                keep_whitespace: false,
+            },
+            SearchTokenizer::KoreanLinderaDeprecated(f()),
+            SearchTokenizer::KoreanLindera {
+                filters: f(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::ICUTokenizer(f()),
+            SearchTokenizer::Jieba {
+                chinese_convert: None,
+                search_mode: false,
+                filters: f(),
+            },
+            SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, f()),
+            SearchTokenizer::Lindera {
+                language: LinderaLanguage::Korean,
+                filters: f(),
+                keep_whitespace: false,
+                nfkc: true,
+                reading_form: true,
+            },
+            SearchTokenizer::UnicodeWordsDeprecated {
+                remove_emojis: true,
+                filters: f(),
+            },
+            SearchTokenizer::UnicodeWords {
+                remove_emojis: false,
+                filters: f(),
+            },
+            SearchTokenizer::RegexTokenizerDeprecated {
+                pattern: "[a-z]+".to_string(),
+                filters: f(),
+            },
+        ];
+        assert_eq!(every_variant.len(), SearchTokenizer::VARIANTS.len());
+        for tokenizer in every_variant {
+            let stored = tokenizer.to_stored_value();
+            assert_eq!(
+                SearchTokenizer::from_stored_value(stored).unwrap(),
+                tokenizer
+            );
+        }
+    }
 
     #[rstest]
     fn test_search_tokenizer() {

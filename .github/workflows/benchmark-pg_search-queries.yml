@@ -6,11 +6,14 @@
 name: Benchmark pg_search (Queries)
 
 # Run Stack Overflow nightly on main, on labeled PRs, or manually.
+# A `@paradedb stackoverflow <regex>` PR comment runs only the queries that match the regex.
 on:
   schedule:
     - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       commit:
@@ -42,6 +45,53 @@ permissions:
 # Benchmark jobs run in parallel. Publication jobs use the shared gh-pages queue.
 
 jobs:
+  # A comment run has this workflow's secrets. Only users with write access can start one,
+  # and only on PRs from this repository.
+  parse-comment:
+    name: Parse Benchmark Comment
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '@paradedb stackoverflow ')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    outputs:
+      query_filter: ${{ steps.parse.outputs.query_filter }}
+    steps:
+      # A rejected comment exits 0, because issue_comment checks attach to the latest commit on main.
+      - name: Check Permissions and Parse Comment
+        id: parse
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${COMMENTER}/permission" --jq .permission)"
+          if [ "${permission}" != "admin" ] && [ "${permission}" != "write" ]; then
+            echo "::notice::${COMMENTER} has ${permission} access. Benchmark comments need write access."
+            exit 0
+          fi
+
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.state + " " + .head.repo.full_name')"
+          if [ "${pr}" != "open ${GITHUB_REPOSITORY}" ]; then
+            echo "::notice::Benchmark comments only run on open PRs from ${GITHUB_REPOSITORY}, not on this one (${pr})."
+            exit 0
+          fi
+
+          query_filter="$(head -n 1 <<< "${COMMENT_BODY}" | tr -d '\r' | sed -E 's/^@paradedb stackoverflow +//I; s/ +$//; s/^`(.*)`$/\1/')"
+          if [ -z "${query_filter}" ]; then
+            echo "::notice::The comment has no query regex."
+            exit 0
+          fi
+          echo "Query filter: ${query_filter}"
+          echo "query_filter=${query_filter}" >> "$GITHUB_OUTPUT"
+
+          gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
+            --body "Started [a benchmark run](${RUN_URL}) for the Stack Overflow queries that match \`${query_filter}\`."
+
   benchmark-pg_search-queries:
     permissions:
       actions: write
@@ -60,12 +110,16 @@ jobs:
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       # We deliberately do not enable EBS and instead rely on the on-machine NVMe drives to avoid the variance
       # using EBS would cause
+    needs: [parse-comment]
     if: >-
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)
+      !cancelled() && (
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)
+        ) ||
+        needs.parse-comment.outputs.query_filter != ''
       )
     env:
       pg_version: 18
@@ -77,7 +131,8 @@ jobs:
       BACKREST_REPO_S3_KEY_TYPE: shared
       # Only main writes the baseline. Every other run still fetches it and diffs against it,
       # so a PR gets its comparison without being able to move the reference point.
-      PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}
+      # A PR comment run also has `github.ref` set to main, so the events are listed explicitly.
+      PUBLISH_BASELINE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_baseline)) }}
 
     steps:
       # The job can be triggered manually by attaching the `benchmarks` label to a PR. This step
@@ -99,10 +154,12 @@ jobs:
         id: determine-ref
         env:
           INPUTS_COMMIT: ${{ inputs.commit }}
+          PR_NUMBER: ${{ github.event.issue.number }}
         run: |
           # If a specific commit was provided via workflow_dispatch, use that.
           # For pull_request events, benchmark the PR merge commit (github.sha),
           # which exists in the base repo even for forks.
+          # For issue_comment events, github.sha is main, so use the PR merge ref.
           # Otherwise, default to main.
           if [ -n "${INPUTS_COMMIT}" ]; then
             echo "ref=${INPUTS_COMMIT}" >> "$GITHUB_OUTPUT"
@@ -110,6 +167,9 @@ jobs:
           elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
             echo "Determined ref from pull_request event: ${GITHUB_SHA}"
+          elif [ "${GITHUB_EVENT_NAME}" = "issue_comment" ]; then
+            echo "ref=refs/pull/${PR_NUMBER}/merge" >> "$GITHUB_OUTPUT"
+            echo "Determined ref from issue_comment event: refs/pull/${PR_NUMBER}/merge"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Determined ref as default: main"
@@ -152,7 +212,8 @@ jobs:
 
       - name: Fetch Latest Benchmark Code, Suites
         if: >-
-          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && github.event_name != 'issue_comment' &&
+          !contains(fromJson('["benchmarks", "benchmark-stackoverflow"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -254,6 +315,7 @@ jobs:
           ref: ${{ steps.commit_info.outputs.commit_sha }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
+          query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         run: |
@@ -281,6 +343,7 @@ jobs:
           ref: ${{ steps.commit_info.outputs.commit_sha }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
+          query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         run: |
@@ -308,6 +371,7 @@ jobs:
           ref: ${{ steps.commit_info.outputs.commit_sha }}
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
+          query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
   publish-results:
     name: Publish Benchmark Results

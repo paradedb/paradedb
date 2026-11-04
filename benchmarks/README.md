@@ -97,6 +97,16 @@ cargo run -- --help
 - `snapshot-heap --config` / `restore-heap --config`: Uses an existing pgBackRest config instead of generating one.
 - `snapshot-heap --repo-*` / `restore-heap --repo-*`: Provides the S3 repository settings when generating a pgBackRest config.
 
+## Benchmarking a PR
+
+The `benchmark-stackoverflow` label runs every Stack Overflow query on a PR. To run only some of them, add a conversation comment (not a review comment) with a regex. The workflow passes it to `--query-filter`:
+
+```text
+@paradedb stackoverflow ^count_filter
+```
+
+The commenter needs write access, and the PR branch must be in `paradedb/paradedb`. The workflow replies with a link to the run, then posts the results of each dataset size to the PR.
+
 ## Datasets
 
 Each benchmark run uses a single dataset located under `datasets/$name`. The heap must already be present — loaded by `load-heap` (which reads from the dataset's `data-source` at the given `--size`) or restored from a snapshot.

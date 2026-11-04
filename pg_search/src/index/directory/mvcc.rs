@@ -1425,6 +1425,11 @@ mod tests {
         );
         if crate::gucs::enable_mutable_segment_cache() {
             assert_eq!(fresh_mutable.len(), 2, "reuse the prefix and add a tail");
+            let tail = SegmentView::new(vec![fresh_mutable[1].clone()]);
+            let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(tail))
+                .expect("replay a worker assigned only the uncached tail");
+            assert_eq!(replay.segment_readers().len(), 1);
+            assert_eq!(replay.segment_readers()[0].max_doc(), 7);
         }
 
         // A replaying reader sees what the origin saw.

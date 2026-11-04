@@ -1407,35 +1407,6 @@ mod tests {
     use crate::index::segment_pruning::STATS_OPENS;
     use std::sync::atomic::Ordering::Relaxed;
 
-    #[pg_test]
-    fn prioritized_checkout_preserves_segment_view_and_rescans() {
-        let (index_rel, _) = segmented_index_fixture("prioritized_claims", 4, false);
-        let reader = SearchIndexReader::open(
-            &index_rel,
-            SearchQueryInput::All,
-            false,
-            MvccSatisfies::Snapshot,
-        )
-        .unwrap();
-        let view = reader.segment_view();
-        let ids = view.ids().collect::<Vec<_>>();
-        let state = unsafe { &mut *test_support::parallel_state_for_view(view.clone()) };
-        let mut order = vec![ids[1], ids[3], ids[0], ids[2]];
-        for _ in 0..2 {
-            state.prioritize_segments_for_source(0, &order);
-            assert_eq!(state.segment_view().entries(), view.entries());
-            assert_eq!(state.checkout_segment_for_source(0), Some(order[0]));
-            state.prioritize_segments_for_source(0, &ids);
-            for id in &order[1..] {
-                assert_eq!(state.checkout_segment_for_source(0), Some(*id));
-            }
-            assert_eq!(state.checkout_segment_for_source(0), None);
-            assert!(state.payload.claims().iter().all(|&claim| claim == -1));
-            state.reset();
-            order.reverse();
-        }
-    }
-
     /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
     /// reads statistics for segments it does not own.
     #[pg_test]

@@ -15,6 +15,8 @@ INSERT INTO issue_7028_logs VALUES
   (2, 'error in database', 20),
   (3, 'warning message', 30),
   (4, 'error in network', 40);
+CREATE TABLE issue_7028_outer (id int PRIMARY KEY);
+INSERT INTO issue_7028_outer VALUES (1), (2);
 CREATE INDEX issue_7028_logs_idx ON issue_7028_logs USING paradedb (id, description, score);
 ANALYZE issue_7028_logs;
 -- Control: pdb.agg() alone.
@@ -280,51 +282,51 @@ DEALLOCATE issue_7028_param;
 -- Default plan_cache_mode: the first five runs use custom plans, the sixth may use a generic one.
 RESET plan_cache_mode;
 PREPARE issue_7028_param(text) AS
-SELECT $1, COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error';
+SELECT $1, pdb.agg('{"value_count":{"field":"score"}}') FROM issue_7028_logs WHERE description @@@ 'error';
 EXECUTE issue_7028_param('a');
- ?column? | count 
-----------+-------
- a        |     6
+ ?column? |      agg       
+----------+----------------
+ a        | {"value": 6.0}
 (1 row)
 
 EXECUTE issue_7028_param('b');
- ?column? | count 
-----------+-------
- b        |     6
+ ?column? |      agg       
+----------+----------------
+ b        | {"value": 6.0}
 (1 row)
 
 EXECUTE issue_7028_param('c');
- ?column? | count 
-----------+-------
- c        |     6
+ ?column? |      agg       
+----------+----------------
+ c        | {"value": 6.0}
 (1 row)
 
 EXECUTE issue_7028_param('d');
- ?column? | count 
-----------+-------
- d        |     6
+ ?column? |      agg       
+----------+----------------
+ d        | {"value": 6.0}
 (1 row)
 
 EXECUTE issue_7028_param('e');
- ?column? | count 
-----------+-------
- e        |     6
+ ?column? |      agg       
+----------+----------------
+ e        | {"value": 6.0}
 (1 row)
 
 EXECUTE issue_7028_param('f');
- ?column? | count 
-----------+-------
- f        |     6
+ ?column? |      agg       
+----------+----------------
+ f        | {"value": 6.0}
 (1 row)
 
 EXECUTE issue_7028_param('g');
- ?column? | count 
-----------+-------
- g        |     6
+ ?column? |      agg       
+----------+----------------
+ g        | {"value": 6.0}
 (1 row)
 
 DEALLOCATE issue_7028_param;
--- A stable non-Const expression is evaluated once per query.
+-- A stable non-Const expression is compiled once and evaluated per output row.
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
 FROM issue_7028_logs WHERE description @@@ 'error';
@@ -380,7 +382,96 @@ WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 
+-- A constant next to a GROUP BY key that is not selected (the key is a resjunk target entry).
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_7028_logs
+   Output: 'x'::text, pdb.agg_fn('COUNT(*)'::text), score
+   Index: issue_7028_logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: score
+     Aggregate Definition: {"grouped":{"terms":{"field":"score","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+ ?column? | count 
+----------+-------
+ x        |     3
+ x        |     2
+ x        |     1
+(3 rows)
+
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY 2, score;
+ ?column? | count 
+----------+-------
+ x        |     1
+ x        |     2
+ x        |     3
+(3 rows)
+
+SELECT 'x', pdb.agg('{"value_count":{"field":"score"}}') FROM issue_7028_logs
+WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+ ?column? |      agg       
+----------+----------------
+ x        | {"value": 3.0}
+ x        | {"value": 2.0}
+ x        | {"value": 1.0}
+(3 rows)
+
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'nomatch' GROUP BY score;
+ ?column? | count 
+----------+-------
+(0 rows)
+
+SELECT 1 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+ ?column? 
+----------
+        1
+        1
+        1
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+ ?column? | count 
+----------+-------
+ x        |     3
+ x        |     2
+ x        |     1
+(3 rows)
+
+SELECT 1 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+ ?column? 
+----------
+        1
+        1
+        1
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan = on;
+-- A correlated LATERAL reference arrives as a Param.
+SELECT o.id, l.oid, l.n FROM issue_7028_outer o CROSS JOIN LATERAL (
+  SELECT o.id AS oid, COUNT(*) n FROM issue_7028_logs WHERE description @@@ 'error'
+) l ORDER BY o.id;
+ id | oid | n 
+----+-----+---
+  1 |   1 | 6
+  2 |   2 | 6
+(2 rows)
+
+-- An uncorrelated scalar subquery is an InitPlan Param.
+SELECT (SELECT max(id) FROM issue_7028_outer), COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+ max | count 
+-----+-------
+   2 |     6
+(1 row)
+
 DROP TABLE issue_7028_logs;
+DROP TABLE issue_7028_outer;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.global_mutable_segment_rows;
 \i common/common_cleanup.sql

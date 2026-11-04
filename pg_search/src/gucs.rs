@@ -324,12 +324,23 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Maximum fraction of each segment's IVF clusters probed by a vector query.
+/// IVF probe fraction before selectivity normalization.
 static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
 
 /// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
+}
+
+static VECTOR_PROBE_SELECTIVITY_EXPONENT: GucSetting<f64> = GucSetting::<f64>::new(-0.86);
+static VECTOR_PROBE_SELECTIVITY_SLOPE: GucSetting<f64> = GucSetting::<f64>::new(-0.73);
+
+pub fn vector_probe_selectivity_exponent() -> f64 {
+    VECTOR_PROBE_SELECTIVITY_EXPONENT.get()
+}
+
+pub fn vector_probe_selectivity_slope() -> f64 {
+    VECTOR_PROBE_SELECTIVITY_SLOPE.get()
 }
 
 /// Fixed IVF cluster-open cost measured in fully scored rows.
@@ -665,11 +676,33 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"Per-segment IVF probe fraction for vector ORDER BY queries",
+        c"Scaled by filter selectivity before resolving the work budget. 1.0 allows exhaustive search.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_probe_selectivity_exponent",
+        c"Intercept of the filter-cost exponent used to normalize vector probe budgets",
+        c"The exponent is clipped to [0, 2]. Set both normalization parameters to zero for the original probe scale.",
+        &VECTOR_PROBE_SELECTIVITY_EXPONENT,
+        -2.0,
+        2.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_probe_selectivity_slope",
+        c"Slope of the filter-cost exponent against log vector probe fraction",
+        c"Non-positive slopes preserve a nondecreasing work budget as max_probe increases.",
+        &VECTOR_PROBE_SELECTIVITY_SLOPE,
+        -1.0,
+        0.0,
         GucContext::Userset,
         GucFlags::default(),
     );

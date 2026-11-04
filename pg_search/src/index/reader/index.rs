@@ -2338,6 +2338,8 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                        selectivity_exponent: crate::gucs::vector_probe_selectivity_exponent(),
+                        selectivity_slope: crate::gucs::vector_probe_selectivity_slope(),
                         fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
                         ..Default::default()
                     })

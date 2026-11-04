@@ -26,6 +26,8 @@ pub(crate) mod proximity;
 mod range;
 mod score;
 pub(crate) mod segment_pruning;
+#[allow(dead_code)]
+pub mod synonyms;
 pub mod tid_bitmap_stream;
 
 use crate::query::tid_bitmap_stream::BitmapCell;
@@ -2011,6 +2013,10 @@ pub enum QueryError {
         field: FieldName,
         tokenizer: Option<String>,
     },
+    #[error(
+        "synonym '{phrase}' is a phrase, which needs positions, and field '{field}' has none; index the field with record = 'position' or set synonyms=none on it"
+    )]
+    SynonymPhraseNeedsPositions { field: FieldName, phrase: String },
     #[error(
         "query requires fields indexed with positions; field '{field}' does not support positions"
     )]

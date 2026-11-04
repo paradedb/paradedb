@@ -78,11 +78,28 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
-    - name: Stage Results for Publication
-      uses: ./.github/actions/stage-benchmark-results
+    - name: Archive diagnostic results
+      if: always()
+      shell: bash
+      run: |
+        shopt -s nullglob
+        files=(stressgres-*.log)
+        if (( ${#files[@]} )); then gzip -1 "${files[@]}"; fi
+        cp /tmp/stressgres/*.log . 2>/dev/null || true
+
+    - name: Upload diagnostic results
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
-        benchmark_type: stressgres
-        metadata: ${{ toJSON(inputs) }}
+        name: cache-diagnostic-${{ inputs.test_file }}-${{ env.CACHE_MODE }}-${{ github.run_attempt }}
+        path: |
+          *.gz
+          *.log
+          output.csv
+          pg_search_*.json
+          counter-names.json
+          diagnostic-*
+        retention-days: 14
 
     - name: Print Postgres Logs
       if: always()

@@ -58,13 +58,13 @@ fixture import only populates pdbench's ground-truth table; the corpus is restor
 from its snapshot.
 
 Manual runs can also set `probe_baseline_ref` to an ABI- and index-compatible
-commit. After the normal benchmark, this builds that extension and compares both
+commit. After the recall sweep, this builds that extension and compares both
 libraries on the same index in candidate/baseline/baseline/candidate order. The
 diagnostic measures fixed budgets with parallel workers enabled and disabled,
 including candidate controls with normalization disabled. It saves every report
 and a summary under `probe-overhead/` in the diagnostics artifact, and restores
-the candidate library before publication. These pdbench timings are separate
-from the normal k6 measurements and do not replace them.
+the candidate library afterward. Diagnostic runs skip k6 and result publication;
+these pdbench timings do not replace the normal k6 measurements.
 
 Results begin new `benchmarker cohere-1m` and `benchmarker cohere-10m` histories.
 The old server-time samples are not comparable to k6's client-observed latency

@@ -320,6 +320,7 @@ jobs:
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
       - name: Measure selected operating points with k6
+        if: inputs.probe_baseline_ref == ''
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
@@ -362,8 +363,8 @@ jobs:
           (
             cd probe-baseline
             PGRX_PG_CONFIG_PATH=/usr/lib/postgresql/18/bin/pg_config \
-              cargo build --locked --release -p pg_search --features pg18 --no-default-features \
-              --target-dir "$GITHUB_WORKSPACE/target"
+              cargo rustc --lib --locked --release -p pg_search --features pg18 --no-default-features \
+              --target-dir "$GITHUB_WORKSPACE/target" -- -C link-arg=-Wl,--no-gc-sections
           )
           cp target/release/libpg_search.so "$RUNNER_TEMP/probe-baseline.so"
 
@@ -380,6 +381,7 @@ jobs:
           cat benchmark-artifacts/probe-overhead/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stage Benchmarker results
+        if: inputs.probe_baseline_ref == ''
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
@@ -413,6 +415,6 @@ jobs:
   publish-results:
     name: Publish Benchmark Results
     needs: cohere
-    if: always() && !cancelled() && (needs.cohere.result == 'success' || needs.cohere.result == 'failure')
+    if: always() && !cancelled() && inputs.probe_baseline_ref == '' && (needs.cohere.result == 'success' || needs.cohere.result == 'failure')
     uses: ./.github/workflows/publish-benchmark-results.yml
     secrets: inherit

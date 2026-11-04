@@ -104,6 +104,50 @@ SELECT 'x', score, COUNT(*)
 FROM issue_7028_logs WHERE description @@@ 'error'
 GROUP BY score HAVING COUNT(*) > 1 ORDER BY score;
 
+-- Parameters and other row-independent expressions are evaluated at execution time, so they
+-- keep working in prepared statements, including once PostgreSQL switches to a generic plan.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_7028_param(text, int) AS
+SELECT $1, $2 + 1, pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+EXPLAIN (COSTS OFF, VERBOSE) EXECUTE issue_7028_param('first', 1);
+EXECUTE issue_7028_param('first', 1);
+EXECUTE issue_7028_param('second', 41);
+EXECUTE issue_7028_param(NULL, NULL);
+DEALLOCATE issue_7028_param;
+
+-- Default plan_cache_mode: the first five runs use custom plans, the sixth may use a generic one.
+RESET plan_cache_mode;
+PREPARE issue_7028_param(text) AS
+SELECT $1, COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error';
+EXECUTE issue_7028_param('a');
+EXECUTE issue_7028_param('b');
+EXECUTE issue_7028_param('c');
+EXECUTE issue_7028_param('d');
+EXECUTE issue_7028_param('e');
+EXECUTE issue_7028_param('f');
+EXECUTE issue_7028_param('g');
+DEALLOCATE issue_7028_param;
+
+-- A stable non-Const expression is evaluated once per query.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A volatile expression must be evaluated per row by PostgreSQL, not by the scan.
+EXPLAIN (COSTS OFF)
+SELECT random() < 2, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A column-dependent expression that is not a grouping column does not take the path.
+EXPLAIN (COSTS OFF)
+SELECT score + 1, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
+
 DROP TABLE issue_7028_logs;
 
 RESET paradedb.enable_aggregate_custom_scan;

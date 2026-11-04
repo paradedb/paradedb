@@ -56,6 +56,11 @@ pub fn placeholder_procid() -> pg_sys::Oid {
     }
 }
 
+/// True for expressions with no column references, such as a `Const` or a `Param`.
+fn is_row_independent(expr: *mut pg_sys::Expr) -> bool {
+    unsafe { !pg_sys::contain_var_clause(expr.cast()) }
+}
+
 /// Create a placeholder target list for aggregate custom scans.
 ///
 /// This is called AFTER `replace_aggrefs_in_target_list` has replaced Aggrefs with FuncExprs.
@@ -103,7 +108,9 @@ pub fn create_placeholder_targetlist(
         let is_top_level_placeholder = unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_FuncExpr
             && unsafe { (*(te.expr as *mut pg_sys::FuncExpr)).funcid } == placeholder_funcid;
 
-        !is_top_level_placeholder && te.expr.contains_functions(&[placeholder_funcid])
+        (!is_top_level_placeholder && te.expr.contains_functions(&[placeholder_funcid]))
+            // A row-independent expression (e.g. a Const or Param) is evaluated by the projection.
+            || (!is_top_level_placeholder && is_row_independent(te.expr))
     });
 
     if !needs_projection {
@@ -236,6 +243,9 @@ pub fn create_placeholder_targetlist(
             let ctx_ptr = &mut ctx as *mut PlaceholderContext as *mut core::ffi::c_void;
             let new_expr = unsafe { placeholder_mutator(te.expr as *mut pg_sys::Node, ctx_ptr) };
             unsafe { (*new_te).expr = new_expr as *mut pg_sys::Expr };
+        } else if is_row_independent(te.expr) {
+            // No Vars and no placeholders: keep the expression so ExecProject evaluates it
+            // (resolving Params at execution time).
         } else {
             // It's a grouping column!
             // The value for this column will be placed directly in the scan_slot at attribute (i + 1).

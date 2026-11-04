@@ -11,7 +11,8 @@ After upgrading, we also assert that the upgraded schema is byte-for-byte identi
 We also run the integration tests after upgrading. This verifies that the extension symbols are upgraded properly but does not give any validation that the on-disk changes are correct because the tests don't use DBs created on the old version.
 
 The separate `test-vector-storage-compatibility` job exercises the `.vec` V4/V5
-boundary using a pinned V4 binary from main and the current V5 binary. It creates real flat
+boundary using a pinned V4 binary from main and the current V5 binary. The baseline
+predates the independent removal of the fixture’s `vector_fields` index option. It creates real flat
 and clustered, quantized indexes, verifies clean rejection and continued BM25
 access after each binary swap, checks that writes do not merge away incompatible
 segments, and verifies results after `REINDEX INDEX CONCURRENTLY` in both

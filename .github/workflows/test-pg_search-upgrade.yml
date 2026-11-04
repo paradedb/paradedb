@@ -67,7 +67,7 @@ jobs:
         uses: ./.github/actions/test-vector-storage-compatibility
         with:
           pg_version: 18
-          baseline_ref: bbeade35089a52073741d40ec9dcd16133b26c84
+          baseline_ref: 499fb26f9d4d977704348534475762a6ca5d2e3b
 
   # Test the newest release in this checkout's SQL chain and the pinned legacy release.
   discover-upgrade-starting-points:

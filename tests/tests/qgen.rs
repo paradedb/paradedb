@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use tests::fixtures::querygen::distinctgen::arb_distinct_mode;
-use tests::fixtures::querygen::groupbygen::arb_group_by;
+use tests::fixtures::querygen::groupbygen::{SelectItem, arb_group_by};
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
 use tests::fixtures::querygen::mutationgen::churn_setup;
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
@@ -38,6 +38,7 @@ use tests::fixtures::*;
 
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
+use num_traits::ToPrimitive;
 use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
@@ -887,6 +888,23 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
     });
 }
 
+#[derive(Debug)]
+struct FloatAggregate(f64);
+
+impl PartialEq for FloatAggregate {
+    fn eq(&self, other: &Self) -> bool {
+        approx::relative_eq!(self.0, other.0, epsilon = 1e-9, max_relative = 1e-12)
+    }
+}
+
+#[test]
+fn float_aggregate_comparison() {
+    let exact = FloatAggregate(923.6953125);
+    assert_eq!(exact, FloatAggregate(923.695312500002));
+    assert_ne!(exact, FloatAggregate(923.6953135));
+    assert_ne!(Some(exact), None);
+}
+
 /// Property test for aggregate-on-join via DataFusion: ensures equivalence between
 /// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
 ///
@@ -977,6 +995,11 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
+        let float_aggregates: Vec<bool> = group_by_expr.target_list.iter().map(|item| {
+            matches!(item, SelectItem::Aggregate(agg)
+                if ["AVG(", "STDDEV(", "VARIANCE("].iter().any(|prefix| agg.starts_with(prefix)))
+        }).collect();
+
         // Build WHERE clauses
         let bm25_where = outer_bm25.to_sql("@@@");
         let pg_where = outer_bm25.to_sql(" = ");
@@ -1042,11 +1065,19 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
             &setup_sql,
             |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
-                let mut string_rows: Vec<String> = rows
+                let mut result_rows = rows
                     .into_iter()
                     .map(|row| {
                         let mut row_string = String::new();
-                        for i in 0..row.len() {
+                        let mut float_values = Vec::new();
+                        for (i, &is_float) in float_aggregates.iter().enumerate() {
+                            if is_float {
+                                let value = row.try_get::<Option<sqlx::types::BigDecimal>, _>(i)
+                                    .map(|value| value.map(|value| value.to_f64().expect("bounded aggregate fits f64")))
+                                    .or_else(|_| row.try_get::<Option<f64>, _>(i))?;
+                                float_values.push(value.map(FloatAggregate));
+                                continue;
+                            }
                             if i > 0 {
                                 row_string.push('|');
                             }
@@ -1069,11 +1100,11 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
                             };
                             row_string.push_str(&value_str);
                         }
-                        row_string
+                        Ok::<_, sqlx::Error>((row_string, float_values))
                     })
-                    .collect();
-                string_rows.sort();
-                Ok(string_rows)
+                    .collect::<Result<Vec<_>, _>>()?;
+                result_rows.sort_by(|left, right| left.0.cmp(&right.0));
+                Ok(result_rows)
             },
         ))?;
     });

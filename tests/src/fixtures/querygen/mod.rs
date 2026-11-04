@@ -899,7 +899,7 @@ pub fn compare_outcome<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
@@ -924,7 +924,7 @@ pub fn compare_outcome_on<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
@@ -972,7 +972,7 @@ pub fn compare_outcome_retrying<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
@@ -996,7 +996,7 @@ pub fn compare_outcome_retrying_on<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     use crate::fixtures::fault_grace::{Attempt, RetryError};
@@ -1136,7 +1136,7 @@ fn compare_outcome_inner<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let mut queries = || -> Result<(R, R), sqlx::Error> {
@@ -1199,7 +1199,7 @@ fn assert_results_match<R>(
     conn: &mut PgConnection,
 ) -> Result<(), TestCaseError>
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
 {
     prop_assert_eq!(
         baseline_result,
@@ -1231,7 +1231,7 @@ pub fn compare<R, F>(
     run_query: F,
 ) -> Result<(), TestCaseError>
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
     match compare_outcome(

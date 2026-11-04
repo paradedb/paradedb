@@ -174,6 +174,13 @@
         ["start/configure-your-environment.mdx::fence-032", "34432fbe99ec1f8216d501a12691976a6524dcf76e5729df4fc452997640c989"],
         ["start/configure-your-environment.mdx::fence-034", "b0a512c838bec9edc67969cdb6a5ec60f1c9c58115766b945e675ae18c85c2a9"]
       ]
+    },
+    {
+      "reason": "Loads the reader's own synonym file and grants a role of the reader's cluster; neither exists in the smoke test.",
+      "fences": [
+        ["reference/tokenizers/synonyms.mdx::fence-002", "ffbbd36be2d7f028f975d79bc169f5570d746b233d8710c6f72fbfdb22179cbc"],
+        ["reference/tokenizers/synonyms.mdx::fence-003", "d2dc9802787adf4b34225c3d96985bc2e24237db6535f5c75ee160e9156c6992"]
+      ]
     }
   ],
   "sql": {

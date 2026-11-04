@@ -1,0 +1,156 @@
+---
+title: Synonyms
+description: Expand search terms with synonyms you keep in a table, with nothing to reindex when they change
+canonical: https://www.paradedb.com/docs/reference/tokenizers/synonyms
+---
+
+Say your catalog calls them couches, but shoppers type `sofa`. With a synonym set, a search for `sofa` also finds the rows
+that say `couch`. You keep the synonyms in a regular table, and the next query picks up whatever you changed. The index
+itself stays as it is, so there is nothing to rebuild.
+
+## Defining a Set
+
+A synonym set is a group of rules in `pdb.synonym_rules` that share a `set_name`. Insert the first rule and the set exists.
+Each rule uses the Solr syntax, which is also what Elasticsearch and OpenSearch synonym files use, so if you are migrating
+you can bring your file along.
+
+```sql
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES
+    ('shop', 'couch, sofa, divan'),          -- equivalents: each one expands to the whole group
+    ('shop', 'sneakers => running shoes'),   -- directed: the left side is replaced by the right side
+    ('shop', '# a comment');                 -- comments and blank lines are skipped
+```
+
+There are two kinds of rules:
+
+- `couch, sofa, divan` is an equivalence rule. A search for any of them finds all of them.
+- `sneakers => running shoes` is a directed rule. A search for `sneakers` looks for `running shoes` instead, and a search for
+  `running shoes` stays as it is.
+
+A term can be more than one word, on either side. A multi-word term is matched as a phrase, so the field has to keep
+positions, which it does unless you set `record` to something else. If a term needs a comma, escape it with a backslash.
+Comments and blank lines are fine, so a synonym file can go in line by line. A rule that does not parse is rejected at `INSERT`, and the error
+tells you which rule and why.
+
+If you have a synonym file, load it through a staging table so each line becomes one rule. The `csv` format with a delimiter
+and a quote character that never appear in the file reads every line untouched, backslashes included:
+
+```sql
+CREATE TEMP TABLE shop_file (rule text);
+\copy shop_file FROM 'synonyms.txt' WITH (FORMAT csv, DELIMITER E'\x01', QUOTE E'\x02')
+INSERT INTO pdb.synonym_rules (set_name, rule) SELECT 'shop', rule FROM shop_file;
+```
+
+Rules have no unique key, so running this twice adds every rule twice.
+
+Everyone can read the rules. To let a role manage a set, give it write access on the rules table. Deleting a whole set
+takes `DELETE` on `pdb.synonym_sets` as well:
+
+```sql
+GRANT INSERT, UPDATE, DELETE ON pdb.synonym_rules TO shop_admin;
+GRANT DELETE ON pdb.synonym_sets TO shop_admin;
+```
+
+## Attaching a Set
+
+Now tell an index to use the set. You can attach it to the whole index, which covers every text and JSON field, or to
+single fields. A field setting wins over the index setting, and `synonyms=none` on a field turns synonyms off for that
+field.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING paradedb (id, description, category)
+WITH (synonyms = 'shop');
+```
+
+Per field, the set goes on the tokenizer cast:
+
+```sql
+CREATE INDEX search_by_field_idx ON mock_items
+USING paradedb (
+    id,
+    (description::pdb.simple('synonyms=shop')),
+    (category::pdb.simple('synonyms=none'))
+);
+```
+
+You can change or remove the index setting at any time, with no reindex:
+
+```sql
+ALTER INDEX search_idx SET (synonyms = 'shop');
+ALTER INDEX search_idx RESET (synonyms);
+```
+
+The set does not have to exist yet when you create the index. If a query runs against a set that does not exist, it fails
+and the error tells you which set is missing.
+
+## Which Queries Expand
+
+Synonyms kick in for the [match](/reference/full-text/match) operators, `|||` and `&&&`. Each word of your query that
+matches a rule turns into the group of its alternatives, and a row matches the group if it contains any of them. With
+`&&&`, every group has to match.
+
+The rules go through the same tokenizer as your query. So if the field has a stemmer, `sneakers` and `sneaker` are the same
+rule.
+
+A few things stay exact:
+
+- A [fuzzy](/reference/full-text/fuzzy) query keeps the term you typed fuzzy, and a prefix query keeps it a prefix, but
+  both match the alternatives exactly. If the words you typed match a multi-word rule such as `running shoes`, they are
+  matched as an exact phrase too.
+- A tokenizer cast on the query string, such as `'sofa'::pdb.simple`, gives you the exact tokens with no synonyms. That is
+  the way to turn synonyms off for a single query. The `tokenizer` argument of `pdb.match()` only picks the tokenizer, so
+  that query still expands.
+- [Term](/reference/full-text/term), [phrase](/reference/full-text/phrase) and [query parser](/reference/full-text/query-parser)
+  queries do not expand.
+
+## Scoring
+
+All the alternatives of one term share one score. A row that has both `sofa` and `couch` scores once for that term, with
+the better of the two, not twice. A directed rule replaces the term you typed, so `sneakers` scores as the phrase
+`running shoes`.
+
+## Limits
+
+Every alternative is one more term the query has to look up, so a long rule costs more. `paradedb.synonyms_max_alternatives`
+(default `32`) caps how many alternatives one term expands to. Anything past the cap is dropped in rule order. With an
+equivalence rule the term you typed is always kept. With a directed rule it is not part of the group, so the cap applies
+to the right side alone.
+
+If synonyms ever get in the way, `paradedb.enable_synonyms` turns them off for a session or a role, with nothing to change
+on the index:
+
+```sql
+SET paradedb.enable_synonyms = off;
+```
+
+## Reload
+
+There is no reload step. A change to the rules is transactional. Your own transaction sees it right away, and every other
+session sees it once it commits.
+
+## Checking an Expansion
+
+Not sure what a query will turn into? `pdb.synonym_expansion` shows the expansion before you run the query. Pass the same
+tokenizer the field uses:
+
+```sql
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'red sofa');
+```
+
+```csv
+ position | token |    alternatives
+----------+-------+--------------------
+        0 | red   | {red}
+        1 | sofa  | {couch,sofa,divan}
+(2 rows)
+```
+
+## Removing a Set
+
+Deleting all the rules of a set, or truncating the rules table, leaves an empty set behind that expands nothing. To get rid
+of the set itself, delete it from `pdb.synonym_sets` and its rules go with it:
+
+```sql
+DELETE FROM pdb.synonym_sets WHERE name = 'shop';
+```

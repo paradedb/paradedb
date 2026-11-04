@@ -1,11 +1,15 @@
 """Protect the fixed-budget controls used by the binary comparison."""
 
+import json
 import struct
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import tomllib
-from probe_overhead import probe_config
+from probe_overhead import measure_k6, probe_config
 
 
 class ProbeOverheadTest(unittest.TestCase):
@@ -39,6 +43,55 @@ class ProbeOverheadTest(unittest.TestCase):
         self.assertEqual(session["paradedb.vector_probe_selectivity_slope"], "-0.73")
         self.assertEqual(config["search"]["runs"], 3)
         self.assertEqual(config["search"]["warmup_runs"], 1)
+
+    def test_k6_uses_control_session_and_preserves_dashboard(self):
+        """The timing harness must receive the equivalent probe, not the sweep value."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / "case"
+            point = {
+                "name": "knn_top10_unfiltered@r95",
+                "probe": "0.103",
+                "session": {"paradedb.vector_probe_scale_power": "4"},
+            }
+            session = {"paradedb.vector_cluster_max_probe": "0.0576"}
+
+            def fake_run(command, **kwargs):
+                self.assertEqual(kwargs["cwd"], destination)
+                self.assertEqual(
+                    command[-1], str(root / "benchmarks/cohere/k6/search.js")
+                )
+                self.assertIn(
+                    f"QUERY_VECTORS={root / 'benchmark-artifacts/query_vectors.json'}",
+                    command,
+                )
+                report = {
+                    "startTime": "2026-11-04T00:00:00Z",
+                    "runs": {
+                        "paradedb": {
+                            "queries": {"search": {"latencies": [1.0, 2.0, 3.0]}}
+                        }
+                    },
+                }
+                (destination / "dashboard_test.json").write_text(json.dumps(report))
+                (destination / "dashboard_test.html").write_text("dashboard")
+                return subprocess.CompletedProcess(command, 0)
+
+            with (
+                patch.dict(
+                    "os.environ", {"PARADEDB_URL": "postgresql://localhost/test"}
+                ),
+                patch("probe_overhead.subprocess.run", side_effect=fake_run),
+            ):
+                result = measure_k6(root, destination, point, session)
+            exported = json.loads((destination / "operating_points.json").read_text())[
+                0
+            ]
+            self.assertEqual(exported["probe"], "0.0576")
+            self.assertEqual(exported["session"], session)
+            self.assertEqual(result["p50_ms"], 2.0)
+            self.assertTrue((destination / "k6.json").exists())
+            self.assertTrue((destination / "k6.html").exists())
 
 
 if __name__ == "__main__":

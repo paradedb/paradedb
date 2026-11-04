@@ -61,10 +61,15 @@ Manual runs can also set `probe_baseline_ref` to an ABI- and index-compatible
 commit. After the recall sweep, this builds that extension and compares both
 libraries on the same index in candidate/baseline/baseline/candidate order. The
 diagnostic measures fixed budgets with parallel workers enabled and disabled,
-including candidate controls with normalization disabled. It saves every report
-and a summary under `probe-overhead/` in the diagnostics artifact, and restores
-the candidate library afterward. Diagnostic runs skip k6 and result publication;
-these pdbench timings do not replace the normal k6 measurements.
+including candidate controls with normalization disabled. It uses all 100
+fixture vectors at the three 95% points and the unfiltered 99% point. Parallel
+cases also run the standard k6 script with its 10-second warmup and 50-second
+measurement. Initial k6 measurements precede any diagnostic restart, and each
+restart records the library hash and machine/memory-placement information.
+It saves every report and a summary under `probe-overhead/` in the diagnostics
+artifact, and restores the candidate library afterward. Diagnostic runs skip
+normal result publication; their separate pdbench and k6 timings do not replace
+the standard benchmark results.
 
 Results begin new `benchmarker cohere-1m` and `benchmarker cohere-10m` histories.
 The old server-time samples are not comparable to k6's client-observed latency

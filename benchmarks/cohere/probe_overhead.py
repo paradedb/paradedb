@@ -1,6 +1,7 @@
 """Compare compatible extension libraries on one index, with fixed work budgets."""
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -8,7 +9,85 @@ import statistics
 import subprocess
 from pathlib import Path
 
+import tomllib
 from compare_search import search_reports
+
+
+def measure_k6(root, destination, point, session):
+    """Use the standard full-fixture workload and retain its timing samples."""
+    destination.mkdir(parents=True, exist_ok=True)
+    point = point | {
+        "session": session,
+        "probe": session["paradedb.vector_cluster_max_probe"],
+    }
+    points_file = destination / "operating_points.json"
+    points_file.write_text(json.dumps([point], indent=2) + "\n")
+    with (destination / "k6.log").open("w") as log:
+        result = subprocess.run(
+            [
+                str(root / "benchmarker/k6"),
+                "run",
+                "--out",
+                "dashboard=json,html",
+                "-e",
+                f"PARADEDB_URL={os.environ['PARADEDB_URL']}",
+                "-e",
+                f"OPERATING_POINTS={points_file}",
+                "-e",
+                f"OPERATING_POINT={point['name']}",
+                "-e",
+                f"QUERY_VECTORS={root / 'benchmark-artifacts/query_vectors.json'}",
+                str(root / "benchmarks/cohere/k6/search.js"),
+            ],
+            cwd=destination,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    if result.returncode:
+        print((destination / "k6.log").read_text(), flush=True)
+        result.check_returncode()
+    dashboards = list(destination.glob("dashboard_*.json"))
+    if len(dashboards) != 1:
+        raise ValueError(f"Expected one k6 dashboard in {destination}")
+    dashboard = json.loads(dashboards[0].read_text())
+    for suffix in (".json", ".html"):
+        dashboards[0].with_suffix(suffix).rename(destination / f"k6{suffix}")
+    samples = dashboard["runs"]["paradedb"]["queries"]["search"]["latencies"]
+    return {
+        "p50_ms": statistics.median(samples),
+        "p95_ms": statistics.quantiles(samples, n=100)[94],
+        "samples": len(samples),
+        "start_time": dashboard["startTime"],
+    }
+
+
+def record_machine(destination, installed):
+    """Retain restart and memory-placement evidence without collecting secrets."""
+    destination.mkdir(parents=True, exist_ok=True)
+    pid = (Path.home() / ".pgrx/data-18/postmaster.pid").read_text().splitlines()[0]
+    with installed.open("rb") as library:
+        digest = hashlib.file_digest(library, "sha256").hexdigest()
+    metadata = {"postmaster_pid": pid, "library_sha256": digest}
+    for name in ("status", "stat", "maps", "numa_maps", "smaps_rollup"):
+        source = Path(f"/proc/{pid}/{name}")
+        try:
+            (destination / f"postmaster-{name}.txt").write_text(
+                source.read_text(encoding="utf-8")
+            )
+        except OSError as error:
+            metadata[name] = str(error)
+    for name, command in {
+        "cpu": ["lscpu", "-J"],
+        "processes": ["ps", "-C", "postgres", "-o", "pid,ppid,psr,pcpu,pmem,rss,comm"],
+        "kernel": ["uname", "-a"],
+    }.items():
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        (destination / f"{name}.txt").write_text(result.stdout + result.stderr)
+    (destination / "meminfo.txt").write_text(
+        Path("/proc/meminfo").read_text(encoding="utf-8")
+    )
+    (destination / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 def probe_config(template, arm, workers, raw_probe, selected_probe):
@@ -63,14 +142,15 @@ def summarize(directory, manifest):  # pylint: disable=too-many-locals
         "",
         (
             "The index is built once. Library order is candidate, baseline, baseline, candidate; "
-            "each switch restarts PostgreSQL. Each point uses the same first 30 fixture vectors, "
+            "each switch restarts PostgreSQL. Each point uses all 100 fixture vectors, "
             "one warmup and three timing passes, plus a separate EXPLAIN pass."
         ),
         "",
         (
-            "Baseline, disabled, and scaled arms use the same effective unnormalized fraction. "
+            "Baseline and disabled arms use the same effective unnormalized fraction. "
             "Normalized uses the candidate's selected point; budgets can differ between segments. "
-            "All latency values are pdbench client timings, not k6."
+            "The following latency values are pdbench client timings; separate k6 results "
+            "use the standard 10-second warmup and 50-second measurement."
         ),
         "",
         "| Workers allowed | Point | Arm | p50 ms | vs baseline | Work/query | Recall |",
@@ -84,7 +164,7 @@ def summarize(directory, manifest):  # pylint: disable=too-many-locals
                 for r in subset
                 if r["arm"] == "baseline"
             )
-            for arm in ["baseline", "disabled", "scaled", "normalized"]:
+            for arm in ["baseline", "disabled", "normalized"]:
                 samples = [r["metrics"] for r in subset if r["arm"] == arm]
                 latency = statistics.mean(m["latency"]["p50_ms"] for m in samples)
                 work = statistics.mean(
@@ -96,9 +176,28 @@ def summarize(directory, manifest):  # pylint: disable=too-many-locals
                     f"{latency / base:.3f}x | {work:.3f} | {recall:.3f} |"
                 )
     (directory / "summary.md").write_text("\n".join(lines) + "\n")
+    k6 = json.loads((directory / "k6_measurements.json").read_text())
+    lines = [
+        "### Full-fixture k6 binary comparison",
+        "",
+        (
+            "Initial measurements precede any diagnostic restart. All other rounds use "
+            "the same index, 100 fixture vectors, and the standard k6 workload."
+        ),
+        "",
+        "| Round | Arm | Point | p50 ms | p95 ms | Samples |",
+        "|---:|---|---|---:|---:|---:|",
+    ]
+    for row in k6:
+        lines.append(
+            f"| {row['round']} | {row['arm']} | {row['name']} | "
+            f"{row['p50_ms']:.3f} | {row['p95_ms']:.3f} | {row['samples']} |"
+        )
+    with (directory / "summary.md").open("a") as summary:
+        summary.write("\n" + "\n".join(lines) + "\n")
 
 
-def run(args):  # pylint: disable=too-many-locals
+def run(args):  # pylint: disable=too-many-locals,too-many-statements
     """Swap compatible libraries around measurements without rebuilding the index."""
     root = Path.cwd()
     output = args.directory.resolve() / "probe-overhead"
@@ -106,7 +205,12 @@ def run(args):  # pylint: disable=too-many-locals
     template = (root / f"benchmarks/cohere/{args.size}.toml").read_text()
     reports = search_reports(args.directory / "search" / args.size)
     points = json.loads((args.directory / "operating_points.json").read_text())
-    points = [p for p in points if p["reached"] and p["target"] in (0.9, 0.99)]
+    points = [
+        p
+        for p in points
+        if p["reached"]
+        and (p["target"] == 0.95 or p["name"] == "knn_top10_unfiltered@r99")
+    ]
     for point in points:
         report = reports[point["query"]]
         measured = next(
@@ -128,10 +232,32 @@ def run(args):  # pylint: disable=too-many-locals
     ).strip()
     installed = Path(library_dir) / "pg_search.so"
     manifest = []
+    k6_measurements = []
     provenance = {
         key: os.environ[key] for key in ["PROBE_BASELINE_REF", "PROBE_CANDIDATE_REF"]
     }
     (output / "commits.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    record_machine(output / "initial/machine", installed)
+    for point in points:
+        session = tomllib.loads(
+            probe_config(
+                template, "normalized", 8, point["raw_probe"], float(point["probe"])
+            )
+        )["search"]["session"]
+        case_path = Path("initial") / point["name"]
+        measured = measure_k6(root, output / case_path, point, session)
+        k6_measurements.append(
+            {
+                "round": "initial",
+                "arm": "normalized",
+                "name": point["name"],
+                "path": str(case_path),
+            }
+            | measured
+        )
+        (output / "k6_measurements.json").write_text(
+            json.dumps(k6_measurements, indent=2) + "\n"
+        )
 
     def switch(library):
         subprocess.run(
@@ -153,11 +279,8 @@ def run(args):  # pylint: disable=too-many-locals
                 if binary == "candidate"
                 else args.baseline_library
             )
-            arms = (
-                ["disabled", "scaled", "normalized"]
-                if binary == "candidate"
-                else ["baseline"]
-            )
+            record_machine(output / f"round-{iteration}/machine", installed)
+            arms = ["disabled", "normalized"] if binary == "candidate" else ["baseline"]
             cases = [
                 (workers, point, arm)
                 for workers in [0, 8]
@@ -197,9 +320,9 @@ def run(args):  # pylint: disable=too-many-locals
                     "--probe",
                     "1",
                     "--queries",
-                    "30",
+                    "100",
                     "--explain-sample",
-                    "30",
+                    "100",
                     "--no-compare",
                 ]
                 if index:
@@ -229,6 +352,13 @@ def run(args):  # pylint: disable=too-many-locals
                 (output / "manifest.json").write_text(
                     json.dumps(manifest, indent=2) + "\n"
                 )
+                if workers:
+                    session = tomllib.loads(config.read_text())["search"]["session"]
+                    measured = measure_k6(root, destination, point, session)
+                    k6_measurements.append(manifest[-1] | measured)
+                    (output / "k6_measurements.json").write_text(
+                        json.dumps(k6_measurements, indent=2) + "\n"
+                    )
     finally:
         switch(args.candidate_library)
     summarize(output, manifest)

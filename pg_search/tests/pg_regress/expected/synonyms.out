@@ -15,6 +15,7 @@ INSERT INTO pdb.synonym_rules (set_name, rule) VALUES
     ('shop', 'sneakers => running shoes'),
     ('shop', 'tv, television'),
     ('shop', 'red, crimson'),
+    ('shop', 'living room, lounge'),
     ('colors', 'red, crimson, scarlet');
 SELECT name, version FROM pdb.synonym_sets ORDER BY name;
   name  | version 
@@ -30,10 +31,11 @@ SELECT set_name, rule FROM pdb.synonym_rules ORDER BY set_name, rule;
  shop     | 
  shop     | # comments and blank lines are skipped
  shop     | couch, sofa, divan
+ shop     | living room, lounge
  shop     | red, crimson
  shop     | sneakers => running shoes
  shop     | tv, television
-(7 rows)
+(8 rows)
 
 -- A bad rule fails at INSERT, with the rule and the reason, and leaves no set behind.
 INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('bad', 'a => b => c');
@@ -150,6 +152,26 @@ SELECT id, description FROM products WHERE description &&& 'leather couch' ORDER
  id |         description         
 ----+-----------------------------
   2 | Leather couch with cushions
+(1 row)
+
+-- A multi-word key: the typed words of one key form one group, so the conjunction has one Must
+-- with the key as a phrase next to its alternative, and 'lounge' finds the phrase too.
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'living room');
+ position |    token    |      alternatives      
+----------+-------------+------------------------
+        0 | living room | {"living room",lounge}
+(1 row)
+
+SELECT id, description FROM products WHERE description &&& 'living room' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
+(1 row)
+
+SELECT id, description FROM products WHERE description &&& 'lounge' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
 (1 row)
 
 -- Fuzzy: the typed token stays fuzzy (sofa ~ sofas), the alternatives are exact

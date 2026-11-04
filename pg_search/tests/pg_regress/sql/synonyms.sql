@@ -12,6 +12,7 @@ INSERT INTO pdb.synonym_rules (set_name, rule) VALUES
     ('shop', 'sneakers => running shoes'),
     ('shop', 'tv, television'),
     ('shop', 'red, crimson'),
+    ('shop', 'living room, lounge'),
     ('colors', 'red, crimson, scarlet');
 
 SELECT name, version FROM pdb.synonym_sets ORDER BY name;
@@ -67,6 +68,12 @@ SELECT id, description, paradedb.score(id) FROM products WHERE description ||| '
 -- Conjunction: every group must match.
 SELECT id, description FROM products WHERE description &&& 'red sofa' ORDER BY id;
 SELECT id, description FROM products WHERE description &&& 'leather couch' ORDER BY id;
+
+-- A multi-word key: the typed words of one key form one group, so the conjunction has one Must
+-- with the key as a phrase next to its alternative, and 'lounge' finds the phrase too.
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'living room');
+SELECT id, description FROM products WHERE description &&& 'living room' ORDER BY id;
+SELECT id, description FROM products WHERE description &&& 'lounge' ORDER BY id;
 
 -- Fuzzy: the typed token stays fuzzy (sofa ~ sofas), the alternatives are exact
 -- (couch does not reach couches).

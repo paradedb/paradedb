@@ -57,9 +57,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Verify Git Checkout
-        run: |
-          git rev-parse --is-inside-work-tree
-          test -f .github/actions/commit-with-paradedb-github-app/action.yml
+        run: git rev-parse --is-inside-work-tree
 
       # Used to query/update the GitHub Release and open the PostgresApp/PostgresApp PR.
       - name: Install GitHub CLI

@@ -4957,6 +4957,10 @@ mod tests {
             );
         }
         assert_eq!(reader.search().count(), 15);
+        crate::postgres::storage::mutable_cache::invalidate_index(
+            unsafe { pg_sys::MyDatabaseId },
+            index_rel.oid(),
+        );
         let impossible_query = range_query("id", 100, 200);
         let impossible = open_snapshot_reader(&index_rel, impossible_query.clone(), false);
         assert_eq!(impossible.segment_pruning_estimate().candidate_segments, 1);
@@ -4987,6 +4991,10 @@ mod tests {
         };
         let partition_segments = segments_for_partition(&reader, &partitioning, 0);
         assert!(!partition_segments.partially_included.is_empty());
+        crate::postgres::storage::mutable_cache::invalidate_index(
+            unsafe { pg_sys::MyDatabaseId },
+            index_rel.oid(),
+        );
         let bounds = range_query("id", 1, 10);
         let matching = open_snapshot_reader(&index_rel, bounds.clone(), false);
         assert_eq!(

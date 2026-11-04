@@ -105,7 +105,13 @@ The `benchmark-stackoverflow` label runs every Stack Overflow query on a PR. To 
 @paradedb stackoverflow ^count_filter
 ```
 
-The commenter needs write access, and the PR branch must be in `paradedb/paradedb`. The workflow replies with a link to the run, then posts the results of each dataset size to the PR.
+With a size before the regex, the workflow runs only that dataset size. The `20m` size takes most of a full run, so `100k` or `1m` gives a faster result:
+
+```text
+@paradedb stackoverflow 1m ^count_filter
+```
+
+The commenter needs write access, and the PR branch must be in `paradedb/paradedb`. The workflow replies with a link to the run. Then it posts the results to the PR, one comment for each dataset size.
 
 ## Datasets
 

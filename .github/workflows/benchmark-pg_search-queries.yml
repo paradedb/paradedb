@@ -6,7 +6,8 @@
 name: Benchmark pg_search (Queries)
 
 # Run Stack Overflow nightly on main, on labeled PRs, or manually.
-# A `@paradedb stackoverflow <regex>` PR comment runs only the queries that match the regex.
+# A `@paradedb stackoverflow [100k|1m|20m] <regex>` PR comment runs only the queries that match the regex.
+# With a size, the comment runs only that dataset size.
 on:
   schedule:
     - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
@@ -58,6 +59,7 @@ jobs:
       pull-requests: write
     outputs:
       query_filter: ${{ steps.parse.outputs.query_filter }}
+      size: ${{ steps.parse.outputs.size }}
     steps:
       # A rejected comment exits 0, because issue_comment checks attach to the latest commit on main.
       - name: Check Permissions and Parse Comment
@@ -81,16 +83,27 @@ jobs:
             exit 0
           fi
 
-          query_filter="$(head -n 1 <<< "${COMMENT_BODY}" | tr -d '\r' | sed -E 's/^@paradedb stackoverflow +//I; s/ +$//; s/^`(.*)`$/\1/')"
+          args="$(head -n 1 <<< "${COMMENT_BODY}" | tr -d '\r' | sed -E 's/^@paradedb stackoverflow +//I; s/ +$//')"
+          size=""
+          if [[ "${args}" =~ ^(100[kK]|1[mM]|20[mM])( +(.*))?$ ]]; then
+            size="${BASH_REMATCH[1],,}"
+            args="${BASH_REMATCH[3]}"
+          fi
+          query_filter="$(sed -E 's/^`(.*)`$/\1/' <<< "${args}")"
           if [ -z "${query_filter}" ]; then
             echo "::notice::The comment has no query regex."
             exit 0
           fi
-          echo "Query filter: ${query_filter}"
+          echo "Query filter: ${query_filter}, size: ${size:-all}"
           echo "query_filter=${query_filter}" >> "$GITHUB_OUTPUT"
+          echo "size=${size}" >> "$GITHUB_OUTPUT"
 
+          sizes="all sizes"
+          if [ -n "${size}" ]; then
+            sizes="size \`${size}\`"
+          fi
           gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
-            --body "Started [a benchmark run](${RUN_URL}) for the Stack Overflow queries that match \`${query_filter}\`."
+            --body "Started [a benchmark run](${RUN_URL}) for the Stack Overflow queries that match \`${query_filter}\`, at ${sizes}."
 
   benchmark-pg_search-queries:
     permissions:
@@ -290,6 +303,7 @@ jobs:
       # heap snapshot from S3 (replacing the whole cluster), then the benchmark builds the index and
       # runs queries against it.
       - name: Restore "stackoverflow" Heap Snapshot (100K)
+        if: contains(fromJson('["", "100k"]'), needs.parse-comment.outputs.size)
         run: |
           set -euo pipefail
           (cd source/pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -306,6 +320,7 @@ jobs:
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (100K)
+        if: contains(fromJson('["", "100k"]'), needs.parse-comment.outputs.size)
         uses: ./.github/actions/benchmark-queries
         with:
           source_directory: source
@@ -318,6 +333,7 @@ jobs:
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
       - name: Restore "stackoverflow" Heap Snapshot (1M)
+        if: contains(fromJson('["", "1m"]'), needs.parse-comment.outputs.size)
         run: |
           set -euo pipefail
           (cd source/pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -334,6 +350,7 @@ jobs:
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (1M)
+        if: contains(fromJson('["", "1m"]'), needs.parse-comment.outputs.size)
         uses: ./.github/actions/benchmark-queries
         with:
           source_directory: source
@@ -346,6 +363,7 @@ jobs:
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
       - name: Restore "stackoverflow" Heap Snapshot (20M)
+        if: contains(fromJson('["", "20m"]'), needs.parse-comment.outputs.size)
         run: |
           set -euo pipefail
           (cd source/pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -362,6 +380,7 @@ jobs:
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (20M)
+        if: contains(fromJson('["", "20m"]'), needs.parse-comment.outputs.size)
         uses: ./.github/actions/benchmark-queries
         with:
           source_directory: source

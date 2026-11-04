@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793782271542,
+  "lastUpdate": 1793782299754,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -181742,6 +181742,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13277127731-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782297217,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 131.64618130655168,
+            "unit": "median tps",
+            "extra": "avg tps: 129.71510451866195, max tps: 140.1406357881116, count: 59082"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 545.843203459082,
+            "unit": "median tps",
+            "extra": "avg tps: 559.2587624722752, max tps: 4621.285403712533, count: 59082"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3040.8983680074953,
+            "unit": "median tps",
+            "extra": "avg tps: 3006.9041091047675, max tps: 3358.161386296954, count: 59082"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 157.2487010791507,
+            "unit": "median tps",
+            "extra": "avg tps: 155.31518803025085, max tps: 169.4117766244991, count: 59082"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 272.0605981458337,
+            "unit": "median tps",
+            "extra": "avg tps: 377.0714904614057, max tps: 2858.2966267082793, count: 118164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.093427844012208,
+            "unit": "median tps",
+            "extra": "avg tps: 28.18673668973175, max tps: 47.17854825379455, count: 59082"
+          }
+        ],
+        "publication_id": "13305226785-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -230556,6 +230615,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13277127731-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "44cf1813a17b65e837e6a8b698d82ba933441f53",
+          "message": "fix: align Antithesis SDK with proptest fork (#7215)\n\n## What\nPin `dst` to Antithesis SDK `0.2.9`, matching the pinned proptest fork,\nand remove SDK `0.3.0` from `Cargo.lock`.\n\n## Why\nThe [scheduled Antithesis proptests\njob](https://github.com/paradedb/paradedb-enterprise/actions/runs/41758500509/job/126347551604)\nbuilds successfully but panics in `antithesis_sdk_initializes` with\n`duplicate #[distributed_slice] with name \"ANTITHESIS_CATALOG\"`. Linking\nboth SDK versions registers the catalog twice.\n\n## How\nUse an exact SDK version pin so dependency updates cannot independently\nmove `dst` to another SDK version. Keep the existing Docker build\ninitialization check.\n\n## Tests\n- Parsed the manifest and lockfile and verified that `dst` and the\nproptest fork reference the single locked SDK `0.2.9`.\n- `git diff --check` passed.\n- Runtime validation pending CI: Rust is not installed locally and the\nDocker daemon is unavailable.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T03:15:35Z",
+          "url": "https://github.com/paradedb/paradedb/commit/44cf1813a17b65e837e6a8b698d82ba933441f53"
+        },
+        "date": 1793782299642,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.668723,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.639736348660001, max cpu: 42.921013, count: 59082"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.78928987202109, max mem: 48.79296875, count: 59082"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3849901898797485, max cpu: 41.901066, count: 59082"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 34.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 34.21912738862936, max mem: 34.27734375, count: 59082"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.751636577878268, max cpu: 13.779904, count: 59082"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.35229360782472, max mem: 51.47265625, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2538,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2533.032751091703, max block_count: 2538.0, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.748105784122068, max mem: 28.76953125, count: 59082"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.411766697132798, max segment_count: 36.0, count: 59082"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 11.210588,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.781930441228472, max cpu: 28.152493, count: 59082"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 53.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.02876001521191, max mem: 54.10546875, count: 59082"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.613167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.399157847193606, max cpu: 41.06464, count: 118164"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.85101030136082, max mem: 57.7421875, count: 118164"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.129815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.811402145885157, max cpu: 18.43495, count: 59082"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.707221927786804, max mem: 49.921875, count: 59082"
+          }
+        ],
+        "publication_id": "13305226785-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

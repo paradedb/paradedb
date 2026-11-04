@@ -1,24 +1,27 @@
 name: Test Vector Storage Compatibility
-description: Read real V4 and V5 indexes across binary upgrades and rollbacks, then rebuild them
+description: Read real older indexes across binary upgrades and rollbacks, then rebuild them
 
 inputs:
   pg_version:
     description: PostgreSQL major version
     required: true
 
+  baseline_ref:
+    description: Revision containing the older writer and reader
+    required: true
+
 runs:
   using: composite
   steps:
-    # This revision pins Tantivy 7f43bdd2: .vec V4 and .centroids V3.
-    # Keep the baseline fixed so the test continues crossing the format boundary after merge.
-    - name: Checkout the V4 writer and reader
+    # Pinned baselines keep testing the format boundary after the new writer merges.
+    - name: Checkout the baseline writer and reader
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
-        ref: 3cc797ec22607e661bdf81a11653865d8fe203d1
+        ref: ${{ inputs.baseline_ref }}
         path: vector-storage-baseline
         persist-credentials: false
 
-    - name: Install the V4 binary
+    - name: Install the baseline binary
       shell: bash
       working-directory: vector-storage-baseline/pg_search
       env:
@@ -28,9 +31,9 @@ runs:
         set -euo pipefail
         cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
         cp "$(/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config --pkglibdir)/pg_search.so" \
-          "$RUNNER_TEMP/vector-storage-v4.so"
+          "$RUNNER_TEMP/vector-storage-baseline.so"
 
-    - name: Create and query V4 indexes
+    - name: Create and query baseline indexes
       shell: bash
       working-directory: pg_search
       env:
@@ -68,7 +71,7 @@ runs:
 
     # Keep the SQL catalog unchanged throughout. Existing ALTER EXTENSION tests cover
     # catalog migrations; this test exercises the storage reader/writer in each binary.
-    - name: Restore the V4 binary and rebuild newer storage
+    - name: Restore the baseline binary and rebuild newer storage
       shell: bash
       working-directory: pg_search
       env:
@@ -76,7 +79,7 @@ runs:
         FIXTURES: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        sudo install -m 755 "$RUNNER_TEMP/vector-storage-v4.so" \
+        sudo install -m 755 "$RUNNER_TEMP/vector-storage-baseline.so" \
           "$(/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config --pkglibdir)/pg_search.so"
         cargo pgrx start "pg${PG_MAJOR}"
         psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/rebuild.sql"

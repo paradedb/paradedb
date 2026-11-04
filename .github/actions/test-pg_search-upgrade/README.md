@@ -10,11 +10,11 @@ After upgrading, we also assert that the upgraded schema is byte-for-byte identi
 
 We also run the integration tests after upgrading. This verifies that the extension symbols are upgraded properly but does not give any validation that the on-disk changes are correct because the tests don't use DBs created on the old version.
 
-The separate `test-vector-storage-compatibility` job exercises the `.vec` V4/V5
-boundary using a pinned V4 binary and the current binary. It creates real flat
+The separate `test-vector-storage-compatibility` job exercises the `.vec` V4/V5/V6
+boundaries using pinned V4/V5 binaries and the current V6 binary. It creates real flat
 and clustered, quantized indexes, verifies clean rejection and continued BM25
 access after each binary swap, checks that writes do not merge away incompatible
 segments, and verifies results after `REINDEX INDEX CONCURRENTLY` in both
 directions. The SQL catalog stays fixed; this job tests storage rollback, while
 the release matrix above tests `ALTER EXTENSION` migrations. The current writer
-also uses `.centroids` V4, which omits cluster radius bounds.
+uses `.centroids` V5, which omits both cluster offsets and radius bounds.

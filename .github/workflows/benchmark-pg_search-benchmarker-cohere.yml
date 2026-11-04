@@ -25,6 +25,9 @@ on:
         description: "Publish baseline metrics when running on main"
         type: boolean
         default: true
+      probe_baseline_ref:
+        description: "Optional ABI-compatible commit for a same-index probe overhead diagnostic"
+        default: ""
 
 permissions:
   actions: read
@@ -341,6 +344,40 @@ jobs:
             mv "${jsons[0]}" "benchmarker/results/${point}.json"
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
+
+      - name: Checkout probe diagnostic baseline
+        if: inputs.probe_baseline_ref != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.probe_baseline_ref }}
+          path: probe-baseline
+          persist-credentials: false
+
+      - name: Build probe diagnostic baseline
+        if: inputs.probe_baseline_ref != ''
+        run: |
+          set -euo pipefail
+          library_dir=$(/usr/lib/postgresql/18/bin/pg_config --pkglibdir)
+          cp "$library_dir/pg_search.so" "$RUNNER_TEMP/probe-candidate.so"
+          (
+            cd probe-baseline
+            PGRX_PG_CONFIG_PATH=/usr/lib/postgresql/18/bin/pg_config \
+              cargo build --locked --release -p pg_search --features pg18 --no-default-features \
+              --target-dir "$GITHUB_WORKSPACE/target"
+          )
+          cp target/release/libpg_search.so "$RUNNER_TEMP/probe-baseline.so"
+
+      - name: Compare probe overhead on the same index
+        if: inputs.probe_baseline_ref != ''
+        env:
+          PROBE_BASELINE_REF: ${{ inputs.probe_baseline_ref }}
+          PROBE_CANDIDATE_REF: ${{ steps.commit_info.outputs.commit_sha }}
+        run: |
+          python3 benchmarks/cohere/probe_overhead.py \
+            --directory benchmark-artifacts --size "$COHERE_SIZE" \
+            --candidate-library "$RUNNER_TEMP/probe-candidate.so" \
+            --baseline-library "$RUNNER_TEMP/probe-baseline.so"
+          cat benchmark-artifacts/probe-overhead/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results

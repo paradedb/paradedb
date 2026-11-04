@@ -3,4 +3,4 @@ header: features
 title: Query-Time Synonyms
 ---
 
-Match queries (`|||` and `&&&`) can expand each term with synonyms. The rules live in the new `paradedb.synonym_sets` table, one Solr-format rule per element, so an Elasticsearch synonym file pastes in unchanged. A set attaches to an index with `WITH (synonyms = 'shop')` or to a field with `description::pdb.simple('synonyms=shop')`, and a change to the table is live on the next query with no reindex. See [Synonyms](/reference/tokenizers/synonyms).
+Match queries (`|||` and `&&&`) can expand each term with synonyms. The rules live in the new `pdb.synonym_rules` table, one Solr-format rule per row, so an Elasticsearch synonym file loads line by line. A set attaches to an index with `WITH (synonyms = 'shop')` or to a field with `description::pdb.simple('synonyms=shop')`, and a change to the table is live on the next query with no reindex. See [Synonyms](/reference/tokenizers/synonyms).

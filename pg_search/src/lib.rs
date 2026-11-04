@@ -184,6 +184,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     // Initialize the filter query builder
     customscan::aggregatescan::filterquery::init_filter_query_builder();
+
+    // A rule change invalidates pdb.synonym_sets, and every backend drops its compiled sets.
+    query::synonyms::register_relcache_callback();
 }
 
 #[pg_extern]

@@ -1813,34 +1813,29 @@ fn stored_range(
     )
 }
 
-/// The analyzer a query on `search_field` is tokenized with, and a key that identifies its
-/// configuration for anything cached per analyzer.
+/// The analyzer a query on `search_field` is tokenized with, and the config it was built from,
+/// which names it for anything cached per analyzer.
 fn resolve_search_tokenizer(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     searcher: &Searcher,
-) -> anyhow::Result<(tantivy::tokenizer::TextAnalyzer, String)> {
+) -> anyhow::Result<(tantivy::tokenizer::TextAnalyzer, Option<SearchTokenizer>)> {
     if let Some(st) = search_field.field_config().search_tokenizer() {
         return Ok((
             st.to_tantivy_tokenizer()
                 .expect("field-level search_tokenizer should be a valid tantivy tokenizer"),
-            st.name(),
+            Some(st.clone()),
         ));
     }
-    if let Some(ref st) = schema.index_search_tokenizer() {
+    if let Some(st) = schema.index_search_tokenizer() {
         return Ok((
             st.to_tantivy_tokenizer()
                 .expect("index-level search_tokenizer should be a valid tantivy tokenizer"),
-            st.name(),
+            Some(st),
         ));
     }
     let analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
-    let key = search_field
-        .field_config()
-        .tokenizer()
-        .map(SearchTokenizer::name)
-        .unwrap_or_default();
-    Ok((analyzer, key))
+    Ok((analyzer, search_field.field_config().tokenizer().cloned()))
 }
 
 /// The analyzer `resolve_search_tokenizer` returns, built from the index options alone, for the
@@ -1848,14 +1843,14 @@ fn resolve_search_tokenizer(
 fn search_tokenizer_from_options(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
-) -> Option<(tantivy::tokenizer::TextAnalyzer, String)> {
+) -> Option<(tantivy::tokenizer::TextAnalyzer, SearchTokenizer)> {
     let config = search_field.field_config();
     let tokenizer = config
         .search_tokenizer()
         .cloned()
         .or_else(|| schema.index_search_tokenizer())
         .or_else(|| config.tokenizer().cloned())?;
-    Some((tokenizer.to_tantivy_tokenizer()?, tokenizer.name()))
+    Some((tokenizer.to_tantivy_tokenizer()?, tokenizer))
 }
 
 /// The set a match query on `search_field` expands with: the field option first, then the index
@@ -1877,11 +1872,11 @@ fn expand_match(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     analyzer: &mut tantivy::tokenizer::TextAnalyzer,
-    analyzer_key: &str,
+    tokenizer: Option<&SearchTokenizer>,
     value: &str,
 ) -> anyhow::Result<Vec<synonyms::Expansion>> {
     let synonyms = match resolve_synonym_set(search_field, schema) {
-        Some(set) => Some(synonyms::compiled_set(&set, analyzer_key, analyzer)?),
+        Some(set) => Some(synonyms::compiled_set(&set, tokenizer, analyzer)?),
         None => None,
     };
     let tokens = synonyms::tokenize(analyzer, value);
@@ -1914,12 +1909,12 @@ pub(crate) fn match_expands_with_synonyms(
     if resolve_synonym_set(search_field, schema).is_none() {
         return false;
     }
-    let Some((mut analyzer, analyzer_key)) = search_tokenizer_from_options(search_field, schema)
+    let Some((mut analyzer, tokenizer)) = search_tokenizer_from_options(search_field, schema)
     else {
         return false;
     };
     // A set that does not load fails the query at execution, with its own error.
-    expand_match(search_field, schema, &mut analyzer, &analyzer_key, value).is_ok_and(
+    expand_match(search_field, schema, &mut analyzer, Some(&tokenizer), value).is_ok_and(
         |expansions| {
             expansions
                 .iter()
@@ -2263,19 +2258,25 @@ fn match_query(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
-    let (mut analyzer, analyzer_key) = match tokenizer {
+    let (mut analyzer, tokenizer) = match tokenizer {
         Some(ref tokenizer) => {
             let tokenizer = SearchTokenizer::from_json_value(tokenizer)?;
             (
                 tokenizer
                     .to_tantivy_tokenizer()
                     .expect("tantivy should support tokenizer {tokenizer:?}"),
-                tokenizer.name(),
+                Some(tokenizer),
             )
         }
         None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
-    let mut expansions = expand_match(&search_field, schema, &mut analyzer, &analyzer_key, value)?;
+    let mut expansions = expand_match(
+        &search_field,
+        schema,
+        &mut analyzer,
+        tokenizer.as_ref(),
+        value,
+    )?;
     if expansions
         .iter()
         .flat_map(|expansion| expansion.alternatives.iter().flatten())

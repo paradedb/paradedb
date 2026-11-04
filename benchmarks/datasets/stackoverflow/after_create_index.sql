@@ -13,8 +13,8 @@ INSERT INTO stackoverflow_schema_metadata ("name", "value") VALUES
 -- block must not contain a dollar quote either.
 DO
 $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'paradedb' AND tablename = 'synonym_sets') THEN
-    INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('bench', ARRAY['exception, failure, bug, crash, fault, problem, issue, fail, warning, mistake']) ON CONFLICT (name) DO NOTHING; -- rerun safe
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'pdb' AND tablename = 'synonym_rules') THEN
+    INSERT INTO pdb.synonym_rules (set_name, rule) SELECT 'bench', 'exception, failure, bug, crash, fault, problem, issue, fail, warning, mistake' WHERE NOT EXISTS (SELECT 1 FROM pdb.synonym_rules WHERE set_name = 'bench'); -- rerun safe
     EXECUTE 'ALTER INDEX stackoverflow_posts_idx SET (synonyms = ''bench'')'; -- attach to every text field
   END IF; -- older refs: nothing to do
 END $$;

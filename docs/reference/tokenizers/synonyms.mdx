@@ -9,23 +9,41 @@ the next query. Nothing in the index changes, so there is no reindex.
 
 ## Defining a Set
 
-A set is one row of `paradedb.synonym_sets`. Each element of `rules` is one rule in the Solr format, so an Elasticsearch or
-OpenSearch synonym file pastes in unchanged.
+A set is the rows of `pdb.synonym_rules` that share a `set_name`. Each row is one rule in the Solr format, the format of an
+Elasticsearch or OpenSearch synonym file. The set appears with its first rule.
 
 ```sql
-INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('shop', ARRAY[
-    'couch, sofa, divan',          -- equivalents: each one expands to the whole group
-    'sneakers => running shoes',   -- directed: the left side is replaced by the right side
-    '# a comment'                  -- comments and blank lines are skipped
-]);
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES
+    ('shop', 'couch, sofa, divan'),          -- equivalents: each one expands to the whole group
+    ('shop', 'sneakers => running shoes'),   -- directed: the left side is replaced by the right side
+    ('shop', '# a comment');                 -- comments and blank lines are skipped
 ```
 
-A term can have more than one word, on either side of a rule. A backslash escapes a comma inside a term.
+A term can have more than one word, on either side of a rule. A backslash escapes a comma inside a term. A rule with bad
+syntax is rejected at `INSERT`, with the rule and the reason in the error.
 
-Every role can read the table. Who can write a set is decided with ordinary table grants:
+A synonym file loads through a staging table, one line per row. The `csv` format with an unused delimiter and quote reads
+each line as it is, backslashes included. Running the `INSERT` twice adds every rule twice.
 
 ```sql
-GRANT INSERT, UPDATE, DELETE ON paradedb.synonym_sets TO shop_admin;
+CREATE TEMP TABLE shop_file (rule text);
+\copy shop_file FROM 'synonyms.txt' WITH (FORMAT csv, DELIMITER E'\x01', QUOTE E'\x02')
+INSERT INTO pdb.synonym_rules (set_name, rule) SELECT 'shop', rule FROM shop_file;
+```
+
+Every role can read the rules. Who can write a set is decided with grants on `pdb.synonym_rules`, and who can remove one
+with a grant on `pdb.synonym_sets`:
+
+```sql
+GRANT INSERT, UPDATE, DELETE ON pdb.synonym_rules TO shop_admin;
+GRANT DELETE ON pdb.synonym_sets TO shop_admin;
+```
+
+Deleting all rules of a set, or a `TRUNCATE` of the table, leaves empty sets, which expand nothing. To remove a set
+itself, with its rules:
+
+```sql
+DELETE FROM pdb.synonym_sets WHERE name = 'shop';
 ```
 
 ## Attaching a Set
@@ -95,15 +113,18 @@ SET paradedb.enable_synonyms = off;
 
 ## Reload
 
-Changes are transactional. An `UPDATE` to a set is visible to its own transaction right away, and to every other session
-after it commits. There is no reload call.
+Changes are transactional. A rule inserted or deleted is visible to its own transaction right away, and to every other
+session after it commits. There is no reload call.
+
+A set is compiled once per tokenizer that reads it, and the compiled form is kept in `pdb.synonym_fsts`. Those rows are a
+cache. A rule change rewrites them and drops the copy every session holds, and they are not part of a dump.
 
 ## Checking an Expansion
 
-`paradedb.synonym_expansion` shows how a query string expands before you run it. Pass the tokenizer the field uses.
+`pdb.synonym_expansion` shows how a query string expands before you run it. Pass the tokenizer the field uses.
 
 ```sql
-SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('simple'), 'red sofa');
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('simple'), 'red sofa');
 ```
 
 ```csv

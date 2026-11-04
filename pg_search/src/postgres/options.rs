@@ -1155,7 +1155,7 @@ pub unsafe fn init() {
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
         "synonyms".as_pg_cstr(),
-        "Synonym set in paradedb.synonym_sets that match queries on text/JSON fields expand with"
+        "Synonym set in pdb.synonym_rules that match queries on text/JSON fields expand with"
             .as_pg_cstr(),
         std::ptr::null(),
         Some(validate_synonyms),

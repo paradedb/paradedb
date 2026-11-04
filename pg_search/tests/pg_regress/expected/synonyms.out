@@ -4,28 +4,48 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
--- Query-time synonyms. The rules live in paradedb.synonym_sets, in the Solr format, and a set
--- attaches to an index or to a field. Expansion happens when a match query is built, so a change
--- to the table is live on the next query with no reindex.
-INSERT INTO paradedb.synonym_sets (name, rules) VALUES
-    ('shop', ARRAY[
-        '# comments and blank lines are skipped',
-        '',
-        'couch, sofa, divan',
-        'sneakers => running shoes',
-        'tv, television',
-        'red, crimson'
-    ]),
-    ('colors', ARRAY['red, crimson, scarlet']);
-SELECT name, version, rules FROM paradedb.synonym_sets ORDER BY name;
-  name  | version |                                                             rules                                                              
---------+---------+--------------------------------------------------------------------------------------------------------------------------------
- colors |       1 | {"red, crimson, scarlet"}
- shop   |       1 | {"# comments and blank lines are skipped","","couch, sofa, divan","sneakers => running shoes","tv, television","red, crimson"}
+-- Query-time synonyms. A set is the rows of pdb.synonym_rules that share a set_name, one
+-- Solr-format rule each, and attaches to an index or to a field. Expansion happens when a match
+-- query is built, so a change to the rules is live on the next query with no reindex.
+-- A set appears with its first rule.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES
+    ('shop', '# comments and blank lines are skipped'),
+    ('shop', ''),
+    ('shop', 'couch, sofa, divan'),
+    ('shop', 'sneakers => running shoes'),
+    ('shop', 'tv, television'),
+    ('shop', 'red, crimson'),
+    ('colors', 'red, crimson, scarlet');
+SELECT name, version FROM pdb.synonym_sets ORDER BY name;
+  name  | version 
+--------+---------
+ colors |       2
+ shop   |       2
 (2 rows)
 
+SELECT set_name, rule FROM pdb.synonym_rules ORDER BY set_name, rule;
+ set_name |                  rule                  
+----------+----------------------------------------
+ colors   | red, crimson, scarlet
+ shop     | 
+ shop     | # comments and blank lines are skipped
+ shop     | couch, sofa, divan
+ shop     | red, crimson
+ shop     | sneakers => running shoes
+ shop     | tv, television
+(7 rows)
+
+-- A bad rule fails at INSERT, with the rule and the reason, and leaves no set behind.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('bad', 'a => b => c');
+ERROR:  invalid synonym rule 'a => b => c': a rule can have at most one '=>'
+SELECT count(*) FROM pdb.synonym_sets WHERE name = 'bad';
+ count 
+-------
+     0
+(1 row)
+
 -- 'none' is the value that turns expansion off, so it cannot name a set.
-INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('none', ARRAY['a, b']);
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('none', 'a, b');
 ERROR:  new row for relation "synonym_sets" violates check constraint "synonym_sets_name_check"
 DROP TABLE IF EXISTS products;
 CREATE TABLE products (
@@ -176,9 +196,20 @@ SELECT id, attrs FROM products WHERE attrs->'color' ||| 'red' ORDER BY id;
 (3 rows)
 
 -------------------------------------------------------------
+-- The compiled rows: one per set and analyzer, stored by the first query that needs one.
+-------------------------------------------------------------
+SELECT f.set_name, jsonb_object_keys(f.analyzer) AS analyzer, f.version = s.version AS current
+FROM pdb.synonym_fsts f JOIN pdb.synonym_sets s ON s.name = f.set_name
+ORDER BY 1, 2;
+ set_name |   analyzer   | current 
+----------+--------------+---------
+ shop     | UnicodeWords | t
+(1 row)
+
+-------------------------------------------------------------
 -- The debug surface
 -------------------------------------------------------------
-SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 'red sofa and sneakers');
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'red sofa and sneakers');
  position |  token   |    alternatives    
 ----------+----------+--------------------
         0 | red      | {red,crimson}
@@ -187,7 +218,7 @@ SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 
         3 | sneakers | {"running shoes"}
 (4 rows)
 
-SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 'running shoes');
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'running shoes');
  position |  token  | alternatives 
 ----------+---------+--------------
         0 | running | {running}
@@ -195,8 +226,8 @@ SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 
 (2 rows)
 
 -- A right side that the analyzer removes, here a stopword, keeps the typed term.
-INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('stop', ARRAY['sofa => the', 'couch => the settee']);
-SELECT * FROM paradedb.synonym_expansion('stop', paradedb.tokenizer('default', stopwords_language => 'English'), 'sofa couch');
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'sofa => the'), ('stop', 'couch => the settee');
+SELECT * FROM pdb.synonym_expansion('stop', paradedb.tokenizer('default', stopwords_language => 'English'), 'sofa couch');
  position | token | alternatives 
 ----------+-------+--------------
         0 | sofa  | {sofa}
@@ -204,10 +235,11 @@ SELECT * FROM paradedb.synonym_expansion('stop', paradedb.tokenizer('default', s
 (2 rows)
 
 -------------------------------------------------------------
--- Reload: an UPDATE is visible to its own transaction before commit, and to every query after.
+-- Reload: a change is visible to its own transaction before commit, and to every query after.
 -------------------------------------------------------------
 BEGIN;
-UPDATE paradedb.synonym_sets SET rules = ARRAY['sofa, settee'] WHERE name = 'shop';
+DELETE FROM pdb.synonym_rules WHERE set_name = 'shop' AND rule = 'couch, sofa, divan';
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'sofa, settee');
 SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
  id |          description           
 ----+--------------------------------
@@ -226,11 +258,33 @@ SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
   7 | A sofa and a couch, both red
 (4 rows)
 
-UPDATE paradedb.synonym_sets SET rules = array_append(rules, 'sofa, loveseat') WHERE name = 'shop';
-SELECT name, version FROM paradedb.synonym_sets WHERE name = 'shop';
- name | version 
-------+---------
- shop |       2
+-- The version moves once per statement, also for a COPY, and the compiled rows follow it.
+SELECT version FROM pdb.synonym_sets WHERE name = 'shop';
+ version 
+---------
+       2
+(1 row)
+
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'sofa, loveseat'), ('shop', 'lamp, light');
+SELECT version FROM pdb.synonym_sets WHERE name = 'shop';
+ version 
+---------
+       3
+(1 row)
+
+COPY pdb.synonym_rules (set_name, rule) FROM stdin;
+SELECT version FROM pdb.synonym_sets WHERE name = 'shop';
+ version 
+---------
+       4
+(1 row)
+
+SELECT f.set_name, jsonb_object_keys(f.analyzer) AS analyzer, f.version = s.version AS current
+FROM pdb.synonym_fsts f JOIN pdb.synonym_sets s ON s.name = f.set_name
+ORDER BY 1, 2;
+ set_name |   analyzer   | current 
+----------+--------------+---------
+ shop     | UnicodeWords | t
 (1 row)
 
 INSERT INTO products (description, attrs) VALUES ('Loveseat for two', '{"color": "green"}');
@@ -262,6 +316,14 @@ SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id
   7 | A sofa and a couch, both red
 (2 rows)
 
+-- The first query on the new set stored one more compiled row.
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
+ set_name | count 
+----------+-------
+ colors   |     1
+ shop     |     1
+(2 rows)
+
 ALTER INDEX idx_products RESET (synonyms);
 SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
  id | description 
@@ -273,12 +335,161 @@ ALTER INDEX idx_products SET (synonyms = 'nope');
 SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
 ERROR:  synonym set 'nope' does not exist
 ALTER INDEX idx_products SET (synonyms = 'shop');
--- An invalid rule names the set and the rule.
-INSERT INTO paradedb.synonym_sets (name, rules) VALUES ('bad', ARRAY['a => b => c']);
-ALTER INDEX idx_products SET (synonyms = 'bad');
-SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
-ERROR:  synonym set 'bad' has an invalid rule 'a => b => c': a rule can have at most one '=>'
+-- Deleting all rules leaves an empty set, which expands nothing.
+DELETE FROM pdb.synonym_rules WHERE set_name = 'colors';
+ALTER INDEX idx_products SET (synonyms = 'colors');
+SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+ id | description 
+----+-------------
+(0 rows)
+
+-- DELETE FROM pdb.synonym_sets removes the set with its rules and compiled rows.
+DELETE FROM pdb.synonym_sets WHERE name = 'colors';
+SELECT count(*) FROM pdb.synonym_fsts WHERE set_name = 'colors';
+ count 
+-------
+     0
+(1 row)
+
+SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+ id | description 
+----+-------------
+(0 rows)
+
 ALTER INDEX idx_products SET (synonyms = 'shop');
+-------------------------------------------------------------
+-- A writer needs a grant on pdb.synonym_rules only, and a reader needs no write grant at all.
+-------------------------------------------------------------
+CREATE ROLE synonyms_test_writer;
+GRANT SELECT ON products TO synonyms_test_writer;
+GRANT INSERT ON pdb.synonym_rules TO synonyms_test_writer;
+SET ROLE synonyms_test_writer;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('writer', 'a, b');
+SELECT name FROM pdb.synonym_sets WHERE name = 'writer';
+  name  
+--------
+ writer
+(1 row)
+
+RESET ROLE;
+DELETE FROM pdb.synonym_fsts;
+SET ROLE synonyms_test_writer;
+-- The query stores the compiled row through the builder, which runs as the extension owner.
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
+  2 | Leather couch with cushions
+  3 | Antique divan
+  7 | A sofa and a couch, both red
+ 10 | Loveseat for two
+(5 rows)
+
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
+ set_name | count 
+----------+-------
+ shop     |     1
+(1 row)
+
+RESET ROLE;
+-- The trigger functions run as the extension owner, so no other role can hang them on a table.
+GRANT CREATE ON SCHEMA public TO synonyms_test_writer;
+SET ROLE synonyms_test_writer;
+CREATE TABLE mine (set_name text);
+CREATE TRIGGER mine_ensure BEFORE INSERT ON mine FOR EACH ROW EXECUTE FUNCTION pdb.ensure_synonym_set();
+ERROR:  permission denied for function pdb.ensure_synonym_set
+CREATE TRIGGER mine_bump AFTER INSERT ON mine FOR EACH STATEMENT EXECUTE FUNCTION pdb.synonym_rules_bump_version();
+ERROR:  permission denied for function pdb.synonym_rules_bump_version
+DROP TABLE mine;
+RESET ROLE;
+DROP OWNED BY synonyms_test_writer;
+DROP ROLE synonyms_test_writer;
+-- The builder refuses an analyzer it cannot read.
+SELECT pdb.synonym_fst_build('shop', '{"Nope": {}}');
+ERROR:  the analyzer of a stored synonym set does not load: unknown variant `Nope`, expected one of `Simple`, `Keyword`, `KeywordDeprecated`, `Raw`, `LiteralNormalized`, `WhiteSpace`, `RegexTokenizer`, `ChineseCompatible`, `SourceCode`, `Ngram`, `EdgeNgram`, `ChineseLinderaDeprecated`, `ChineseLindera`, `JapaneseLinderaDeprecated`, `JapaneseLindera`, `KoreanLinderaDeprecated`, `KoreanLindera`, `ICUTokenizer`, `Jieba`, `LinderaDeprecated`, `Lindera`, `UnicodeWordsDeprecated`, `UnicodeWords`, `RegexTokenizerDeprecated`
+-------------------------------------------------------------
+-- UPDATE: a changed rule, and a rule moved to a set that appears with it.
+-------------------------------------------------------------
+UPDATE pdb.synonym_rules SET rule = 'tv, television, telly' WHERE set_name = 'shop' AND rule = 'tv, television';
+SELECT id, description FROM products WHERE description ||| 'telly' ORDER BY id;
+ id |  description   
+----+----------------
+  6 | Big television
+(1 row)
+
+UPDATE pdb.synonym_rules SET set_name = 'screens' WHERE rule = 'tv, television, telly';
+SELECT name FROM pdb.synonym_sets WHERE name IN ('screens', 'shop') ORDER BY name;
+  name   
+---------
+ screens
+ shop
+(2 rows)
+
+SELECT id, description FROM products WHERE description ||| 'telly' ORDER BY id;
+ id | description 
+----+-------------
+(0 rows)
+
+-------------------------------------------------------------
+-- A stale compiled row is replaced by the next query. A read-only transaction reads but never
+-- stores.
+-------------------------------------------------------------
+UPDATE pdb.synonym_fsts SET version = 0 WHERE set_name = 'shop';
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'x, y');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
+  2 | Leather couch with cushions
+  3 | Antique divan
+  7 | A sofa and a couch, both red
+ 10 | Loveseat for two
+(5 rows)
+
+SELECT f.version = s.version AS current FROM pdb.synonym_fsts f JOIN pdb.synonym_sets s ON s.name = f.set_name WHERE f.set_name = 'shop';
+ current 
+---------
+ t
+(1 row)
+
+DELETE FROM pdb.synonym_fsts;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'm, n');
+BEGIN READ ONLY;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
+  2 | Leather couch with cushions
+  3 | Antique divan
+  7 | A sofa and a couch, both red
+ 10 | Loveseat for two
+(5 rows)
+
+COMMIT;
+SELECT count(*) FROM pdb.synonym_fsts;
+ count 
+-------
+     0
+(1 row)
+
+-- The copy it compiled stays in memory until the next change. Then a query stores again.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'o, p');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
+  2 | Leather couch with cushions
+  3 | Antique divan
+  7 | A sofa and a couch, both red
+ 10 | Loveseat for two
+(5 rows)
+
+SELECT count(*) FROM pdb.synonym_fsts;
+ count 
+-------
+     1
+(1 row)
+
 -------------------------------------------------------------
 -- Parallel workers expand the same way as the leader.
 -------------------------------------------------------------
@@ -303,6 +514,26 @@ SELECT id, description FROM products WHERE description &&& 'red sofa' ORDER BY i
   1 | A red sofa for the living room
   7 | A sofa and a couch, both red
 (2 rows)
+
+-- Also with no compiled row to read. The rule change drops every copy in memory, then the
+-- workers compile their own and the leader stores one at plan time.
+DELETE FROM pdb.synonym_fsts;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'bench, seat');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ id |          description           
+----+--------------------------------
+  1 | A red sofa for the living room
+  2 | Leather couch with cushions
+  3 | Antique divan
+  7 | A sofa and a couch, both red
+ 10 | Loveseat for two
+(5 rows)
+
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
+ set_name | count 
+----------+-------
+ shop     |     1
+(1 row)
 
 -- A one-token top-k by score is kept serial as Block-WAND prunable. A rule turns the token
 -- into a union that does not prune, so the scan gets workers.
@@ -379,10 +610,10 @@ SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
 (2 rows)
 
 RESET paradedb.enable_synonyms;
--- The rule is 'couch, sofa, divan', plus 'sofa, loveseat' from the UPDATE above. With a cap of two,
+-- The rule is 'couch, sofa, divan', plus 'sofa, loveseat' from the INSERT above. With a cap of two,
 -- the typed term survives the cut.
 SET paradedb.synonyms_max_alternatives = 2;
-SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa divan');
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa divan');
  position | token | alternatives  
 ----------+-------+---------------
         0 | sofa  | {couch,sofa}
@@ -402,6 +633,7 @@ DROP TABLE products;
 -------------------------------------------------------------
 -- Field level: synonyms=... on the tokenizer cast overrides the index option.
 -------------------------------------------------------------
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('colors', 'red, crimson, scarlet');
 DROP TABLE IF EXISTS fields;
 CREATE TABLE fields (
     id serial8 NOT NULL PRIMARY KEY,
@@ -469,7 +701,7 @@ INSERT INTO stemmed (description) VALUES
 CREATE INDEX idx_stemmed ON stemmed USING bm25 (id, (description::pdb.simple('stemmer=english')))
     WITH (synonyms = 'shop');
 -- "sneakers" stems to "sneaker", and "running shoes" to the phrase "run shoe".
-SELECT * FROM paradedb.synonym_expansion('shop', paradedb.tokenizer('default', stemmer => 'English'), 'sneaker');
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default', stemmer => 'English'), 'sneaker');
  position |  token  | alternatives 
 ----------+---------+--------------
         0 | sneaker | {"run shoe"}
@@ -488,4 +720,42 @@ SELECT id, description FROM stemmed WHERE description ||| 'sneakers' ORDER BY id
 (1 row)
 
 DROP TABLE stemmed;
-DELETE FROM paradedb.synonym_sets;
+-------------------------------------------------------------
+-- TRUNCATE moves every set's version, so every compiled row and every backend's copy follow.
+-------------------------------------------------------------
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa');
+ position | token |        alternatives         
+----------+-------+-----------------------------
+        0 | sofa  | {couch,sofa,divan,loveseat}
+(1 row)
+
+TRUNCATE pdb.synonym_rules;
+SELECT name, version FROM pdb.synonym_sets ORDER BY name;
+  name   | version 
+---------+---------
+ colors  |       3
+ screens |       3
+ shop    |       8
+ stop    |       6
+ writer  |       3
+(5 rows)
+
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa');
+ position | token | alternatives 
+----------+-------+--------------
+        0 | sofa  | {sofa}
+(1 row)
+
+DELETE FROM pdb.synonym_sets;
+SELECT count(*) FROM pdb.synonym_rules;
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM pdb.synonym_fsts;
+ count 
+-------
+     0
+(1 row)
+

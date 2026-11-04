@@ -36,6 +36,9 @@ use tantivy_fst::{Map, MapBuilder, Streamer};
 use thiserror::Error;
 use tokenizers::SearchTokenizer;
 
+/// The `synonyms` option value that turns expansion off for a field or an index.
+pub const SYNONYMS_NONE: &str = "none";
+
 /// A side of a rule past this many terms compiles to the square of that many alternatives.
 const MAX_RULE_TERMS: usize = 256;
 
@@ -161,7 +164,6 @@ impl Expansion {
 
     /// Keeps at most `max` alternatives, in rule order. The typed tokens survive the cap, so a
     /// long rule never drops what the user typed.
-    #[allow(dead_code)]
     pub fn cap(&mut self, max: usize) {
         let Some(alternatives) = &mut self.alternatives else {
             return;

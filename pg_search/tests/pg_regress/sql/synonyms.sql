@@ -1,8 +1,8 @@
 \i common/common_setup.sql
 
 -- Query-time synonyms. A set is the rows of pdb.synonym_rules that share a set_name, one
--- Solr-format rule each. pdb.synonym_expansion shows what a set does to a string, with the
--- analyzer the caller passes.
+-- Solr-format rule each, and attaches to an index or to a field. Expansion happens when a match
+-- query is built, so a change to the rules is live on the next query with no reindex.
 
 -- A set appears with its first rule.
 INSERT INTO pdb.synonym_rules (set_name, rule) VALUES
@@ -109,6 +109,202 @@ DROP TABLE mine;
 RESET ROLE;
 DROP OWNED BY synonyms_test_writer;
 DROP ROLE synonyms_test_writer;
+
+-------------------------------------------------------------
+-- Index level: WITH (synonyms = ...)
+-------------------------------------------------------------
+
+DROP TABLE IF EXISTS products;
+CREATE TABLE products (
+    id serial8 NOT NULL PRIMARY KEY,
+    description text,
+    attrs jsonb
+);
+INSERT INTO products (description, attrs) VALUES
+    ('A red sofa for the living room', '{"color": "red"}'),
+    ('Leather couch with cushions', '{"color": "brown"}'),
+    ('Antique divan', '{"color": "crimson"}'),
+    ('Running shoes for marathons', '{"color": "white"}'),
+    ('Sneakers for the gym', '{"color": "black"}'),
+    ('Big television', '{"color": "black"}'),
+    ('A sofa and a couch, both red', '{"color": "red"}'),
+    ('Sofas on sale', '{"color": "blue"}'),
+    ('Couches on sale', '{"color": "blue"}');
+
+CREATE INDEX idx_products ON products USING bm25 (id, description, attrs)
+    WITH (synonyms = 'shop');
+
+-- Equivalents: every term of the group finds the whole group.
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+
+-- Directed: the left side is replaced, here by a two-word phrase.
+SELECT id, description FROM products WHERE description ||| 'sneakers' ORDER BY id;
+-- The other direction does not expand.
+SELECT id, description FROM products WHERE description ||| 'running shoes' ORDER BY id;
+
+-- Scoring: the alternatives of one input share a DisjunctionMax, so the row with both "sofa" and
+-- "couch" scores once for that input, with the best alternative, and not twice.
+SELECT id, description, paradedb.score(id) FROM products WHERE description ||| 'sofa' ORDER BY id;
+
+-- Conjunction: every group must match.
+SELECT id, description FROM products WHERE description &&& 'red sofa' ORDER BY id;
+
+-- A multi-word key: the typed words of one key form one group, so the conjunction has one Must
+-- with the key as a phrase next to its alternative, and 'lounge' finds the phrase too.
+SELECT id, description FROM products WHERE description &&& 'living room' ORDER BY id;
+SELECT id, description FROM products WHERE description &&& 'lounge' ORDER BY id;
+
+-- Fuzzy: the typed token stays fuzzy (sofa ~ sofas), the alternatives are exact
+-- (couch does not reach couches).
+SELECT id, description FROM products WHERE description ||| 'sofa'::pdb.fuzzy(1) ORDER BY id;
+
+-- Prefix: the typed token stays a prefix (sofa ~ sofas), the alternatives are whole words
+-- (couch does not reach couches).
+SELECT id, description FROM products WHERE description ||| 'sofa'::pdb.fuzzy(0, t) ORDER BY id;
+
+-- A tokenizer cast on the query gives exact tokens, with no expansion.
+SELECT id, description FROM products WHERE description ||| 'sofa'::pdb.simple ORDER BY id;
+
+-- Term and phrase queries are exact by definition.
+SELECT id, description FROM products WHERE description === 'sofa' ORDER BY id;
+SELECT id, description FROM products WHERE description ### 'red sofa' ORDER BY id;
+
+-- JSON fields expand with the index set too.
+SELECT id, attrs FROM products WHERE attrs->'color' ||| 'red' ORDER BY id;
+
+-------------------------------------------------------------
+-- Reload: a rule change is visible to the next query, with no reindex.
+-------------------------------------------------------------
+
+BEGIN;
+DELETE FROM pdb.synonym_rules WHERE set_name = 'shop' AND rule = 'couch, sofa, divan';
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'sofa, settee');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ROLLBACK;
+
+-- Rolled back: the old rules apply again.
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+
+-- Committed: the next query sees the new rule.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'sofa, chesterfield');
+INSERT INTO products (description, attrs) VALUES ('Chesterfield in brown leather', '{"color": "brown"}');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+
+-------------------------------------------------------------
+-- ALTER INDEX changes the set with no reindex.
+-------------------------------------------------------------
+
+ALTER INDEX idx_products SET (synonyms = 'colors');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+
+ALTER INDEX idx_products RESET (synonyms);
+SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+
+-- A missing set fails at query time, with its name.
+ALTER INDEX idx_products SET (synonyms = 'nope');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+ALTER INDEX idx_products SET (synonyms = 'shop');
+
+-- Deleting all rules leaves an empty set, which expands nothing.
+DELETE FROM pdb.synonym_rules WHERE set_name = 'colors';
+ALTER INDEX idx_products SET (synonyms = 'colors');
+SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+-- DELETE FROM pdb.synonym_sets removes the set with its rules.
+DELETE FROM pdb.synonym_sets WHERE name = 'colors';
+SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+ALTER INDEX idx_products SET (synonyms = 'shop');
+
+-------------------------------------------------------------
+-- Parallel workers expand the same way as the leader.
+-------------------------------------------------------------
+
+SET debug_parallel_query = on;
+SET max_parallel_workers_per_gather = 2;
+SET parallel_tuple_cost = 0;
+SET parallel_setup_cost = 0;
+SET min_parallel_table_scan_size = 0;
+
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+
+RESET debug_parallel_query;
+RESET max_parallel_workers_per_gather;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+
+-------------------------------------------------------------
+-- The kill switch, and the cap on alternatives.
+-------------------------------------------------------------
+
+SET paradedb.enable_synonyms = off;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+RESET paradedb.enable_synonyms;
+
+-- The rules on 'sofa' are 'couch, sofa, divan', 'sofa, loveseat' and 'sofa, chesterfield'. With
+-- a cap of two, the typed term survives the cut.
+SET paradedb.synonyms_max_alternatives = 2;
+SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa divan');
+SELECT id, description FROM products WHERE description ||| 'divan' ORDER BY id;
+RESET paradedb.synonyms_max_alternatives;
+
+DROP TABLE products;
+
+-------------------------------------------------------------
+-- Field level: synonyms=... on the tokenizer cast overrides the index option.
+-------------------------------------------------------------
+
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('colors', 'red, crimson, scarlet');
+
+DROP TABLE IF EXISTS fields;
+CREATE TABLE fields (
+    id serial8 NOT NULL PRIMARY KEY,
+    title text,
+    body text,
+    notes text
+);
+INSERT INTO fields (title, body, notes) VALUES
+    ('red sofa', 'crimson couch', 'scarlet divan');
+
+CREATE INDEX idx_fields ON fields USING bm25 (
+    id,
+    (title::pdb.simple('synonyms=colors')),
+    (body::pdb.simple('synonyms=none')),
+    notes
+) WITH (synonyms = 'shop');
+
+-- title: the colors set, so crimson finds red and sofa does not find couch.
+SELECT id FROM fields WHERE title ||| 'crimson' ORDER BY id;
+SELECT id FROM fields WHERE title ||| 'couch' ORDER BY id;
+-- body: no expansion at all.
+SELECT id FROM fields WHERE body ||| 'red' ORDER BY id;
+-- notes: the index set.
+SELECT id FROM fields WHERE notes ||| 'sofa' ORDER BY id;
+SELECT id FROM fields WHERE notes ||| 'red' ORDER BY id;
+
+DROP TABLE fields;
+
+-------------------------------------------------------------
+-- The rules go through the field's analyzer, so a stemmer applies to both sides.
+-------------------------------------------------------------
+
+DROP TABLE IF EXISTS stemmed;
+CREATE TABLE stemmed (
+    id serial8 NOT NULL PRIMARY KEY,
+    description text
+);
+INSERT INTO stemmed (description) VALUES
+    ('running shoes for marathons'),
+    ('a runner shoe'),
+    ('sneaker for the gym');
+
+CREATE INDEX idx_stemmed ON stemmed USING bm25 (id, (description::pdb.simple('stemmer=english')))
+    WITH (synonyms = 'shop');
+
+-- "sneakers" stems to "sneaker", and "running shoes" to the phrase "run shoe".
+SELECT id, description FROM stemmed WHERE description ||| 'sneakers' ORDER BY id;
+
+DROP TABLE stemmed;
 
 -------------------------------------------------------------
 -- TRUNCATE moves every set's version, and every backend's copy follows.

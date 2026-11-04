@@ -157,11 +157,13 @@ REVOKE EXECUTE ON FUNCTION pdb.ensure_synonym_set(), pdb.synonym_rules_bump_vers
             .unwrap_or_else(|e| panic!("{e}"));
 
         let tokens = tokenize(&mut analyzer, input_text);
+        let max_alternatives = crate::gucs::synonyms_max_alternatives();
         let mut position = 0;
         let rows = compiled
             .expand(&tokens)
             .into_iter()
-            .map(|expansion| {
+            .map(|mut expansion| {
+                expansion.cap(max_alternatives);
                 let row = (
                     position as i32,
                     expansion.tokens.join(" "),

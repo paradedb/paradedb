@@ -13,6 +13,8 @@ INSERT INTO issue_7028_logs VALUES
   (2, 'error in database', 20),
   (3, 'warning message', 30),
   (4, 'error in network', 40);
+CREATE TABLE issue_7028_outer (id int PRIMARY KEY);
+INSERT INTO issue_7028_outer VALUES (1), (2);
 CREATE INDEX issue_7028_logs_idx ON issue_7028_logs USING paradedb (id, description, score);
 ANALYZE issue_7028_logs;
 
@@ -120,7 +122,7 @@ DEALLOCATE issue_7028_param;
 -- Default plan_cache_mode: the first five runs use custom plans, the sixth may use a generic one.
 RESET plan_cache_mode;
 PREPARE issue_7028_param(text) AS
-SELECT $1, COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error';
+SELECT $1, pdb.agg('{"value_count":{"field":"score"}}') FROM issue_7028_logs WHERE description @@@ 'error';
 EXECUTE issue_7028_param('a');
 EXECUTE issue_7028_param('b');
 EXECUTE issue_7028_param('c');
@@ -130,7 +132,7 @@ EXECUTE issue_7028_param('f');
 EXECUTE issue_7028_param('g');
 DEALLOCATE issue_7028_param;
 
--- A stable non-Const expression is evaluated once per query.
+-- A stable non-Const expression is compiled once and evaluated per output row.
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
 FROM issue_7028_logs WHERE description @@@ 'error';
@@ -148,7 +150,31 @@ EXPLAIN (COSTS OFF)
 SELECT score + 1, COUNT(*)
 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
 
+-- A constant next to a GROUP BY key that is not selected (the key is a resjunk target entry).
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY 2, score;
+SELECT 'x', pdb.agg('{"value_count":{"field":"score"}}') FROM issue_7028_logs
+WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'nomatch' GROUP BY score;
+SELECT 1 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SELECT 1 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SET paradedb.enable_aggregate_custom_scan = on;
+
+-- A correlated LATERAL reference arrives as a Param.
+SELECT o.id, l.oid, l.n FROM issue_7028_outer o CROSS JOIN LATERAL (
+  SELECT o.id AS oid, COUNT(*) n FROM issue_7028_logs WHERE description @@@ 'error'
+) l ORDER BY o.id;
+
+-- An uncorrelated scalar subquery is an InitPlan Param.
+SELECT (SELECT max(id) FROM issue_7028_outer), COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
 DROP TABLE issue_7028_logs;
+DROP TABLE issue_7028_outer;
 
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.global_mutable_segment_rows;

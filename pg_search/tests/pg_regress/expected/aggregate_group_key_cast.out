@@ -1,0 +1,469 @@
+-- Issue #6625: casts of grouping keys must use PostgreSQL cast semantics.
+SELECT current_database() AS orig_db \gset
+DROP DATABASE IF EXISTS aggregate_group_key_cast_6625;
+CREATE DATABASE aggregate_group_key_cast_6625 TEMPLATE template0;
+\set QUIET 1
+\c aggregate_group_key_cast_6625
+\set QUIET 0
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE EXTENSION
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET
+SET enable_indexscan to OFF;
+SET
+SET paradedb.enable_columnar_exec = true;
+SET
+SET paradedb.enable_aggregate_custom_scan = on;
+SET
+SET paradedb.planner_warnings = off;
+SET
+SET datestyle = 'ISO, MDY';
+SET
+SET timezone = 'UTC';
+SET
+CREATE TABLE cast_groups (id INT PRIMARY KEY, d DATE, ts TIMESTAMPTZ, label VARCHAR);
+CREATE TABLE
+INSERT INTO cast_groups VALUES
+    (1, '2024-01-01', '2024-01-01 00:00:00+00', '01'),
+    (2, '2024-02-02', '2024-02-02 00:00:00+00', '1'),
+    (3, '2024-02-02', '2024-02-02 00:00:00+00', '1'),
+    (4, NULL, NULL, NULL);
+INSERT 0 4
+CREATE INDEX cast_groups_idx ON cast_groups USING paradedb (id, d, ts, (label::pdb.literal));
+CREATE INDEX
+ANALYZE cast_groups;
+ANALYZE
+-- Ordinary operator quals must not cache ltree's absence before installation.
+SELECT id FROM cast_groups WHERE id @@@ pdb.all() AND id > 0 ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  4
+(4 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Sort
+   Output: ((d)::text), (count(*)), d
+   Sort Key: ((cast_groups.d)::text)
+   ->  GroupAggregate
+         Output: (d)::text, count(*), d
+         Group Key: cast_groups.d
+         ->  Sort
+               Output: d
+               Sort Key: cast_groups.d
+               ->  Custom Scan (ParadeDB Base Scan) on public.cast_groups
+                     Output: d
+                     Table: cast_groups
+                     Index: cast_groups_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(18 rows)
+
+-- Planning without ltree must not prevent installing and indexing it later.
+CREATE EXTENSION ltree;
+CREATE EXTENSION
+SELECT d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
+     dt     | count 
+------------+-------
+ 2024-01-01 |     1
+ 2024-02-02 |     2
+            |     1
+(3 rows)
+
+SELECT d, d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d ORDER BY d;
+     d      |     dt     | count 
+------------+------------+-------
+ 2024-01-01 | 2024-01-01 |     1
+ 2024-02-02 | 2024-02-02 |     2
+            |            |     1
+(3 rows)
+
+SELECT ts::text AS ts, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY ts ORDER BY 1;
+           ts           | count 
+------------------------+-------
+ 2024-01-01 00:00:00+00 |     1
+ 2024-02-02 00:00:00+00 |     2
+                        |     1
+(3 rows)
+
+SET timezone = 'Asia/Kolkata';
+SET
+SELECT ts::text AS ts, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY ts ORDER BY 1;
+            ts             | count 
+---------------------------+-------
+ 2024-01-01 05:30:00+05:30 |     1
+ 2024-02-02 05:30:00+05:30 |     2
+                           |     1
+(3 rows)
+
+SET datestyle = 'SQL, DMY';
+SET
+SELECT d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
+     dt     | count 
+------------+-------
+ 01/01/2024 |     1
+ 02/02/2024 |     2
+            |     1
+(3 rows)
+
+SET datestyle = 'ISO, MDY';
+SET
+-- Casts in the GROUP BY itself also need their expression evaluated.
+SELECT d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d::text ORDER BY 1;
+     dt     | count 
+------------+-------
+ 2024-01-01 |     1
+ 2024-02-02 |     2
+            |     1
+(3 rows)
+
+SELECT label::int AS n, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY label ORDER BY label;
+ n | count 
+---+-------
+ 1 |     1
+ 1 |     2
+   |     1
+(3 rows)
+
+SELECT label::int AS n, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY label::int ORDER BY 1;
+ n | count 
+---+-------
+ 1 |     3
+   |     1
+(2 rows)
+
+-- A binary-compatible relabel remains eligible for pushdown.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT label::text AS label, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY label ORDER BY 1;
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.cast_groups
+   Output: (label)::text, pdb.agg_fn('COUNT(*)'::text), label
+   Index: cast_groups_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: label
+     Aggregate Definition: {"grouped":{"terms":{"field":"label","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT label::text AS label, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY label ORDER BY 1;
+ label | count 
+-------+-------
+ 01    |     1
+ 1     |     2
+       |     1
+(3 rows)
+
+-- DataFusion projects target-list casts over plain grouping keys in PostgreSQL.
+SET paradedb.max_term_agg_buckets = 1;
+SET
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((d)::text), (count(*)), d
+   Sort Key: ((cast_groups.d)::text)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: (d)::text, (count(*)), d
+         Backend: DataFusion
+         Indexes: cast_groups_idx (cast_groups)
+         Group By: d
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[d@0 as d], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=cast_groups, segments=1, visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(13 rows)
+
+SELECT d::text AS dt, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
+     dt     | count 
+------------+-------
+ 2024-01-01 |     1
+ 2024-02-02 |     2
+            |     1
+(3 rows)
+
+RESET paradedb.max_term_agg_buckets;
+RESET
+-- Dropping a domain coercion would also skip its constraint.
+CREATE DOMAIN cast_group_domain AS TEXT CHECK (VALUE <> '01');
+CREATE DOMAIN
+SELECT label::cast_group_domain, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY label ORDER BY label;
+ERROR:  value for domain cast_group_domain violates check constraint "cast_group_domain_check"
+SELECT label::cast_group_domain, COUNT(*) FROM cast_groups
+WHERE id @@@ pdb.all() GROUP BY label::cast_group_domain ORDER BY 1;
+ERROR:  value for domain cast_group_domain violates check constraint "cast_group_domain_check"
+DROP DOMAIN cast_group_domain;
+DROP DOMAIN
+DROP TABLE cast_groups;
+DROP TABLE
+CREATE TABLE cast_json (id INT PRIMARY KEY, meta JSONB);
+CREATE TABLE
+INSERT INTO cast_json VALUES
+    (1, '{"k":"a", "n":"01"}'),
+    (2, '{"k":"a", "n":"1"}'),
+    (3, '{"k":"b", "n":"1"}');
+INSERT 0 3
+CREATE INDEX cast_json_idx ON cast_json USING paradedb (id, meta)
+WITH (json_fields = '{"meta": {"fast": true}}');
+CREATE INDEX
+ANALYZE cast_json;
+ANALYZE
+-- Both backends must evaluate casts above JSON paths before grouping.
+SELECT (meta->'k')::text AS k, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY (meta->'k')::text ORDER BY 1;
+  k  | count 
+-----+-------
+ "a" |     2
+ "b" |     1
+(2 rows)
+
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+ n | count 
+---+-------
+ 1 |     3
+(1 row)
+
+SET paradedb.max_term_agg_buckets = 1;
+SET
+EXPLAIN (COSTS OFF)
+SELECT (meta->'k')::text AS k, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY (meta->'k')::text ORDER BY 1;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: (((meta -> 'k'::text))::text)
+   ->  Sort
+         Sort Key: (((meta -> 'k'::text))::text)
+         ->  Custom Scan (ParadeDB Base Scan) on cast_json
+               Table: cast_json
+               Index: cast_json_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT (meta->'k')::text AS k, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY (meta->'k')::text ORDER BY 1;
+  k  | count 
+-----+-------
+ "a" |     2
+ "b" |     1
+(2 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: (((meta ->> 'n'::text))::integer)
+   ->  Sort
+         Sort Key: (((meta ->> 'n'::text))::integer)
+         ->  Custom Scan (ParadeDB Base Scan) on cast_json
+               Table: cast_json
+               Index: cast_json_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY (meta->>'n')::int ORDER BY 1;
+ n | count 
+---+-------
+ 1 |     3
+(1 row)
+
+-- A target-list cast preserves the separate JSON text groups on DataFusion.
+EXPLAIN (COSTS OFF)
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY meta->>'n' ORDER BY 1, 2;
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: ((((meta ->> 'n'::text)))::integer), (count(*))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: cast_json_idx (cast_json)
+         Group By: meta.n
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[meta.n@0 as meta.n], aggr=[count(1) as agg_0]
+           :   CooperativeExec
+           :     PgSearchScan: table=cast_json, segments=1, eager=[meta.n], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT (meta->>'n')::int AS n, COUNT(*) FROM cast_json
+WHERE id @@@ pdb.all() GROUP BY meta->>'n' ORDER BY 1, 2;
+ n | count 
+---+-------
+ 1 |     1
+ 1 |     2
+(2 rows)
+
+RESET paradedb.max_term_agg_buckets;
+RESET
+DROP TABLE cast_json;
+DROP TABLE
+-- An indexed cast already stores the grouping expression's value.
+CREATE TABLE cast_indexed (id INT PRIMARY KEY, n BIGINT);
+CREATE TABLE
+INSERT INTO cast_indexed VALUES (1, 1), (2, 10), (3, 1), (4, 2);
+INSERT 0 4
+CREATE INDEX cast_indexed_idx ON cast_indexed
+USING paradedb (id, n, ((n::text)::pdb.literal('alias=n_text')));
+CREATE INDEX
+EXPLAIN (COSTS OFF)
+SELECT n::text AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY n::text ORDER BY 1;
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: ((n)::text)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on cast_indexed
+         Index: cast_indexed_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: n_text
+           Aggregate Definition: {"grouped":{"terms":{"field":"n_text","segment_size":65000,"size":65000}}}
+(8 rows)
+
+SELECT n::text AS n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY n::text ORDER BY 1;
+ n  | count 
+----+-------
+ 1  |     2
+ 10 |     1
+ 2  |     1
+(3 rows)
+
+SELECT n, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY n ORDER BY n;
+ n  | count 
+----+-------
+  1 |     2
+  2 |     1
+ 10 |     1
+(3 rows)
+
+DROP TABLE cast_indexed;
+DROP TABLE
+-- The existing ltree-to-text decoder remains usable.
+CREATE TABLE cast_paths (id INT PRIMARY KEY, path LTREE);
+CREATE TABLE
+INSERT INTO cast_paths VALUES (1, 'Top.Science'), (2, 'Top.Science'), (3, 'Top.Sport');
+INSERT 0 3
+CREATE INDEX cast_paths_idx ON cast_paths USING paradedb (id, path);
+WARNING:  Direct indexing of `ltree` fields in ParadeDB is deprecated and will be removed in a future release. Use a PostgreSQL GiST index ('USING gist (path)') alongside the ParadeDB index instead.
+CREATE INDEX
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT path::text, COUNT(*) FROM cast_paths
+WHERE id @@@ pdb.all() GROUP BY path::text ORDER BY 1;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((path)::text), (pdb.agg_fn('COUNT(*)'::text))
+   Sort Key: ((cast_paths.path)::text)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.cast_paths
+         Output: (path)::text, pdb.agg_fn('COUNT(*)'::text)
+         Index: cast_paths_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: path
+           Aggregate Definition: {"grouped":{"terms":{"field":"path","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT path::text, COUNT(*) FROM cast_paths
+WHERE id @@@ pdb.all() GROUP BY path::text ORDER BY 1;
+    path     | count 
+-------------+-------
+ Top.Science |     2
+ Top.Sport   |     1
+(2 rows)
+
+-- A further relabel must not bypass the decoder's text-only restriction.
+SELECT path::text::varchar, COUNT(*) FROM cast_paths
+WHERE id @@@ pdb.all() GROUP BY path::text::varchar ORDER BY 1;
+    path     | count 
+-------------+-------
+ Top.Science |     2
+ Top.Sport   |     1
+(2 rows)
+
+ANALYZE cast_paths;
+ANALYZE
+SET paradedb.max_term_agg_buckets = 1;
+SET
+-- DataFusion projects a cast over a plain ltree key, but declines a cast key.
+SELECT path::text, COUNT(*) FROM cast_paths
+WHERE id @@@ pdb.all() GROUP BY path ORDER BY 1;
+    path     | count 
+-------------+-------
+ Top.Science |     2
+ Top.Sport   |     1
+(2 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT path::text, COUNT(*) FROM cast_paths
+WHERE id @@@ pdb.all() GROUP BY path::text ORDER BY 1;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: ((path)::text)
+   ->  Sort
+         Sort Key: ((path)::text)
+         ->  Custom Scan (ParadeDB Base Scan) on cast_paths
+               Table: cast_paths
+               Index: cast_paths_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT path::text, COUNT(*) FROM cast_paths
+WHERE id @@@ pdb.all() GROUP BY path::text ORDER BY 1;
+    path     | count 
+-------------+-------
+ Top.Science |     2
+ Top.Sport   |     1
+(2 rows)
+
+DROP TABLE cast_paths;
+DROP TABLE
+\set QUIET 1
+\c :orig_db
+\set QUIET 0
+DROP DATABASE aggregate_group_key_cast_6625;
+DROP DATABASE

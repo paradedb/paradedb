@@ -575,7 +575,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, created::text
 ORDER BY id
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
                                 QUERY PLAN                                 
 ---------------------------------------------------------------------------
  Limit
@@ -598,7 +598,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, created::text
 ORDER BY id
 LIMIT 3;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 2 is a cast; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
  id | kind | count 
 ----+------+-------
   1 | b    |     1
@@ -614,7 +614,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price::text
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
                                               QUERY PLAN                                              
 ------------------------------------------------------------------------------------------------------
  Sort
@@ -642,7 +642,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY price::text
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
  label | n | total 
 -------+---+-------
  0!    | 7 |    40
@@ -793,7 +793,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id::text
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
                              QUERY PLAN                              
 ---------------------------------------------------------------------
  GroupAggregate
@@ -814,7 +814,7 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY account_id::text
 ORDER BY 1;
-WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast of a column; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
+WARNING:  Aggregate Scan (DataFusion) not used: GROUP BY item 1 is a cast; only plain columns and indexed expressions are pushed down (table: dependent_col_items)
        account        | count 
 ----------------------+-------
  -9223372036854775808 |     1

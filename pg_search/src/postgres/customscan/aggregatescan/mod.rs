@@ -2778,6 +2778,10 @@ unsafe fn fill_slot_from_row(
     (*slot).tts_nvalid = natts as i16;
 }
 
+fn can_decode_group_key_cast(original_typoid: pg_sys::Oid, expected_typoid: pg_sys::Oid) -> bool {
+    expected_typoid == pg_sys::TEXTOID && is_ltree_oid(original_typoid)
+}
+
 /// Decodes internal binary fast-field representations for known-safe type casts.
 ///
 /// Because `AggregateScan` maps grouping columns directly to `INDEX_VAR`s pointing at
@@ -2802,18 +2806,14 @@ fn decode_safe_cast(
         return key;
     }
 
-    match (original_typoid, expected_typoid) {
-        (orig, pg_sys::TEXTOID) if is_ltree_oid(orig) => {
-            if let PdbOwnedValue::Str(ref s) = key.0 {
-                key = TantivyValue(PdbOwnedValue::Str(
-                    crate::postgres::catalog::facet_encoded_str_to_ltree_text(s),
-                ));
-            }
-            key
-        }
-        // Add other safe `original_typoid` -> `expected_typoid` conversions here
-        _ => key,
+    if can_decode_group_key_cast(original_typoid, expected_typoid)
+        && let PdbOwnedValue::Str(ref s) = key.0
+    {
+        key = TantivyValue(PdbOwnedValue::Str(
+            crate::postgres::catalog::facet_encoded_str_to_ltree_text(s),
+        ));
     }
+    key
 }
 
 /// True when a group key is the sentinel Tantivy's terms aggregation puts on the bucket of rows

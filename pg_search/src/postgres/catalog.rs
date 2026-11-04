@@ -245,9 +245,14 @@ pub fn lookup_procoid(
 /// Returns `true` if `oid` is the OID of the `ltree` type.
 pub fn is_ltree_oid(oid: pg_sys::Oid) -> bool {
     static LTREE_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
-    let lid = *LTREE_OID
-        .get_or_init(|| lookup_typoid(c"public", c"ltree").unwrap_or(pg_sys::Oid::INVALID));
-    lid != pg_sys::Oid::INVALID && oid == lid
+    if let Some(lid) = LTREE_OID.get() {
+        return oid == *lid;
+    }
+    // ltree may be installed later in this backend, so do not cache a miss.
+    let Some(lid) = lookup_typoid(c"public", c"ltree") else {
+        return false;
+    };
+    oid == *LTREE_OID.get_or_init(|| lid)
 }
 
 /// Converts a facet-encoded string (null-byte–separated path as stored by Tantivy's fast-field

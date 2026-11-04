@@ -27,6 +27,7 @@ use super::datafusion_build::{
     FilterExprBuildContext, JoinAggSource, ResolutionSource, collect_join_agg_sources,
     resolve_source_field,
 };
+use super::groupby::validate_grouping_casts;
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
 use crate::api::{SortDirection, pdb_agg_spec};
@@ -37,7 +38,7 @@ use crate::postgres::customscan::datafusion::explain::get_attname_safe;
 use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelationAlias};
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::strip_relabel;
+use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_var_and_fieldname};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
@@ -986,11 +987,10 @@ unsafe fn extract_raw_group_column(
             "DISTINCT group expressions are plain columns by construction"
         );
         // The field holds the column's value, not the value of a cast of it.
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, strip_relabel(expr))
-            && nodecast!(Var, T_Var, strip_relabel((*coerce).arg.cast())).is_some()
-        {
+        let (stripped, _) = strip_unnest_and_relabel(expr);
+        if validate_grouping_casts(expr, stripped, |_, _| false).is_err() {
             return Err(format!(
-                "GROUP BY item {position} is a cast of a column; only plain columns and indexed \
+                "GROUP BY item {position} is a cast; only plain columns and indexed \
                  expressions are pushed down"
             ));
         }

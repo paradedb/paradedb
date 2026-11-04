@@ -19,6 +19,7 @@ use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::groupby::resolve_grouping_cast;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
@@ -136,7 +137,16 @@ impl CustomScanClause<AggregateScan> for TargetList {
 
             let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
 
-            let maybe_field_name = if let Some((_, field_name)) =
+            let cast_resolution = resolve_grouping_cast(
+                expr.cast(),
+                actual_expr,
+                &index_expressions,
+                &schema,
+                heap_rti,
+            );
+            let maybe_field_name = if let Ok(Some(field_name)) = &cast_resolution {
+                Some(field_name.clone())
+            } else if let Some((_, field_name)) =
                 unsafe { find_one_var_and_fieldname(var_context, actual_expr) }
             {
                 Some(field_name.into_inner())
@@ -147,6 +157,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
 
             // Try to extract field name from the expression (handles both Var and JSON operators)
             if let Some(field_name) = maybe_field_name {
+                cast_resolution?;
                 // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                 // Find which grouping column this is
                 let mut found = false;

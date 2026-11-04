@@ -29,12 +29,6 @@ skipping never reduces recall, so raising the ceiling only ever improves it.
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
 
-## Quantization settings
-
-Quantization settings in `vector_fields` take effect only during `CREATE INDEX` and
-`REINDEX`. Changing quantization with `ALTER INDEX ... SET (vector_fields = ...)`
-does not affect new or existing segments until `REINDEX` rebuilds the index.
-
 ## Inspecting Vector Indexes
 
 Use `vector_info` to inspect vector storage and `vector_config` to check build settings. These examples inspect the `embedding` field of `search_idx`:

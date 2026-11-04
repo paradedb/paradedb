@@ -49,7 +49,7 @@ use super::{
     LogicalWire, STATS_EXT, SegmentStats,
 };
 use crate::api::HashMap;
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::PostgresTimestamp;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 
 /// The plugin that writes and merges the `.stats` component.
@@ -226,14 +226,14 @@ fn column_stats(handle: &DynamicColumnHandle) -> tantivy::Result<Option<Empirica
             // A value Postgres can't represent has no place in a segment, but a statistic is
             // not worth failing the write over.
             let (Ok(min), Ok(max)) = (
-                PostgresDateTime::try_from(c.min_value()),
-                PostgresDateTime::try_from(c.max_value()),
+                PostgresTimestamp::try_from(c.min_value()),
+                PostgresTimestamp::try_from(c.max_value()),
             ) else {
                 return Ok(None);
             };
             (
-                PdbOwnedValue::Date(min),
-                PdbOwnedValue::Date(max),
+                PdbOwnedValue::Timestamp(min),
+                PdbOwnedValue::Timestamp(max),
                 c.get_cardinality(),
             )
         }

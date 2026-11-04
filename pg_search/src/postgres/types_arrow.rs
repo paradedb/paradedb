@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
-use crate::postgres::datetime::{PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS, PostgresDateTime};
+use crate::postgres::datetime::{PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS, PostgresTimestamp};
 
 use anyhow::{Context, anyhow};
 use arrow_array::Array;
@@ -541,7 +541,7 @@ pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
 ) -> Option<anyhow::Result<Option<pg_sys::Datum>>> {
     match &oid {
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
-            let res = PostgresDateTime::try_from_raw(pg_micros)
+            let res = PostgresTimestamp::try_from_raw(pg_micros)
                 .map_err(|err| anyhow!("Arrow->timestamptz conversion failed: {err}"))
                 .map(|pgdt| {
                     let ts = pgrx::datum::TimestampWithTimeZone::from(pgdt);
@@ -550,7 +550,7 @@ pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => {
-            let res = PostgresDateTime::try_from_raw(pg_micros)
+            let res = PostgresTimestamp::try_from_raw(pg_micros)
                 .map_err(|err| anyhow!("Arrow->timestamp conversion failed: {err}"))
                 .map(|pgdt| {
                     let ts = pgrx::datum::Timestamp::from(pgdt);
@@ -559,7 +559,7 @@ pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::DATEOID) => {
-            let res = PostgresDateTime::try_from_raw(pg_micros)
+            let res = PostgresTimestamp::try_from_raw(pg_micros)
                 .map_err(|err| anyhow!("Arrow->date conversion failed: {err}"))
                 .map(|pgdt| {
                     let ts = pgrx::datum::Date::from(pgdt);
@@ -568,7 +568,7 @@ pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
-            let res = PostgresDateTime::try_from_raw(pg_micros)
+            let res = PostgresTimestamp::try_from_raw(pg_micros)
                 .map_err(|err| anyhow!("Arrow->time conversion failed: {err}"))
                 .map(|pgdt| {
                     let ts = pgrx::datum::Time::from(pgdt);
@@ -577,7 +577,7 @@ pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
-            let res = PostgresDateTime::try_from_raw(pg_micros)
+            let res = PostgresTimestamp::try_from_raw(pg_micros)
                 .map_err(|err| anyhow!("Arrow->timetz conversion failed: {err}"))
                 .map(|pgdt| {
                     let ts = pgrx::datum::TimeWithTimeZone::from(pgdt);
@@ -591,7 +591,7 @@ pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
 
 /// Convert a tantivy DateTime to its corresponding arrow i64 representation
 pub fn datetime_to_pg_micros(datetime: tantivy::DateTime) -> i64 {
-    let pg_dt = PostgresDateTime::try_from(datetime)
+    let pg_dt = PostgresTimestamp::try_from(datetime)
         .expect("tantivy datetime to postgres datetime should always work");
     pg_dt.into_inner()
 }
@@ -712,7 +712,7 @@ mod tests {
             Arc::new(builder.finish()) as Arc<dyn Array>
         };
 
-        let pg_dt = PostgresDateTime::try_from_raw(pg_micros).unwrap();
+        let pg_dt = PostgresTimestamp::try_from_raw(pg_micros).unwrap();
 
         // Test TIMESTAMPTZOID
         let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
@@ -894,7 +894,7 @@ mod tests {
             Arc::new(builder.finish()) as Arc<dyn Array>
         };
 
-        let pg_dt = PostgresDateTime::try_from_raw(pg_micros).unwrap();
+        let pg_dt = PostgresTimestamp::try_from_raw(pg_micros).unwrap();
 
         // Test TIMESTAMPTZOID
         let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());

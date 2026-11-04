@@ -20,7 +20,7 @@ use crate::api::version::Version;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{PostgresDate, PostgresTimestamp};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::range::RangeToTantivyValue;
@@ -64,13 +64,17 @@ impl TantivyValue {
     pub fn into_tantivy_value(
         self,
         index_created_by_version: Option<crate::api::version::Version>,
-    ) -> tantivy::schema::OwnedValue {
+    ) -> Result<tantivy::schema::OwnedValue, TantivyValueError> {
         self.0.into_tantivy_value(index_created_by_version)
     }
 
+    /// Extracts a semantic datetime value, if this is one.
+    ///
+    /// `Date` and `Timestamp` intentionally stay distinct: they use different storage
+    /// representations, and only the index version can resolve a legacy one.
     pub fn into_owned_datetime(self) -> Option<PdbOwnedValue> {
         match self.0 {
-            PdbOwnedValue::Date(_) => Some(self.0),
+            PdbOwnedValue::Date(_) | PdbOwnedValue::Timestamp(_) => Some(self.0),
             _ => None,
         }
     }
@@ -153,8 +157,8 @@ impl TantivyValue {
     fn auto_promote_str_to_date(value: &mut PdbOwnedValue) {
         match value {
             PdbOwnedValue::Str(s) => {
-                if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
-                    *value = PdbOwnedValue::Date(pgdt);
+                if let Ok(pgdt) = PostgresTimestamp::try_from(s.as_str()) {
+                    *value = PdbOwnedValue::Timestamp(pgdt);
                 }
             }
             PdbOwnedValue::Array(vals) => {
@@ -427,6 +431,7 @@ impl fmt::Display for TantivyValue {
             PdbOwnedValue::Object(_) => write!(f, "json object"),
             PdbOwnedValue::Null => write!(f, "<null>"),
             PdbOwnedValue::Date(date) => write!(f, "{date}"),
+            PdbOwnedValue::Timestamp(date) => write!(f, "{date}"),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -444,6 +449,7 @@ impl Hash for TantivyValue {
             PdbOwnedValue::Facet(facet) => facet.encoded_str().hash(state),
             PdbOwnedValue::Null => 0_u8.hash(state),
             PdbOwnedValue::Date(date) => date.hash(state),
+            PdbOwnedValue::Timestamp(date) => date.hash(state),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -466,6 +472,9 @@ impl PartialOrd for TantivyValue {
                 facet.partial_cmp(other_facet)
             }
             (PdbOwnedValue::Date(date), PdbOwnedValue::Date(other_date)) => {
+                date.partial_cmp(other_date)
+            }
+            (PdbOwnedValue::Timestamp(date), PdbOwnedValue::Timestamp(other_date)) => {
                 date.partial_cmp(other_date)
             }
             _ => None,
@@ -1028,9 +1037,8 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let pg_dt =
-            PostgresDateTime::try_from(val).map_err(|_| TantivyValueError::DateOutOfRange)?;
-        Ok(TantivyValue(PdbOwnedValue::Date(pg_dt)))
+        let date = PostgresDate::try_from(val).map_err(|_| TantivyValueError::DateOutOfRange)?;
+        Ok(TantivyValue(PdbOwnedValue::Date(date)))
     }
 }
 
@@ -1038,12 +1046,17 @@ impl TryFrom<TantivyValue> for pgrx::datum::Date {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let PdbOwnedValue::Date(date) = value.0 {
-            Ok(date.into())
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            PdbOwnedValue::Date(date) => Ok(date.into()),
+            // Legacy date indexes store DATE as a midnight timestamp.
+            PdbOwnedValue::Timestamp(date) => {
+                let date =
+                    PostgresDate::try_from(date).map_err(|_| TantivyValueError::DateOutOfRange)?;
+                Ok(date.into())
+            }
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "date".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -1052,9 +1065,9 @@ impl TryFrom<pgrx::datum::Time> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Time) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::Date(PostgresDateTime::from(
-            val,
-        ))))
+        Ok(TantivyValue(PdbOwnedValue::Timestamp(
+            PostgresTimestamp::from(val),
+        )))
     }
 }
 
@@ -1062,7 +1075,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::Time {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let PdbOwnedValue::Date(date) = value.0 {
+        if let PdbOwnedValue::Timestamp(date) = value.0 {
             Ok(date.into())
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -1076,9 +1089,9 @@ impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Timestamp) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::Date(PostgresDateTime::from(
-            val,
-        ))))
+        Ok(TantivyValue(PdbOwnedValue::Timestamp(
+            PostgresTimestamp::from(val),
+        )))
     }
 }
 
@@ -1086,12 +1099,17 @@ impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let PdbOwnedValue::Date(date) = value.0 {
-            Ok(date.into())
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            PdbOwnedValue::Timestamp(date) => Ok(date.into()),
+            // Postgres implicitly casts DATE to TIMESTAMP at midnight.
+            PdbOwnedValue::Date(date) => {
+                let timestamp = PostgresTimestamp::try_from(date)
+                    .map_err(|_| TantivyValueError::DateOutOfRange)?;
+                Ok(timestamp.into())
+            }
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamp".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -1100,9 +1118,9 @@ impl TryFrom<pgrx::datum::TimeWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::TimeWithTimeZone) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::Date(PostgresDateTime::from(
-            val,
-        ))))
+        Ok(TantivyValue(PdbOwnedValue::Timestamp(
+            PostgresTimestamp::from(val),
+        )))
     }
 }
 
@@ -1110,7 +1128,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimeWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let PdbOwnedValue::Date(date) = value.0 {
+        if let PdbOwnedValue::Timestamp(date) = value.0 {
             Ok(date.into())
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -1124,9 +1142,9 @@ impl TryFrom<pgrx::datum::TimestampWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::TimestampWithTimeZone) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::Date(PostgresDateTime::from(
-            val,
-        ))))
+        Ok(TantivyValue(PdbOwnedValue::Timestamp(
+            PostgresTimestamp::from(val),
+        )))
     }
 }
 
@@ -1134,7 +1152,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimestampWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let PdbOwnedValue::Date(date) = value.0 {
+        if let PdbOwnedValue::Timestamp(date) = value.0 {
             Ok(date.into())
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(

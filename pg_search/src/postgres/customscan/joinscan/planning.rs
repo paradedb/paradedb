@@ -790,6 +790,17 @@ unsafe fn collect_join_sources_join_rel(
                         );
                         return None;
                     }
+                    // A DATE key is stored as days in a new index and as a midnight
+                    // timestamp in an old one. The join hashes the raw representations,
+                    // so the two cannot match.
+                    if date_storage_layouts_differ(&outer_ff, &outer_ir, &inner_ff, &inner_ir) {
+                        crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                            "join key DATE columns are stored in different representations; \
+                             reindex the older index",
+                            (),
+                        );
+                        return None;
+                    }
                 }
                 _ => return None,
             }
@@ -1376,6 +1387,29 @@ pub(super) fn numeric_bytes_layouts_differ(
                 .stores_sortable_negative_numeric_bytes()
 }
 
+/// Whether two DATE join keys encode the same value differently: PostgreSQL `DateADT`
+/// days in a new index, or a midnight timestamp in an older one.
+pub(super) fn date_storage_layouts_differ(
+    outer_ff: &WhichFastField,
+    outer_ir: &PgSearchRelation,
+    inner_ff: &WhichFastField,
+    inner_ir: &PgSearchRelation,
+) -> bool {
+    let date_storage = |ff: &WhichFastField, index: &PgSearchRelation| match ff.field_type()? {
+        SearchFieldType::Date(_) if ff.field_type()?.typeoid().value() == pg_sys::DATEOID => {
+            Some(false)
+        }
+        SearchFieldType::I64(oid) if *oid == pg_sys::DATEOID => {
+            Some(index.created_by_version().stores_dates_as_days())
+        }
+        _ => None,
+    };
+    matches!(
+        (date_storage(outer_ff, outer_ir), date_storage(inner_ff, inner_ir)),
+        (Some(outer), Some(inner)) if outer != inner
+    )
+}
+
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.
 unsafe fn extract_equi_keys_from_subplan(
     subplan: *mut pg_sys::SubPlan,
@@ -1946,7 +1980,8 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
     source.scan_info.add_field_by_name(
         synthetic_attno,
-        WhichFastField::eager(field_name.to_string(), field_type),
+        WhichFastField::eager(field_name.to_string(), field_type)
+            .with_date_days(search_field.stores_date_days()),
     );
     Ok(())
 }

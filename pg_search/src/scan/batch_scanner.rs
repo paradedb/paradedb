@@ -95,16 +95,17 @@ fn ensure_column_fetched(
     match &which_fast_fields[ff_index] {
         WhichFastField::Named {
             field_type: search_field_type,
+            date_days,
             cardinality,
             ..
         } => {
             let column = ffhelper.column(segment_ord, ff_index);
             memoized_columns[ff_index] = Some(match cardinality {
                 FieldCardinality::Scalar => {
-                    column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
+                    column.fetch_values_or_ords_to_arrow(ids, *search_field_type, *date_days)
                 }
                 FieldCardinality::List => {
-                    column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
+                    column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type, *date_days)
                 }
             });
         }

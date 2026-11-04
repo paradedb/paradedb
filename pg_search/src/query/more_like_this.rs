@@ -67,15 +67,16 @@ impl Query for MoreLikeThisQuery {
             .doc_fields
             .iter()
             .map(|(field, values)| {
-                (
+                Ok::<_, TantivyError>((
                     *field,
                     values
                         .iter()
                         .map(|v| v.clone().into_tantivy_value(self.index_created_by_version))
-                        .collect::<Vec<OwnedValue>>(),
-                )
+                        .collect::<Result<Vec<OwnedValue>, _>>()
+                        .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?,
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let value_refs = values
             .iter()
             .map(|(field, values)| (*field, values.iter().collect::<Vec<&OwnedValue>>()))

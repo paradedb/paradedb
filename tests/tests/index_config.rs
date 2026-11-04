@@ -592,8 +592,10 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
             Some(&Value::String(String::from("Custom Scan")))
         );
         let query = per_partition_plan.get("Tantivy Query").unwrap().to_string();
+        // A new DATE index stores `DateADT` days: 2023-01-10 is 8410 days after
+        // PostgreSQL's 2000-01-01 epoch.
         assert!(
-            query.to_string().contains("2023-01-10"),
+            query.contains("sale_date") && query.contains("8410"),
             "Expected sale_date to be pushed down into query: {query:?}",
         );
     }

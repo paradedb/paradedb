@@ -22,7 +22,6 @@ pub mod range;
 use crate::api::version::{Version, VersionInfo};
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
-use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
@@ -68,6 +67,7 @@ pub enum SearchFieldType {
     U64(pg_sys::Oid),
     Bool(pg_sys::Oid),
     Json(pg_sys::Oid),
+    /// Legacy DATE/timestamp storage: a tantivy `DateTime` (nanoseconds from the Unix epoch).
     Date(pg_sys::Oid),
     Range(pg_sys::Oid),
     /// NUMERIC with precision <= 18 and a scale in -18..=18: stored as I64 with fixed-point
@@ -222,6 +222,14 @@ impl SearchFieldType {
 
             // Vector is not stored in Arrow columnar format
             SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
+        }
+    }
+
+    pub fn arrow_data_type_with_date_days(&self, date_days: bool) -> arrow_schema::DataType {
+        if date_days {
+            arrow_schema::DataType::Date32
+        } else {
+            self.arrow_data_type()
         }
     }
 
@@ -439,6 +447,7 @@ pub struct CategorizedFieldData {
 pub struct SearchIndexSchema {
     schema: Schema,
     bm25_options: BM25IndexOptions,
+    created_by_version: Option<Version>,
     categorized: Rc<RefCell<Vec<(SearchField, CategorizedFieldData)>>>,
 }
 
@@ -465,17 +474,24 @@ pub fn is_columnar_json_path(schema: &Schema, name: &str) -> bool {
 
 impl SearchIndexSchema {
     pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
+        let created_by_version = indexrel.created_by_version();
         Ok(load_index_schema(indexrel)?
             .map(|schema| Self {
                 schema,
                 bm25_options: indexrel.options().clone(),
+                created_by_version,
                 categorized: Default::default(),
             })
             .unwrap_or_else(|| Self {
                 schema: Schema::builder().build(),
                 bm25_options: indexrel.options().clone(),
+                created_by_version,
                 categorized: Default::default(),
             }))
+    }
+
+    pub fn created_by_version(&self) -> Option<Version> {
+        self.created_by_version
     }
 
     pub fn tantivy_schema(&self) -> &Schema {
@@ -566,7 +582,12 @@ impl SearchIndexSchema {
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         let field_name = FieldName::from(name.as_ref());
         match self.schema.get_field(&field_name.root()) {
-            Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
+            Ok(field) => Some(SearchField::new(
+                field,
+                &self.bm25_options,
+                &self.schema,
+                self.created_by_version,
+            )),
             Err(_) => None,
         }
     }
@@ -754,6 +775,7 @@ pub struct SearchField {
     field_entry: FieldEntry,
     field_type: SearchFieldType,
     field_config: SearchFieldConfig,
+    created_by_version: Option<Version>,
 }
 
 impl Hash for SearchField {
@@ -771,7 +793,12 @@ impl PartialEq for SearchField {
 }
 
 impl SearchField {
-    pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
+    pub fn new(
+        field: Field,
+        options: &BM25IndexOptions,
+        schema: &Schema,
+        created_by_version: Option<Version>,
+    ) -> Self {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
         let mut field_config = options.field_config_or_default(&field_name);
@@ -787,7 +814,13 @@ impl SearchField {
             field_entry,
             field_type,
             field_config,
+            created_by_version,
         }
+    }
+
+    pub fn stores_date_days(&self) -> bool {
+        matches!(self.field_type, SearchFieldType::I64(oid) if oid == pg_sys::DATEOID)
+            && self.created_by_version.stores_dates_as_days()
     }
 
     pub fn field(&self) -> Field {
@@ -985,35 +1018,33 @@ impl SearchField {
             | (FieldType::I64(_), PdbOwnedValue::I64(_))
             | (FieldType::F64(_), PdbOwnedValue::F64(_))
             | (FieldType::Bool(_), PdbOwnedValue::Bool(_))
-            | (FieldType::Date(_), PdbOwnedValue::Date(_))
+            | (FieldType::Date(_), PdbOwnedValue::Timestamp(_))
             | (FieldType::Facet(_), PdbOwnedValue::Facet(_))
             | (FieldType::JsonObject(_), PdbOwnedValue::Object(_)) => Ok(()),
-            (FieldType::Date(_), PdbOwnedValue::Str(s)) => {
-                let typeoid = match self.field_type {
-                    SearchFieldType::Date(oid) => PgOid::from(oid),
-                    _ => bail!(
-                        "field type mismatch: expected Date but got {:?}",
-                        self.field_type
-                    ),
-                };
-                let datetime = convert_pg_date_string(typeoid, &s);
-                *value = PdbOwnedValue::Date(datetime);
+            (FieldType::Date(_), PdbOwnedValue::Date(_)) => Ok(()),
+            (FieldType::I64(_), PdbOwnedValue::Timestamp(timestamp)) if self.stores_date_days() => {
+                *value = PdbOwnedValue::Date(
+                    crate::postgres::datetime::PostgresDate::try_from(timestamp)
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+                );
                 Ok(())
             }
-            (FieldType::I64(_), PdbOwnedValue::Str(s))
+            (FieldType::I64(_), PdbOwnedValue::Timestamp(_))
                 if is_pgoid_datetime_type(self.field_type.typeoid()) =>
             {
-                match self.field_type.typeoid() {
-                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPOID) => {
-                        let pg_dt = PostgresDateTime::try_from_timestamp_str(&s)?;
-                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
-                    }
-                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPTZOID) => {
-                        let pg_dt = PostgresDateTime::try_from_timestamptz_str(&s)?;
-                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
-                    }
-                    _ => unreachable!(),
-                }
+                Ok(())
+            }
+            // New DATE fields store days; legacy DATE fields still accept the semantic value and
+            // encode it according to the index version.
+            (FieldType::I64(_), PdbOwnedValue::Date(_))
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
+            {
+                Ok(())
+            }
+            (FieldType::Date(_) | FieldType::I64(_), PdbOwnedValue::Str(s))
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
+            {
+                *value = convert_pg_date_string(self.field_type.typeoid(), &s);
                 Ok(())
             }
             (FieldType::U64(_), PdbOwnedValue::I64(v)) => {

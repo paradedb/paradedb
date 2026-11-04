@@ -1927,6 +1927,19 @@ pub(crate) fn match_expands_with_synonyms(
     )
 }
 
+/// The analyzer of every text and JSON field of the index that expands with `set`, for the
+/// builder, which stores a compiled set only for a pair some index asks for.
+pub(crate) fn synonym_analyzers(schema: &SearchIndexSchema, set: &str) -> Vec<SearchTokenizer> {
+    schema
+        .fields()
+        .filter_map(|(_, entry)| schema.search_field(entry.name()))
+        .filter(|search_field| search_field.is_text() || search_field.is_json())
+        .filter(|search_field| synonym_set_of(search_field, schema).as_deref() == Some(set))
+        .filter_map(|search_field| search_tokenizer_from_options(&search_field, schema))
+        .map(|(_, tokenizer)| tokenizer)
+        .collect()
+}
+
 fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,

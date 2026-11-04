@@ -17,11 +17,13 @@
 
 #[pgrx::pg_schema]
 mod pdb {
-    use crate::query::synonyms::{self, compiled_set, tokenize};
+    use crate::query::synonyms::{self, compiled_set_without_store, tokenize};
     use pgrx::heap_tuple::{PgHeapTuple, PgHeapTupleError};
     use pgrx::pgbox::AllocatedByPostgres;
     use pgrx::trigger_support::PgTrigger;
-    use pgrx::{JsonB, extension_sql, iter::TableIterator, name, pg_extern, pg_trigger};
+    use pgrx::{
+        JsonB, extension_sql, iter::TableIterator, name, pg_extern, pg_trigger, search_path,
+    };
     use tokenizers::SearchTokenizer;
 
     extension_sql!(
@@ -41,12 +43,25 @@ CREATE TABLE pdb.synonym_rules (
 CREATE INDEX synonym_rules_set_name_idx ON pdb.synonym_rules (set_name);
 -- Rules have no key, and a publication of every table needs a replica identity for a DELETE.
 ALTER TABLE pdb.synonym_rules REPLICA IDENTITY FULL;
+-- Derived rows, rebuilt on demand, so they are not dumped. The key is a digest of the analyzer
+-- config, since a config with a long stopword list is too big for a btree entry.
+CREATE TABLE pdb.synonym_fsts (
+    set_name      text NOT NULL REFERENCES pdb.synonym_sets (name) ON DELETE CASCADE,
+    analyzer_hash text NOT NULL,
+    analyzer      jsonb NOT NULL,
+    version       bigint NOT NULL,
+    built_with    text NOT NULL,
+    fst           bytea NOT NULL,
+    alternatives  bytea NOT NULL,
+    PRIMARY KEY (set_name, analyzer_hash)
+);
+GRANT SELECT ON pdb.synonym_fsts TO PUBLIC;
 SELECT pg_catalog.pg_extension_config_dump('pdb.synonym_sets', '');
 SELECT pg_catalog.pg_extension_config_dump('pdb.synonym_rules', '');
 
 -- Every role that runs a query reads the set of its index, so PUBLIC gets SELECT. Writing rules
 -- takes a grant on pdb.synonym_rules, and removing a set a grant on pdb.synonym_sets. Both
--- trigger functions run as the extension owner.
+-- trigger functions and the builder run as the extension owner.
 GRANT SELECT ON pdb.synonym_sets, pdb.synonym_rules TO PUBLIC;
 
 -- A set appears with its first rule, so a writer never touches pdb.synonym_sets. The IF NOT
@@ -111,7 +126,7 @@ REVOKE EXECUTE ON FUNCTION pdb.ensure_synonym_set(), pdb.synonym_rules_bump_vers
     }
 
     /// Runs once per statement on `pdb.synonym_rules`. It bumps the version of every set the
-    /// statement touched and drops every backend's copy.
+    /// statement touched, rewrites their stored FSTs and drops every backend's copy.
     #[pg_trigger]
     fn synonym_rules_bump_version<'a>(
         trigger: &'a PgTrigger<'a>,
@@ -129,6 +144,16 @@ REVOKE EXECUTE ON FUNCTION pdb.ensure_synonym_set(), pdb.synonym_rules_bump_vers
     ) -> Result<Option<PgHeapTuple<'a, AllocatedByPostgres>>, PgHeapTupleError> {
         synonyms::sets_removed();
         Ok(None)
+    }
+
+    /// Compiles `set_name` for `analyzer`, the stored form of a tokenizer config, and stores the
+    /// row. Runs as the extension owner, so a reader needs no write grant on the cache table and
+    /// cannot store bytes it did not compile. Returns false when no index asks for the pair, or
+    /// the set has its share of rows.
+    #[pg_extern(security_definer, volatile, parallel_unsafe, strict)]
+    #[search_path(pg_catalog, pg_temp)]
+    fn synonym_fst_build(set_name: &str, analyzer: JsonB) -> bool {
+        synonyms::build_and_store(set_name, analyzer.0).unwrap_or_else(|e| panic!("{e}"))
     }
 
     /// Shows how `input_text` expands under a set before a query runs. `tokenizer_setting` is a
@@ -153,7 +178,7 @@ REVOKE EXECUTE ON FUNCTION pdb.ensure_synonym_set(), pdb.synonym_rules_bump_vers
         let mut analyzer = tokenizer
             .to_tantivy_tokenizer()
             .expect("failed to convert tokenizer to tantivy tokenizer");
-        let compiled = compiled_set(set_name, Some(&tokenizer), &mut analyzer)
+        let compiled = compiled_set_without_store(set_name, Some(&tokenizer), &mut analyzer)
             .unwrap_or_else(|e| panic!("{e}"));
 
         let tokens = tokenize(&mut analyzer, input_text);

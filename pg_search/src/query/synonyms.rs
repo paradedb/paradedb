@@ -20,14 +20,22 @@
 //! A set is the rows of `pdb.synonym_rules` that share a `set_name`, one Solr-format rule each.
 //! A set is compiled against the analyzer of the query, so stemming and lowercasing apply to the
 //! rules and to the query alike. The compiled form, an FST over the rule keys plus one blob of
-//! alternatives, is kept per backend until a rule change drops it through a relcache
-//! invalidation.
+//! alternatives, is stored in `pdb.synonym_fsts` per set and analyzer, so it is built once and
+//! read by every backend. Each backend keeps the rows it has read in memory until a rule change
+//! drops them through a relcache invalidation.
 
-use crate::api::HashMap;
+use crate::api::tokenizers::typmod::StmtHolder;
+use crate::api::{HashMap, HashSet};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::ActiveSnapshotGuard;
+use crate::query::pdb_query::synonym_analyzers;
+use crate::schema::SearchIndexSchema;
 use parking_lot::Mutex;
+use pgrx::datum::DatumWithOid;
+use pgrx::pg_sys::BuiltinOid;
+use pgrx::spi::Query;
 use pgrx::trigger_support::{PgTrigger, PgTriggerOperation};
-use pgrx::{Spi, pg_guard, pg_sys};
+use pgrx::{PgOid, Spi, pg_guard, pg_sys};
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -42,6 +50,15 @@ pub const SYNONYMS_NONE: &str = "none";
 /// A side of a rule past this many terms compiles to the square of that many alternatives.
 const MAX_RULE_TERMS: usize = 256;
 
+/// Stored rows per set. Any role can call the builder with any analyzer config, and every rule
+/// change recompiles every row of the set, so the rows are capped and a backend past the cap
+/// keeps its copy in memory.
+const MAX_STORED_ANALYZERS: i64 = 16;
+
+/// Stamped on every stored row. A row from another build is read as absent, because an upgrade
+/// can change what an analyzer emits for the same config, or the layout of the bytes.
+const BUILT_WITH: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, Error)]
 pub enum SynonymError {
     #[error("synonym set '{0}' does not exist")]
@@ -54,6 +71,8 @@ pub enum SynonymError {
     },
     #[error("the stored form of synonym set '{set}' does not load: {reason}")]
     Stored { set: String, reason: String },
+    #[error("the analyzer of a stored synonym set does not load: {0}")]
+    Analyzer(String),
     #[error(transparent)]
     Spi(#[from] pgrx::spi::Error),
     #[error(transparent)]
@@ -342,12 +361,10 @@ impl SynonymFst {
         })
     }
 
-    #[allow(dead_code)]
     pub fn to_bytes(&self) -> (Vec<u8>, Vec<u8>) {
         (self.keys.as_fst().to_vec(), self.blob.clone())
     }
 
-    #[allow(dead_code)]
     pub fn from_bytes(set: &str, fst: Vec<u8>, blob: Vec<u8>) -> Result<Self, SynonymError> {
         let stored = |reason: String| SynonymError::Stored {
             set: set.to_string(),
@@ -435,8 +452,9 @@ impl SynonymFst {
     }
 }
 
-/// Identifies an analyzer configuration by its `SearchTokenizer` as JSON text. A field with no
-/// tokenizer config has an empty key.
+/// Identifies an analyzer configuration, the stored form of its `SearchTokenizer` as JSON text.
+/// The table keys a row by the digest of that JSON after `jsonb` normalized it, so the text here
+/// only has to be the same config. A field with no tokenizer config has no row and an empty key.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AnalyzerKey(String);
 
@@ -446,6 +464,10 @@ impl AnalyzerKey {
             serde_json::to_string(&tokenizer.to_stored_value())
                 .expect("a tokenizer config serializes")
         }))
+    }
+
+    fn is_storable(&self) -> bool {
+        !self.0.is_empty()
     }
 }
 
@@ -514,6 +536,80 @@ unsafe extern "C-unwind" fn relcache_callback(_arg: pg_sys::Datum, relid: pg_sys
     }
 }
 
+/// What the tables hold for one set and analyzer.
+enum Stored {
+    /// A row of this build at the set's version, so its bytes are current.
+    Fresh { fst: Vec<u8>, blob: Vec<u8> },
+    /// No row, or one from an older version of the set or another build.
+    Absent,
+}
+
+fn load_stored(name: &str, key: &AnalyzerKey) -> Result<Stored, SynonymError> {
+    // SPI needs an active snapshot, and not every caller has one pushed.
+    let _snapshot = ActiveSnapshotGuard::ensure();
+    Spi::connect(|client| {
+        static STMT: OnceLock<StmtHolder> = OnceLock::new();
+
+        let prepared = STMT.get_or_init(|| {
+            StmtHolder(
+                client
+                    .prepare(
+                        "SELECT s.version, f.version, f.fst, f.alternatives \
+                         FROM pdb.synonym_sets s \
+                         LEFT JOIN pdb.synonym_fsts f \
+                           ON f.set_name = s.name \
+                          AND f.analyzer_hash = \
+                              pg_catalog.md5($2::pg_catalog.jsonb::pg_catalog.text) \
+                          AND f.built_with = $3 \
+                         WHERE s.name = $1",
+                        &[
+                            PgOid::BuiltIn(BuiltinOid::TEXTOID),
+                            PgOid::BuiltIn(BuiltinOid::TEXTOID),
+                            PgOid::BuiltIn(BuiltinOid::TEXTOID),
+                        ],
+                    )
+                    .expect("failed to prepare statement")
+                    .keep(),
+            )
+        });
+
+        let args = unsafe {
+            [
+                DatumWithOid::new(name, pg_sys::TEXTOID),
+                DatumWithOid::new(key.0.as_str(), pg_sys::TEXTOID),
+                DatumWithOid::new(BUILT_WITH, pg_sys::TEXTOID),
+            ]
+        };
+        let rows = (&prepared.0).execute(client, None, &args)?;
+        if rows.is_empty() {
+            return Err(SynonymError::NotFound(name.to_string()));
+        }
+        let row = rows.first();
+        let set_version = row
+            .get::<i64>(1)?
+            .expect("synonym_sets.version is NOT NULL");
+        match row.get::<i64>(2)? {
+            Some(row_version) if row_version == set_version => Ok(Stored::Fresh {
+                fst: row
+                    .get::<Vec<u8>>(3)?
+                    .expect("synonym_fsts.fst is NOT NULL"),
+                blob: row
+                    .get::<Vec<u8>>(4)?
+                    .expect("synonym_fsts.alternatives is NOT NULL"),
+            }),
+            _ => Ok(Stored::Absent),
+        }
+    })
+}
+
+/// The stored row as a set, or `None` when there is no current row or its bytes do not load.
+fn stored(name: &str, key: &AnalyzerKey) -> Result<Option<Arc<SynonymFst>>, SynonymError> {
+    Ok(match load_stored(name, key)? {
+        Stored::Fresh { fst, blob } => SynonymFst::from_bytes(name, fst, blob).ok().map(Arc::new),
+        Stored::Absent => None,
+    })
+}
+
 /// The set's version and rules, read together so they belong to one snapshot.
 fn load_rules(name: &str) -> Result<(i64, Vec<String>), SynonymError> {
     let _snapshot = ActiveSnapshotGuard::ensure();
@@ -542,22 +638,229 @@ fn load_rules(name: &str) -> Result<(i64, Vec<String>), SynonymError> {
     })
 }
 
+fn store(
+    name: &str,
+    key: &AnalyzerKey,
+    version: i64,
+    compiled: &SynonymFst,
+) -> Result<(), SynonymError> {
+    let (fst, blob) = compiled.to_bytes();
+    Spi::connect_mut(|client| {
+        // An older build of the same pair, from a reader that read before a change committed,
+        // must not replace the newer row. The same version does, so a row whose bytes do not
+        // load is replaced by the next build.
+        client.update(
+            "INSERT INTO pdb.synonym_fsts \
+                 (set_name, analyzer_hash, analyzer, version, built_with, fst, alternatives) \
+             VALUES ($1, pg_catalog.md5($2::pg_catalog.jsonb::pg_catalog.text), \
+                     $2::pg_catalog.jsonb, $3, $4, $5, $6) \
+             ON CONFLICT (set_name, analyzer_hash) DO UPDATE \
+             SET analyzer = EXCLUDED.analyzer, version = EXCLUDED.version, \
+                 built_with = EXCLUDED.built_with, fst = EXCLUDED.fst, \
+                 alternatives = EXCLUDED.alternatives \
+             WHERE pdb.synonym_fsts.version <= EXCLUDED.version \
+                OR pdb.synonym_fsts.built_with <> EXCLUDED.built_with",
+            None,
+            &[
+                name.into(),
+                key.0.as_str().into(),
+                version.into(),
+                BUILT_WITH.into(),
+                fst.into(),
+                blob.into(),
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+/// The set's rows other than the one for `key`, so a row being replaced does not count against
+/// the cap.
+fn rows_besides(name: &str, key: &AnalyzerKey) -> Result<i64, SynonymError> {
+    Ok(Spi::get_one_with_args::<i64>(
+        "SELECT pg_catalog.count(*) FROM pdb.synonym_fsts WHERE set_name = $1 \
+         AND analyzer_hash <> pg_catalog.md5($2::pg_catalog.jsonb::pg_catalog.text)",
+        &[name.into(), key.0.as_str().into()],
+    )?
+    .unwrap_or(0))
+}
+
+/// Drops the rows of `name` for analyzers no index uses any more, so a dropped index or a changed
+/// tokenizer does not hold a share of the cap for good. A row a reader holds is left alone.
+fn delete_unused(name: &str, in_use: &HashSet<AnalyzerKey>) -> Result<(), SynonymError> {
+    let keys: Vec<String> = in_use.iter().map(|key| key.0.clone()).collect();
+    Spi::connect_mut(|client| {
+        client.update(
+            "DELETE FROM pdb.synonym_fsts WHERE ctid IN ( \
+                 SELECT ctid FROM pdb.synonym_fsts WHERE set_name = $1 AND analyzer_hash <> ALL ( \
+                     SELECT pg_catalog.md5(key::pg_catalog.jsonb::pg_catalog.text) \
+                     FROM pg_catalog.unnest($2::pg_catalog.text[]) AS key) \
+                 FOR UPDATE SKIP LOCKED)",
+            None,
+            &[name.into(), keys.into()],
+        )?;
+        Ok(())
+    })
+}
+
+/// Whether this process may write the compiled row. A parallel worker, a read-only transaction
+/// and a standby compile in memory instead. A transaction with its own snapshot does too, since
+/// what it reads may be older than the current set. The leader enters parallel mode before any
+/// scan starts, so the plan-time load is the one that stores.
+fn can_store() -> bool {
+    unsafe {
+        !pg_sys::IsInParallelMode()
+            && !pg_sys::XactReadOnly
+            && !pg_sys::RecoveryInProgress()
+            && !uses_transaction_snapshot()
+    }
+}
+
+/// Two readers that miss at once would store the same pair, and the second one would wait on
+/// the first one's uncommitted row. The pair is claimed first, and the reader without the claim
+/// keeps its copy in memory. The trigger claims the same way and skips a claimed pair. The
+/// table's id keeps the key out of an application's lock space.
+fn claim(name: &str, key: &AnalyzerKey) -> Result<bool, SynonymError> {
+    let _snapshot = ActiveSnapshotGuard::ensure();
+    let pair = format!("{name}\u{1}{}", key.0);
+    let table = relid(c"synonym_fsts").to_u32() as i32;
+    Spi::connect(|client| {
+        let rows = client.select(
+            "SELECT pg_catalog.pg_try_advisory_xact_lock($1, pg_catalog.hashtext($2))",
+            None,
+            &[table.into(), pair.as_str().into()],
+        )?;
+        Ok(rows.first().get::<bool>(1)?.unwrap_or(false))
+    })
+}
+
+fn analyzer_for(key: &AnalyzerKey) -> Result<TextAnalyzer, SynonymError> {
+    let value = serde_json::from_str(&key.0).map_err(|e| SynonymError::Analyzer(e.to_string()))?;
+    SearchTokenizer::from_stored_value(value)
+        .map_err(|e| SynonymError::Analyzer(e.to_string()))?
+        .to_tantivy_tokenizer()
+        .ok_or_else(|| SynonymError::Analyzer("not a tantivy tokenizer".to_string()))
+}
+
 /// The set `name` compiled against `analyzer`, which must be the analyzer `tokenizer` builds,
-/// because the copy is kept by `tokenizer`.
+/// because a stored row is compiled from `tokenizer` alone.
 pub fn compiled_set(
     name: &str,
     tokenizer: Option<&SearchTokenizer>,
     analyzer: &mut TextAnalyzer,
+) -> Result<Arc<SynonymFst>, SynonymError> {
+    lookup(name, tokenizer, analyzer, true)
+}
+
+/// `compiled_set` for the debug surface. It reads stored rows but never adds one, so probing
+/// configs cannot grow a set's rows.
+pub fn compiled_set_without_store(
+    name: &str,
+    tokenizer: Option<&SearchTokenizer>,
+    analyzer: &mut TextAnalyzer,
+) -> Result<Arc<SynonymFst>, SynonymError> {
+    lookup(name, tokenizer, analyzer, false)
+}
+
+fn lookup(
+    name: &str,
+    tokenizer: Option<&SearchTokenizer>,
+    analyzer: &mut TextAnalyzer,
+    may_store: bool,
 ) -> Result<Arc<SynonymFst>, SynonymError> {
     let key = AnalyzerKey::new(tokenizer);
     if let Some(hit) = cached(name, &key) {
         return Ok(hit);
     }
     let generation = GENERATION.load(Ordering::Relaxed);
+    if key.is_storable() {
+        if let Some(compiled) = stored(name, &key)? {
+            remember(name, key, compiled.clone(), generation);
+            return Ok(compiled);
+        }
+        if may_store && can_store() && claim(name, &key)? {
+            let built = Spi::connect_mut(|client| {
+                client
+                    .update(
+                        "SELECT pdb.synonym_fst_build($1, $2::pg_catalog.jsonb)",
+                        None,
+                        &[name.into(), key.0.as_str().into()],
+                    )?
+                    .first()
+                    .get::<bool>(1)
+            })?
+            .unwrap_or(false);
+            if built && let Some(compiled) = stored(name, &key)? {
+                remember(name, key, compiled.clone(), generation);
+                return Ok(compiled);
+            }
+        }
+    }
     let (_, rules) = load_rules(name)?;
     let compiled = Arc::new(SynonymFst::compile(name, &rules, analyzer)?);
     remember(name, key, compiled.clone(), generation);
     Ok(compiled)
+}
+
+/// `pdb.synonym_fst_build`: compiles the set for the analyzer and stores the row. Returns false
+/// when no index asks for the pair, or the set already has its share of rows, so the caller
+/// keeps its copy in memory.
+pub fn build_and_store(name: &str, analyzer: serde_json::Value) -> Result<bool, SynonymError> {
+    let tokenizer = SearchTokenizer::from_stored_value(analyzer)
+        .map_err(|e| SynonymError::Analyzer(e.to_string()))?;
+    let key = AnalyzerKey::new(Some(&tokenizer));
+    let mut analyzer = analyzer_for(&key)?;
+    // Every role can call the builder, so only a pair some index expands with is stored.
+    let in_use = analyzers_in_use(name)?;
+    if !in_use.contains(&key) {
+        return Ok(false);
+    }
+    let (version, rules) = load_rules(name)?;
+    if rows_besides(name, &key)? >= MAX_STORED_ANALYZERS {
+        delete_unused(name, &in_use)?;
+        if rows_besides(name, &key)? >= MAX_STORED_ANALYZERS {
+            return Ok(false);
+        }
+    }
+    let compiled = SynonymFst::compile(name, &rules, &mut analyzer)?;
+    store(name, &key, version, &compiled)?;
+    Ok(true)
+}
+
+/// The analyzer of every text and JSON field that expands with `name`, over every bm25 index of
+/// the database.
+fn analyzers_in_use(name: &str) -> Result<HashSet<AnalyzerKey>, SynonymError> {
+    let oids: Vec<pg_sys::Oid> = Spi::connect(|client| {
+        client
+            .select(
+                "SELECT i.oid FROM pg_catalog.pg_class i \
+                 JOIN pg_catalog.pg_am am ON am.oid = i.relam \
+                 WHERE am.amhandler = 'paradedb.bm25_handler'::pg_catalog.regproc \
+                   AND i.relkind = 'i'",
+                None,
+                &[],
+            )?
+            .map(|row| row.get::<pg_sys::Oid>(1))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|oids| oids.into_iter().flatten().collect())
+    })?;
+    let mut keys = HashSet::default();
+    for oid in oids {
+        // An index dropped since the query above is skipped.
+        let Some(indexrel) =
+            PgSearchRelation::try_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE)
+        else {
+            continue;
+        };
+        if let Ok(schema) = SearchIndexSchema::open(&indexrel) {
+            keys.extend(
+                synonym_analyzers(&schema, name)
+                    .iter()
+                    .map(|tokenizer| AnalyzerKey::new(Some(tokenizer))),
+            );
+        }
+    }
+    Ok(keys)
 }
 
 /// The sets a statement on `pdb.synonym_rules` touched, from its transition tables. A
@@ -606,19 +909,45 @@ pub fn changed_sets(trigger: &PgTrigger) -> Result<Vec<String>, SynonymError> {
     })
 }
 
-/// Runs after a statement changed the rules of `name`. It bumps the set's version and tells
-/// every backend to drop its copy.
+/// Runs after a statement changed the rules of `name`. It bumps the set's version, stores a
+/// row for every analyzer an index expands with, drops the rest, and tells every backend to
+/// drop its copy.
 pub fn rules_changed(name: &str) -> Result<(), SynonymError> {
-    Spi::connect_mut(|client| {
-        client.update(
+    // The header row's lock puts two writers of one set in order, so the second one reads the
+    // first one's rules below.
+    let version = Spi::connect_mut(|client| {
+        let rows = client.update(
             "UPDATE pdb.synonym_sets \
              SET version = version + 1, updated_at = pg_catalog.now() \
-             WHERE name = $1",
+             WHERE name = $1 RETURNING version",
             None,
             &[name.into()],
         )?;
-        Ok::<_, SynonymError>(())
+        if rows.is_empty() {
+            Ok::<_, SynonymError>(None)
+        } else {
+            Ok(rows.first().get::<i64>(1)?)
+        }
     })?;
+    // No header: the set is going away under a cascading delete, which takes the rows too.
+    if let Some(version) = version {
+        let (_, rules) = load_rules(name)?;
+        // The rows exist before any query, so a standby, which never writes, reads them too. A
+        // pair a reader is storing right now is skipped, so a rule change never waits on a
+        // query. That reader's row keeps its old version, and the next reader replaces it.
+        let in_use = analyzers_in_use(name)?;
+        let mut keys: Vec<&AnalyzerKey> = in_use.iter().collect();
+        keys.sort_by(|a, b| a.0.cmp(&b.0));
+        for key in keys.into_iter().take(MAX_STORED_ANALYZERS as usize) {
+            if !claim(name, key)? {
+                continue;
+            }
+            let mut analyzer = analyzer_for(key)?;
+            let compiled = SynonymFst::compile(name, &rules, &mut analyzer)?;
+            store(name, key, version, &compiled)?;
+        }
+        delete_unused(name, &in_use)?;
+    }
     // The invalidation reaches this backend at the next command. The writer's own later
     // statements in this transaction must see the new rules before that.
     cache().lock().remove(name);

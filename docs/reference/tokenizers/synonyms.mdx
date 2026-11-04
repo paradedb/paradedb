@@ -129,6 +129,12 @@ SET paradedb.enable_synonyms = off;
 There is no reload step. A change to the rules is transactional. Your own transaction sees it right away, and every other
 session sees it once it commits.
 
+Behind the scenes, each set is compiled once per tokenizer that an index uses it with, and the compiled form is cached in
+`pdb.synonym_fsts`. A rule change builds those rows and drops the copy each session holds, so the rows exist before any
+query, and a read replica, which never writes, reads them too. A query that finds no row stores one, which makes that
+query write to the table. A read-only transaction or a standby compiles in memory instead. The rows are a cache, so they
+are not part of a `pg_dump`, and you can delete them at any time.
+
 ## Checking an Expansion
 
 Not sure what a query will turn into? `pdb.synonym_expansion` shows the expansion before you run the query. Pass the same

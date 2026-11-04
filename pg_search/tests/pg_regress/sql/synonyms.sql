@@ -197,6 +197,8 @@ SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
 ALTER INDEX idx_products SET (synonyms = 'colors');
 SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
 SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
+-- The first query on the new set stored one more compiled row.
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
 
 ALTER INDEX idx_products RESET (synonyms);
 SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
@@ -210,10 +212,75 @@ ALTER INDEX idx_products SET (synonyms = 'shop');
 DELETE FROM pdb.synonym_rules WHERE set_name = 'colors';
 ALTER INDEX idx_products SET (synonyms = 'colors');
 SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
--- DELETE FROM pdb.synonym_sets removes the set with its rules.
+-- DELETE FROM pdb.synonym_sets removes the set with its rules and compiled rows.
 DELETE FROM pdb.synonym_sets WHERE name = 'colors';
+SELECT count(*) FROM pdb.synonym_fsts WHERE set_name = 'colors';
 SELECT id, description FROM products WHERE description ||| 'crimson' ORDER BY id;
 ALTER INDEX idx_products SET (synonyms = 'shop');
+
+-------------------------------------------------------------
+-- The compiled rows: one per set and analyzer, stored by the first query that needs one.
+-------------------------------------------------------------
+
+SELECT f.set_name, jsonb_object_keys(f.analyzer) AS analyzer, f.version = s.version AS current
+FROM pdb.synonym_fsts f JOIN pdb.synonym_sets s ON s.name = f.set_name
+ORDER BY 1, 2;
+
+-- A rule change rewrites the rows of its set in the same transaction.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'bench, seat');
+SELECT f.set_name, jsonb_object_keys(f.analyzer) AS analyzer, f.version = s.version AS current
+FROM pdb.synonym_fsts f JOIN pdb.synonym_sets s ON s.name = f.set_name
+ORDER BY 1, 2;
+
+-- A rule change also stores the rows of a set an index expands with before any query, so a
+-- standby, which never writes, reads them too.
+DELETE FROM pdb.synonym_fsts;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'rug, carpet');
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
+
+-- A stale row is replaced by the next query. The change to another set drops the copy in
+-- memory, so that query reads the row again.
+UPDATE pdb.synonym_fsts SET version = 0 WHERE set_name = 'shop';
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'x, y');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT f.version = s.version AS current FROM pdb.synonym_fsts f JOIN pdb.synonym_sets s ON s.name = f.set_name WHERE f.set_name = 'shop';
+
+-- A read-only transaction reads but never stores.
+DELETE FROM pdb.synonym_fsts;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'm, n');
+BEGIN READ ONLY;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+COMMIT;
+SELECT count(*) FROM pdb.synonym_fsts;
+-- The copy it compiled stays in memory until the next change. Then a query stores again.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'o, p');
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT count(*) FROM pdb.synonym_fsts;
+
+-- A transaction with its own snapshot reads but never stores either.
+DELETE FROM pdb.synonym_fsts;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'u, v');
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+COMMIT;
+SELECT count(*) FROM pdb.synonym_fsts;
+
+-- A reader needs no write grant. The query stores the row through the builder, which runs as
+-- the extension owner.
+CREATE ROLE synonyms_test_reader;
+GRANT SELECT ON products TO synonyms_test_reader;
+DELETE FROM pdb.synonym_fsts;
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('stop', 'q, r');
+SET ROLE synonyms_test_reader;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
+RESET ROLE;
+DROP OWNED BY synonyms_test_reader;
+DROP ROLE synonyms_test_reader;
+
+-- The builder refuses an analyzer it cannot read, and stores nothing for a pair no index uses.
+SELECT pdb.synonym_fst_build('shop', '{"Nope": {}}');
+SELECT pdb.synonym_fst_build('stop', (SELECT analyzer FROM pdb.synonym_fsts WHERE set_name = 'shop' LIMIT 1));
 
 -------------------------------------------------------------
 -- Parallel workers expand the same way as the leader.
@@ -226,6 +293,12 @@ SET parallel_setup_cost = 0;
 SET min_parallel_table_scan_size = 0;
 
 SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+-- Also with no compiled row to read. The rule change drops every copy in memory, then the
+-- workers compile their own and the leader stores one at plan time.
+INSERT INTO pdb.synonym_rules (set_name, rule) VALUES ('shop', 'stool, seat');
+DELETE FROM pdb.synonym_fsts;
+SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT set_name, count(*) FROM pdb.synonym_fsts GROUP BY set_name ORDER BY set_name;
 
 -- A one-token top-k by score is kept serial as Block-WAND prunable. A rule turns the token
 -- into a union that does not prune, so the scan gets workers.
@@ -315,7 +388,7 @@ SELECT id, description FROM stemmed WHERE description ||| 'sneakers' ORDER BY id
 DROP TABLE stemmed;
 
 -------------------------------------------------------------
--- TRUNCATE moves every set's version, and every backend's copy follows.
+-- TRUNCATE moves every set's version, so every compiled row and every backend's copy follow.
 -------------------------------------------------------------
 
 SELECT * FROM pdb.synonym_expansion('shop', paradedb.tokenizer('default'), 'sofa');

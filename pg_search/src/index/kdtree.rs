@@ -29,7 +29,7 @@ use std::ops::Bound;
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::FieldName;
+use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::scan::range_partitioning::RangePartitioning;
 
@@ -55,13 +55,19 @@ pub struct KdTree {
     partitions: usize,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DimHandle {
+    Index(usize),
+    Ctid,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum KdNode {
     Leaf {
         partition: usize,
     },
     Split {
-        dim: usize,
+        dim: DimHandle,
         #[serde(with = "crate::postgres::pdb_owned_value::exact_scalar_wire")]
         value: PdbOwnedValue,
         left: Box<KdNode>,
@@ -96,7 +102,12 @@ impl KdTree {
     /// has too few distinct values.
     ///
     /// Split values are never NULL, so every leaf's box is expressible as plain range bounds.
-    pub fn from_sample(dims: Vec<FieldName>, sample: Vec<Point>, target_partitions: usize) -> Self {
+    pub fn from_sample(
+        dims: Vec<FieldName>,
+        sample: Vec<Point>,
+        target_partitions: usize,
+        ctid_fallback: Option<Vec<u64>>,
+    ) -> Self {
         let ndims = dims.len();
         debug_assert!(
             sample.iter().all(|p| p.len() == ndims),
@@ -112,6 +123,7 @@ impl KdTree {
             sample: &sample,
             ranks: &ranks,
             next_partition: 0,
+            ctid_fallback: ctid_fallback.as_deref(),
         };
         let root = builder.build(&mut idx, target_partitions);
         Self {
@@ -131,7 +143,7 @@ impl KdTree {
     }
 
     /// The partition a row belongs to. `values` must be laid out like [`Self::dims`].
-    pub fn route(&self, values: &[PdbOwnedValue]) -> usize {
+    pub fn route(&self, values: &[PdbOwnedValue], ctid: u64) -> usize {
         debug_assert_eq!(values.len(), self.dims.len());
         let mut node = &self.root;
         loop {
@@ -143,11 +155,11 @@ impl KdTree {
                     left,
                     right,
                 } => {
-                    node = if goes_left(&values[*dim], value) {
-                        left
-                    } else {
-                        right
+                    let choose_left = match dim {
+                        DimHandle::Index(i) => goes_left(&values[*i], value),
+                        DimHandle::Ctid => goes_left(&ctid.into(), value),
                     };
+                    node = if choose_left { left } else { right };
                 }
             }
         }
@@ -170,13 +182,24 @@ impl KdTree {
                     left,
                     right,
                 } => {
+                    let bounds_idx = match dim {
+                        DimHandle::Index(i) => *i,
+                        DimHandle::Ctid => {
+                            // add the ctid bound at the end if it doesn't exist and return that
+                            // index
+                            if bounds.len() == self.dims.len() {
+                                bounds.push((Bound::Unbounded, Bound::Unbounded));
+                            }
+                            bounds.len() - 1
+                        }
+                    };
                     // Leaves are numbered in-order, so the highest partition in the left
                     // subtree is one below the lowest in the right subtree.
                     if partition < first_partition(right) {
-                        bounds[*dim].1 = Bound::Excluded(value.clone());
+                        bounds[bounds_idx].1 = Bound::Excluded(value.clone());
                         node = left;
                     } else {
-                        bounds[*dim].0 = Bound::Included(value.clone());
+                        bounds[bounds_idx].0 = Bound::Included(value.clone());
                         node = right;
                     }
                 }
@@ -277,7 +300,10 @@ fn fmt_node(node: &KdNode, tree: &KdTree, depth: usize, f: &mut fmt::Formatter<'
             right,
         } => {
             let indent = "  ".repeat(depth);
-            let dim = &tree.dims[*dim];
+            let dim = match dim {
+                DimHandle::Index(i) => &tree.dims[*i],
+                DimHandle::Ctid => &FieldName::from(CTID_FIELD_NAME),
+            };
             write!(f, "\n{indent}{dim} < {}", DimValueDisplay { dim, value })?;
             fmt_node(left, tree, depth + 1, f)?;
             write!(f, "\n{indent}{dim} >= {}", DimValueDisplay { dim, value })?;
@@ -317,6 +343,7 @@ fn collect_split_values(node: &KdNode, out: &mut Vec<PdbOwnedValue>) {
 /// is a type-agnostic, distribution-normalized measure of how much of a dimension the box
 /// still covers.
 fn global_ranks(sample: &[Point], ndims: usize) -> Vec<Vec<usize>> {
+    // TODO: sort ctids in here too along the same rules
     (0..ndims)
         .map(|dim| {
             let mut order: Vec<usize> = (0..sample.len()).collect();
@@ -340,6 +367,7 @@ struct Builder<'a> {
     sample: &'a [Point],
     ranks: &'a [Vec<usize>],
     next_partition: usize,
+    ctid_fallback: Option<&'a [u64]>,
 }
 
 impl Builder<'_> {
@@ -358,14 +386,30 @@ impl Builder<'_> {
             return self.leaf();
         };
 
-        idx.sort_by(|&a, &b| self.sample[a][dim].total_cmp(&self.sample[b][dim]));
+        match dim {
+            DimHandle::Index(i) => {
+                idx.sort_by(|&a, &b| self.sample[a][i].total_cmp(&self.sample[b][i]))
+            }
+            DimHandle::Ctid => {
+                let ctids = self
+                    .ctid_fallback
+                    .expect("should always exist if given a ctid handle");
+                idx.sort_by(|&a, &b| ctids[a].cmp(&ctids[b]))
+            }
+        }
 
         let k_left = k / 2;
         let target = idx.len() * k_left / k;
         let Some(cut) = self.nearest_cut(idx, dim, target) else {
             return self.leaf();
         };
-        let value = self.sample[idx[cut]][dim].clone();
+        let value = match dim {
+            DimHandle::Index(i) => self.sample[idx[cut]][i].clone(),
+            DimHandle::Ctid => self
+                .ctid_fallback
+                .map(|ctids| ctids[idx[cut]].into())
+                .expect("should exist"),
+        };
 
         let (left_idx, right_idx) = idx.split_at_mut(cut);
         let before = self.next_partition;
@@ -382,8 +426,9 @@ impl Builder<'_> {
     }
 
     /// The dimension whose values inside the box span the largest rank range, or `None` when
-    /// the box is a single point on every dimension.
-    fn widest_dim(&self, idx: &[usize]) -> Option<usize> {
+    /// the box is a single point on every dimension. All non-ctid dimensions will be tried first,
+    /// with ctid only be considered as a fallback if every other dimension holds a single point.
+    fn widest_dim(&self, idx: &[usize]) -> Option<DimHandle> {
         let mut best: Option<(usize, usize)> = None;
         for (dim, ranks) in self.ranks.iter().enumerate() {
             let (min, max) = idx.iter().fold((usize::MAX, 0), |(lo, hi), &i| {
@@ -394,24 +439,52 @@ impl Builder<'_> {
                 best = Some((dim, spread));
             }
         }
-        best.map(|(dim, _)| dim)
+        best.map(|(dim_idx, _)| DimHandle::Index(dim_idx))
+            .or_else(|| {
+                let ctids = self.ctid_fallback?;
+                let (min, max) = idx.iter().fold((u64::MAX, 0), |(lo, hi), &i| {
+                    (lo.min(ctids[i]), hi.max(ctids[i]))
+                });
+                let spread = max - min;
+                if spread > 0 {
+                    Some(DimHandle::Ctid)
+                } else {
+                    None
+                }
+            })
     }
 
     /// The position in `idx` (sorted on `dim`) closest to `target` where the value changes,
     /// so that both sides of the cut are non-empty and the split value is the smallest value
     /// on the right. NULLs sort first and are all equal, so the value at a cut is never NULL.
-    fn nearest_cut(&self, idx: &[usize], dim: usize, target: usize) -> Option<usize> {
-        let changes = |pos: usize| {
-            self.sample[idx[pos - 1]][dim].total_cmp(&self.sample[idx[pos]][dim]) != Ordering::Equal
-        };
+    fn nearest_cut(&self, idx: &[usize], dim: DimHandle, target: usize) -> Option<usize> {
         let target = target.clamp(1, idx.len() - 1);
-        let below = (1..=target).rev().find(|&pos| changes(pos));
-        let above = (target + 1..idx.len()).find(|&pos| changes(pos));
+        let below = self.find_next_change(idx, dim, (1..=target).rev());
+        let above = self.find_next_change(idx, dim, target + 1..idx.len());
         match (below, above) {
             (Some(b), Some(a)) => Some(if target - b <= a - target { b } else { a }),
             (Some(b), None) => Some(b),
             (None, Some(a)) => Some(a),
             (None, None) => None,
+        }
+    }
+
+    /// helper method for `nearest_cut`
+    fn find_next_change(
+        &self,
+        idx: &[usize],
+        dim: DimHandle,
+        mut r: impl Iterator<Item = usize>,
+    ) -> Option<usize> {
+        let changes = |pos: usize, dim_idx: usize| {
+            self.sample[idx[pos - 1]][dim_idx].total_cmp(&self.sample[idx[pos]][dim_idx])
+                != Ordering::Equal
+        };
+
+        match dim {
+            DimHandle::Index(i) => r.find(|pos| changes(*pos, i)),
+            DimHandle::Ctid => r.next(), // ctids are guaranteed to change, so always the first
+                                         // item
         }
     }
 }
@@ -457,10 +530,11 @@ mod tests {
 
     /// Every sample point routes to a leaf whose box contains it, and every partition id is
     /// reachable.
-    fn check_invariants(tree: &KdTree, sample: &[Point]) {
+    fn check_invariants(tree: &KdTree, sample: &[Point], ctids: Option<&[u64]>) {
         let mut seen = vec![0usize; tree.partition_count()];
-        for point in sample {
-            let p = tree.route(point);
+        for (i, point) in sample.iter().enumerate() {
+            let ctid = ctids.map(|x| x[i]).unwrap_or(0);
+            let p = tree.route(point, ctid);
             let bounds = tree.partition_bounds(p).expect("partition in range");
             assert!(
                 contains(&bounds, point),
@@ -478,9 +552,9 @@ mod tests {
     #[test]
     fn one_dim_uniform_hits_target_and_balances() {
         let sample = i64s(0..1000);
-        let tree = KdTree::from_sample(dims(&["id"]), sample.clone(), 4);
+        let tree = KdTree::from_sample(dims(&["id"]), sample.clone(), 4, None);
         assert_eq!(tree.partition_count(), 4);
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
 
         let rp = tree.to_range_partitioning().unwrap();
         assert_eq!(
@@ -497,13 +571,13 @@ mod tests {
     fn non_power_of_two_targets_are_exact_and_balanced() {
         let sample = i64s(0..3000);
         for target in [2, 3, 5, 6, 7, 11, 16, 30] {
-            let tree = KdTree::from_sample(dims(&["id"]), sample.clone(), target);
+            let tree = KdTree::from_sample(dims(&["id"]), sample.clone(), target, None);
             assert_eq!(tree.partition_count(), target, "{tree}");
-            check_invariants(&tree, &sample);
+            check_invariants(&tree, &sample, None);
 
             let mut counts = vec![0usize; target];
             for p in &sample {
-                counts[tree.route(p)] += 1;
+                counts[tree.route(p, 0)] += 1;
             }
             let ideal = sample.len() / target;
             for c in counts {
@@ -520,20 +594,20 @@ mod tests {
         // 90% of the rows share one value; the rest are spread out.
         let mut sample = i64s(std::iter::repeat_n(0, 900));
         sample.extend(i64s(1..101));
-        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8);
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8, None);
         assert!(tree.partition_count() <= 8);
         assert!(tree.partition_count() >= 2, "{tree}");
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
         // The zeros cannot be split, so they all land in partition 0.
-        assert_eq!(tree.route(&[PdbOwnedValue::I64(0)]), 0);
+        assert_eq!(tree.route(&[PdbOwnedValue::I64(0)], 0), 0);
     }
 
     #[test]
     fn single_distinct_value_stays_one_partition() {
         let sample = i64s(std::iter::repeat_n(7, 50));
-        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 4);
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 4, None);
         assert_eq!(tree.partition_count(), 1);
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
     }
 
     #[test]
@@ -544,9 +618,9 @@ mod tests {
             (i64s(0..100), 1),
             (i64s(0..100), 0),
         ] {
-            let tree = KdTree::from_sample(dims(&["k"]), sample, target);
+            let tree = KdTree::from_sample(dims(&["k"]), sample, target, None);
             assert_eq!(tree.partition_count(), 1);
-            assert_eq!(tree.route(&[PdbOwnedValue::I64(42)]), 0);
+            assert_eq!(tree.route(&[PdbOwnedValue::I64(42)], 0), 0);
             assert_eq!(
                 tree.partition_bounds(0).unwrap(),
                 vec![(Bound::Unbounded, Bound::Unbounded)]
@@ -558,10 +632,10 @@ mod tests {
     fn nulls_route_to_the_lowest_partition_and_never_split() {
         let mut sample = i64s(0..800);
         sample.extend(std::iter::repeat_n(vec![PdbOwnedValue::Null], 200));
-        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 4);
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 4, None);
         assert_eq!(tree.partition_count(), 4);
-        check_invariants(&tree, &sample);
-        assert_eq!(tree.route(&[PdbOwnedValue::Null]), 0);
+        check_invariants(&tree, &sample, None);
+        assert_eq!(tree.route(&[PdbOwnedValue::Null], 0), 0);
         let rp = tree.to_range_partitioning().unwrap();
         assert!(
             rp.split_points
@@ -574,7 +648,7 @@ mod tests {
     fn one_dim_tree_matches_range_partitioning_semantics() {
         let mut sample = i64s((0..500).map(|i| i * 3));
         sample.extend(std::iter::repeat_n(vec![PdbOwnedValue::Null], 20));
-        let tree = KdTree::from_sample(dims(&["k"]), sample, 5);
+        let tree = KdTree::from_sample(dims(&["k"]), sample, 5, None);
         let rp = tree.to_range_partitioning().unwrap();
         assert_eq!(rp.split_points.len(), tree.partition_count() - 1);
 
@@ -601,7 +675,7 @@ mod tests {
                     .count()
             };
             assert_eq!(
-                tree.route(std::slice::from_ref(&probe)),
+                tree.route(std::slice::from_ref(&probe), 0),
                 expected,
                 "probe {probe:?}"
             );
@@ -618,9 +692,9 @@ mod tests {
                 sample.push(vec![PdbOwnedValue::I64(x), PdbOwnedValue::I64(y)]);
             }
         }
-        let tree = KdTree::from_sample(dims(&["x", "y"]), sample.clone(), 4);
+        let tree = KdTree::from_sample(dims(&["x", "y"]), sample.clone(), 4, None);
         assert_eq!(tree.partition_count(), 4);
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
         assert!(tree.to_range_partitioning().is_none());
 
         // Each quadrant is bounded on both dimensions.
@@ -648,9 +722,9 @@ mod tests {
         let sample: Vec<Point> = (0..1000)
             .map(|x| vec![PdbOwnedValue::I64(x), PdbOwnedValue::I64(x * 2)])
             .collect();
-        let tree = KdTree::from_sample(dims(&["x", "y"]), sample.clone(), 8);
+        let tree = KdTree::from_sample(dims(&["x", "y"]), sample.clone(), 8, None);
         assert_eq!(tree.partition_count(), 8);
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
         for p in 0..8 {
             let bounds = tree.partition_bounds(p).unwrap();
             assert_eq!(bounds[1], (Bound::Unbounded, Bound::Unbounded), "{tree}");
@@ -664,9 +738,9 @@ mod tests {
         let sample: Vec<Point> = (0..1000)
             .map(|i| vec![PdbOwnedValue::I64(i % 2), PdbOwnedValue::I64(i)])
             .collect();
-        let tree = KdTree::from_sample(dims(&["tenant", "id"]), sample.clone(), 8);
+        let tree = KdTree::from_sample(dims(&["tenant", "id"]), sample.clone(), 8, None);
         assert_eq!(tree.partition_count(), 8);
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
         let tenant_bounds: Vec<_> = (0..8)
             .map(|p| tree.partition_bounds(p).unwrap()[0].clone())
             .collect();
@@ -697,9 +771,10 @@ mod tests {
             dims(&["name", "score", "flag", "id", "day"]),
             sample.clone(),
             6,
+            None,
         );
         assert_eq!(tree.partition_count(), 6, "{tree}");
-        check_invariants(&tree, &sample);
+        check_invariants(&tree, &sample, None);
 
         // The tree carries an `I64` split (`id` is unique, so it is the widest dimension); the
         // round trip must hand it back as `I64`, not as tantivy's untagged `U64`.
@@ -707,7 +782,7 @@ mod tests {
         let back: KdTree = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(back, tree);
         for p in &sample {
-            assert_eq!(back.route(p), tree.route(p));
+            assert_eq!(back.route(p, 0), tree.route(p, 0));
         }
     }
 
@@ -727,8 +802,8 @@ mod tests {
             50,
         ));
         sample.extend(std::iter::repeat_n(vec![PdbOwnedValue::F64(f64::NAN)], 50));
-        let tree = KdTree::from_sample(dims(&["x"]), sample.clone(), 6);
-        check_invariants(&tree, &sample);
+        let tree = KdTree::from_sample(dims(&["x"]), sample.clone(), 6, None);
+        check_invariants(&tree, &sample, None);
 
         // `PartialEq` treats `NaN != NaN`, so compare the re-serialized bytes rather than the
         // trees: equal bytes means every split value, `NaN` included, round-tripped bit for bit.
@@ -737,8 +812,8 @@ mod tests {
         assert_eq!(postcard::to_allocvec(&back).unwrap(), bytes);
         for probe in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 0.0, 199.0] {
             assert_eq!(
-                back.route(&[PdbOwnedValue::F64(probe)]),
-                tree.route(&[PdbOwnedValue::F64(probe)]),
+                back.route(&[PdbOwnedValue::F64(probe)], 0),
+                tree.route(&[PdbOwnedValue::F64(probe)], 0),
                 "probe {probe}"
             );
         }
@@ -746,7 +821,7 @@ mod tests {
 
     #[test]
     fn display_lists_every_split_and_leaf() {
-        let tree = KdTree::from_sample(dims(&["id"]), i64s(0..100), 3);
+        let tree = KdTree::from_sample(dims(&["id"]), i64s(0..100), 3, None);
         let text = tree.to_string();
         assert!(
             text.starts_with("partition_by=[id], partitions=3"),
@@ -766,7 +841,7 @@ mod tests {
                 sample.push(vec![PdbOwnedValue::I64(x), PdbOwnedValue::I64(y)]);
             }
         }
-        let tree = KdTree::from_sample(dims(&["x", "y"]), sample, 4);
+        let tree = KdTree::from_sample(dims(&["x", "y"]), sample, 4, None);
         assert_eq!(
             tree.bounds_listing().to_string(),
             "partition 0: x=[.., 20) y=[.., 20)\n\
@@ -786,7 +861,7 @@ mod tests {
                 ]
             })
             .collect();
-        let tree = KdTree::from_sample(dims(&["day", "key"]), sample, 2);
+        let tree = KdTree::from_sample(dims(&["day", "key"]), sample, 2, None);
         assert_eq!(
             tree.bounds_listing().to_string(),
             "partition 0: day=[.., 2000-02-20T00:00:00+00:00) key=[.., ..)\n\
@@ -801,7 +876,7 @@ mod tests {
                 vec![PdbOwnedValue::U64((block << 16) | offset)]
             })
             .collect();
-        let tree = KdTree::from_sample(dims(&["ctid"]), sample, 2);
+        let tree = KdTree::from_sample(dims(&["ctid"]), sample, 2, None);
         assert_eq!(
             tree.bounds_listing().to_string(),
             "partition 0: ctid=[.., (50,1))\n\

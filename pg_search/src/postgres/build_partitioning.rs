@@ -161,7 +161,7 @@ impl PartitionRouter {
                         .as_slice()
                         .project(ctid, created_by_version, get_field)?
                 };
-                Ok(model.route(&point))
+                Ok(model.route(&point, ctid))
             }
             Self::Vector { model, projection } => {
                 let vector = unsafe { projection.project(ctid, created_by_version, get_field)? };
@@ -377,7 +377,7 @@ pub(super) fn plan_partition_boundaries(
                 snapshot,
                 &projection,
                 sample_rows,
-                |row, vector| sample.insert(row, vector),
+                |row, vector, _| sample.insert(row, vector),
             )?
         };
         return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
@@ -389,6 +389,22 @@ pub(super) fn plan_partition_boundaries(
     }
     let projection = PartitionField::resolve_dims(&partition_by, &categorized_fields)?;
     let mut sample = Vec::new();
+    let use_ctid_fallback = !partition_by.iter().any(|f| f.is_ctid());
+    let mut ctid_fallback: Option<Vec<u64>> = use_ctid_fallback.then_some(Vec::new());
+    let collect = |row, point, ctid| {
+        if row == sample.len() {
+            sample.push(point);
+            if let Some(ctids) = ctid_fallback.as_mut() {
+                ctids.push(ctid);
+            }
+        } else {
+            sample[row] = point;
+            if let Some(ctids) = ctid_fallback.as_mut() {
+                ctids[row] = ctid;
+            }
+        }
+        Ok(())
+    };
     unsafe {
         sample_partition_fields(
             heaprel,
@@ -396,20 +412,14 @@ pub(super) fn plan_partition_boundaries(
             snapshot,
             projection.as_slice(),
             sample_rows,
-            |row, point| {
-                if row == sample.len() {
-                    sample.push(point);
-                } else {
-                    sample[row] = point;
-                }
-                Ok(())
-            },
+            collect,
         )?
-    };
+    }
     Ok(Some(BuildPartitioning::Range(KdTree::from_sample(
         partition_by,
         sample,
         target_partitions,
+        ctid_fallback,
     ))))
 }
 
@@ -628,7 +638,7 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     snapshot: pg_sys::Snapshot,
     projection: &P,
     sample_rows: usize,
-    mut collect: impl FnMut(usize, P::Point) -> Result<()>,
+    mut collect: impl FnMut(usize, P::Point, u64) -> Result<()>,
 ) -> anyhow::Result<()> {
     let nblocks = unsafe {
         pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
@@ -768,7 +778,7 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                     pg_sys::ExecClearTuple(slot);
                     let point = point?;
 
-                    collect(target_slot, point)?;
+                    collect(target_slot, point, ctid_u64)?;
                 }
                 anyhow::Ok(())
             });
@@ -1062,15 +1072,17 @@ mod tests {
         let mut counts = vec![0usize; tree.partition_count()];
         Spi::connect(|client| {
             let args: [DatumWithOid; 0] = [];
-            let rows = client.select(&format!("SELECT {columns} FROM {table}"), None, &args)?;
+            let rows =
+                client.select(&format!("SELECT {columns}, ctid FROM {table}"), None, &args)?;
             for row in rows {
-                let point: Point = (1..=row.columns())
+                let point: Point = (1..row.columns())
                     .map(|i| match row.get::<i64>(i)? {
                         Some(v) => Ok(PdbOwnedValue::I64(v)),
                         None => Ok(PdbOwnedValue::Null),
                     })
                     .collect::<Result<_, pgrx::spi::Error>>()?;
-                counts[tree.route(&point)] += 1;
+                let ctid = row.get::<i64>(row.columns() - 1)?.expect("should exist");
+                counts[tree.route(&point, ctid as u64)] += 1;
             }
             Ok::<(), pgrx::spi::Error>(())
         })
@@ -1163,7 +1175,7 @@ mod tests {
             };
             assert!(*v % 2 == 0 && (2..=10_000).contains(v), "{tree}");
         }
-        assert_eq!(tree.route(&[PdbOwnedValue::Null]), 0);
+        assert_eq!(tree.route(&[PdbOwnedValue::Null], 0), 0);
         let counts = route_all(&tree, "sample_expr", "base * 2");
         assert!(counts.iter().all(|&c| c > 0), "{counts:?}\n{tree}");
     }
@@ -1270,7 +1282,10 @@ mod tests {
         assert_eq!(tree.dims().len(), 2);
         assert!((2..=4).contains(&tree.partition_count()), "{tree}");
         // NULLs in both dimensions route to the lowest partition.
-        assert_eq!(tree.route(&[PdbOwnedValue::Null, PdbOwnedValue::Null]), 0);
+        assert_eq!(
+            tree.route(&[PdbOwnedValue::Null, PdbOwnedValue::Null], 0),
+            0
+        );
 
         // Every `label` split value is a fully detoasted string of the generated width, not a
         // truncated or corrupt copy. `32 * 2` hex chars, repeated 40 times, plus a 10-char tail.

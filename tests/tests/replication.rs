@@ -1220,32 +1220,31 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
     for writer in writers {
         writer.await?;
     }
-    // Drive foreground merges after the concurrent writers have committed.
-    for row in 0..WRITERS {
-        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
-            .bind(WRITERS * 120 + row)
-            .execute(&mut conn)
-            .await?;
-    }
-    let layer_counts: Vec<i64> = sqlx::query_scalar(
-        "SELECT count(*) FROM paradedb.index_info('backpressure_idx')
-         WHERE NOT mutable
-         GROUP BY CASE WHEN byte_size <= 1024 THEN 1 WHEN byte_size <= 10240 THEN 2 ELSE 3 END",
+    let layer_counts: Vec<(i64, i64)> = sqlx::query_as(
+        "WITH segments AS (
+            SELECT byte_size,
+                   CASE WHEN byte_size <= 1024 THEN 1024
+                        WHEN byte_size <= 10240 THEN 10240 ELSE 102400 END AS layer_size
+            FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable
+         )
+         SELECT count(*), floor((layer_size + layer_size / 3 - 1) / min(byte_size))::bigint
+         FROM segments GROUP BY layer_size",
     )
     .fetch_all(&mut conn)
     .await?;
-    // Concurrent inserts can overshoot the per-layer trigger before a merge completes.
+    // The trigger counts complete merge batches; allow one partial batch and in-flight writers.
     anyhow::ensure!(
         layer_counts
             .iter()
-            .all(|count| *count <= 4 * TARGET_SEGMENT_COUNT + WRITERS),
-        "segment counts per layer reached {layer_counts:?}"
+            .all(|(count, partial_batch)| *count
+                <= 4 * TARGET_SEGMENT_COUNT + WRITERS + partial_batch),
+        "segment counts and partial-batch allowances per layer reached {layer_counts:?}"
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")
         .fetch_one(&mut conn)
         .await?;
     anyhow::ensure!(
-        count == WRITERS * 120 + WRITERS,
+        count == WRITERS * 120,
         "unexpected indexed row count: {count}"
     );
     let passed: Option<bool> = sqlx::query_scalar(

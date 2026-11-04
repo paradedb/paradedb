@@ -121,11 +121,12 @@ These settings affect pushed-down `IN`, `ANY`, and term-set queries.
 
 These settings affect segment layout and background merging.
 
-| Setting                                     | Default | Context | Description                                                                           |
-| ------------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------- |
-| `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload. |
-| `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables background segment merging globally. Requires config reload.                  |
-| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.      |
+| Setting                                     | Default | Context | Description                                                                                                                    |
+| ------------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `paradedb.global_target_segment_count`      | `0`     | sighup  | Overrides every index's `target_segment_count` when non-zero. Requires config reload.                                          |
+| `paradedb.global_enable_background_merging` | `on`    | sighup  | Enables write-triggered background segment merging globally. Does not control periodic mutable sweeps. Requires config reload. |
+| `paradedb.global_mutable_segment_rows`      | `-1`    | user    | Overrides every index's `mutable_segment_rows` when set to a non-negative value.                                               |
+| `paradedb.mutable_sweep_interval`           | `1s`    | sighup  | Interval between periodic mutable-segment sweeps. Set to `0` to disable; write-triggered merging is unchanged.                 |
 
 ## Per-Index Search Options
 
@@ -138,7 +139,7 @@ Set these options in the index's `WITH` clause. The linked guides explain when c
 | `search_tokenizer`      | Indexed field's tokenizer | Default search-time tokenizer for text and JSON fields.                                                                        | [Search Tokenizer](/reference/tokenizers/search-tokenizer)                          |
 | `training_sample_ratio` | `0.32`                    | Fraction of vectors sampled whenever a segment is clustered. Accepts `0.000001` through `1.0`.                                 | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `max_leaf_size`         | `200`                     | Maximum sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                          | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
-| `vector_fields`         | No overrides              | JSON configuration for each vector field, including quantization.                                                              | [Vector Quantization](/reference/indexing/indexing-vectors#vector-quantization)     |
+| `quantization`          | `[1,1]`                   | Quantization layer widths shared by all vector fields. Set to `0` to disable quantization.                                     | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 
 ## Per-Index Write Options
 
@@ -147,7 +148,7 @@ Set these options with `CREATE INDEX ... WITH (...)` or `ALTER INDEX ... SET (..
 | Option                   | Default                              | Description                                                                                                                          |
 | ------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `layer_sizes`            | Disabled                             | Foreground merge thresholds. Set to `'0'` to disable foreground merging.                                                             |
-| `background_layer_sizes` | `100KB, 1MB, 10MB, 100MB, 1GB, 10GB` | Background merge thresholds. Set to `'0'` to disable background merging.                                                             |
+| `background_layer_sizes` | `100KB, 1MB, 10MB, 100MB, 1GB, 10GB` | Write-triggered background merge thresholds. Set to `'0'` to disable; periodic mutable sweeps are controlled separately.             |
 | `mutable_segment_rows`   | `1000`                               | Number of rows buffered in mutable segments. Overridden by `paradedb.global_mutable_segment_rows` when that setting is non-negative. |
 
 ## Related Postgres Settings

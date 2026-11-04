@@ -148,7 +148,7 @@ impl MoreLikeThisQueryBuilder {
             .unwrap_or_else(|| {
                 panic!("more_like_this: lookup field '{lookup_field}' does not exist")
             });
-        let attno = source.heap_attno(&index_relation).expect(
+        let attno = source.heap_attno().expect(
             "more_like_this(key_value => ...) requires a heap column on the left-hand side",
         );
         let tuple_desc = heap_relation.tuple_desc();
@@ -201,7 +201,7 @@ impl MoreLikeThisQueryBuilder {
                         .expect("source column should exist")
                         .name(),
                 ),
-                FieldSource::Expression { att_idx } => {
+                FieldSource::Expression { att_idx, .. } => {
                     let expr = expressions
                         .get_ptr(att_idx)
                         .expect("source expression should exist");

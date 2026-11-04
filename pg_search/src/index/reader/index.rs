@@ -153,6 +153,12 @@ pub(crate) struct TopKWindow {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub enum SegmentBatching {
+    PerSegment,
+    Global,
+}
+
+#[derive(Clone, Copy, Debug)]
 enum SegmentQueryKind {
     Unconstrained,
     RangeConstrained,
@@ -230,6 +236,7 @@ pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
         error,
         tantivy::TantivyError::IncompatibleIndex(
             Incompatibility::VectorFormatMismatch { .. }
+                | Incompatibility::CentroidFormatMismatch { .. }
                 | Incompatibility::VectorRouterMismatch { .. },
         )
     )
@@ -1593,7 +1600,8 @@ impl SearchIndexReader {
         };
         let expressions = self.index_rel.index_expressions();
         for (field, data) in self.schema.categorized_fields().iter() {
-            let crate::postgres::utils::FieldSource::Expression { att_idx } = data.source else {
+            let crate::postgres::utils::FieldSource::Expression { att_idx, .. } = data.source
+            else {
                 continue;
             };
             if fields.iter().any(|existing| existing == field) {
@@ -2071,7 +2079,7 @@ impl SearchIndexReader {
     }
 
     /// Search the Tantivy index for the Top K matching documents in specific segments.
-    /// Batches are consumed lazily; vector collection receives each batch as a segment slice.
+    /// Segments are consumed lazily, except when vector collection uses global batching.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
@@ -2085,21 +2093,19 @@ impl SearchIndexReader {
     ///
     /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
     /// per-segment JSON in [`TopKSearch::segment_info`].
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
-        segment_batches: impl Iterator<Item = Vec<SegmentId>>,
+        segments: impl Iterator<Item = SegmentId>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        batching: SegmentBatching,
     ) -> TopKSearch {
         self.search_top_k_in_segments_internal(
-            segment_batches.map(|ids| {
-                ids.into_iter()
-                    .map(|id| (id, SegmentQueryKind::Unconstrained))
-                    .collect()
-            }),
+            segments.map(|id| (id, SegmentQueryKind::Unconstrained)),
             None,
             orderby_info,
             TopKWindow {
@@ -2108,6 +2114,7 @@ impl SearchIndexReader {
             },
             aux_collector,
             parallel_state_holding_shared_threshold,
+            batching,
         )
     }
 
@@ -2135,23 +2142,26 @@ impl SearchIndexReader {
                     .map(|id| (id, SegmentQueryKind::RangeConstrained)),
             );
         self.search_top_k_in_segments_internal(
-            segment_iter.map(|segment| vec![segment]),
+            segment_iter,
             Some(partition_bounds),
             orderby_info,
             window,
             None,
             None,
+            SegmentBatching::PerSegment,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_top_k_in_segments_internal(
         &self,
-        segment_batches: impl Iterator<Item = Vec<(SegmentId, SegmentQueryKind)>>,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
         partition_bounds: Option<&SearchQueryInput>,
         orderby_info: &[OrderByInfo],
         window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        batching: SegmentBatching,
     ) -> TopKSearch {
         let n = window.limit.0;
         let offset = window.offset.0;
@@ -2182,7 +2192,7 @@ impl SearchIndexReader {
                             )));
                         }
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_batches.flatten(),
+                            segments,
                             partition_bounds,
                             (computer, order),
                             erased_features,
@@ -2200,7 +2210,7 @@ impl SearchIndexReader {
                 // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
                     return TopKSearch::new_for_discarded_field(self.top_in_segments(
-                        segment_batches.flatten(),
+                        segments,
                         partition_bounds,
                         (SortByRange::for_field(sort_field), order),
                         erased_features,
@@ -2212,7 +2222,7 @@ impl SearchIndexReader {
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_batches.flatten(),
+                            segments,
                             partition_bounds,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
@@ -2227,7 +2237,7 @@ impl SearchIndexReader {
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_batches.flatten(),
+                            segments,
                             partition_bounds,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
@@ -2263,7 +2273,7 @@ impl SearchIndexReader {
                         )));
                 }
                 let (top_docs, aggregation_results) = self.top_in_segments(
-                    segment_batches.flatten(),
+                    segments,
                     partition_bounds,
                     (computer, order),
                     erased_features,
@@ -2279,7 +2289,7 @@ impl SearchIndexReader {
                 feature: OrderByFeature::Score { .. },
                 direction,
             } => self.top_by_score_in_segments(
-                segment_batches.flatten(),
+                segments,
                 partition_bounds,
                 *direction,
                 window,
@@ -2349,13 +2359,15 @@ impl SearchIndexReader {
                 // Record only collected candidates, in the same lazy order as their fruits.
                 // Rejected segment IDs have no corresponding ProbeStats entry.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
-                let readers = segment_batches.map(|segments| {
-                    self.segment_readers_with_query_kind(segments.into_iter())
+                let readers =
+                    self.segment_readers_with_query_kind(segments)
                         .inspect(|(_, reader, _)| {
                             collected_ids.borrow_mut().push(reader.segment_id());
-                        })
-                        .collect::<Vec<_>>()
-                });
+                        });
+                let batches: Box<dyn Iterator<Item = Vec<_>>> = match batching {
+                    SegmentBatching::PerSegment => Box::new(readers.map(|reader| vec![reader])),
+                    SegmentBatching::Global => Box::new(std::iter::once(readers.collect())),
+                };
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
@@ -2363,31 +2375,31 @@ impl SearchIndexReader {
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
                 let (fruit, aggregation_results) = match tie_break_count {
                     0 => self.collect_vector_maybe_auxiliary(
-                        readers,
+                        batches,
                         partition_bounds,
                         collector.build(),
                         aux_collector,
                     ),
                     1 => self.collect_vector_maybe_auxiliary(
-                        readers,
+                        batches,
                         partition_bounds,
                         collector.with_tie_break(next()).build(),
                         aux_collector,
                     ),
                     2 => self.collect_vector_maybe_auxiliary(
-                        readers,
+                        batches,
                         partition_bounds,
                         collector.with_tie_break((next(), next())).build(),
                         aux_collector,
                     ),
                     3 => self.collect_vector_maybe_auxiliary(
-                        readers,
+                        batches,
                         partition_bounds,
                         collector.with_tie_break((next(), next(), next())).build(),
                         aux_collector,
                     ),
                     4 => self.collect_vector_maybe_auxiliary(
-                        readers,
+                        batches,
                         partition_bounds,
                         collector
                             .with_tie_break((next(), next(), next(), next()))
@@ -3081,6 +3093,7 @@ impl SearchIndexReader {
             stats.reset();
         }
         let on_segment = |ord: SegmentOrdinal| {
+            pgrx::check_for_interrupts!();
             if let Some(stats) = &self.directory.io_stats {
                 stats.end_segment(self.searcher.segment_reader(ord).segment_id());
             }
@@ -4476,6 +4489,107 @@ mod tests {
     }
 
     #[pg_test]
+    fn non_vector_topk_keeps_segment_collection_lazy() {
+        let (index_rel, _) = segmented_index_fixture("lazy_sorted_segments", 3, false);
+        let query = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![term_query("title", "silver"), term_query("title", "quiet")],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        let field_order = OrderByInfo {
+            feature: OrderByFeature::Field {
+                name: FieldName::from("id"),
+                rti: 0,
+            },
+            direction: SortDirection::AscNullsLast,
+        };
+        let score_order = OrderByInfo {
+            feature: OrderByFeature::Score { rti: 0 },
+            direction: SortDirection::DescNullsLast,
+        };
+        for order in [
+            vec![field_order.clone()],
+            vec![score_order.clone()],
+            vec![score_order, field_order],
+        ] {
+            for batching in [SegmentBatching::Global, SegmentBatching::PerSegment] {
+                let trace = io_stats::Trace::default();
+                let reader = SearchIndexReader::open_with_context(
+                    &index_rel,
+                    query.clone(),
+                    true,
+                    MvccSatisfies::Snapshot,
+                    None,
+                    None,
+                    false,
+                    Some(trace.clone()),
+                )
+                .unwrap();
+                let ids = reader.segment_ids();
+                assert_eq!(ids.len(), 3);
+                let segments = ids.iter().copied().enumerate().map(|(i, id)| {
+                    if i > 0 {
+                        let mut info = BTreeMap::from([(ids[i - 1], serde_json::json!({}))]);
+                        trace.attach(&mut info);
+                        assert!(
+                            info[&ids[i - 1]]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
+                            "collection must finish before claiming the next segment: {order:?}, {batching:?}"
+                        );
+                    }
+                    id
+                });
+                let top =
+                    reader.search_top_k_in_segments(segments, &order, 50, 0, None, None, batching);
+                assert_eq!(top.results.len(), 30);
+            }
+        }
+    }
+
+    #[pg_test(error = "canceling statement due to user request")]
+    fn global_vector_topk_checks_for_interrupts() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE cancel_vectors (id bigint PRIMARY KEY, embedding vector(3));
+             CREATE INDEX cancel_vectors_idx ON cancel_vectors
+             USING paradedb (id, embedding vector_l2_ops)
+             WITH (background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
+             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = open_index("cancel_vectors_idx");
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let ids = reader.segment_ids();
+        assert_eq!(ids.len(), 2);
+        let order = [OrderByInfo {
+            feature: OrderByFeature::VectorDistance {
+                name: FieldName::from("embedding"),
+                rti: 0,
+                query_vector: crate::api::QueryVector::Resolved(vec![1.0, 0.0, 0.0]),
+                metric: crate::vector::metric::VectorMetric::L2,
+            },
+            direction: SortDirection::AscNullsLast,
+        }];
+        let segments = ids.into_iter().inspect(|_| unsafe {
+            pg_sys::QueryCancelPending = 1;
+            pg_sys::InterruptPending = 1;
+        });
+        reader.search_top_k_in_segments(
+            segments,
+            &order,
+            10,
+            0,
+            None,
+            None,
+            SegmentBatching::Global,
+        );
+        panic!("global vector collection ignored cancellation");
+    }
+
+    #[pg_test]
     fn vector_topk_reports_only_collected_candidates() {
         use crate::api::QueryVector;
         use crate::vector::metric::VectorMetric;
@@ -4546,12 +4660,13 @@ mod tests {
                         }
                         checked_out.set(checked_out.get() + 1);
                     });
-                    let batches: Box<dyn Iterator<Item = Vec<SegmentId>>> = if individual_segments {
-                        Box::new(ids.map(|id| vec![id]))
+                    let batching = if individual_segments {
+                        SegmentBatching::PerSegment
                     } else {
-                        Box::new(std::iter::once(ids.collect()))
+                        SegmentBatching::Global
                     };
-                    let top = reader.search_top_k_in_segments(batches, &order, 50, 0, None, None);
+                    let top =
+                        reader.search_top_k_in_segments(ids, &order, 50, 0, None, None, batching);
                     let docs = top
                         .results
                         .into_iter()

@@ -121,17 +121,18 @@ const COLUMNS: &[Column] = &[
         ),
     Column::new("age", "INTEGER", "'20'")
         .random_generator_sql("(floor(random() * 100) + 1)"),
+    Column::new("op_expr_col", "INTEGER", "'3'")
+        .whereable(false)
+        .groupable(true)
+        .index_expression(IndexExpression::Multiply { factor: 10 })
+        .random_generator_sql("(floor(random() * 100) + 1)"),
     Column::new("quantity", "INTEGER", "'7'")
         .whereable(true)
         .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")
-        .groupable({
-            // TODO: Grouping on a float fails to ORDER BY (even in cases without an ORDER BY):
-            // ```
-            // Cannot ORDER BY OrderByInfo
-            // ```
-            false
-        })
+        .groupable(
+            true
+        )
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
     // Additional NUMERIC columns for testing Numeric64 vs NumericBytes storage
     Column::new("small_numeric", "NUMERIC(5,2)", "'12.34'")
@@ -144,7 +145,7 @@ const COLUMNS: &[Column] = &[
         .groupable(false)
         .random_generator_sql("(random() * 10000)::numeric(18,6)"),
     Column::new("big_numeric", "NUMERIC", "'12345.67890'")
-        .groupable(false)  // Cannot aggregate NumericBytes
+        .groupable(false)
         .random_generator_sql("(random() * 100000)::numeric"),
     Column::new("rating", "INTEGER", "'4'")
         .indexed({
@@ -597,132 +598,155 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
     let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Columns that can be used for grouping (must be columnar indexed)
-    let columns: Vec<_> = COLUMNS
+    let where_columns: Vec<_> = COLUMNS
         .iter()
-        .filter(|col| col.is_groupable && col.is_whereable)
+        .filter(|col| col.is_whereable)
         .cloned()
         .collect();
 
-    let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
+    let mut grouping_columns: Vec<_> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable)
+        .filter(|col| col.index_expression.is_none_or(|e| e.indexes_bare_column()))
+        .map(|col| col.name.to_string())
+        .collect();
+    grouping_columns.extend(
+        [
+            // FuncExpr matching an index expression
+            "upper(category)",
+            // OpExpr; pair this with the IndexExpression variant from earlier,
+            "op_expr_col * 10",
+            // JSON projections
+            "metadata->>'brand'",
+            "metadata->'brand'",
+            // TODO(issue #7207)
+            //"(metadata->>'rating')::bigint",
+            // TODO(issue #6834): numeric JSON `->>` grouping isn't pushed down exactly
+            //"metadata->'details'->>'score'",
+        ]
+        .map(String::from),
+    );
 
     proptest!(qgen_proptest_config(), |(
-        text_where_expr in arb_wheres(
-            vec![table_name],
-            &columns,
-        ),
-        numeric_where_expr in arb_wheres(
-            vec![table_name],
-            &columns_named(vec!["age", "price", "rating"]),
-        ),
-        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec![
-            "COUNT(*)", "SUM(price)", "AVG(price)", "MIN(quantity)", "MAX(quantity)", "SUM(age)", "AVG(age)",
-            "COUNT(metadata->>'brand')",
-            "COUNT((metadata->>'rating')::bigint)",
-            "SUM((metadata->>'rating')::bigint)",
-            "AVG((metadata->>'rating')::bigint)",
-            "MIN((metadata->>'rating')::bigint)",
-            "MAX((metadata->>'rating')::bigint)",
-            "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
-            "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
-            "SUM(COALESCE((metadata->>'rating')::bigint, 7))",
-            "SUM((metadata->'details'->>'score')::double precision)",
-            "AVG((metadata->'details'->>'score')::double precision)",
-            "MIN((metadata->'details'->>'score')::double precision)",
-            "MAX((metadata->'details'->>'score')::double precision)",
-            "AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))",
-        ]),
-        limit in prop::option::of(5..21_usize),
-        offset in prop::option::of(0..4_usize),
-        gucs in any::<PgGucs>(),
-    )| {
-        let select_list = group_by_expr.to_select_list();
-        let group_by_clause = group_by_expr.to_sql();
+            text_where_expr in arb_wheres(
+                vec![table_name],
+                &where_columns,
+            ),
+            numeric_where_expr in arb_wheres(
+                vec![table_name],
+                &columns_named(vec!["age", "price", "rating"]),
+            ),
+            group_by_expr in arb_group_by(grouping_columns.clone(), vec![
+                "COUNT(*)", "SUM(price)", "AVG(price)", "MIN(quantity)", "MAX(quantity)", "SUM(age)", "AVG(age)",
+                "COUNT(metadata->>'brand')",
+                "COUNT((metadata->>'rating')::bigint)",
+                "SUM((metadata->>'rating')::bigint)",
+                "AVG((metadata->>'rating')::bigint)",
+                "MIN((metadata->>'rating')::bigint)",
+                "MAX((metadata->>'rating')::bigint)",
+                "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
+                "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
+                "SUM(COALESCE((metadata->>'rating')::bigint, 7))",
+                "SUM((metadata->'details'->>'score')::double precision)",
+                "AVG((metadata->'details'->>'score')::double precision)",
+                "MIN((metadata->'details'->>'score')::double precision)",
+                "MAX((metadata->'details'->>'score')::double precision)",
+                "AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))",
+            ]),
+            limit in prop::option::of(5..21_usize),
+            offset in prop::option::of(0..4_usize),
+            gucs in any::<PgGucs>(),
+        )| {
+            let select_list = group_by_expr.to_select_list();
+            let group_by_clause = group_by_expr.to_sql();
 
-        let order_by_and_offset_clause: String = if group_by_expr.group_by_columns.is_empty() {
-            String::new()
-        } else {
-            let order_by_items: Vec<String> = group_by_expr.group_by_columns
-                .iter()
-                .map(|item| {format!("{item} ASC NULLS LAST")})
-                .collect();
-            // only apply OFFSET when there are grouping columns, otherwise
-            // we'd offset the single aggregate row
-            let offset_clause = offset
-                .map(|value| format!(" OFFSET {value}"))
+            let order_by_and_offset_clause: String = if group_by_expr.group_by_columns.is_empty() {
+                String::new()
+            } else {
+                let order_by_items: Vec<String> = group_by_expr.group_by_columns
+                    .iter()
+                    .map(|item| {format!("{item} ASC NULLS LAST")})
+                    .collect();
+                // only apply OFFSET when there are grouping columns, otherwise
+                // we'd offset the single aggregate row
+                let offset_clause = offset
+                    .map(|value| format!(" OFFSET {value}"))
+                    .unwrap_or_default();
+
+                format!("ORDER BY {}{offset_clause}", order_by_items.join(", "))
+            };
+
+            let limit_clause = limit
+                .map(|value| format!(" LIMIT {value}"))
                 .unwrap_or_default();
 
-            format!("ORDER BY {}{offset_clause}", order_by_items.join(", "))
-        };
+            // Create combined WHERE clause for PostgreSQL using = operator
+            let pg_where_clause = format!(
+                "({}) AND ({})",
+                text_where_expr.to_sql(" = "),
+                numeric_where_expr.to_sql(" < ")
+            );
 
-        let limit_clause = limit
-            .map(|value| format!(" LIMIT {value}"))
-            .unwrap_or_default();
+            // Create combined WHERE clause for BM25 using appropriate operators
+            let bm25_where_clause = format!(
+                "({}) AND ({})",
+                text_where_expr.to_sql("@@@"),
+                numeric_where_expr.to_sql(" < ")
+            );
 
-        // Create combined WHERE clause for PostgreSQL using = operator
-        let pg_where_clause = format!(
-            "({}) AND ({})",
-            text_where_expr.to_sql(" = "),
-            numeric_where_expr.to_sql(" < ")
-        );
+            let pg_query = format!(
+                "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
+            );
 
-        // Create combined WHERE clause for BM25 using appropriate operators
-        let bm25_where_clause = format!(
-            "({}) AND ({})",
-            text_where_expr.to_sql("@@@"),
-            numeric_where_expr.to_sql(" < ")
-        );
+            let bm25_query = format!(
+                "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
+            );
 
-        let pg_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
-        );
+            // Custom result comparator for GROUP BY results
+            let compare_results =
+                |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+                // Fetch all rows as dynamic results and convert to string representation
+                let rows = query.fetch_dynamic_result(conn)?;
+                let string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        // Convert entire row to a string representation for comparison
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
 
-        let bm25_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
-        );
+                            // Try to get value as different types, converting to string
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                                format!("{val:.6}")
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{val:.6}")
+                            } else if let Ok(val) = row.try_get::<sqlx::types::Uuid, _>(i) {
+                                val.to_string()
+    } else if let Ok(val) = row.try_get::<serde_json::Value, _>(i) {
+        val.to_string()
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
 
-        // Custom result comparator for GROUP BY results
-        let compare_results =
-            |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
-            // Fetch all rows as dynamic results and convert to string representation
-            let rows = query.fetch_dynamic_result(conn)?;
-            let string_rows: Vec<String> = rows
-                .into_iter()
-                .map(|row| {
-                    // Convert entire row to a string representation for comparison
-                    let mut row_string = String::new();
-                    for i in 0..row.len() {
-                        if i > 0 {
-                            row_string.push('|');
+                            row_string.push_str(&value_str);
                         }
+                        row_string
+                    })
+                    .collect();
 
-                        // Try to get value as different types, converting to string
-                        let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
-                            val.to_string()
-                        } else if let Ok(val) = row.try_get::<i32, _>(i) {
-                            val.to_string()
-                        } else if let Ok(val) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
-                            format!("{val:.6}")
-                        } else if let Ok(val) = row.try_get::<f64, _>(i) {
-                            format!("{val:.6}")
-                        } else if let Ok(val) = row.try_get::<sqlx::types::Uuid, _>(i) {
-                            val.to_string()
-                        } else if let Ok(val) = row.try_get::<String, _>(i) {
-                            val
-                        } else {
-                            "NULL".to_string()
-                        };
+                Ok(string_rows)
+            };
 
-                        row_string.push_str(&value_str);
-                    }
-                    row_string
-                })
-                .collect();
-
-            Ok(string_rows)
-        };
-
-        qgen_oracle!("qgen: generated_group_by_aggregates - ParadeDB result matches PostgreSQL", compare_outcome_retrying(&pg_query, &bm25_query, &gucs, &pool, &setup_sql, compare_results))?;
-    });
+            qgen_oracle!("qgen: generated_group_by_aggregates - ParadeDB result matches PostgreSQL", compare_outcome_retrying(&pg_query, &bm25_query, &gucs, &pool, &setup_sql, compare_results))?;
+        });
 }
 
 #[rstest]
@@ -902,6 +926,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     let base_grouping_cols: Vec<&str> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
+        .filter(|col| col.index_expression.is_none_or(|e| e.indexes_bare_column()))
         .map(|col| col.name)
         .collect();
 
@@ -925,6 +950,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
                     // Group by text and JSONB representations
                     grouping_columns.push(format!("{table}.metadata->>'brand'"));
                     grouping_columns.push(format!("{table}.metadata->'brand'"));
+                    grouping_columns.push(format!("{table}.op_expr_col * 10"));
                     aggregates.extend([
                         format!("SUM({table}.age)"),
                         format!("AVG({table}.age)"),

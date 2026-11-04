@@ -18,9 +18,7 @@
 use crate::api::window_aggregate::{PlaceholderId, make_window_agg_placeholder};
 use crate::api::{MvccVisibility, is_agg_funcoid, is_combine_agg_funcoid, pdb_agg_spec};
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::datafusion_build::{
-    FilterExprBuildContext, JoinAggSource, ResolutionSource,
-};
+use crate::postgres::customscan::aggregatescan::datafusion_build::FilterExprBuildContext;
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
     numeric_avg_func_with_args, numeric_sum_func_with_args,
 };
@@ -31,6 +29,7 @@ use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggRequest;
 use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::deparse::deparse_planner_expr;
 use crate::postgres::utils::strip_relabel;
 use crate::schema::SearchFieldType;
@@ -44,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-use super::build::{JoinSource, PlannerRootId, RelNode};
+use super::build::{PlannerRootId, RelNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupportedWindowAggType {
@@ -150,17 +149,15 @@ impl WindowAggDef {
     /// the scan returns and those have to be visible.
     fn try_pdb_agg_from_window_func(
         wf: &WindowFunc,
-        sources: &[&JoinSource],
+        sources: &[SourceContext],
     ) -> Result<Self, String> {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
-        let sources: Vec<ResolutionSource> =
-            sources.iter().map(|s| ResolutionSource::from(*s)).collect();
         let request = unsafe {
             lower_pdb_agg_call(
                 wf.winfnoid.to_u32(),
                 args.get_ptr(0),
                 args.get_ptr(1),
-                &sources,
+                sources,
             )?
         };
         if request.visibility != MvccVisibility::default() {
@@ -416,19 +413,23 @@ pub fn extract_window_agg(
         );
     }
 
-    let all_sources = plan.sources();
+    let all_sources: Vec<_> = plan
+        .sources()
+        .iter()
+        .map(|s| s.to_source_context())
+        .collect();
 
     let filter = if !wf.aggfilter.is_null() {
         let outer_root_id = PlannerRootId::from(root);
-        let join_agg_sources: Vec<_> = plan
+        let contexts: Vec<_> = plan
             .output_sources()
             .into_iter()
             .filter(|s| s.root_id == Some(outer_root_id))
-            .map(JoinAggSource::from)
+            .map(|s| s.to_source_context())
             .collect();
         let filter_ctx = FilterExprBuildContext::Filter {
             root,
-            sources: &join_agg_sources,
+            sources: &contexts,
             plan,
             outer_root_id,
         };
@@ -441,12 +442,8 @@ pub fn extract_window_agg(
         };
         // verify each field the filter needs is columnar
         if f.collect_column_refs().iter().any(|cr| {
-            resolve_fast_field_from_join_sources(
-                &all_sources,
-                cr.rti as pg_sys::Index,
-                cr.attno as i32,
-            )
-            .is_none()
+            resolve_fast_field_from_join_sources(&all_sources, cr.rti as pg_sys::Index, cr.attno)
+                .is_none()
         }) {
             return Err("window function FILTER clause depends on non-columnar field".to_string());
         }
@@ -477,7 +474,7 @@ pub fn extract_window_agg(
 /// The column a SQL window aggregate reads, `None` for `COUNT(*)`.
 fn extract_column_info(
     wf: &WindowFunc,
-    sources: &[&JoinSource],
+    sources: &[SourceContext],
     agg_type: SupportedWindowAggType,
 ) -> Result<Option<ColumnInfo>, String> {
     let args = unsafe { PgList::<pg_sys::Node>::from_pg(wf.args) };
@@ -499,7 +496,7 @@ fn extract_column_info(
             let Some(ff) = resolve_fast_field_from_join_sources(
                 sources,
                 var.varno as pg_sys::Index,
-                var.varattno as i32,
+                var.varattno,
             ) else {
                 return Err("arguments to window aggregate must be fast fields".to_string());
             };

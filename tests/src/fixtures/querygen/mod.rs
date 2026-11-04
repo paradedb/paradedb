@@ -54,6 +54,10 @@ pub enum IndexExpression {
     UnicodeWordsColumnar,
     Upper,
     LiteralNormalized,
+    /// An arithmetic OpExpr over the column, e.g. `(age * 10)`
+    Multiply {
+        factor: i64,
+    },
 }
 
 impl IndexExpression {
@@ -66,7 +70,19 @@ impl IndexExpression {
             }
             Self::Upper => format!("(upper({column_name})::pdb.literal)"),
             Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
+            Self::Multiply { factor } => {
+                format!("(({column_name} * {factor})::pdb.alias('{column_name}_x{factor}'))")
+            }
         }
+    }
+
+    /// True when the indexed value is the column itself (just a tokenizer cast), so
+    /// `GROUP BY col` / `ORDER BY col` can use the fast field.
+    pub const fn indexes_bare_column(&self) -> bool {
+        matches!(
+            self,
+            Self::Literal | Self::UnicodeWordsColumnar | Self::LiteralNormalized
+        )
     }
 }
 

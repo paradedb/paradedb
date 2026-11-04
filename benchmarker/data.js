@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793831923483,
+  "lastUpdate": 1793831948233,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -54904,6 +54904,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13365022761-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bbeade35089a52073741d40ec9dcd16133b26c84",
+          "message": "perf: globally schedule unfiltered vector search (#7041)\n\nUnfiltered vector TopK uses a serial plan so Tantivy can route across\nthe candidate segments with one shared probe budget and pruning\nthreshold. Serial scans supply their segment batch to\n`TopDocsByVectorSimilarity::collect_segments`; parallel scans continue\nto claim and search individual segments lazily, including on rescans.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T21:04:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bbeade35089a52073741d40ec9dcd16133b26c84"
+        },
+        "date": 1793831942911,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 9.043,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 9.366,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 9.765,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 9.815,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.35,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 10.584,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 11.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 12.067,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 12.28,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.436,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.866,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.345,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.779,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.411,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 9.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 9.911,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.362,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.844,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.276,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 4.309,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 5.069,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 5.598,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 12.427,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 14.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 15.578,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13368263094-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -58089,6 +58247,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13365022761-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bbeade35089a52073741d40ec9dcd16133b26c84",
+          "message": "perf: globally schedule unfiltered vector search (#7041)\n\nUnfiltered vector TopK uses a serial plan so Tantivy can route across\nthe candidate segments with one shared probe budget and pruning\nthreshold. Serial scans supply their segment batch to\n`TopDocsByVectorSimilarity::collect_segments`; parallel scans continue\nto claim and search individual segments lazily, including on rescans.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T21:04:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bbeade35089a52073741d40ec9dcd16133b26c84"
+        },
+        "date": 1793831944696,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 109.85932330324088,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 101.06835281812373,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 85.76697632568187,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 105.35466899201775,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 106.32528203512531,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 105.56571603454636,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 293.74754441564596,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 228.80279051144655,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 79.31519598201301,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13368263094-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -71078,6 +71304,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13365022761-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bbeade35089a52073741d40ec9dcd16133b26c84",
+          "message": "perf: globally schedule unfiltered vector search (#7041)\n\nUnfiltered vector TopK uses a serial plan so Tantivy can route across\nthe candidate segments with one shared probe budget and pruning\nthreshold. Serial scans supply their segment batch to\n`TopDocsByVectorSimilarity::collect_segments`; parallel scans continue\nto claim and search individual segments lazily, including on rescans.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T21:04:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bbeade35089a52073741d40ec9dcd16133b26c84"
+        },
+        "date": 1793831948221,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.48239861879999996,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4328.3984375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13368263094-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -73164,6 +73423,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13365022761-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bbeade35089a52073741d40ec9dcd16133b26c84",
+          "message": "perf: globally schedule unfiltered vector search (#7041)\n\nUnfiltered vector TopK uses a serial plan so Tantivy can route across\nthe candidate segments with one shared probe budget and pruning\nthreshold. Serial scans supply their segment batch to\n`TopDocsByVectorSimilarity::collect_segments`; parallel scans continue\nto claim and search individual segments lazily, including on rescans.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-04T21:04:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bbeade35089a52073741d40ec9dcd16133b26c84"
+        },
+        "date": 1793831946396,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 7346.83,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 9583.42,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 13452.61,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 8046.53,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 8724.58,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 9418.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 949.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1419.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 4999.01,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13368263094-buffers"
       }
     ],
     "benchmarker hackernews (latency)": [

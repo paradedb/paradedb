@@ -1838,6 +1838,21 @@ fn resolve_search_tokenizer(
     Ok((analyzer, search_field.field_config().tokenizer().cloned()))
 }
 
+/// The analyzer `resolve_search_tokenizer` returns, built from the index options alone, for the
+/// planner, which has no open index. `None` when the field options have no tokenizer.
+fn search_tokenizer_from_options(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<(tantivy::tokenizer::TextAnalyzer, SearchTokenizer)> {
+    let config = search_field.field_config();
+    let tokenizer = config
+        .search_tokenizer()
+        .cloned()
+        .or_else(|| schema.index_search_tokenizer())
+        .or_else(|| config.tokenizer().cloned())?;
+    Some((tokenizer.to_tantivy_tokenizer()?, tokenizer))
+}
+
 /// The set a match query on `search_field` expands with, the field option first and then the
 /// index option. `none` at either level turns expansion off.
 fn resolve_synonym_set(search_field: &SearchField, schema: &SearchIndexSchema) -> Option<String> {
@@ -1886,6 +1901,30 @@ fn expand_match(
             })
             .collect(),
     })
+}
+
+/// Whether the set on `search_field` turns the match `value` into a union of alternatives,
+/// which Block-WAND does not prune. A token in no rule stays one `TermQuery`.
+pub(crate) fn match_expands_with_synonyms(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    value: &str,
+) -> bool {
+    if resolve_synonym_set(search_field, schema).is_none() {
+        return false;
+    }
+    let Some((mut analyzer, tokenizer)) = search_tokenizer_from_options(search_field, schema)
+    else {
+        return false;
+    };
+    // A set that does not load fails the query at execution, with its own error.
+    expand_match(search_field, schema, &mut analyzer, Some(&tokenizer), value).is_ok_and(
+        |expansions| {
+            expansions
+                .iter()
+                .any(|expansion| !expansion.is_single_term())
+        },
+    )
 }
 
 fn tokenized_phrase(

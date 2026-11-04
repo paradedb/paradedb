@@ -446,6 +446,44 @@ SELECT id, description FROM products WHERE description ||| 'sofa' ORDER BY id;
  10 | Chesterfield in brown leather
 (5 rows)
 
+-- A one-token top-k by score is kept serial as Block-WAND prunable. A rule turns the token
+-- into a union that does not prune, so the scan gets workers.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY paradedb.score(id) DESC LIMIT 3;
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Gather Merge
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on products
+               Table: products
+               Index: idx_products
+               Exec Method: TopKScanExecState
+               Scores: true
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 3
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(11 rows)
+
+-- A token in no rule is still one term, so the scan stays serial.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id FROM products WHERE description ||| 'leather' ORDER BY paradedb.score(id) DESC LIMIT 3;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather
+   Workers Planned: 1
+   Single Copy: true
+   ->  Limit
+         ->  Custom Scan (ParadeDB Base Scan) on products
+               Table: products
+               Index: idx_products
+               Exec Method: TopKScanExecState
+               Scores: true
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 3
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"leather","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(12 rows)
+
 RESET debug_parallel_query;
 RESET max_parallel_workers_per_gather;
 RESET parallel_tuple_cost;

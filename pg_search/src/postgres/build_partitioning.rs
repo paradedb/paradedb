@@ -1081,8 +1081,10 @@ mod tests {
                         None => Ok(PdbOwnedValue::Null),
                     })
                     .collect::<Result<_, pgrx::spi::Error>>()?;
-                let ctid = row.get::<i64>(row.columns() - 1)?.expect("should exist");
-                counts[tree.route(&point, ctid as u64)] += 1;
+                let ctid = row
+                    .get::<pg_sys::ItemPointerData>(row.columns())?
+                    .expect("ctid is never null");
+                counts[tree.route(&point, crate::postgres::utils::item_pointer_to_u64(ctid))] += 1;
             }
             Ok::<(), pgrx::spi::Error>(())
         })
@@ -1364,5 +1366,56 @@ mod tests {
             .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
             .count();
         assert!(bounded_dims > 4, "{tree}");
+    }
+
+    /// A partition key where 99% of the rows share one value cannot be cut there on its own, so
+    /// the ctid fallback has to split the hot value's rows to keep the partitions balanced.
+    #[pg_test]
+    fn ctid_fallback_balances_a_skewed_partition_key() {
+        Spi::run(
+            r#"
+            CREATE TABLE sample_skewed (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            -- 9900 rows have tenant_id 0; the other 100 each get a distinct tenant_id in 1..=100.
+            INSERT INTO sample_skewed (tenant_id, name)
+            SELECT CASE WHEN i % 100 = 0 THEN i / 100 ELSE 0 END, 'row ' || i
+            FROM generate_series(1, 10000) i;
+            CREATE INDEX sample_skewed_idx ON sample_skewed
+                USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'tenant_id');
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM sample_skewed WHERE tenant_id = 0").unwrap(),
+            Some(9900)
+        );
+
+        let (heaprel, indexrel) = open_rels("sample_skewed", "sample_skewed_idx");
+        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
+            .unwrap()
+            .expect("index declares partition_by");
+        assert_eq!(tree.dims(), &[FieldName::from("tenant_id")]);
+        // Without the fallback, `tenant_id` alone offers one useful cut and the hot value lands
+        // in a single partition.
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+
+        // The table is far under the sample cap, so the sample is the whole table and the
+        // partition sizes reflect the real rows.
+        let counts = route_all(&tree, "sample_skewed", "tenant_id");
+        assert_eq!(counts.iter().sum::<usize>(), 10_000);
+
+        // The only `tenant_id` cut is at 1, so the 100 cold rows can never share a partition
+        // with the hot value. Leaves are handed out by row share, so they get exactly one
+        // partition, the last one (leaves are numbered in order and they sort after 0).
+        assert_eq!(counts[7], 100, "{counts:?}\n{tree}");
+
+        // The other seven split the 9900 hot rows on ctid. Ideal is ~1414 each; allow ~5%
+        // either way.
+        for count in &counts[..7] {
+            assert!(
+                (1343..=1485).contains(count),
+                "unbalanced partitions: {counts:?}\n{tree}"
+            );
+        }
     }
 }

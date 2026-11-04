@@ -343,7 +343,6 @@ fn collect_split_values(node: &KdNode, out: &mut Vec<PdbOwnedValue>) {
 /// is a type-agnostic, distribution-normalized measure of how much of a dimension the box
 /// still covers.
 fn global_ranks(sample: &[Point], ndims: usize) -> Vec<Vec<usize>> {
-    // TODO: sort ctids in here too along the same rules
     (0..ndims)
         .map(|dim| {
             let mut order: Vec<usize> = (0..sample.len()).collect();
@@ -403,6 +402,18 @@ impl Builder<'_> {
         let Some(cut) = self.nearest_cut(idx, dim, target) else {
             return self.leaf();
         };
+        // Hand out leaves by the share of rows each side actually got, not by the share we aimed for.
+        let k_left = {
+            let rows = idx.len();
+            let left_rows = cut;
+
+            // Give each side leaves in proportion to its share of the rows:
+            // left_rows / rows of the k leaves, rounded to the nearest whole leaf.
+            // Multiply before dividing so a small `rows` doesn't truncate to zero,
+            // and add half the divisor first so the integer division rounds instead of floors.
+            let proportional_leaves = (left_rows * k + rows / 2) / rows;
+            proportional_leaves.clamp(1, k - 1)
+        };
         let value = match dim {
             DimHandle::Index(i) => self.sample[idx[cut]][i].clone(),
             DimHandle::Ctid => self
@@ -439,19 +450,13 @@ impl Builder<'_> {
                 best = Some((dim, spread));
             }
         }
-        best.map(|(dim_idx, _)| DimHandle::Index(dim_idx))
-            .or_else(|| {
-                let ctids = self.ctid_fallback?;
-                let (min, max) = idx.iter().fold((u64::MAX, 0), |(lo, hi), &i| {
-                    (lo.min(ctids[i]), hi.max(ctids[i]))
-                });
-                let spread = max - min;
-                if spread > 0 {
-                    Some(DimHandle::Ctid)
-                } else {
-                    None
-                }
-            })
+        best.map(|(dim_idx, _)| DimHandle::Index(dim_idx)).or({
+            if idx.len() <= 1 {
+                None
+            } else {
+                self.ctid_fallback.map(|_| DimHandle::Ctid)
+            }
+        })
     }
 
     /// The position in `idx` (sorted on `dim`) closest to `target` where the value changes,

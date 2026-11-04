@@ -2127,7 +2127,7 @@ mod tests {
                     "SELECT count(*) FROM paradedb.index_info('build_fewer_partitions_idx')"
                 )
                 .unwrap(),
-                Some(3)
+                Some(8)
             );
             assert_eq!(
                 Spi::get_one::<i64>(

@@ -241,6 +241,145 @@ WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://g
  x        |    20 |     2
 (2 rows)
 
+-- Parameters and other row-independent expressions are evaluated at execution time, so they
+-- keep working in prepared statements, including once PostgreSQL switches to a generic plan.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_7028_param(text, int) AS
+SELECT $1, $2 + 1, pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+EXPLAIN (COSTS OFF, VERBOSE) EXECUTE issue_7028_param('first', 1);
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_7028_logs
+   Output: $1, ($2 + 1), pdb.agg_fn('pdb.agg'::text)
+   Index: issue_7028_logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"score"}})
+     Aggregate Definition: {"0":{"value_count":{"field":"score","missing":null}}}
+(6 rows)
+
+EXECUTE issue_7028_param('first', 1);
+ ?column? | ?column? |      agg       
+----------+----------+----------------
+ first    |        2 | {"value": 6.0}
+(1 row)
+
+EXECUTE issue_7028_param('second', 41);
+ ?column? | ?column? |      agg       
+----------+----------+----------------
+ second   |       42 | {"value": 6.0}
+(1 row)
+
+EXECUTE issue_7028_param(NULL, NULL);
+ ?column? | ?column? |      agg       
+----------+----------+----------------
+          |          | {"value": 6.0}
+(1 row)
+
+DEALLOCATE issue_7028_param;
+-- Default plan_cache_mode: the first five runs use custom plans, the sixth may use a generic one.
+RESET plan_cache_mode;
+PREPARE issue_7028_param(text) AS
+SELECT $1, COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error';
+EXECUTE issue_7028_param('a');
+ ?column? | count 
+----------+-------
+ a        |     6
+(1 row)
+
+EXECUTE issue_7028_param('b');
+ ?column? | count 
+----------+-------
+ b        |     6
+(1 row)
+
+EXECUTE issue_7028_param('c');
+ ?column? | count 
+----------+-------
+ c        |     6
+(1 row)
+
+EXECUTE issue_7028_param('d');
+ ?column? | count 
+----------+-------
+ d        |     6
+(1 row)
+
+EXECUTE issue_7028_param('e');
+ ?column? | count 
+----------+-------
+ e        |     6
+(1 row)
+
+EXECUTE issue_7028_param('f');
+ ?column? | count 
+----------+-------
+ f        |     6
+(1 row)
+
+EXECUTE issue_7028_param('g');
+ ?column? | count 
+----------+-------
+ g        |     6
+(1 row)
+
+DEALLOCATE issue_7028_param;
+-- A stable non-Const expression is evaluated once per query.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_7028_logs
+   Output: (length((now())::text) > 0), ((current_setting('server_version_num'::text))::integer > 0), pdb.agg_fn('COUNT(*)'::text)
+   Index: issue_7028_logs_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"filter":"*"}}
+(6 rows)
+
+SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+ ?column? | ?column? | count 
+----------+----------+-------
+ t        | t        |     6
+(1 row)
+
+-- A volatile expression must be evaluated per row by PostgreSQL, not by the scan.
+EXPLAIN (COSTS OFF)
+SELECT random() < 2, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_7028_logs)
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Base Scan) on issue_7028_logs
+         Table: issue_7028_logs
+         Index: issue_7028_logs_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+-- A column-dependent expression that is not a grouping column does not take the path.
+EXPLAIN (COSTS OFF)
+SELECT score + 1, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
+WARNING:  Aggregate Scan not used: Expression is neither a grouping column nor a single Aggref. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_7028_logs)
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: score
+   ->  Sort
+         Sort Key: score
+         ->  Custom Scan (ParadeDB Base Scan) on issue_7028_logs
+               Table: issue_7028_logs
+               Index: issue_7028_logs_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
 DROP TABLE issue_7028_logs;
 RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.global_mutable_segment_rows;

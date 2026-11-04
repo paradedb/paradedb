@@ -1220,6 +1220,13 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
     for writer in writers {
         writer.await?;
     }
+    // Drive foreground merges after the concurrent writers have committed.
+    for row in 0..WRITERS {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(WRITERS * 120 + row)
+            .execute(&mut conn)
+            .await?;
+    }
     let layer_counts: Vec<i64> = sqlx::query_scalar(
         "SELECT count(*) FROM paradedb.index_info('backpressure_idx')
          WHERE NOT mutable
@@ -1238,7 +1245,7 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
         .fetch_one(&mut conn)
         .await?;
     anyhow::ensure!(
-        count == WRITERS * 120,
+        count == WRITERS * 120 + WRITERS,
         "unexpected indexed row count: {count}"
     );
     let passed: Option<bool> = sqlx::query_scalar(

@@ -230,6 +230,7 @@ pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
         error,
         tantivy::TantivyError::IncompatibleIndex(
             Incompatibility::VectorFormatMismatch { .. }
+                | Incompatibility::CentroidFormatMismatch { .. }
                 | Incompatibility::VectorRouterMismatch { .. },
         )
     )

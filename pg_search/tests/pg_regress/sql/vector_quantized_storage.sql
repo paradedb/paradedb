@@ -32,14 +32,14 @@ CREATE TABLE v4_plain (id integer PRIMARY KEY, vec vector(1024));
 INSERT INTO v4_plain SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector
 FROM generate_series(1,2048) g;
 CREATE INDEX v4_plain_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
-WITH (vector_fields='{"vec":{"quantization":false}}', target_segment_count=1);
+WITH (quantization='0', target_segment_count=1);
 SELECT vector_format, quantized, layers, quantizer_kinds, bytes_per_row
 FROM paradedb.vector_info('v4_plain_idx', 'vec');
 SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
 FROM paradedb.vector_config(index => 'v4_plain_idx', field => 'vec');
 DROP INDEX v4_plain_idx;
 CREATE INDEX v4_q14_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
-WITH (vector_fields='{"vec":{"quantization":{"layers":[1,4]}}}', target_segment_count=1);
+WITH (quantization='[1,4]', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1,4] AND bytes_per_row=668
     AND quantizer_kinds=ARRAY['sign','grid']) AS stored_q14
 FROM paradedb.vector_info('v4_q14_idx', 'vec');
@@ -47,12 +47,44 @@ SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, sett
 FROM paradedb.vector_config('v4_q14_idx', 'vec');
 DROP INDEX v4_q14_idx;
 CREATE INDEX v4_q1_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
-WITH (vector_fields='{"vec":{"quantization":{"layers":[1]}}}', target_segment_count=1);
+WITH (quantization='[1]', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1] AND bytes_per_row=144) AS stored_q1
 FROM paradedb.vector_info('v4_q1_idx', 'vec');
 SELECT index_oid::regclass AS index_name, quantized, layers, bytes_per_row, settings_version
 FROM paradedb.vector_config('v4_q1_idx', 'vec');
 DROP TABLE v4_plain;
+
+CREATE TABLE shared_quantization (id integer PRIMARY KEY, title_vec vector(64), body_vec vector(128));
+INSERT INTO shared_quantization
+SELECT g,
+       ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,64) i)::vector,
+       ARRAY(SELECT ((g+i)%23+1)::real FROM generate_series(1,128) i)::vector
+FROM generate_series(1,2048) g;
+CREATE INDEX shared_quantization_idx ON shared_quantization
+USING paradedb (id, title_vec vector_cosine_ops, body_vec vector_l2_ops)
+WITH (target_segment_count = 1);
+SELECT count(*) = 2 AND bool_and(quantized AND layers = ARRAY[1,1]) AS both_default
+FROM (VALUES ('title_vec'), ('body_vec')) AS fields(name),
+     LATERAL paradedb.vector_info('shared_quantization_idx', fields.name);
+ALTER INDEX shared_quantization_idx SET (quantization = '[1,4]');
+SELECT count(*) = 2 AND bool_and(quantized AND layers = ARRAY[1,1]) AS unchanged_before_reindex
+FROM (VALUES ('title_vec'), ('body_vec')) AS fields(name),
+     LATERAL paradedb.vector_config('shared_quantization_idx', fields.name);
+REINDEX INDEX shared_quantization_idx;
+SELECT count(*) = 2 AND bool_and(quantized AND layers = ARRAY[1,4]) AS both_custom
+FROM (VALUES ('title_vec'), ('body_vec')) AS fields(name),
+     LATERAL paradedb.vector_info('shared_quantization_idx', fields.name);
+ALTER INDEX shared_quantization_idx SET (quantization = 0);
+REINDEX INDEX shared_quantization_idx;
+SELECT count(*) = 2 AND bool_and(NOT quantized AND layers IS NULL) AS both_disabled
+FROM (VALUES ('title_vec'), ('body_vec')) AS fields(name),
+     LATERAL paradedb.vector_info('shared_quantization_idx', fields.name);
+ALTER INDEX shared_quantization_idx RESET (quantization);
+REINDEX INDEX shared_quantization_idx;
+SELECT count(*) = 2 AND bool_and(quantized AND layers = ARRAY[1,1]) AS both_reset
+FROM (VALUES ('title_vec'), ('body_vec')) AS fields(name),
+     LATERAL paradedb.vector_info('shared_quantization_idx', fields.name);
+DROP TABLE shared_quantization;
 
 CREATE TABLE config_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
 CREATE TABLE config_low PARTITION OF config_parent FOR VALUES FROM (0) TO (10);

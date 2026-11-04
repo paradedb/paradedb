@@ -24,7 +24,7 @@ use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
 use crate::parallel_worker::WorkerStyle;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{SearchFieldConfig, SearchFieldType, VectorQuantizationConfig};
 
 use crate::api::tokenizers::search_field_config_from_type;
 use crate::gucs::{global_enable_background_merging, global_target_segment_count};
@@ -149,12 +149,11 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
 }
 
 #[pg_guard]
-extern "C-unwind" fn validate_vector_fields(value: *const std::os::raw::c_char) {
-    let json_str = cstr_to_rust_str(value);
-    if json_str.is_empty() {
+extern "C-unwind" fn validate_quantization(value: *const std::os::raw::c_char) {
+    if value.is_null() {
         return;
     }
-    deserialize_config_fields(json_str, &SearchFieldConfig::vector_from_json);
+    VectorQuantizationConfig::parse(&cstr_to_rust_str(value)).unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[pg_guard]
@@ -292,9 +291,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "vector_fields".as_pg_cstr(),
+            optname: "quantization".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, quantization_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -400,7 +399,6 @@ struct LazyInfo {
     json: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
-    vector: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
@@ -552,12 +550,8 @@ impl BM25IndexOptions {
         self.lazy.inet.borrow()
     }
 
-    /// Returns the vector-field configurations.
-    pub fn vector_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
-        if self.lazy.vector.borrow().is_none() {
-            *self.lazy.vector.borrow_mut() = Some(self.options_data().vector_configs());
-        }
-        self.lazy.vector.borrow()
+    pub fn quantization(&self) -> Option<VectorQuantizationConfig> {
+        self.options_data().quantization()
     }
 
     /// Resolves indexed types and explicit field options.
@@ -571,6 +565,12 @@ impl BM25IndexOptions {
         }
 
         let field_type = self.get_field_type(field_name);
+
+        if matches!(field_type, Some(SearchFieldType::Vector(..))) {
+            return Some(SearchFieldConfig::Vector {
+                quantization: self.quantization(),
+            });
+        }
 
         if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) = field_type {
             return search_field_config_from_type(tokenizer_oid, typmod, inner_typoid);
@@ -629,13 +629,6 @@ impl BM25IndexOptions {
             })
             .or_else(|| {
                 self.inet_config()
-                    .as_ref()
-                    .unwrap()
-                    .get(field_name)
-                    .cloned()
-            })
-            .or_else(|| {
-                self.vector_config()
                     .as_ref()
                     .unwrap()
                     .get(field_name)
@@ -802,7 +795,7 @@ struct BM25IndexOptionsData {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
-    vector_fields_offset: i32,
+    quantization_offset: i32,
     key_field_offset: i32, // Accepted for compatibility; never read.
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
@@ -824,7 +817,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     json_fields_offset: 0,
     range_fields_offset: 0,
     datetime_fields_offset: 0,
-    vector_fields_offset: 0,
+    quantization_offset: 0,
     key_field_offset: 0,
     layer_sizes_offset: 0,
     inet_fields_offset: 0,
@@ -966,12 +959,12 @@ impl BM25IndexOptionsData {
         )
     }
 
-    /// Returns the vector-field configurations.
-    pub fn vector_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        self.deserialize_configs(
-            self.vector_fields_offset,
-            &SearchFieldConfig::vector_from_json,
-        )
+    fn quantization(&self) -> Option<VectorQuantizationConfig> {
+        if self.quantization_offset == 0 {
+            return None;
+        }
+        let value = self.get_str(self.quantization_offset, String::new());
+        Some(VectorQuantizationConfig::parse(&value).unwrap_or_else(|e| panic!("{e}")))
     }
 
     fn deserialize_configs(
@@ -1060,10 +1053,11 @@ pub unsafe fn init() {
     );
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
-        "vector_fields".as_pg_cstr(),
-        "JSON string specifying per-vector-field options, including quantization".as_pg_cstr(),
+        "quantization".as_pg_cstr(),
+        "Quantization layer widths for all vector fields (default [1,1]); 0 disables quantization"
+            .as_pg_cstr(),
         std::ptr::null(),
-        Some(validate_vector_fields),
+        Some(validate_quantization),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

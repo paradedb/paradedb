@@ -192,19 +192,18 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
-    let vector_configs = options.vector_config();
-    for (field_name, config) in vector_configs.iter().flatten() {
-        validate_field_config(field_name, config, options, |t| {
-            matches!(t, SearchFieldType::Vector(..))
-        });
-        let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)
-        else {
-            unreachable!("vector field validation accepted a non-vector field")
-        };
-        if config.quantization_layers().is_some() && schema_dims < MIN_QUANTIZATION_DIMENSIONS {
-            panic!(
-                "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
-            );
+    if options
+        .quantization()
+        .is_some_and(|config| config.layers().is_some())
+    {
+        for attribute in options.attributes().values() {
+            if let SearchFieldType::Vector(_, dims, _) = attribute.tantivy_type
+                && dims < MIN_QUANTIZATION_DIMENSIONS
+            {
+                panic!(
+                    "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
+                );
+            }
         }
     }
 

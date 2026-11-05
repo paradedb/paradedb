@@ -18,7 +18,8 @@
 //! The encoding of deferred columns (strings/bytes and CTIDs).
 //!
 //! A deferred string/bytes column is a `UInt64` column. A row is a packed doc address (State 0) or a
-//! packed term ordinal (State 1), told apart by the top bit, and a NULL is an Arrow NULL.
+//! packed term ordinal (State 1), told apart by the top bit, and a NULL is an Arrow NULL. A list
+//! column only ever holds doc addresses, since one row of it holds many terms.
 //! One primitive word per row is what makes the column cheap to carry: a join's `take`
 //! copies one buffer and keeps a validity bitmap for the rows it null-extends, and the
 //! fetch changes a row's state without changing the column's type, so it can run in the

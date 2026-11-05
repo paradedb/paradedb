@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed JoinScan returning `NULL` for selected system columns (`ctid`, `tableoid`, `xmin`, `cmin`, `xmax`, and `cmax`). Matched rows now return the system attributes of the fetched heap tuple; unmatched outer-join rows still return `NULL`.

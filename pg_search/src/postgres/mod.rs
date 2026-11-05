@@ -34,6 +34,7 @@ use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
 
+pub mod access;
 mod build;
 pub mod build_logging;
 mod cost;
@@ -41,6 +42,7 @@ mod delete;
 pub mod deparse;
 pub mod insert;
 mod merge;
+pub(crate) mod mutable_sweep;
 pub(crate) mod node;
 pub mod options;
 mod ps_status;
@@ -1416,9 +1418,6 @@ mod segment_info_tests {
             "postings_row",
             "postings_skipped",
             "routing_visited_count",
-            "bounds_skips",
-            "bound_armed_count",
-            "bound_armed_probe_sum",
             "segment_rows",
             "segment_clusters",
             "buffer_hits",

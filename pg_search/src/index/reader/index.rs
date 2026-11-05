@@ -42,8 +42,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::sequentialscan::KeySet;
-use crate::postgres::storage::buffer::PinnedBuffer;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{CleanupAdmission, MetaPage};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
 use crate::query::estimate::QueryEstimate;
@@ -64,9 +63,12 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
+use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::{ProbeParams, ProbeStats};
+use tantivy::vector::{
+    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSegment, VectorSimilarityFruit,
+};
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
     SegmentOrdinal, SegmentReader, TantivyDocument, Term, query::Query, schema::OwnedValue,
@@ -137,6 +139,33 @@ type TopKWithAggregate<T> = (
     Vec<((T, Option<Score>), DocAddress)>,
     Option<IntermediateAggregationResults>,
 );
+
+/// Maximum number of documents to return in a single Top-K window pull.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopKLimit(pub usize);
+
+/// Number of leading documents to skip in a Top-K window pull.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopKOffset(pub usize);
+
+/// Window bounds (`limit` and `offset`) for a Top-K search pull.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopKWindow {
+    pub limit: TopKLimit,
+    pub offset: TopKOffset,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SegmentBatching {
+    PerSegment,
+    Global,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SegmentQueryKind {
+    Unconstrained,
+    RangeConstrained,
+}
 
 /// Top-k results, aggregations, and per-segment metrics.
 pub struct TopKSearch {
@@ -210,6 +239,7 @@ pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
         error,
         tantivy::TantivyError::IncompatibleIndex(
             Incompatibility::VectorFormatMismatch { .. }
+                | Incompatibility::CentroidFormatMismatch { .. }
                 | Incompatibility::VectorRouterMismatch { .. },
         )
     )
@@ -247,6 +277,181 @@ fn probe_stats_to_segment_info(
             (*id, value)
         })
         .collect()
+}
+
+/// Base filter applied to a segment during a Random Access (`RA`) point lookup.
+pub(crate) enum RaBaseFilter {
+    /// Base query is `AllQuery` and the segment is unconstrained by partition bounds
+    /// (every live document matches with base score `0.0`).
+    MatchAll,
+    /// Segment requires evaluating `weight` (either a non-`All` base query, a `partially_included`
+    /// segment's `partition_bounds` range filter, or their conjunction).
+    /// `contributes_score` is `true` only when the underlying base query itself contributes a
+    /// BM25 score (`!unconstrained_is_match_all && need_scores`); it is `false` when `weight`
+    /// only enforces `partition_bounds` on an `AllQuery` base scan so the range filter's
+    /// non-scoring `ConstScorer` (`1.0`) is never added to the document score.
+    Filtered {
+        weight: Arc<LazyWeight>,
+        contributes_score: bool,
+    },
+}
+
+/// Reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+pub(crate) struct RaLookupWeights {
+    /// Base filter for unconstrained segments (or all candidate segments when not range-partitioned).
+    unconstrained: RaBaseFilter,
+    /// Partition segment sets and range-constrained filter for boundary segments when range-partitioned.
+    constrained: Option<(PartitionSegments, RaBaseFilter)>,
+    /// Optional union of local disjunct queries (`ScanMode::Disjunctive`) used to score
+    /// documents fetched via `RA` without materializing boolean match-tag columns.
+    disjunct_weight: Option<Arc<LazyWeight>>,
+}
+
+/// Lazily initialized per-segment scorer for `ScanMode::Disjunctive` `RA` lookups.
+struct DisjunctScorer<'a> {
+    segment_reader: &'a SegmentReader,
+    weight: Option<&'a Arc<LazyWeight>>,
+    scorer: Option<Box<dyn Scorer>>,
+}
+
+impl<'a> DisjunctScorer<'a> {
+    fn new(segment_reader: &'a SegmentReader, weight: Option<&'a Arc<LazyWeight>>) -> Self {
+        Self {
+            segment_reader,
+            weight,
+            scorer: None,
+        }
+    }
+
+    fn score_for(&mut self, target_doc: DocId) -> Score {
+        let Some(weight) = self.weight else {
+            return 0.0;
+        };
+        let scorer = self.scorer.get_or_insert_with(|| {
+            weight
+                .get()
+                .scorer(self.segment_reader, 1.0)
+                .expect("disjunct scorer should be constructable")
+        });
+        let mut cur = scorer.doc();
+        if cur < target_doc {
+            cur = scorer.seek(target_doc);
+        }
+        if cur == target_doc {
+            scorer.score()
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Evaluates an [`RaBaseFilter::MatchAll`] segment when `score_threshold` does not prune the
+/// `0.0` base score, iterating `lookup_weight` directly and adding any [`DisjunctScorer`] score.
+fn collect_lookup_only_segment(
+    segment_ord: SegmentOrdinal,
+    segment_reader: &SegmentReader,
+    lookup_weight: &dyn Weight,
+    disjunct_weight: Option<&Arc<LazyWeight>>,
+    score_threshold: Option<Score>,
+    emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    results: &mut Vec<(SearchIndexScore, DocAddress)>,
+) {
+    let alive_bitset = segment_reader.alive_bitset();
+    let mut lookup_scorer = lookup_weight
+        .scorer(segment_reader, 1.0)
+        .expect("lookup scorer should be constructable");
+    let mut disjunct_scorer = DisjunctScorer::new(segment_reader, disjunct_weight);
+
+    let mut doc_id = lookup_scorer.doc();
+    while doc_id != tantivy::TERMINATED {
+        let addr = DocAddress::new(segment_ord, doc_id);
+        if alive_bitset.is_none_or(|b| b.is_alive(doc_id)) && !emitted_docs.contains(&addr) {
+            let score = disjunct_scorer.score_for(doc_id);
+            if score_threshold.is_none_or(|t| score > t) {
+                emitted_docs.insert(addr);
+                results.push((SearchIndexScore::new(score), addr));
+            }
+        }
+        doc_id = lookup_scorer.advance();
+    }
+}
+
+/// Intersects a driving [`Scorer`] (either a [`tantivy::query::PruningScorer`] or a standard
+/// [`Scorer`]) with `lookup_weight`'s candidate-aware [`TermSetQuery`](tantivy::query::TermSetQuery)
+/// scorer via `seek_danger`.
+#[allow(clippy::too_many_arguments)]
+fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
+    segment_ord: SegmentOrdinal,
+    segment_reader: &SegmentReader,
+    driver: &mut S,
+    driver_contributes_score: bool,
+    lookup_weight: &dyn Weight,
+    disjunct_weight: Option<&Arc<LazyWeight>>,
+    score_threshold: Option<Score>,
+    emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    results: &mut Vec<(SearchIndexScore, DocAddress)>,
+) {
+    if driver.doc() == tantivy::TERMINATED {
+        return;
+    }
+    let mut lookup_scorer = lookup_weight
+        .scorer_for_candidates_unpositioned(segment_reader, 1.0, driver.size_hint().max(1))
+        .expect("lookup scorer should be constructable");
+    let first_lookup_doc = lookup_scorer.doc();
+    if first_lookup_doc == tantivy::TERMINATED {
+        return;
+    }
+
+    let alive_bitset = segment_reader.alive_bitset();
+    let mut disjunct_scorer = DisjunctScorer::new(segment_reader, disjunct_weight);
+
+    let mut doc_id = driver.doc();
+    if doc_id < first_lookup_doc {
+        doc_id = driver.seek(first_lookup_doc);
+    }
+    while doc_id != tantivy::TERMINATED {
+        match lookup_scorer.seek_danger(doc_id) {
+            tantivy::SeekDangerResult::Found => {
+                let addr = DocAddress::new(segment_ord, doc_id);
+                if alive_bitset.is_none_or(|b| b.is_alive(doc_id)) && !emitted_docs.contains(&addr)
+                {
+                    let base_score = if driver_contributes_score {
+                        driver.score()
+                    } else {
+                        0.0
+                    };
+                    let score = base_score + disjunct_scorer.score_for(doc_id);
+                    if score_threshold.is_none_or(|t| score > t) {
+                        emitted_docs.insert(addr);
+                        results.push((SearchIndexScore::new(score), addr));
+                    }
+                }
+                if lookup_scorer.has_fast_bitset() {
+                    let next_target = lookup_scorer.advance();
+                    if next_target == tantivy::TERMINATED {
+                        break;
+                    }
+                    doc_id = if next_target > doc_id + 1 {
+                        driver.seek(next_target)
+                    } else {
+                        driver.advance()
+                    };
+                } else {
+                    doc_id = driver.advance();
+                }
+            }
+            tantivy::SeekDangerResult::SeekLowerBound(next_target) => {
+                if next_target == tantivy::TERMINATED {
+                    break;
+                }
+                doc_id = if next_target > doc_id + 1 {
+                    driver.seek(next_target)
+                } else {
+                    driver.advance()
+                };
+            }
+        }
+    }
 }
 
 /// A set of search results across multiple segments.
@@ -326,6 +531,16 @@ impl MultiSegmentSearchResults {
         }
     }
 
+    /// Creates an empty `MultiSegmentSearchResults` retaining `searcher` for segment reader access.
+    pub fn empty(searcher: Searcher) -> Self {
+        Self {
+            searcher,
+            iterators: Vec::new(),
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
+        }
+    }
+
     pub fn searcher(&self) -> &Searcher {
         &self.searcher
     }
@@ -374,6 +589,12 @@ pub struct TopKAuxiliaryCollector {
     pub vischeck: Option<VisibilityChecker>,
 }
 
+/// Reader over a ParadeDB Tantivy index snapshot, encapsulating segment checkout,
+/// query compilation, segment pruning, and search execution.
+///
+/// TODO: Decompose `SearchIndexReader` into smaller, focused components (e.g. separating
+/// index/segment lifecycle, query compilation & selectivity estimation, and `SA`/`RA`/Top-K
+/// search execution).
 pub struct SearchIndexReader {
     index_rel: PgSearchRelation,
     searcher: Searcher,
@@ -400,12 +621,10 @@ pub struct SearchIndexReader {
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
+    candidate_segments: Arc<[OnceLock<bool>]>,
 
-    // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
-    //
-    // also, it's an Arc b/c if we're clone'd (we do derive it, after all), we only want this
-    // buffer dropped once
-    _cleanup_lock: Arc<PinnedBuffer>,
+    // Keep cleanup admission alive across reader clones.
+    _cleanup_lock: Arc<CleanupAdmission>,
 }
 
 /// A queryless snapshot of visible segments used to initialize parallel JoinScan and
@@ -449,6 +668,7 @@ impl Clone for SearchIndexReader {
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
+            candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -588,7 +808,7 @@ pub(crate) mod test_support {
 
 #[derive(Clone)]
 struct IndexComponents {
-    cleanup_lock: Arc<PinnedBuffer>,
+    cleanup_lock: Arc<CleanupAdmission>,
     directory: MVCCDirectory,
     index: Index,
     /// Statistics of `searcher`'s segments, opened on first use. Built once per open, so readers
@@ -668,7 +888,7 @@ impl SearchIndexReader {
         let _metadata = io_stats.as_ref().map(|stats| stats.external("Metadata"));
         #[cfg(any(test, feature = "pg_test"))]
         test_support::INDEX_COMPONENT_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
+        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_for_reader());
 
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
@@ -860,6 +1080,10 @@ impl SearchIndexReader {
             )
             .unwrap_or_else(|e| panic!("{e}"));
 
+        let candidate_segments = (0..searcher.segment_readers().len())
+            .map(|_| OnceLock::new())
+            .collect();
+
         Ok(Self {
             index_rel: index_relation.clone(),
             searcher,
@@ -879,6 +1103,7 @@ impl SearchIndexReader {
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
             pruning_estimate: OnceLock::new(),
+            candidate_segments,
         })
     }
 
@@ -910,7 +1135,7 @@ impl SearchIndexReader {
         self.directory.segment_pins()
     }
 
-    pub(crate) fn cleanup_pin(&self) -> Arc<PinnedBuffer> {
+    pub(crate) fn cleanup_admission(&self) -> Arc<CleanupAdmission> {
         self._cleanup_lock.clone()
     }
 
@@ -939,6 +1164,49 @@ impl SearchIndexReader {
         clone
     }
 
+    /// Compiles a non-empty slice of `disjunct_queries` into a single `Occur::Should` union query.
+    fn make_disjunct_union_query(
+        &self,
+        disjunct_queries: &[SearchQueryInput],
+    ) -> Option<Box<dyn Query>> {
+        if disjunct_queries.is_empty() {
+            return None;
+        }
+        let mut should_clauses: Vec<(tantivy::query::Occur, Box<dyn Query>)> = disjunct_queries
+            .iter()
+            .map(|q| (tantivy::query::Occur::Should, self.make_query(q, None)))
+            .collect();
+        if should_clauses.len() == 1 {
+            Some(should_clauses.pop().unwrap().1)
+        } else {
+            Some(Box::new(tantivy::query::BooleanQuery::new(should_clauses)))
+        }
+    }
+
+    /// Build a reader for Sorted Access (`SA`) over a disjunctive scan (`ScanMode::Disjunctive`) by
+    /// restricting `SA` to documents that match at least one of `disjunct_queries`.
+    /// When `replace_query` is true (i.e. `base_query` is `SearchQueryInput::All` and no
+    /// additional filter was pushed into `self`), the union of `disjunct_queries` replaces
+    /// the `AllQuery` directly so Tantivy can use Block-Max WAND over the disjunct postings.
+    pub(crate) fn with_disjunctive_sa_queries(
+        &self,
+        replace_query: bool,
+        disjunct_queries: &[SearchQueryInput],
+    ) -> Self {
+        let Some(disjunct_union) = self.make_disjunct_union_query(disjunct_queries) else {
+            return self.clone();
+        };
+        if replace_query {
+            let mut clone = self.clone();
+            clone.query = disjunct_union;
+            clone.pruning_estimate = OnceLock::new();
+            clone.estimate_from_statistics = false;
+            clone
+        } else {
+            self.and_query(disjunct_union)
+        }
+    }
+
     /// Compiled without an expression context: only the reader's own query carries resolved
     /// Params, and it is kept as is.
     #[cfg(any(test, feature = "pg_test"))]
@@ -955,11 +1223,13 @@ impl SearchIndexReader {
     }
 
     fn is_candidate(&self, ord: SegmentOrdinal) -> bool {
-        self.segment_num_docs(self.searcher.segment_reader(ord)) > 0
-            && self
-                .pruning_query
-                .as_ref()
-                .is_none_or(|query| self.pruner().can_match(ord, query))
+        *self.candidate_segments[ord as usize].get_or_init(|| {
+            self.segment_num_docs(self.searcher.segment_reader(ord)) > 0
+                && self
+                    .pruning_query
+                    .as_ref()
+                    .is_none_or(|query| self.pruner().can_match(ord, query))
+        })
     }
 
     fn directory_segment_num_docs(directory: &MVCCDirectory, reader: &SegmentReader) -> u64 {
@@ -1225,6 +1495,11 @@ impl SearchIndexReader {
         }
     }
 
+    /// Returns the cached segment pruning estimate if it has already been computed.
+    pub(crate) fn cached_segment_pruning_estimate(&self) -> Option<SegmentPruningEstimate> {
+        self.pruning_estimate.get().copied()
+    }
+
     /// Counts the candidate and pruned segments in this reader's snapshot.
     pub(crate) fn segment_pruning_estimate(&self) -> SegmentPruningEstimate {
         *self.pruning_estimate.get_or_init(|| {
@@ -1328,7 +1603,8 @@ impl SearchIndexReader {
         };
         let expressions = self.index_rel.index_expressions();
         for (field, data) in self.schema.categorized_fields().iter() {
-            let crate::postgres::utils::FieldSource::Expression { att_idx } = data.source else {
+            let crate::postgres::utils::FieldSource::Expression { att_idx, .. } = data.source
+            else {
                 continue;
             };
             if fields.iter().any(|existing| existing == field) {
@@ -1440,6 +1716,225 @@ impl SearchIndexReader {
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
+        }
+    }
+
+    /// Prepare reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
+    ///
+    /// When `disjunct_queries` is non-empty (`ScanMode::Disjunctive` scans), also prepares an
+    /// optional `disjunct_weight` over the union of `disjunct_queries` so `search_ra_lookup` can
+    /// accumulate BM25 scores for documents fetched via `RA` without materializing boolean
+    /// match-tag columns in `Scanner`.
+    pub(crate) fn prepare_ra_lookup_weights(
+        &self,
+        range_target: Option<&(PartitionSegments, SearchQueryInput)>,
+        unconstrained_is_match_all: bool,
+        disjunct_queries: &[SearchQueryInput],
+    ) -> RaLookupWeights {
+        let unconstrained = if unconstrained_is_match_all {
+            RaBaseFilter::MatchAll
+        } else {
+            let contributes_score = self.need_scores && disjunct_queries.is_empty();
+            RaBaseFilter::Filtered {
+                weight: Arc::new(LazyWeight::new(
+                    self.query().box_clone(),
+                    contributes_score,
+                    self.searcher.clone(),
+                )),
+                contributes_score,
+            }
+        };
+        let constrained = range_target.map(|(segments, partition_bounds)| {
+            let range_query = Box::new(ConstScoreQuery::new(
+                self.make_query(partition_bounds, None),
+                0.0,
+            ));
+            let filter = match &unconstrained {
+                RaBaseFilter::MatchAll => RaBaseFilter::Filtered {
+                    weight: Arc::new(LazyWeight::new(range_query, false, self.searcher.clone())),
+                    contributes_score: false,
+                },
+                RaBaseFilter::Filtered {
+                    weight: base_weight,
+                    contributes_score,
+                } => RaBaseFilter::Filtered {
+                    weight: Arc::new(base_weight.and_query(range_query)),
+                    contributes_score: *contributes_score,
+                },
+            };
+            (segments.clone(), filter)
+        });
+        let disjunct_weight = self
+            .need_scores
+            .then(|| self.make_disjunct_union_query(disjunct_queries))
+            .flatten()
+            .map(|union_query| Arc::new(LazyWeight::new(union_query, true, self.searcher.clone())));
+
+        RaLookupWeights {
+            unconstrained,
+            constrained,
+            disjunct_weight,
+        }
+    }
+
+    /// Execute a Random Access (`RA`) point lookup against the index using pre-prepared
+    /// [`RaLookupWeights`], skipping segments that contain no un-emitted matching documents.
+    ///
+    /// When `score_threshold` is `Some(threshold)` (using strict `score > threshold` semantics),
+    /// pushes the threshold down into Tantivy's [`tantivy::query::PruningScorer`] so non-matching or low-scoring
+    /// segments and 128-doc blocks are skipped via Block-Max WAND before fast-field / CTID reads.
+    pub(crate) fn search_ra_lookup(
+        &self,
+        weights: &RaLookupWeights,
+        lookup_query: Box<dyn Query>,
+        score_threshold: Option<Score>,
+        emitted_docs: &mut crate::api::HashSet<DocAddress>,
+    ) -> Vec<(SearchIndexScore, DocAddress)> {
+        let lookup_weight = lookup_query
+            .weight(EnableScoring::disabled_from_searcher(&self.searcher))
+            .expect("lookup weight should be constructable");
+        let mut results = Vec::new();
+
+        if let Some((ref segments, ref constrained_filter)) = weights.constrained {
+            for (segment_ord, segment_reader) in
+                self.segment_readers_in_segments(segments.included.iter().copied())
+            {
+                self.search_ra_segment(
+                    segment_ord,
+                    segment_reader,
+                    &weights.unconstrained,
+                    weights.disjunct_weight.as_ref(),
+                    lookup_weight.as_ref(),
+                    score_threshold,
+                    emitted_docs,
+                    &mut results,
+                );
+            }
+            for (segment_ord, segment_reader) in
+                self.segment_readers_in_segments(segments.partially_included.iter().copied())
+            {
+                self.search_ra_segment(
+                    segment_ord,
+                    segment_reader,
+                    constrained_filter,
+                    weights.disjunct_weight.as_ref(),
+                    lookup_weight.as_ref(),
+                    score_threshold,
+                    emitted_docs,
+                    &mut results,
+                );
+            }
+        } else {
+            for (segment_ord, segment_reader) in self.candidate_segment_readers() {
+                self.search_ra_segment(
+                    segment_ord,
+                    segment_reader,
+                    &weights.unconstrained,
+                    weights.disjunct_weight.as_ref(),
+                    lookup_weight.as_ref(),
+                    score_threshold,
+                    emitted_docs,
+                    &mut results,
+                );
+            }
+        }
+
+        results
+    }
+
+    /// Evaluates a single segment for [`Self::search_ra_lookup`] according to its [`RaBaseFilter`].
+    #[allow(clippy::too_many_arguments)]
+    fn search_ra_segment(
+        &self,
+        segment_ord: SegmentOrdinal,
+        segment_reader: &SegmentReader,
+        base_filter: &RaBaseFilter,
+        disjunct_weight: Option<&Arc<LazyWeight>>,
+        lookup_weight: &dyn Weight,
+        score_threshold: Option<Score>,
+        emitted_docs: &mut crate::api::HashSet<DocAddress>,
+        results: &mut Vec<(SearchIndexScore, DocAddress)>,
+    ) {
+        match base_filter {
+            RaBaseFilter::MatchAll => {
+                // Base score is 0.0, so a non-negative strict `score > threshold` can only be
+                // satisfied by documents matching `disjunct_weight` above `threshold`.
+                if let Some(threshold) = score_threshold
+                    && threshold >= 0.0
+                {
+                    if let Some(dw) = disjunct_weight {
+                        let mut pruning_scorer = dw
+                            .get()
+                            .pruning_scorer(segment_reader, 1.0, threshold)
+                            .expect("pruning scorer should be constructable");
+                        intersect_scorer_with_lookup(
+                            segment_ord,
+                            segment_reader,
+                            pruning_scorer.as_mut(),
+                            true,
+                            lookup_weight,
+                            None,
+                            Some(threshold),
+                            emitted_docs,
+                            results,
+                        );
+                    }
+                    return;
+                }
+
+                collect_lookup_only_segment(
+                    segment_ord,
+                    segment_reader,
+                    lookup_weight,
+                    disjunct_weight,
+                    score_threshold,
+                    emitted_docs,
+                    results,
+                );
+            }
+            RaBaseFilter::Filtered {
+                weight: base_weight,
+                contributes_score,
+            } => {
+                // When `base_weight` is the sole score source, push `threshold` directly into its
+                // `PruningScorer` (Block-Max WAND).
+                if disjunct_weight.is_none()
+                    && *contributes_score
+                    && let Some(threshold) = score_threshold
+                {
+                    let mut pruning_scorer = base_weight
+                        .get()
+                        .pruning_scorer(segment_reader, 1.0, threshold)
+                        .expect("pruning scorer should be constructable");
+                    intersect_scorer_with_lookup(
+                        segment_ord,
+                        segment_reader,
+                        pruning_scorer.as_mut(),
+                        true,
+                        lookup_weight,
+                        None,
+                        Some(threshold),
+                        emitted_docs,
+                        results,
+                    );
+                } else {
+                    let mut base_scorer = base_weight
+                        .get()
+                        .scorer(segment_reader, 1.0)
+                        .expect("base scorer should be constructable");
+                    intersect_scorer_with_lookup(
+                        segment_ord,
+                        segment_reader,
+                        base_scorer.as_mut(),
+                        *contributes_score,
+                        lookup_weight,
+                        disjunct_weight,
+                        score_threshold,
+                        emitted_docs,
+                        results,
+                    );
+                }
+            }
         }
     }
 
@@ -1556,6 +2051,25 @@ impl SearchIndexReader {
         )
     }
 
+    /// Search specific range-partitioned segments for an unordered window of matching documents.
+    ///
+    /// Fully included segments evaluate against the unconstrained base query, while partially
+    /// included segments also evaluate `partition_bounds`.
+    pub(crate) fn search_top_k_unordered_segments_with_range_filter(
+        &self,
+        segments: &PartitionSegments,
+        partition_bounds: &SearchQueryInput,
+        window: TopKWindow,
+    ) -> TopKSearch {
+        TopKSearch::new(
+            self.search_segments_with_range_filter(segments, partition_bounds)
+                .skip(window.offset.0)
+                .take(window.limit.0)
+                .collect(),
+            None,
+        )
+    }
+
     /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
     pub(crate) fn orderby_uses_score_desc_topk_collector(orderby_info: &[OrderByInfo]) -> bool {
         matches!(
@@ -1568,6 +2082,7 @@ impl SearchIndexReader {
     }
 
     /// Search the Tantivy index for the Top K matching documents in specific segments.
+    /// Segments are consumed lazily, except when vector collection uses global batching.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
@@ -1581,15 +2096,78 @@ impl SearchIndexReader {
     ///
     /// Fruit-side metrics (e.g. vector probe stats) are returned as opaque
     /// per-segment JSON in [`TopKSearch::segment_info`].
+    #[allow(clippy::too_many_arguments)]
     pub fn search_top_k_in_segments(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        segments: impl Iterator<Item = SegmentId>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        batching: SegmentBatching,
     ) -> TopKSearch {
+        self.search_top_k_in_segments_internal(
+            segments.map(|id| (id, SegmentQueryKind::Unconstrained)),
+            None,
+            orderby_info,
+            TopKWindow {
+                limit: TopKLimit(n),
+                offset: TopKOffset(offset),
+            },
+            aux_collector,
+            parallel_state_holding_shared_threshold,
+            batching,
+        )
+    }
+
+    /// Search specific range-partitioned segments for the Top-K matching documents.
+    ///
+    /// Fully included segments evaluate against the unconstrained base query, while partially
+    /// included segments also evaluate `partition_bounds`.
+    pub(crate) fn search_top_k_segments_with_range_filter(
+        &self,
+        segments: &PartitionSegments,
+        partition_bounds: &SearchQueryInput,
+        orderby_info: &[OrderByInfo],
+        window: TopKWindow,
+    ) -> TopKSearch {
+        let segment_iter = segments
+            .included
+            .iter()
+            .copied()
+            .map(|id| (id, SegmentQueryKind::Unconstrained))
+            .chain(
+                segments
+                    .partially_included
+                    .iter()
+                    .copied()
+                    .map(|id| (id, SegmentQueryKind::RangeConstrained)),
+            );
+        self.search_top_k_in_segments_internal(
+            segment_iter,
+            Some(partition_bounds),
+            orderby_info,
+            window,
+            None,
+            None,
+            SegmentBatching::PerSegment,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_top_k_in_segments_internal(
+        &self,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
+        orderby_info: &[OrderByInfo],
+        window: TopKWindow,
+        aux_collector: Option<TopKAuxiliaryCollector>,
+        parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
+        batching: SegmentBatching,
+    ) -> TopKSearch {
+        let n = window.limit.0;
+        let offset = window.offset.0;
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -1617,11 +2195,11 @@ impl SearchIndexReader {
                             )));
                         }
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
+                            segments,
+                            partition_bounds,
                             (computer, order),
                             erased_features,
-                            n,
-                            offset,
+                            window,
                             aux_collector,
                         ))
                     }};
@@ -1635,11 +2213,11 @@ impl SearchIndexReader {
                 // way Postgres' `range_cmp` does.
                 if matches!(field.field_type(), SearchFieldType::Range(_)) {
                     return TopKSearch::new_for_discarded_field(self.top_in_segments(
-                        segment_ids,
+                        segments,
+                        partition_bounds,
                         (SortByRange::for_field(sort_field), order),
                         erased_features,
-                        n,
-                        offset,
+                        window,
                         aux_collector,
                     ));
                 }
@@ -1647,11 +2225,11 @@ impl SearchIndexReader {
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
+                            segments,
+                            partition_bounds,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
-                            n,
-                            offset,
+                            window,
                             aux_collector,
                         ))
                     }
@@ -1662,11 +2240,11 @@ impl SearchIndexReader {
                     tantivy::schema::Type::Date => sort_fast_value!(DateTime),
                     tantivy::schema::Type::Bytes => {
                         TopKSearch::new_for_discarded_field(self.top_in_segments(
-                            segment_ids,
+                            segments,
+                            partition_bounds,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
-                            n,
-                            offset,
+                            window,
                             aux_collector,
                         ))
                     }
@@ -1698,11 +2276,11 @@ impl SearchIndexReader {
                         )));
                 }
                 let (top_docs, aggregation_results) = self.top_in_segments(
-                    segment_ids,
+                    segments,
+                    partition_bounds,
                     (computer, order),
                     erased_features,
-                    n,
-                    offset,
+                    window,
                     aux_collector,
                 );
                 TopKSearch::new_for_score(
@@ -1714,10 +2292,10 @@ impl SearchIndexReader {
                 feature: OrderByFeature::Score { .. },
                 direction,
             } => self.top_by_score_in_segments(
-                segment_ids,
+                segments,
+                partition_bounds,
                 *direction,
-                n,
-                offset,
+                window,
                 aux_collector,
                 parallel_state_holding_shared_threshold,
             ),
@@ -1755,17 +2333,20 @@ impl SearchIndexReader {
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
                 let max_scan_levels = crate::gucs::vector_max_scan_levels();
-                let collector = TopDocs::with_limit(n)
+                let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        router_recall_target: crate::gucs::vector_router_recall_target(),
-                        recall_target: crate::gucs::vector_recall_target(),
                         fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
+                if let Some(state) = parallel_state_holding_shared_threshold {
+                    collector = collector.with_shared_threshold(std::sync::Arc::new(
+                        crate::postgres::shared_threshold::new_score_threshold(state),
+                    ));
+                }
 
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
@@ -1782,35 +2363,55 @@ impl SearchIndexReader {
                 // Rejected segment IDs have no corresponding ProbeStats entry.
                 let collected_ids = std::cell::RefCell::new(Vec::new());
                 let readers =
-                    self.segment_readers_in_segments(segment_ids)
-                        .inspect(|(_, reader)| {
+                    self.segment_readers_with_query_kind(segments)
+                        .inspect(|(_, reader, _)| {
                             collected_ids.borrow_mut().push(reader.segment_id());
                         });
+                let batches: Box<dyn Iterator<Item = Vec<_>>> = match batching {
+                    SegmentBatching::PerSegment => Box::new(readers.map(|reader| vec![reader])),
+                    SegmentBatching::Global => Box::new(std::iter::once(readers.collect())),
+                };
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
                 // ProbeStats — for every tie-break shape.
                 let tie_break_count = tie_breaks.len();
                 let mut tie_breaks = tie_breaks.into_iter();
                 let mut next = || tie_breaks.next().expect("tie-break feature should exist");
                 let (fruit, aggregation_results) = match tie_break_count {
-                    0 => self.collect_maybe_auxiliary(readers, collector, aux_collector),
-                    1 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break(next()),
+                    0 => self.collect_vector_maybe_auxiliary(
+                        batches,
+                        tantivy_field,
+                        partition_bounds,
+                        collector.build(),
                         aux_collector,
                     ),
-                    2 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next())),
+                    1 => self.collect_vector_maybe_auxiliary(
+                        batches,
+                        tantivy_field,
+                        partition_bounds,
+                        collector.with_tie_break(next()).build(),
                         aux_collector,
                     ),
-                    3 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next(), next())),
+                    2 => self.collect_vector_maybe_auxiliary(
+                        batches,
+                        tantivy_field,
+                        partition_bounds,
+                        collector.with_tie_break((next(), next())).build(),
                         aux_collector,
                     ),
-                    4 => self.collect_maybe_auxiliary(
-                        readers,
-                        collector.with_tie_break((next(), next(), next(), next())),
+                    3 => self.collect_vector_maybe_auxiliary(
+                        batches,
+                        tantivy_field,
+                        partition_bounds,
+                        collector.with_tie_break((next(), next(), next())).build(),
+                        aux_collector,
+                    ),
+                    4 => self.collect_vector_maybe_auxiliary(
+                        batches,
+                        tantivy_field,
+                        partition_bounds,
+                        collector
+                            .with_tie_break((next(), next(), next(), next()))
+                            .build(),
                         aux_collector,
                     ),
                     x => panic!(
@@ -1864,17 +2465,19 @@ impl SearchIndexReader {
     #[allow(clippy::type_complexity)]
     fn top_in_segments<S>(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
         first_feature: S,
         mut erased_features: ErasedFeatures,
-        n: usize,
-        offset: usize,
+        window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> TopKWithAggregate<S::SortKey>
     where
         S: SortKeyComputer + Clone + Send + 'static,
     {
-        let readers = self.segment_readers_in_segments(segment_ids);
+        let n = window.limit.0;
+        let offset = window.offset.0;
+        let readers = self.segment_readers_with_query_kind(segments);
         // if last erased feature is score, then we need to return the score
         match erased_features.len() {
             0 => {
@@ -1882,8 +2485,12 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by::<S::SortKey>(first_feature);
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1899,8 +2506,12 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by((first_feature, erased_feature));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1922,8 +2533,12 @@ impl SearchIndexReader {
                     erased_feature2,
                 ));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1947,8 +2562,12 @@ impl SearchIndexReader {
                     erased_feature3,
                 ));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -1975,8 +2594,12 @@ impl SearchIndexReader {
                     erased_feature4,
                 ));
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 (
                     top_docs
@@ -2019,19 +2642,21 @@ impl SearchIndexReader {
     /// `parallel_state_holding_shared_threshold` should only be passed if we intend to query with a shared_threshold
     fn top_by_score_in_segments(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
         sortdir: SortDirection,
-        n: usize,
-        offset: usize,
+        window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
     ) -> TopKSearch {
+        let n = window.limit.0;
+        let offset = window.offset.0;
         // NOTE: which `sortdir` arm uses the Block-WAND pruning collector below
         // (only Desc, via `order_by::<Score>`) defines
         // `orderby_uses_score_desc_topk_collector` -- the plan-time gate that costs
         // ordered TopK as serial-vs-parallel (#4664). If you change which direction
         // prunes here, update that predicate to match, or the planner will mis-cost.
-        let readers = self.segment_readers_in_segments(segment_ids);
+        let readers = self.segment_readers_with_query_kind(segments);
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
@@ -2043,8 +2668,12 @@ impl SearchIndexReader {
                     },
                 );
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 TopKSearch::new_for_score(
                     top_docs
@@ -2068,8 +2697,12 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by::<Score>(computer);
 
-                let (top_docs, aggregation_results) =
-                    self.collect_maybe_auxiliary(readers, top_docs_collector, aux_collector);
+                let (top_docs, aggregation_results) = self.collect_maybe_auxiliary(
+                    readers,
+                    partition_bounds,
+                    top_docs_collector,
+                    aux_collector,
+                );
 
                 TopKSearch::new_for_score(top_docs, aggregation_results)
             }
@@ -2185,6 +2818,41 @@ impl SearchIndexReader {
             / candidate_docs as f64)
             * reader_proportion;
         Some((largest_reader, segment_doc_proportion))
+    }
+
+    /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
+    /// sampled on the largest candidate segment.
+    pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
+        if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
+            || query_input.has_postgres_expressions()
+            || query_input.has_parameters()
+        {
+            return query_input.selectivity_heuristic().clamp(0.0, 1.0);
+        }
+        let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)
+        else {
+            return 0.0;
+        };
+        let seg_docs = self.segment_num_docs(largest_reader);
+        if seg_docs == 0 {
+            return 0.0;
+        }
+        let query = self.make_query(query_input, None);
+        let count = query_input
+            .supports_statistics_estimation()
+            .then(|| query.estimate_docs(largest_reader).ok().flatten())
+            .flatten()
+            .map(|estimate| estimate.live_docs(largest_reader))
+            .unwrap_or_else(|| {
+                let weight = query
+                    .weight(EnableScoring::disabled_from_searcher(&self.searcher))
+                    .expect("weight should be constructable");
+                weight
+                    .scorer(largest_reader, 1.0)
+                    .expect("creating scorer for estimation should not fail")
+                    .size_hint() as u64
+            });
+        (count as f64 / seg_docs as f64).clamp(0.0, 1.0)
     }
 
     /// The length of the shortest posting list this query walks for its positional terms, or
@@ -2401,23 +3069,98 @@ impl SearchIndexReader {
             .expect("search should not fail")
     }
 
+    fn collect_vector_maybe_auxiliary<'a, S>(
+        &self,
+        reader_batches: impl Iterator<Item = Vec<(SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>>,
+        vector_field: Field,
+        partition_bounds: Option<&SearchQueryInput>,
+        collector: TopDocsByVectorSimilarity<f32, S>,
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> (
+        VectorSimilarityFruit,
+        Option<IntermediateAggregationResults>,
+    )
+    where
+        S: SortKeyComputer + Send + Sync + 'static,
+    {
+        if aux_collector.is_some() || partition_bounds.is_some() {
+            return self.collect_maybe_auxiliary(
+                reader_batches.flatten(),
+                partition_bounds,
+                collector,
+                aux_collector,
+            );
+        }
+        collector
+            .check_schema(self.searcher.schema())
+            .expect("vector schema should be valid");
+        let weight = self
+            .query
+            .weight(enable_scoring(false, &self.searcher))
+            .expect("creating vector filter weight should not fail");
+        if let Some(stats) = &self.directory.io_stats {
+            stats.reset();
+        }
+        let on_segment = |ord: SegmentOrdinal| {
+            pgrx::check_for_interrupts!();
+            if let Some(stats) = &self.directory.io_stats {
+                stats.end_segment(self.searcher.segment_reader(ord).segment_id());
+            }
+        };
+        let fruits = reader_batches
+            .flat_map(|readers| {
+                let use_centroids = readers.len() > 1;
+                let mut centroids = vec![None; readers.len()];
+                let segments = readers
+                    .into_iter()
+                    .zip(&mut centroids)
+                    .map(|((ordinal, reader, _), centroid)| {
+                        if use_centroids {
+                            *centroid = SegmentStats::of_reader(reader)
+                                .expect("segment stats should be readable")
+                                .and_then(|stats| {
+                                    stats
+                                        .vector_partition(vector_field)
+                                        .expect("partition centroid should be readable")
+                                });
+                            on_segment(ordinal);
+                        }
+                        VectorSegment {
+                            ordinal,
+                            reader,
+                            partition_centroid: centroid.as_deref(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                collector
+                    .collect_segments(weight.as_ref(), &segments, on_segment)
+                    .expect("vector collection should not fail")
+            })
+            .collect();
+        (
+            collector
+                .merge_fruits(fruits)
+                .expect("vector results should merge"),
+            None,
+        )
+    }
+
     /// Collect for the given Collector, optionally paired with / wrapped with the given auxiliary
     /// Collector(s).
     fn collect_maybe_auxiliary<'a, C: Collector>(
         &self,
-        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader)>,
+        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
         top_docs_collector: C,
         aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
-        let query = self.query();
-        let weight = query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
-            .expect("creating a Weight from a Query should not fail");
-
         let Some(aux_collector) = aux_collector else {
             // No auxiliary collector.
-            let fruits =
-                self.collect_segment_readers(readers, &top_docs_collector, weight.as_ref());
+            let fruits = self.collect_segment_readers_by_query_kind(
+                readers,
+                partition_bounds,
+                &top_docs_collector,
+            );
             let top_docs = top_docs_collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segments");
@@ -2430,14 +3173,18 @@ impl SearchIndexReader {
         // Optionally wrap in MVCC visibility filtering, if requested.
         if let Some(vischeck) = aux_collector.vischeck {
             let collector = MVCCFilterCollector::new(compound_collector, vischeck);
-            let fruits = self.collect_segment_readers(readers, &collector, weight.as_ref());
+            let fruits =
+                self.collect_segment_readers_by_query_kind(readers, partition_bounds, &collector);
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         } else {
-            let fruits =
-                self.collect_segment_readers(readers, &compound_collector, weight.as_ref());
+            let fruits = self.collect_segment_readers_by_query_kind(
+                readers,
+                partition_bounds,
+                &compound_collector,
+            );
             let (top_docs, aggregation_results) = compound_collector
                 .merge_fruits(fruits)
                 .expect("should be able to merge Top K in segment");
@@ -2551,6 +3298,24 @@ impl SearchIndexReader {
         }))
     }
 
+    /// NOTE: Like `segment_readers_in_segments`, this method must consume `segments` lazily.
+    fn segment_readers_with_query_kind(
+        &self,
+        segments: impl Iterator<Item = (SegmentId, SegmentQueryKind)>,
+    ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader, SegmentQueryKind)> {
+        segments.filter_map(move |(segment_id, query_kind)| {
+            let ord = self.segment_ordinal_by_id(&segment_id).unwrap_or_else(|| {
+                panic!(
+                    "segment {segment_id} should exist in this {} reader's {} segments",
+                    self.directory.mvcc_style_name(),
+                    self.searcher.segment_readers().len()
+                )
+            });
+            self.is_candidate(ord)
+                .then(|| (ord, self.searcher.segment_reader(ord), query_kind))
+        })
+    }
+
     fn collect_segment_readers<'a, C: Collector>(
         &self,
         readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader)>,
@@ -2562,6 +3327,45 @@ impl SearchIndexReader {
         }
         readers
             .map(|(segment_ord, segment_reader)| {
+                let fruit = collector
+                    .collect_segment(weight, segment_ord, segment_reader)
+                    .expect("should be able to collect in segment");
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(segment_reader.segment_id());
+                }
+                fruit
+            })
+            .collect()
+    }
+
+    fn collect_segment_readers_by_query_kind<'a, C: Collector>(
+        &self,
+        readers: impl Iterator<Item = (SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>,
+        partition_bounds: Option<&SearchQueryInput>,
+        collector: &C,
+    ) -> Vec<<<C as Collector>::Child as SegmentCollector>::Fruit> {
+        let unconstrained_weight = Arc::new(LazyWeight::new(
+            self.query().box_clone(),
+            self.need_scores,
+            self.searcher.clone(),
+        ));
+        let _ = unconstrained_weight.get();
+        let constrained_weight = partition_bounds.map(|bounds| {
+            let range_query = Box::new(ConstScoreQuery::new(self.make_query(bounds, None), 0.0));
+            unconstrained_weight.and_query(range_query)
+        });
+        if let Some(stats) = &self.directory.io_stats {
+            stats.reset();
+        }
+        readers
+            .map(|(segment_ord, segment_reader, query_kind)| {
+                let weight = match query_kind {
+                    SegmentQueryKind::Unconstrained => unconstrained_weight.get(),
+                    SegmentQueryKind::RangeConstrained => constrained_weight
+                        .as_ref()
+                        .expect("RangeConstrained segment requires partition_bounds")
+                        .get(),
+                };
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .expect("should be able to collect in segment");
@@ -3501,6 +4305,11 @@ mod tests {
         assert_pruning_matches_tantivy(&reader, 21);
         let derived = reader.and_query_input(&range_query("id", 11, 20));
         assert_pruning_matches_tantivy(&derived, 10);
+        assert_eq!(
+            EMPIRICAL_READS.load(Relaxed),
+            7,
+            "subsequent searches and derived readers reuse cached per-segment candidacy"
+        );
         let sibling = SearchIndexReader::from_manifest(
             &manifest,
             &index_rel,
@@ -3651,6 +4460,164 @@ mod tests {
     }
 
     #[pg_test]
+    fn vector_parallelism_depends_on_filter() {
+        Spi::run(
+            "SET max_parallel_workers_per_gather = 2;
+             SET parallel_setup_cost = 0;
+             SET parallel_tuple_cost = 0;
+             SET paradedb.min_rows_per_worker = 0;
+             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3));
+             CREATE INDEX vector_parallelism_idx ON vector_parallelism
+             USING paradedb (id, (category::pdb.literal), embedding vector_l2_ops)
+             WITH (background_layer_sizes = '0', layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
+             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             RESET paradedb.global_mutable_segment_rows;"
+        ).unwrap();
+        for (predicate, workers, parallel, serial_unfiltered) in [
+            ("", 2, false, true),
+            ("AND category = 'keep'", 2, true, false),
+            ("AND id > 1", 2, true, false),
+            ("AND category = 'keep'", 0, false, false),
+            ("AND id > 1", 0, false, false),
+        ] {
+            Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+            )).unwrap().unwrap().0;
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            let mut workers = false;
+            while let Some(node) = nodes.pop() {
+                workers |= node["Workers Planned"].as_u64().unwrap_or(0) > 0;
+                if node["Index"] == "vector_parallelism_idx" {
+                    found = true;
+                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
+                    assert_eq!(
+                        node["Worker Selection"] == "Unfiltered vector TopK",
+                        serial_unfiltered,
+                        "{plan}"
+                    );
+                    if predicate.contains("category") {
+                        assert!(
+                            node["Tantivy Query"].to_string().contains("category"),
+                            "{plan}"
+                        );
+                        assert!(node.get("Filter").is_none(), "{plan}");
+                    }
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
+            assert_eq!(workers, parallel, "{plan}");
+        }
+    }
+
+    #[pg_test]
+    fn non_vector_topk_keeps_segment_collection_lazy() {
+        let (index_rel, _) = segmented_index_fixture("lazy_sorted_segments", 3, false);
+        let query = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![term_query("title", "silver"), term_query("title", "quiet")],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        let field_order = OrderByInfo {
+            feature: OrderByFeature::Field {
+                name: FieldName::from("id"),
+                rti: 0,
+            },
+            direction: SortDirection::AscNullsLast,
+        };
+        let score_order = OrderByInfo {
+            feature: OrderByFeature::Score { rti: 0 },
+            direction: SortDirection::DescNullsLast,
+        };
+        for order in [
+            vec![field_order.clone()],
+            vec![score_order.clone()],
+            vec![score_order, field_order],
+        ] {
+            for batching in [SegmentBatching::Global, SegmentBatching::PerSegment] {
+                let trace = io_stats::Trace::default();
+                let reader = SearchIndexReader::open_with_context(
+                    &index_rel,
+                    query.clone(),
+                    true,
+                    MvccSatisfies::Snapshot,
+                    None,
+                    None,
+                    false,
+                    Some(trace.clone()),
+                )
+                .unwrap();
+                let ids = reader.segment_ids();
+                assert_eq!(ids.len(), 3);
+                let segments = ids.iter().copied().enumerate().map(|(i, id)| {
+                    if i > 0 {
+                        let mut info = BTreeMap::from([(ids[i - 1], serde_json::json!({}))]);
+                        trace.attach(&mut info);
+                        assert!(
+                            info[&ids[i - 1]]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
+                            "collection must finish before claiming the next segment: {order:?}, {batching:?}"
+                        );
+                    }
+                    id
+                });
+                let top =
+                    reader.search_top_k_in_segments(segments, &order, 50, 0, None, None, batching);
+                assert_eq!(top.results.len(), 30);
+            }
+        }
+    }
+
+    #[pg_test(error = "canceling statement due to user request")]
+    fn global_vector_topk_checks_for_interrupts() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE cancel_vectors (id bigint PRIMARY KEY, embedding vector(3));
+             CREATE INDEX cancel_vectors_idx ON cancel_vectors
+             USING paradedb (id, embedding vector_l2_ops)
+             WITH (background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
+             INSERT INTO cancel_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index_rel = open_index("cancel_vectors_idx");
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let ids = reader.segment_ids();
+        assert_eq!(ids.len(), 2);
+        let order = [OrderByInfo {
+            feature: OrderByFeature::VectorDistance {
+                name: FieldName::from("embedding"),
+                rti: 0,
+                query_vector: crate::api::QueryVector::Resolved(vec![1.0, 0.0, 0.0]),
+                metric: crate::vector::metric::VectorMetric::L2,
+            },
+            direction: SortDirection::AscNullsLast,
+        }];
+        let segments = ids.into_iter().inspect(|_| unsafe {
+            pg_sys::QueryCancelPending = 1;
+            pg_sys::InterruptPending = 1;
+        });
+        reader.search_top_k_in_segments(
+            segments,
+            &order,
+            10,
+            0,
+            None,
+            None,
+            SegmentBatching::Global,
+        );
+        panic!("global vector collection ignored cancellation");
+    }
+
+    #[pg_test]
     fn vector_topk_reports_only_collected_candidates() {
         use crate::api::QueryVector;
         use crate::vector::metric::VectorMetric;
@@ -3673,13 +4640,25 @@ mod tests {
             (1, 20, 20, 2),
             (99, 100, 0, 0),
         ] {
-            let reader = open_snapshot_reader(&index_rel, range_query("id", lo, hi), false);
             for reverse in [false, true] {
-                let mut ids = reader.segment_ids();
-                if reverse {
-                    ids.reverse();
-                }
-                for tie_break in [false, true] {
+                for (tie_break, individual_segments) in
+                    [(false, false), (true, false), (false, true), (true, true)]
+                {
+                    let reader = SearchIndexReader::open_with_context(
+                        &index_rel,
+                        range_query("id", lo, hi),
+                        false,
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                        false,
+                        Some(io_stats::Trace::default()),
+                    )
+                    .unwrap();
+                    let mut ids = reader.segment_ids();
+                    if reverse {
+                        ids.reverse();
+                    }
                     let mut order = vec![OrderByInfo {
                         feature: OrderByFeature::VectorDistance {
                             name: FieldName::from("embedding"),
@@ -3698,14 +4677,24 @@ mod tests {
                             direction: SortDirection::AscNullsLast,
                         });
                     }
-                    let top = reader.search_top_k_in_segments(
-                        ids.iter().copied(),
-                        &order,
-                        50,
-                        0,
-                        None,
-                        None,
-                    );
+                    let checked_out = std::cell::Cell::new(0);
+                    let initial_reads = io_stats::vector_buffer_reads();
+                    let ids = ids.into_iter().inspect(|_| {
+                        if individual_segments && expected_segments == 2 && checked_out.get() == 1 {
+                            assert!(
+                                io_stats::vector_buffer_reads() > initial_reads,
+                                "collection must search before claiming another segment"
+                            );
+                        }
+                        checked_out.set(checked_out.get() + 1);
+                    });
+                    let batching = if individual_segments {
+                        SegmentBatching::PerSegment
+                    } else {
+                        SegmentBatching::Global
+                    };
+                    let top =
+                        reader.search_top_k_in_segments(ids, &order, 50, 0, None, None, batching);
                     let docs = top
                         .results
                         .into_iter()

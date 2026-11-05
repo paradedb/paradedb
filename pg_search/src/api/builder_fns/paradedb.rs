@@ -244,6 +244,11 @@ pub unsafe fn terms_with_operator(
             })
             .collect::<Vec<_>>();
 
+        if conjunction_mode && quals.is_empty() {
+            // `field <op> ALL('{}')` is true for every row, including NULLs
+            return Ok(SearchQueryInput::All);
+        }
+
         if conjunction_mode {
             // AND the queries together
             Ok(SearchQueryInput::Boolean {

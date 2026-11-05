@@ -300,6 +300,17 @@ impl From<SortDirection> for tantivy::aggregation::bucket::Order {
     }
 }
 
+impl From<arrow_schema::SortOptions> for SortDirection {
+    fn from(options: arrow_schema::SortOptions) -> Self {
+        match (options.descending, options.nulls_first) {
+            (true, true) => SortDirection::DescNullsFirst,
+            (true, false) => SortDirection::DescNullsLast,
+            (false, true) => SortDirection::AscNullsFirst,
+            (false, false) => SortDirection::AscNullsLast,
+        }
+    }
+}
+
 impl SortDirection {
     /// Determines sort direction from a Postgres sort operator OID.
     ///
@@ -313,13 +324,11 @@ impl SortDirection {
         let mut strategy: i16 = 0;
         if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy)
         {
-            let reverse = strategy as u32 == pg_sys::BTGreaterStrategyNumber;
-            Some(match (reverse, nulls_first) {
-                (true, true) => SortDirection::DescNullsFirst,
-                (true, false) => SortDirection::DescNullsLast,
-                (false, true) => SortDirection::AscNullsFirst,
-                (false, false) => SortDirection::AscNullsLast,
-            })
+            let descending = strategy as u32 == pg_sys::BTGreaterStrategyNumber;
+            Some(Self::from(arrow_schema::SortOptions {
+                descending,
+                nulls_first,
+            }))
         } else {
             None
         }
@@ -332,13 +341,11 @@ impl SortDirection {
         let mut opcintype = pg_sys::InvalidOid;
         let mut cmptype = pg_sys::CompareType::COMPARE_LT;
         if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
-            let reverse = cmptype == pg_sys::CompareType::COMPARE_GT;
-            Some(match (reverse, nulls_first) {
-                (true, true) => SortDirection::DescNullsFirst,
-                (true, false) => SortDirection::DescNullsLast,
-                (false, true) => SortDirection::AscNullsFirst,
-                (false, false) => SortDirection::AscNullsLast,
-            })
+            let descending = cmptype == pg_sys::CompareType::COMPARE_GT;
+            Some(Self::from(arrow_schema::SortOptions {
+                descending,
+                nulls_first,
+            }))
         } else {
             None
         }
@@ -469,13 +476,44 @@ impl QueryVector {
     }
 }
 
+/// Monotonic arithmetic expression over `pdb.score()` calls and positive constants in `JoinScan`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ScoreOrderExpr {
+    Score { rti: pg_sys::Index },
+    Constant(f64),
+    Add(Box<ScoreOrderExpr>, Box<ScoreOrderExpr>),
+    Mul(Box<ScoreOrderExpr>, Box<ScoreOrderExpr>),
+}
+
+impl ScoreOrderExpr {
+    pub fn format_with<F: Fn(&pg_sys::Index) -> String>(&self, score_name: &F) -> String {
+        match self {
+            Self::Score { rti } => score_name(rti),
+            Self::Constant(c) => format!("{c}"),
+            Self::Add(l, r) => format!(
+                "{} + {}",
+                l.format_with(score_name),
+                r.format_with(score_name)
+            ),
+            Self::Mul(l, r) => {
+                let fmt_child = |child: &ScoreOrderExpr| match child {
+                    Self::Add(_, _) => format!("({})", child.format_with(score_name)),
+                    _ => child.format_with(score_name),
+                };
+                format!("{} * {}", fmt_child(l), fmt_child(r))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
     Score {
         rti: u32,
     },
-    /// Sum of scores across multiple relations (used in JoinScan).
+    /// Monotonic expression over `pdb.score()` across relations (used in JoinScan).
     ScoreSum {
+        expr: ScoreOrderExpr,
         rtis: Vec<pg_sys::Index>,
     },
     Field {

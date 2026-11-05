@@ -74,7 +74,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
@@ -145,12 +145,15 @@ mod tests {
     fn test_fields() -> Vec<WhichFastField> {
         vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::InvalidOid)),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::InvalidOid),
+            ),
+            WhichFastField::eager_scalar(
                 "price".to_string(),
                 SearchFieldType::F64(pg_sys::InvalidOid),
             ),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
                 "quantity".to_string(),
                 SearchFieldType::I64(pg_sys::InvalidOid),
             ),
@@ -754,7 +757,7 @@ mod tests {
         use crate::scan::range_partitioning::RangeSplitPoints;
 
         let matching_ids = |reader: &SearchIndexReader| {
-            let fields = [WhichFastField::eager(
+            let fields = [WhichFastField::eager_scalar(
                 "id".to_string(),
                 SearchFieldType::I64(pg_sys::INT4OID),
             )];
@@ -869,7 +872,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
@@ -1168,7 +1171,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         unsafe {
             pg_sys::CommandCounterIncrement();
@@ -1380,9 +1383,9 @@ mod tests {
         // The state is consumed exactly once.
         assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
 
-        // A predicate on the partition column still prunes after dispatch. The worker opens
-        // statistics while sizing the plan in `PgSearchScanPlan::new`, then decides per
-        // segment during execution.
+        // A predicate on the partition column still prunes after dispatch. Decode reuses the
+        // leader's partition classification without opening statistics; execution then opens
+        // statistics and decides each searched segment against the predicate.
         let (filtered, _) = make_plan(range_query("id", 30, 40));
         let filtered = filtered.with_assigned_partition(1);
         let filtered_encoded = filtered.encode_for_dispatch(&proto_converter).unwrap();
@@ -1395,12 +1398,17 @@ mod tests {
                 .partition_segments,
             filtered.partition_segments
         );
-        assert!(
-            STATS_OPENS.load(Relaxed) > opens_before_decode,
-            "the worker must open statistics for its own predicate"
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            opens_before_decode,
+            "decode reuses the leader's classification without opening statistics"
         );
         let reads_before_execution = EMPIRICAL_READS.load(Relaxed);
         assert_eq!(collect_ids(&worker, 0), (30_i64..=40).collect::<Vec<_>>());
+        assert!(
+            STATS_OPENS.load(Relaxed) > opens_before_decode,
+            "the worker must open statistics for its own predicate during execution"
+        );
         assert!(
             EMPIRICAL_READS.load(Relaxed) > reads_before_execution,
             "execution must decide each searched segment against the predicate"

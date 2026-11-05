@@ -1,8 +1,5 @@
--- Use the bm25 alias for benchmark runs against older refs.
-
 CREATE INDEX cohere_wiki_bm25_idx ON cohere_wiki
-USING bm25 (
-    _id,
+USING paradedb (
     (text::pdb.unicode_words('stemmer=english', 'stopwords_language=english')),
     emb vector_cosine_ops
 ) WITH (

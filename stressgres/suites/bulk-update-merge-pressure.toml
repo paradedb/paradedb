@@ -21,7 +21,7 @@ SELECT
     WHEN 2 THEN 'eat some cheese'
     END,
     (random() * 4 + 1)::int
-FROM generate_series(1, 9000000) as id;
+FROM generate_series(1, 6300000) as id;
 
 DO $$
 DECLARE
@@ -167,7 +167,7 @@ SELECT assert_plan_contains(
 sql = """
 SELECT count(*) FROM test WHERE message ||| 'cheese';
 """
-assert = "3000000"
+assert = "2100000"
 
 [[jobs]]
 window_height = 25

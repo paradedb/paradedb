@@ -301,9 +301,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# The ParadeDB Docker image comes pre-bundled with some popular
-# extensions like PostGIS. PostGIS automatically creates a table
-# called `spatial_ref_sys`. This tells Alembic not to drop it even
+# The ParadeDB Docker image bundles PostGIS for optional installation.
+# Enabling it with CREATE EXTENSION postgis creates a table called
+# `spatial_ref_sys`. This tells Alembic not to drop it even
 # though it isn't tracked in Alembic's metadata.
 IGNORED_TABLES = {"spatial_ref_sys"}
 

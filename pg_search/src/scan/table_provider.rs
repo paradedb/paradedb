@@ -337,14 +337,18 @@ impl PgSearchTableProvider {
         }
         self.deferred_fetch_at_scan = crate::gucs::defer_column_fetch() == DeferredPlacement::Off;
         for wff in self.fields.iter_mut() {
-            // Scalar only: the packed deferred encoding carries one value per
-            // row, so a list column stays eager.
-            // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
+            // Only a dictionary backed column defers. Reading one at the scan walks the
+            // dictionary once per value, and that is the work deferral moves to the decode
+            // point, where fewer rows are left. A numeric or date fast field is read as the
+            // value itself, no wider than the u64 that would stand in for it, so deferring a
+            // numeric scalar saves nothing; a numeric list could, but no measurement says so
+            // yet. A list defers like a scalar: its doc address is what crosses the plan, and
+            // the decode point reads the whole list in one step.
             if let WhichFastField::Named {
                 name,
                 field_type,
-                cardinality: FieldCardinality::Scalar,
                 delivery,
+                ..
             } = wff
             {
                 let is_string_or_bytes = field_type.is_dictionary_storage();
@@ -454,14 +458,15 @@ impl PgSearchTableProvider {
             if let WhichFastField::Named {
                 name,
                 field_type,
+                cardinality,
                 delivery: FieldDelivery::Deferred,
-                ..
             } = wff
             {
                 let is_bytes = field_type.is_bytes_storage();
                 deferred.push(DeferredField {
                     name: name.clone(),
                     is_bytes,
+                    cardinality: *cardinality,
                     canonical: CanonicalColumn {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
@@ -475,7 +480,9 @@ impl PgSearchTableProvider {
                         field_type: *field_type,
                         source_idx: self.source_idx,
                     }),
-                    fetch_at_scan: self.deferred_fetch_at_scan,
+                    // A list has no term ordinals for the scan to resolve.
+                    fetch_at_scan: self.deferred_fetch_at_scan
+                        && *cardinality == FieldCardinality::Scalar,
                 });
             }
         }

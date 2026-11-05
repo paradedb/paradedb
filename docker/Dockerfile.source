@@ -86,6 +86,9 @@ RUN rm -f /usr/lib/postgresql/18/lib/pg_search*.so /usr/lib/postgresql/18/lib/pg
     /usr/share/postgresql/18/extension/pg_search*.sql
 COPY --from=builder /artifacts/ /
 
+# Use the source revision's bootstrap rather than the released base image's.
+COPY docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
+
 # initdb loads the preloaded extensions, catching missing libraries or symbol
 # versions before a benchmark downloads its dataset or Cloud publishes an image.
 RUN gosu postgres initdb --no-sync --auth=trust -D /tmp/pg-search-smoke && \

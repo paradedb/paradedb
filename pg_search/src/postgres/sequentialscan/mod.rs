@@ -280,7 +280,11 @@ fn search_with_query_input_impl(
         let search_query_input = unsafe { deserialize_query(query_datum) };
 
         // `empty()` cannot match any index document, including for a partial index.
-        if matches!(&search_query_input, SearchQueryInput::Empty) {
+        // A NULL predicate likewise matches nothing.
+        if matches!(
+            &search_query_input,
+            SearchQueryInput::Empty | SearchQueryInput::Null
+        ) {
             return QueryCacheEntry {
                 matches: KeySet::None,
                 missing_values: None,

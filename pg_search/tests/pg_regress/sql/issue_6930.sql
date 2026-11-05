@@ -1,0 +1,34 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+CREATE TABLE issue_6930_i (id int PRIMARY KEY, body text, f float8, r float4);
+CREATE TABLE issue_6930_e (id int PRIMARY KEY, tag text, b int4, z float4);
+INSERT INTO issue_6930_i VALUES (1, 'alpha', 0.0, 0.0), (2, 'beta', 1.0, 3.0);
+INSERT INTO issue_6930_e VALUES (1, 'x', 1, 1.0), (2, 'y', 0, 0.0);
+CREATE INDEX issue_6930_i_idx ON issue_6930_i USING paradedb (id, body, f, r);
+CREATE INDEX issue_6930_e_idx ON issue_6930_e USING paradedb (id, tag, b, z);
+
+SET paradedb.enable_join_custom_scan = on;
+
+-- Float division in a Join Scan is evaluated by PostgreSQL
+EXPLAIN (COSTS OFF)
+SELECT i.id FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
+WHERE i.body @@@ 'beta' AND (i.f / e.b) > 0 LIMIT 10;
+
+-- Division by zero raises an error instead of yielding Infinity
+SELECT i.id FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
+WHERE i.body @@@ 'beta' AND (i.f / e.b) > 0 LIMIT 10;
+SELECT i.id, (i.f / e.b) AS q FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
+WHERE i.body @@@ 'beta' LIMIT 10;
+SELECT i.id, (i.r / e.z) AS q FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
+WHERE i.body @@@ 'beta' LIMIT 10;
+SELECT i.id, (e.z / i.r) AS q FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' LIMIT 10;
+
+-- Division by a non-zero value is unchanged
+SELECT i.id, (i.f / e.b) AS q, (i.r / e.z) AS p FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
+WHERE i.body @@@ 'alpha' AND (i.f / e.b) >= 0 LIMIT 10;
+
+RESET paradedb.enable_join_custom_scan;
+
+DROP TABLE issue_6930_i;
+DROP TABLE issue_6930_e;

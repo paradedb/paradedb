@@ -19,7 +19,7 @@
 //!
 //! Parallel build workers each see an arbitrary slice of the heap, so boundaries chosen from
 //! worker-local data would not line up across workers. The leader instead samples the heap
-//! once, before any worker starts, and builds one [`KdTree`] over the `partition_by` fields
+//! once, before any worker starts, and builds a scalar kd-tree or vector centroids
 //! that every worker then routes with.
 //!
 //! The sample is taken from the heap rather than from `pg_statistic`: a freshly loaded table
@@ -29,17 +29,23 @@
 
 use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
+use std::sync::Arc;
 
 use pgrx::itemptr::item_pointer_set_all;
-use pgrx::{PgMemoryContexts, check_for_interrupts, pg_sys};
+use pgrx::{FromDatum, PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
-use tantivy::schema::{Field, FieldType, Schema};
+use serde::{Deserialize, Serialize};
+use superkmeans::common::Y_BATCH_SIZE;
+use superkmeans::distance::l2_squared;
+use superkmeans::{SuperKMeans, SuperKMeansConfig};
+use tantivy::schema::{Field, FieldType, Schema, VectorOptions};
 
 use crate::api::FieldName;
 use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::stats;
+use crate::index::stats::VectorPartition;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -50,6 +56,8 @@ use crate::postgres::utils::{
     unwrap_alias_datum,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
+use crate::vector::metric::VectorMetric;
+use crate::vector::{PgVector, normalize_for_metric};
 
 /// Upper bound on the heap blocks read for the sample. Blocks are chosen uniformly at random,
 /// so a table physically ordered by a `partition_by` field still yields a spread of positions
@@ -61,8 +69,249 @@ const MAX_SAMPLE_BLOCKS: u32 = 4096;
 /// uniform over the visited blocks.
 const MAX_SAMPLE_ROWS: usize = 30_000;
 
+/// Current, previous, and returned centroids coexist at the end of training.
+const VECTOR_TRAINING_CENTROID_BUFFERS: usize = 3;
+
+/// Headroom per row/centroid for assignments, norms, indices, validity, and deduplication.
+const VECTOR_TRAINING_BOOKKEEPING_BYTES: usize = 64;
+
 /// A fixed seed makes a rebuild over an unchanged heap reproduce the same boundaries.
 const SAMPLE_SEED: u32 = 0x5EED_1D0C;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) enum BuildPartitioning {
+    Range(KdTree),
+    Vector(VectorPartitioning),
+}
+
+impl BuildPartitioning {
+    pub(super) fn dims(&self) -> &[FieldName] {
+        match self {
+            Self::Range(tree) => tree.dims(),
+            Self::Vector(model) => std::slice::from_ref(&model.field),
+        }
+    }
+
+    pub(super) fn resolve(
+        self,
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+    ) -> Result<PartitionRouter> {
+        match self {
+            Self::Range(model) => Ok(PartitionRouter::Range {
+                projection: PartitionField::resolve_dims(model.dims(), categorized_fields)?,
+                model,
+            }),
+            Self::Vector(model) => Ok(PartitionRouter::Vector {
+                projection: Box::new(CategorizedPartitionField::resolve(
+                    &model.field,
+                    categorized_fields,
+                )?),
+                model,
+            }),
+        }
+    }
+
+    pub(super) fn partition_count(&self) -> usize {
+        match self {
+            Self::Range(tree) => tree.partition_count(),
+            Self::Vector(model) => {
+                assert_ne!(model.dimensions, 0, "vector dimensions must be nonzero");
+                (model.centroids.len() / model.dimensions).max(1)
+            }
+        }
+    }
+
+    pub(super) fn vector_partition(&self, partition: usize) -> Option<Arc<VectorPartition<f32>>> {
+        let Self::Vector(model) = self else {
+            return None;
+        };
+        let centroid = model
+            .centroids
+            .chunks_exact(model.dimensions)
+            .nth(partition)?;
+        Some(Arc::new(VectorPartition {
+            field: model.field.as_ref().to_string(),
+            centroid: centroid.to_vec(),
+        }))
+    }
+}
+
+pub(super) enum PartitionRouter {
+    Range {
+        model: KdTree,
+        projection: Vec<PartitionField>,
+    },
+    Vector {
+        model: VectorPartitioning,
+        projection: Box<CategorizedPartitionField>,
+    },
+}
+
+impl PartitionRouter {
+    pub(super) unsafe fn route(
+        &self,
+        ctid: u64,
+        created_by_version: Option<Version>,
+        get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<usize> {
+        match self {
+            Self::Range { model, projection } => {
+                let point = unsafe {
+                    projection
+                        .as_slice()
+                        .project(ctid, created_by_version, get_field)?
+                };
+                Ok(model.route(&point))
+            }
+            Self::Vector { model, projection } => {
+                let vector = unsafe { projection.project(ctid, created_by_version, get_field)? };
+                Ok(model.route(vector.as_ref()))
+            }
+        }
+    }
+
+    pub(super) fn into_model(self) -> BuildPartitioning {
+        match self {
+            Self::Range { model, .. } => BuildPartitioning::Range(model),
+            Self::Vector { model, .. } => BuildPartitioning::Vector(model),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) struct VectorPartitioning {
+    field: FieldName,
+    dimensions: usize,
+    metric: VectorMetric,
+    centroids: Vec<f32>,
+}
+
+struct VectorSample {
+    dimensions: usize,
+    data: Vec<f32>,
+    present: Vec<bool>,
+}
+
+impl VectorSample {
+    fn new(dimensions: usize, rows: usize) -> Self {
+        assert_ne!(dimensions, 0, "vector dimensions must be nonzero");
+        Self {
+            dimensions,
+            data: Vec::with_capacity(rows * dimensions),
+            present: Vec::with_capacity(rows),
+        }
+    }
+
+    fn insert(&mut self, row: usize, vector: Option<PgVector>) -> Result<()> {
+        if row == self.present.len() {
+            self.present.push(false);
+            self.data.resize(self.data.len() + self.dimensions, 0.0);
+        }
+        self.present[row] = vector.is_some();
+        if let Some(vector) = vector {
+            anyhow::ensure!(
+                vector.0.len() == self.dimensions,
+                "partition vector dimension mismatch"
+            );
+            let offset = row * self.dimensions;
+            self.data[offset..offset + self.dimensions].copy_from_slice(&vector.0);
+        }
+        Ok(())
+    }
+}
+
+impl VectorPartitioning {
+    fn train(
+        field: FieldName,
+        metric: VectorMetric,
+        sample: VectorSample,
+        target: usize,
+    ) -> Result<Self> {
+        let VectorSample {
+            dimensions,
+            mut data,
+            present,
+        } = sample;
+        let mut rows = 0;
+        let mut distinct = std::collections::HashSet::new();
+        for (row, present) in present.into_iter().enumerate() {
+            if !present {
+                continue;
+            }
+            let offset = row * dimensions;
+            let vector = &mut data[offset..offset + dimensions];
+            anyhow::ensure!(
+                vector.iter().all(|v| v.is_finite()),
+                "partition vector must be finite"
+            );
+            if !normalize_for_metric(vector, metric) {
+                continue;
+            }
+            if distinct.len() < target {
+                distinct.insert(
+                    vector
+                        .iter()
+                        .map(|v| if *v == 0.0 { 0 } else { v.to_bits() })
+                        .collect::<Vec<_>>(),
+                );
+            }
+            if row != rows {
+                data.copy_within(offset..offset + dimensions, rows * dimensions);
+            }
+            rows += 1;
+        }
+        data.truncate(rows * dimensions);
+        let count = target.min(distinct.len());
+        drop(distinct);
+        let centroids = if count > 1 {
+            let mut clusterer = SuperKMeans::with_config(
+                count,
+                dimensions,
+                SuperKMeansConfig {
+                    seed: SAMPLE_SEED as u64,
+                    n_threads: 1,
+                    angular: metric != VectorMetric::L2,
+                    use_blas_only: true,
+                    data_already_rotated: true,
+                    suppress_warnings: true,
+                    ..Default::default()
+                },
+            );
+            clusterer.train_owned(data, rows)
+        } else {
+            Vec::new()
+        };
+        anyhow::ensure!(
+            centroids.iter().all(|v| v.is_finite()),
+            "vector partition training produced non-finite centroids"
+        );
+        Ok(Self {
+            field,
+            dimensions,
+            metric,
+            centroids,
+        })
+    }
+
+    fn route(&self, vector: Option<&PgVector>) -> usize {
+        let Some(vector) = vector else { return 0 };
+        assert_eq!(vector.0.len(), self.dimensions);
+        self.centroids
+            .chunks_exact(self.dimensions)
+            .enumerate()
+            .map(|(partition, centroid)| {
+                let distance = match self.metric {
+                    VectorMetric::L2 => l2_squared(&vector.0, centroid),
+                    // Angular training keeps centroids on the unit sphere; the row norm
+                    // is constant across centroids and does not affect its assignment.
+                    VectorMetric::Cosine | VectorMetric::InnerProduct => -vector.dot(centroid),
+                };
+                (partition, distance)
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map_or(0, |(partition, _)| partition)
+    }
+}
 
 /// Computes the global partition boundaries for a build of `indexrel`, or `None` when the
 /// index does not declare `partition_by`.
@@ -77,25 +326,91 @@ pub(super) fn plan_partition_boundaries(
     indexrel: &PgSearchRelation,
     snapshot: pg_sys::Snapshot,
     target_partitions: usize,
-) -> anyhow::Result<Option<KdTree>> {
+) -> anyhow::Result<Option<BuildPartitioning>> {
     let partition_by = indexrel.options().partition_by();
     if partition_by.is_empty() {
         return Ok(None);
     }
+    let schema = indexrel.schema()?;
+    let vector = partition_vector_field(schema.tantivy_schema(), &partition_by)?
+        .map(|options| (options.dim(), options.metric().into()));
     if target_partitions <= 1 {
-        return Ok(Some(KdTree::unpartitioned(partition_by)));
+        return Ok(Some(match vector {
+            Some((dimensions, metric)) => BuildPartitioning::Vector(VectorPartitioning {
+                field: partition_by[0].clone(),
+                dimensions,
+                metric,
+                centroids: Vec::new(),
+            }),
+            None => BuildPartitioning::Range(KdTree::unpartitioned(partition_by)),
+        }));
     }
 
-    let sample = unsafe { sample_partition_fields(heaprel, indexrel, snapshot, &partition_by)? };
-    pgrx::debug1!(
-        "plan_partition_boundaries: sampled {} rows for partition_by={partition_by:?}, target_partitions={target_partitions}",
-        sample.len()
-    );
-    Ok(Some(KdTree::from_sample(
+    let sample_rows = vector.map_or(MAX_SAMPLE_ROWS, |(dimensions, _)| {
+        let budget = (unsafe { pg_sys::maintenance_work_mem } as usize).saturating_mul(1024);
+        let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
+        let centroid_bytes = target_partitions.saturating_mul(
+            vector_bytes
+                .saturating_mul(VECTOR_TRAINING_CENTROID_BUFFERS)
+                .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES),
+        );
+        let ratio_bytes = dimensions
+            .saturating_add(1)
+            .saturating_mul(std::mem::size_of::<f32>());
+        let fixed_bytes = centroid_bytes
+            .saturating_add(vector_bytes)
+            .saturating_add(ratio_bytes);
+        // One vector buffer plus row state and a conservatively unbatched distance buffer.
+        let row_bytes = vector_bytes
+            .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
+            .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
+        (budget.saturating_sub(fixed_bytes) / row_bytes).clamp(1, MAX_SAMPLE_ROWS)
+    });
+    let categorized_fields = schema.categorized_fields();
+    if let Some((dimensions, metric)) = vector {
+        let projection = CategorizedPartitionField::resolve(&partition_by[0], &categorized_fields)?;
+        let mut sample = VectorSample::new(dimensions, sample_rows);
+        unsafe {
+            sample_partition_fields(
+                heaprel,
+                indexrel,
+                snapshot,
+                &projection,
+                sample_rows,
+                |row, vector| sample.insert(row, vector),
+            )?
+        };
+        return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
+            partition_by[0].clone(),
+            metric,
+            sample,
+            target_partitions.max(1),
+        )?)));
+    }
+    let projection = PartitionField::resolve_dims(&partition_by, &categorized_fields)?;
+    let mut sample = Vec::new();
+    unsafe {
+        sample_partition_fields(
+            heaprel,
+            indexrel,
+            snapshot,
+            projection.as_slice(),
+            sample_rows,
+            |row, point| {
+                if row == sample.len() {
+                    sample.push(point);
+                } else {
+                    sample[row] = point;
+                }
+                Ok(())
+            },
+        )?
+    };
+    Ok(Some(BuildPartitioning::Range(KdTree::from_sample(
         partition_by,
         sample,
         target_partitions,
-    )))
+    ))))
 }
 
 /// Whether `dim` has a columnar field at all, whatever order that column is in.
@@ -128,6 +443,24 @@ pub(crate) fn check_fast_dims(schema: &Schema, dims: &[FieldName], reloption: &s
     Ok(())
 }
 
+pub(crate) fn partition_vector_field<'a>(
+    schema: &'a Schema,
+    dims: &[FieldName],
+) -> Result<Option<&'a VectorOptions>> {
+    for dim in dims {
+        let Ok(field) = schema.get_field(dim.as_ref()) else {
+            bail!("partition_by field '{dim}' does not exist in the index schema");
+        };
+        if let FieldType::Vector(options) = schema.get_field_entry(field).field_type() {
+            if dims.len() != 1 {
+                bail!("a vector partition_by field must be the only partition field");
+            }
+            return Ok(Some(options));
+        }
+    }
+    Ok(None)
+}
+
 /// The `dims` whose columnar field orders by a normalized value, so a segment's logical bounds
 /// cannot hold for the raw range (see [`stats::logical_bounds_hold`]). What that costs depends on the
 /// caller: `partition_by` cuts on the raw value and cannot prune without it, while `sort_by`
@@ -152,6 +485,30 @@ pub(crate) struct CategorizedPartitionField {
 }
 
 impl CategorizedPartitionField {
+    fn resolve(
+        dim: &FieldName,
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+    ) -> Result<Self> {
+        categorized_fields
+            .iter()
+            .find(|(field, _)| field.field_name() == dim)
+            .cloned()
+            .map(|(field, categorized)| Self { field, categorized })
+            .ok_or_else(|| anyhow::anyhow!("partition_by field `{dim}` is not indexed"))
+    }
+
+    pub(super) unsafe fn datum_to_vector(
+        &self,
+        datum: pg_sys::Datum,
+        is_null: bool,
+    ) -> Option<PgVector> {
+        if is_null {
+            return None;
+        }
+        let datum = unsafe { unwrap_alias_datum(datum, self.categorized.pg_type) };
+        unsafe { PgVector::from_datum(datum, false) }
+    }
+
     pub(crate) unsafe fn datum_to_value(
         &self,
         datum: pg_sys::Datum,
@@ -196,41 +553,88 @@ impl PartitionField {
                 if dim.is_ctid() {
                     Ok(Self::Ctid)
                 } else {
-                    categorized_fields
-                        .iter()
-                        .find(|(field, _)| field.field_name() == dim)
-                        .cloned()
-                        .map(|(field, categorized)| {
-                            Self::Categorized(Box::new(CategorizedPartitionField {
-                                field,
-                                categorized,
-                            }))
-                        })
-                        .ok_or_else(|| anyhow::anyhow!("partition_by field `{dim}` is not indexed"))
+                    CategorizedPartitionField::resolve(dim, categorized_fields)
+                        .map(|field| Self::Categorized(Box::new(field)))
                 }
             })
             .collect()
     }
 }
 
+trait PartitionProjection {
+    type Point;
+
+    fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField>;
+
+    unsafe fn project(
+        &self,
+        ctid: u64,
+        created_by_version: Option<Version>,
+        get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<Self::Point>;
+}
+
+impl PartitionProjection for [PartitionField] {
+    type Point = Point;
+
+    fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField> {
+        self.iter().filter_map(|field| match field {
+            PartitionField::Ctid => None,
+            PartitionField::Categorized(field) => Some(field.as_ref()),
+        })
+    }
+
+    unsafe fn project(
+        &self,
+        ctid: u64,
+        created_by_version: Option<Version>,
+        mut get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<Point> {
+        self.iter()
+            .map(|field| match field {
+                PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
+                PartitionField::Categorized(field) => {
+                    let (datum, is_null) = get_field(&field.categorized);
+                    unsafe { field.datum_to_value(datum, is_null, created_by_version) }
+                }
+            })
+            .collect()
+    }
+}
+
+impl PartitionProjection for CategorizedPartitionField {
+    type Point = Option<PgVector>;
+
+    fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField> {
+        std::iter::once(self)
+    }
+
+    unsafe fn project(
+        &self,
+        _ctid: u64,
+        _created_by_version: Option<Version>,
+        mut get_field: impl FnMut(&CategorizedFieldData) -> (pg_sys::Datum, bool),
+    ) -> Result<Option<PgVector>> {
+        let (datum, is_null) = get_field(&self.categorized);
+        Ok(unsafe { self.datum_to_vector(datum, is_null) })
+    }
+}
+
 /// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
 /// onto `partition_by`, in that order.
-unsafe fn sample_partition_fields(
+unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
     snapshot: pg_sys::Snapshot,
-    partition_by: &[FieldName],
-) -> anyhow::Result<Vec<Point>> {
-    let schema = indexrel.schema()?;
-    let categorized_fields = schema.categorized_fields();
-    let fields = PartitionField::resolve_dims(partition_by, &categorized_fields)?;
-    drop(categorized_fields);
-
+    projection: &P,
+    sample_rows: usize,
+    mut collect: impl FnMut(usize, P::Point) -> Result<()>,
+) -> anyhow::Result<()> {
     let nblocks = unsafe {
         pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
     };
     if nblocks == 0 {
-        return Ok(Vec::new());
+        return Ok(());
     }
 
     // A plain build scans with `SnapshotAny` and lets `HeapTupleSatisfiesVacuum` drop only the
@@ -251,12 +655,9 @@ unsafe fn sample_partition_fields(
         }
     };
 
-    let needs_expressions = fields.iter().any(|f| match f {
-        PartitionField::Ctid => false,
-        PartitionField::Categorized(categorized) => {
-            !matches!(categorized.categorized.source, FieldSource::Heap { .. })
-        }
-    });
+    let needs_expressions = projection
+        .fields()
+        .any(|field| !matches!(field.categorized.source, FieldSource::Heap { .. }));
     let expression_state = needs_expressions.then(|| ExpressionState::new(indexrel));
 
     let mut sampler = unsafe {
@@ -278,7 +679,6 @@ unsafe fn sample_partition_fields(
     let natts = unsafe { (*heaprel.rd_att).natts as usize };
     let created_by_version = indexrel.created_by_version();
 
-    let mut sample: Vec<Point> = Vec::new();
     let mut seen_rows = 0usize;
     let mut indexed_offsets: Vec<pg_sys::OffsetNumber> = Vec::new();
     let mut result: anyhow::Result<()> = Ok(());
@@ -324,14 +724,14 @@ unsafe fn sample_partition_fields(
                 for &offset in &indexed_offsets {
                     // Decide whether this row makes the sample before paying to project it.
                     seen_rows += 1;
-                    let target_slot = if sample.len() < MAX_SAMPLE_ROWS {
-                        None
+                    let target_slot = if seen_rows <= sample_rows {
+                        seen_rows - 1
                     } else {
                         let j = rng.random_range(0..seen_rows);
-                        if j >= MAX_SAMPLE_ROWS {
+                        if j >= sample_rows {
                             continue;
                         }
-                        Some(j)
+                        j
                     };
 
                     let item_id = pg_sys::PageGetItemId(page, offset);
@@ -356,7 +756,7 @@ unsafe fn sample_partition_fields(
                     // routes the HOT root.
                     let ctid_u64 = item_pointer_to_u64(t_self);
                     let point = project_row(
-                        &fields,
+                        projection,
                         values,
                         isnull,
                         ctid_u64,
@@ -368,10 +768,7 @@ unsafe fn sample_partition_fields(
                     pg_sys::ExecClearTuple(slot);
                     let point = point?;
 
-                    match target_slot {
-                        None => sample.push(point),
-                        Some(j) => sample[j] = point,
-                    }
+                    collect(target_slot, point)?;
                 }
                 anyhow::Ok(())
             });
@@ -387,62 +784,260 @@ unsafe fn sample_partition_fields(
     }
 
     result?;
-    Ok(sample)
+    pgrx::debug1!(
+        "sample_partition_fields: sampled {} rows",
+        seen_rows.min(sample_rows)
+    );
+    Ok(())
 }
 
 /// Projects one deformed heap row (plus its evaluated index expressions) onto the sampled
 /// fields, converting each datum the same way the index writer does.
-unsafe fn project_row(
-    fields: &[PartitionField],
+unsafe fn project_row<P: PartitionProjection + ?Sized>(
+    projection: &P,
     values: &[pg_sys::Datum],
     isnull: &[bool],
     ctid: u64,
     expr_results: &[(pg_sys::Datum, bool)],
     created_by_version: Option<Version>,
-) -> anyhow::Result<Point> {
+) -> anyhow::Result<P::Point> {
     let unpacked_composites = unsafe {
-        CompositeSlotValues::from_composites(fields.iter().filter_map(|f| match f {
-            PartitionField::Categorized(categorized) => {
-                if let FieldSource::CompositeField {
-                    expression_idx,
-                    composite_type_oid,
-                    ..
-                } = categorized.categorized.source
-                {
-                    let (datum, is_null) = expr_results[expression_idx];
-                    Some((expression_idx, datum, is_null, composite_type_oid))
-                } else {
-                    None
-                }
+        CompositeSlotValues::from_composites(projection.fields().filter_map(|field| {
+            if let FieldSource::CompositeField {
+                expression_idx,
+                composite_type_oid,
+                ..
+            } = field.categorized.source
+            {
+                let (datum, is_null) = expr_results[expression_idx];
+                Some((expression_idx, datum, is_null, composite_type_oid))
+            } else {
+                None
             }
-            PartitionField::Ctid => None,
         }))
     };
 
-    fields
-        .iter()
-        .map(|f| match f {
-            PartitionField::Ctid => Ok(PdbOwnedValue::U64(ctid)),
-            PartitionField::Categorized(categorized) => {
-                let (datum, is_null) = resolve_field_value(
-                    &categorized.categorized.source,
-                    values,
-                    isnull,
-                    expr_results,
-                    &unpacked_composites,
-                );
-                unsafe { categorized.datum_to_value(datum, is_null, created_by_version) }
-            }
+    unsafe {
+        projection.project(ctid, created_by_version, |field| {
+            resolve_field_value(
+                &field.source,
+                values,
+                isnull,
+                expr_results,
+                &unpacked_composites,
+            )
         })
-        .collect()
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::open_index;
     use pgrx::datum::DatumWithOid;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn vector_partition_training_and_transport() {
+        let train = |metric, vectors: Vec<Option<PgVector>>, target| {
+            let mut sample = VectorSample::new(2, vectors.len());
+            for (row, vector) in vectors.into_iter().enumerate() {
+                sample.insert(row, vector).unwrap();
+            }
+            VectorPartitioning::train(FieldName::from("emb"), metric, sample, target).unwrap()
+        };
+        for metric in [
+            VectorMetric::L2,
+            VectorMetric::Cosine,
+            VectorMetric::InnerProduct,
+        ] {
+            let model = train(
+                metric,
+                (0..200)
+                    .map(|i| {
+                        Some(PgVector(vec![
+                            if i % 2 == 0 { -10.0 } else { 10.0 },
+                            (i % 7) as f32 * 0.01,
+                        ]))
+                    })
+                    .collect(),
+                2,
+            );
+            assert_eq!(model.centroids.len(), 4);
+            assert_ne!(
+                model.route(Some(&PgVector(vec![-10.0, 0.0]))),
+                model.route(Some(&PgVector(vec![10.0, 0.0])))
+            );
+            assert_eq!(model.route(None), 0);
+            if metric != VectorMetric::L2 {
+                assert_eq!(model.route(Some(&PgVector(vec![0.0, 0.0]))), 0);
+            }
+            let model = BuildPartitioning::Vector(model);
+            let bytes = postcard::to_allocvec(&model).unwrap();
+            assert_eq!(
+                postcard::from_bytes::<BuildPartitioning>(&bytes).unwrap(),
+                model
+            );
+        }
+        for sample in [vec![], vec![None], vec![Some(PgVector(vec![0.0, 0.0]))]] {
+            let model = train(VectorMetric::Cosine, sample, 8);
+            assert_eq!(model.route(Some(&PgVector(vec![1.0, 0.0]))), 0);
+            assert_eq!(BuildPartitioning::Vector(model).partition_count(), 1);
+        }
+        let model = train(
+            VectorMetric::L2,
+            (0..100).map(|_| Some(PgVector(vec![1.0, 2.0]))).collect(),
+            8,
+        );
+        assert_eq!(BuildPartitioning::Vector(model).partition_count(), 1);
+    }
+
+    #[pg_test]
+    fn vector_partitions_group_neighbors_and_keep_nulls() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE TABLE vector_partition_src (id BIGINT, region INTEGER, emb vector(2));
+            INSERT INTO vector_partition_src
+            SELECT i, i % 2, ARRAY[CASE WHEN i % 2 = 0 THEN -10 ELSE 10 END, (i % 7) * 0.01]::vector
+            FROM generate_series(1, 4000) i;
+            INSERT INTO vector_partition_src VALUES (4001, NULL, NULL), (4002, NULL, '[0,0]');
+        "#,
+        )
+        .unwrap();
+        for workers in [0, 2] {
+            Spi::run("SET parallel_leader_participation = false").unwrap();
+            Spi::run(&format!(
+                "SET max_parallel_workers = 8; SET max_parallel_maintenance_workers = {workers};"
+            ))
+            .unwrap();
+            for partition_option in ["", ", partition_by = 'emb'"] {
+                for metric in ["vector_l2_ops", "vector_cosine_ops", "vector_ip_ops"] {
+                    Spi::run(&format!(
+                        r#"
+                    CREATE INDEX vector_partition_idx ON vector_partition_src
+                    USING paradedb (id, region, emb {metric})
+                    WITH (target_segment_count = 2{partition_option});
+                "#
+                    ))
+                    .unwrap();
+                    for rebuild in [false, true] {
+                        if rebuild {
+                            Spi::run("REINDEX INDEX vector_partition_idx").unwrap();
+                        }
+                        assert_eq!(
+                            Spi::get_one::<i64>(
+                                "SELECT count(*) FROM paradedb.index_info('vector_partition_idx')"
+                            )
+                            .unwrap(),
+                            Some(2)
+                        );
+                        assert_eq!(
+                            Spi::get_one::<i64>(
+                                "SELECT count(*) FROM vector_partition_src WHERE id @@@ pdb.all()"
+                            )
+                            .unwrap(),
+                            Some(4002)
+                        );
+                        let (_, indexrel) =
+                            open_rels("vector_partition_src", "vector_partition_idx");
+                        let index =
+                            open_index(MvccSatisfies::Snapshot.directory(&indexrel)).unwrap();
+                        let field = index.schema().get_field("emb").unwrap();
+                        for segment in index.searchable_segments().unwrap() {
+                            let stats = stats::SegmentStats::of_segment(&segment).unwrap().unwrap();
+                            let centroid = stats
+                                .vector_partition(field)
+                                .unwrap()
+                                .expect("partition centroid survives build and reindex");
+                            assert_eq!(centroid.len(), 2);
+                            assert!(centroid.iter().all(|v| v.is_finite()));
+                        }
+                        drop(index);
+                        drop(indexrel);
+                        assert_eq!(Spi::get_one::<bool>(r#"
+                    SELECT bool_and(regions = 1) FROM (
+                        SELECT unnest(paradedb.find_ctid('vector_partition_idx', ctid)), count(DISTINCT region) AS regions
+                        FROM vector_partition_src GROUP BY 1
+                    ) partitions
+                "#).unwrap(), Some(true));
+                    }
+                    Spi::run("DROP INDEX vector_partition_idx").unwrap();
+                }
+            }
+        }
+    }
+
+    #[pg_test]
+    fn vector_partition_default_respects_explicit_options() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE vector_partition_options (id BIGINT, emb vector(2), other vector(2));",
+        )
+        .unwrap();
+        for (option, expected) in [
+            ("", vec![FieldName::from("emb")]),
+            (", partition_by = 'emb'", vec![FieldName::from("emb")]),
+            (", partition_by = 'id'", vec![FieldName::from("id")]),
+            (", partition_by = ''", vec![]),
+        ] {
+            Spi::run(&format!(
+                "CREATE INDEX vector_partition_options_idx ON vector_partition_options
+                 USING paradedb (id, emb) WITH (target_segment_count = 4{option});"
+            ))
+            .unwrap();
+            let (heaprel, indexrel) =
+                open_rels("vector_partition_options", "vector_partition_options_idx");
+            assert_eq!(indexrel.options().partition_by(), expected);
+            let model = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4).unwrap();
+            match expected.first() {
+                Some(field) if field.as_ref() == "emb" => {
+                    assert!(matches!(model, Some(BuildPartitioning::Vector(_))));
+                }
+                Some(_) => assert!(matches!(model, Some(BuildPartitioning::Range(_)))),
+                None => assert!(model.is_none()),
+            }
+            drop(indexrel);
+            drop(heaprel);
+            Spi::run("DROP INDEX vector_partition_options_idx").unwrap();
+        }
+    }
+
+    #[pg_test(error = "a ParadeDB index may only index one vector field")]
+    fn vector_index_rejects_multiple_fields() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE multi_vector_src (id BIGINT, emb vector(2), other vector(3));
+             CREATE INDEX ON multi_vector_src USING paradedb (id, emb, other);",
+        )
+        .unwrap();
+    }
+
+    #[pg_test(error = "a ParadeDB index may only index one vector field")]
+    fn vector_index_rejects_multiple_fields_with_scalar_partition() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE multi_vector_src (id BIGINT, emb vector(2), other vector(3));
+             CREATE INDEX ON multi_vector_src USING paradedb
+             (id, emb vector_l2_ops, other vector_cosine_ops) WITH (partition_by = 'id');",
+        )
+        .unwrap();
+    }
+
+    #[pg_test(error = "a vector partition_by field must be the only partition field")]
+    fn vector_partition_rejects_mixed_fields() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE TABLE mixed_partition_src (id BIGINT, emb vector(2));
+            CREATE INDEX ON mixed_partition_src USING paradedb (id, emb)
+            WITH (partition_by = 'id, emb');
+        "#,
+        )
+        .unwrap();
+    }
 
     /// The snapshot a plain (non-concurrent) build scans with.
     fn snapshot_any() -> pg_sys::Snapshot {
@@ -498,16 +1093,24 @@ mod tests {
         .unwrap();
 
         let (heaprel, indexrel) = open_rels("sample_src", "sample_src_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(tree.partition_count(), 8, "{tree}");
         assert_eq!(tree.dims().len(), 2);
 
         // Same heap, same seed, same boundaries.
-        let again = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-            .unwrap()
-            .unwrap();
+        let BuildPartitioning::Range(again) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(again, tree);
 
         // Under 4096 blocks and 30k rows, the sample is the whole table, so every partition
@@ -543,9 +1146,13 @@ mod tests {
         .unwrap();
 
         let (heaprel, indexrel) = open_rels("sample_expr", "sample_expr_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(tree.partition_count(), 4, "{tree}");
 
         // Split values come from the expression, so they are even numbers inside its range.
@@ -583,13 +1190,21 @@ mod tests {
         );
 
         let (heaprel, indexrel) = open_rels("sample_empty", "sample_empty_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(tree.partition_count(), 1);
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 1)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 1)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(tree.partition_count(), 1);
     }
 
@@ -645,9 +1260,13 @@ mod tests {
         .unwrap();
 
         let (heaprel, indexrel) = open_rels("sample_wide", "sample_wide_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(tree.dims().len(), 2);
         assert!((2..=4).contains(&tree.partition_count()), "{tree}");
         // NULLs in both dimensions route to the lowest partition.
@@ -700,16 +1319,24 @@ mod tests {
         .unwrap();
 
         let (heaprel, indexrel) = open_rels("sample_ctid", "sample_ctid_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(tree.dims(), &[FieldName::from("ctid")]);
         assert_eq!(tree.partition_count(), 4, "{tree}");
 
         let (heaprel, indexrel) = open_rels("sample_multi_ctid", "sample_multi_ctid_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
         assert_eq!(
             tree.dims(),
             &[FieldName::from("tenant_id"), FieldName::from("ctid")]

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use tantivy::{DocAddress, DocId, SegmentOrdinal};
+use tantivy::{DocId, SegmentOrdinal};
 
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
@@ -28,11 +28,7 @@ const BATCH_SIZE: usize = 8192;
 #[derive(Clone, Copy, Debug)]
 enum PreparedItem {
     Virtual,
-    FromHeap {
-        ctid: u64,
-        score: f32,
-        doc_address: DocAddress,
-    },
+    FromHeap { ctid: u64, score: f32 },
 }
 
 pub struct NormalScanExecState {
@@ -186,10 +182,6 @@ impl NormalScanExecState {
                 self.prepared_batch.push(PreparedItem::FromHeap {
                     ctid,
                     score: self.batch_scores[i],
-                    doc_address: DocAddress {
-                        segment_ord: seg_ord,
-                        doc_id: self.batch_doc_ids[i],
-                    },
                 });
             }
         }
@@ -263,15 +255,7 @@ impl ExecMethod for NormalScanExecState {
                 }
                 ExecState::Virtual { slot }
             }
-            PreparedItem::FromHeap {
-                ctid,
-                score,
-                doc_address,
-            } => ExecState::FromHeap {
-                ctid,
-                score,
-                doc_address,
-            },
+            PreparedItem::FromHeap { ctid, score } => ExecState::FromHeap { ctid, score },
         }
     }
 

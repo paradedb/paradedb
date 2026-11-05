@@ -9,7 +9,6 @@
 - **Note**: We benchmark the "local sort" variant separately from the "score sort" variant because
   scoring requires evaluating relevance scores and sorting the top-K. Maintaining
   "local sort" as a distinct benchmark isolates pure join and filter evaluation performance.
-- **TODO**: Implement Block-Max WAND (BMW) scoring optimization for join scans: [https://github.com/paradedb/paradedb/issues/5301]
 
 ## Query Info (statistics from 20m dataset):
 

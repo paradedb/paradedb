@@ -139,7 +139,7 @@ impl<'a> PredicateTranslator<'a> {
                             .find(|tq| tq.query.as_ref() == &predicate.query)?
                             .tag_name
                     }
-                    ScanMode::Standard { .. } => return None,
+                    ScanMode::Standard { .. } | ScanMode::Disjunctive { .. } => return None,
                 };
                 Some(col(tag_name))
             }

@@ -152,17 +152,20 @@ DROP TABLE mpp_spill_explain_output;
 -- formula (one page per file, size_bytes = (g * 17) % 4096). id is
 -- generated in insertion order and matches g exactly, since the table is
 -- freshly created above.
+-- It groups on p.file_id, not f.id: with f's primary key in the keys, f.title
+-- would be carried as a deferred term instead of grouped on, and the groups
+-- would fit in work_mem without spilling.
 SELECT
     COUNT(*) = 80000 AS all_groups_present,
     COUNT(*) FILTER (
         WHERE cnt <> 1 OR total_size <> ((id * 17) % 4096)
     ) = 0 AS all_groups_correct
 FROM (
-    SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+    SELECT p.file_id AS id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
     FROM mpp_spill_large_files f
     JOIN mpp_spill_large_pages p ON f.id = p.file_id
     WHERE f.content @@@ 'Section'
-    GROUP BY f.id, f.title
+    GROUP BY p.file_id, f.title
 ) q;
 
 RESET work_mem;

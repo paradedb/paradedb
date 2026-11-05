@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::guc::GucEnum;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
@@ -75,6 +76,18 @@ static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
+
+/// Recheck saved plans when their diagnostic policy changes, including SET LOCAL rollback.
+/// PostgreSQL calls assign hooks before updating the GUC's stored value.
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn assign_planner_warnings(
+    new_value: std::ffi::c_int,
+    _extra: *mut std::ffi::c_void,
+) {
+    if new_value != PLANNER_WARNINGS.get().to_ordinal() {
+        unsafe { pg_sys::ResetPlanCache() };
+    }
+}
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -438,16 +451,22 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_enum_guc(
-        c"paradedb.planner_warnings",
-        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
-        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
-          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
-          an error instead. When set to 'off', suppresses checks and warnings.",
-        &PLANNER_WARNINGS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
+    unsafe {
+        GucRegistry::define_enum_guc_with_hooks(
+            c"paradedb.planner_warnings",
+            c"Controls ParadeDB planning and execution diagnostics",
+            c"When set to 'warning' (default), logs warnings about scan fallbacks, filter spills, \
+              and stale visibility maps. When set to 'error', raises an error instead, except \
+              during EXPLAIN without ANALYZE. When set to 'off', suppresses these diagnostics. \
+              Changing this setting invalidates cached plans.",
+            &PLANNER_WARNINGS,
+            GucContext::Userset,
+            GucFlags::default(),
+            None,
+            Some(assign_planner_warnings),
+            None,
+        );
+    }
 
     GucRegistry::define_enum_guc(
         c"paradedb.disjunction_pruning",

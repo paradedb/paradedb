@@ -443,6 +443,7 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
         .await
         .with_context(|| "Failed to connect to database")?;
     // `VACUUM FULL` rebuilds every index of a table, so it runs before the indexes exist.
+    // It also sets `reltuples`, and the `pg_search` build sizes its segments from it.
     if args.vacuum {
         vacuum(&mut conn, "VACUUM FULL ANALYZE").await?;
     }

@@ -41,6 +41,7 @@ mod tests {
             database_oid: unsafe { pg_sys::MyDatabaseId },
             index_oid: pg_sys::InvalidOid,
             segment_id,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 1,
                 num_deleted_docs: 0,
@@ -55,15 +56,25 @@ mod tests {
             "{}.fast",
             SegmentId::from_bytes(key.segment_id).uuid_string()
         ));
-        let directory = get_or_build(&key, || {
-            if pause_build {
-                Spi::run("SELECT pg_sleep(60)").unwrap();
-            }
-            let directory = RamDirectory::default();
-            directory.atomic_write(&path, &[1, 2, 3])?;
-            Ok(directory)
-        })
-        .unwrap();
+        let cached = (!pause_build)
+            .then(|| {
+                cached_prefix(&key)
+                    .into_iter()
+                    .next()
+                    .map(|(_, directory)| directory)
+            })
+            .flatten();
+        let directory = cached.unwrap_or_else(|| {
+            get_or_build(&key, || {
+                if pause_build {
+                    Spi::run("SELECT pg_sleep(60)").unwrap();
+                }
+                let directory = RamDirectory::default();
+                directory.atomic_write(&path, &[1, 2, 3])?;
+                Ok(directory)
+            })
+            .unwrap()
+        });
         if pause_reader {
             Spi::run("SELECT pg_sleep(60)").unwrap();
         }
@@ -166,6 +177,7 @@ mod tests {
             database_oid: unsafe { pg_sys::MyDatabaseId },
             index_oid: pg_sys::InvalidOid,
             segment_id: *segment_id.uuid_bytes(),
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 1,
                 num_deleted_docs: 0,
@@ -191,6 +203,68 @@ mod tests {
         .unwrap();
         assert_eq!(replacement.atomic_read(&path).unwrap(), [4, 5, 6]);
         invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+    }
+
+    #[pg_test]
+    fn test_incremental_cached_prefix() {
+        let segment_id = SegmentId::generate_random();
+        let mut key = MutableCacheKey {
+            database_oid: unsafe { pg_sys::MyDatabaseId },
+            index_oid: pg_sys::InvalidOid,
+            segment_id: *segment_id.uuid_bytes(),
+            start_doc: 0,
+            bound: MutableSegmentBound {
+                max_doc: 2,
+                num_deleted_docs: 0,
+            },
+        };
+        let first_path = PathBuf::from(format!("{}.fast", segment_id.uuid_string()));
+        drop(
+            get_or_build(&key, || {
+                let directory = RamDirectory::default();
+                directory.atomic_write(&first_path, &[1, 2])?;
+                Ok(directory)
+            })
+            .unwrap(),
+        );
+        key.bound.max_doc = 4;
+        let prefix = cached_prefix(&key);
+        assert_eq!(prefix.len(), 1);
+        assert_eq!(prefix[0].0, MutableSegmentRange { start: 0, end: 2 });
+        assert_eq!(prefix[0].1.atomic_read(&first_path).unwrap(), [1, 2]);
+        key.start_doc = 2;
+        let tail_path = PathBuf::from(format!(
+            "{}.fast",
+            MutableSegmentRange { start: 2, end: 4 }
+                .map_segment_id(segment_id)
+                .uuid_string()
+        ));
+        drop(
+            get_or_build(&key, || {
+                let directory = RamDirectory::default();
+                directory.atomic_write(&tail_path, &[3, 4])?;
+                Ok(directory)
+            })
+            .unwrap(),
+        );
+        key.start_doc = 0;
+        let chunks = cached_prefix(&key);
+        assert_eq!(
+            chunks.iter().map(|(range, _)| *range).collect::<Vec<_>>(),
+            [
+                MutableSegmentRange { start: 0, end: 2 },
+                MutableSegmentRange { start: 2, end: 4 }
+            ]
+        );
+        assert_eq!(chunks[1].1.atomic_read(&tail_path).unwrap(), [3, 4]);
+        key.bound.num_deleted_docs = 1;
+        assert!(cached_prefix(&key).is_empty());
+        invalidate_segment(key.database_oid, key.index_oid, &key.segment_id);
+        assert_eq!(chunks[0].1.atomic_read(&first_path).unwrap(), [1, 2]);
+        drop(prefix);
+        drop(chunks);
+        key.bound.num_deleted_docs = 0;
+        assert!(cached_prefix(&key).is_empty());
     }
 
     #[pg_test]
@@ -356,6 +430,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 10,
                 num_deleted_docs: 0,
@@ -365,6 +440,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_a,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 20,
                 num_deleted_docs: 0,
@@ -374,6 +450,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(100),
             segment_id: seg_b,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 5,
                 num_deleted_docs: 0,
@@ -383,6 +460,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(10),
             index_oid: pg_sys::Oid::from_u32(200),
             segment_id: seg_a,
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 10,
                 num_deleted_docs: 0,
@@ -473,6 +551,7 @@ mod tests {
             database_oid: pg_sys::Oid::from_u32(1),
             index_oid: pg_sys::Oid::from_u32(2),
             segment_id: [42u8; 16],
+            start_doc: 0,
             bound: MutableSegmentBound {
                 max_doc: 100,
                 num_deleted_docs: 0,

@@ -5,6 +5,7 @@
 -- executed via the DataFusion custom scan backend.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_mutable_segment_cache = off;
 SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
@@ -1242,3 +1243,5 @@ WHERE p.description ||| 'laptop';
 -- =====================================================================
 DROP TABLE agg_join_tags;
 DROP TABLE agg_join_products;
+
+RESET paradedb.enable_mutable_segment_cache;

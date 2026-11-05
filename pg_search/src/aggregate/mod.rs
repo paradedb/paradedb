@@ -267,6 +267,7 @@ struct ParallelAggregation {
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
     bitmap_handle_bytes: Vec<u8>,
+    segment_view_bytes: Vec<u8>,
     segment_ids: Vec<SegmentDeletedDocs>,
     ambulkdelete_epoch: u32,
 }
@@ -289,6 +290,7 @@ impl ParallelProcess for ParallelAggregation {
             &self.segment_ids,
             &self.ambulkdelete_epoch,
             &self.bitmap_handle_bytes,
+            &self.segment_view_bytes,
         ]
     }
 }
@@ -304,6 +306,7 @@ impl ParallelAggregation {
         memory_limit: u64,
         bucket_limit: u32,
         segment_ids: Vec<SegmentDeletedDocs>,
+        segment_view: SegmentView,
         ambulkdelete_epoch: u32,
         bitmap_handle: Option<SharedBitmapHandle>,
     ) -> anyhow::Result<Self> {
@@ -320,6 +323,7 @@ impl ParallelAggregation {
             agg_req_bytes: serde_json::to_vec(&aggregation)?,
             query_bytes: serde_json::to_vec(query)?,
             bitmap_handle_bytes: postcard::to_allocvec(&bitmap_handle)?,
+            segment_view_bytes: postcard::to_allocvec(segment_view.entries())?,
             segment_ids,
             ambulkdelete_epoch,
         })
@@ -332,6 +336,7 @@ struct ParallelAggregationWorker<'a> {
     aggregation: Option<AggregateRequest>,
     query: SearchQueryInput,
     segment_ids: Vec<SegmentDeletedDocs>,
+    segment_view: SegmentView,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
     /// The owner's published claim table, attached lazily by bgworkers (the
@@ -376,6 +381,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         aggregation: AggregateRequest,
         query: SearchQueryInput,
         segment_ids: Vec<SegmentDeletedDocs>,
+        segment_view: SegmentView,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
@@ -397,6 +403,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             aggregation: Some(aggregation),
             query,
             segment_ids,
+            segment_view,
             ambulkdelete_epoch,
             bitmap_handle: None,
             attached_area: std::ptr::null_mut(),
@@ -465,8 +472,13 @@ impl<'a> ParallelAggregationWorker<'a> {
                 &indexrel,
                 self.query.clone(),
                 false,
-                MvccSatisfies::ParallelWorker(SegmentView::from_unordered_ids(
-                    segment_ids.iter().copied(),
+                MvccSatisfies::ParallelWorker(SegmentView::new(
+                    self.segment_view
+                        .entries()
+                        .iter()
+                        .filter(|entry| segment_ids.contains(&entry.id))
+                        .cloned()
+                        .collect(),
                 )),
                 NonNull::new(context_ptr),
                 planstate.and_then(NonNull::new),
@@ -576,6 +588,14 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for bitmap_handle_bytes")
             .expect("missing bitmap_handle_bytes value");
 
+        let segment_view_bytes = state_manager
+            .slice::<u8>(7)
+            .expect("wrong type for segment_view_bytes")
+            .expect("missing segment_view_bytes value");
+        let segment_view = SegmentView::new(
+            postcard::from_bytes(segment_view_bytes)
+                .expect("segment_view_bytes should deserialize"),
+        );
         let aggregation = serde_json::from_slice::<AggregateRequest>(agg_req_bytes)
             .expect("agg_req_bytes should deserialize into an Aggregations");
         let query = serde_json::from_slice::<SearchQueryInput>(query_bytes)
@@ -588,6 +608,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             aggregation: Some(aggregation),
             query,
             segment_ids: segment_ids.to_vec(),
+            segment_view,
             ambulkdelete_epoch: *ambulkdelete_epoch,
             bitmap_handle,
             attached_area: std::ptr::null_mut(),
@@ -762,6 +783,7 @@ pub fn execute_aggregate(
             memory_limit,
             bucket_limit,
             segment_ids,
+            reader.segment_view(),
             ambulkdelete_epoch,
             bitmap_handle,
         )?;
@@ -871,6 +893,7 @@ pub fn execute_aggregate(
                 agg_req.clone(),
                 query,
                 segment_ids,
+                reader.segment_view(),
                 ambulkdelete_epoch,
                 index.oid(),
                 solve_mvcc,

@@ -264,9 +264,9 @@ LIMIT 25;
      :   ┌───── Stage 1 ── tasks=3, partitions=3
      :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
      :   │   DistributedLeafExec:
-     :   │     t0: PgSearchScan: table=c, segments=3, query="all"
-     :   │     t1: PgSearchScan: table=c, segments=3, query="all"
-     :   │     t2: PgSearchScan: table=c, segments=3, query="all"
+     :   │     t0: PgSearchScan: table=c, segments=4, query="all"
+     :   │     t1: PgSearchScan: table=c, segments=4, query="all"
+     :   │     t2: PgSearchScan: table=c, segments=4, query="all"
      :   └──────────────────────────────────────────────────
 (25 rows)
 

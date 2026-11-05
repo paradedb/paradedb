@@ -298,6 +298,13 @@ fn flush_mutable_segments(
             pgrx::check_for_interrupts!();
             return Err(error);
         }
+        for segment_id in segment_ids {
+            crate::postgres::storage::mutable_cache::invalidate_segment(
+                unsafe { pg_sys::MyDatabaseId },
+                indexrel.oid(),
+                segment_id.uuid_bytes(),
+            );
+        }
     }
     Ok(())
 }

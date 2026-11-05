@@ -116,10 +116,10 @@ impl Seek for PgTempFile {
     }
 }
 
-pub use crate::postgres::storage::block::MutableSegmentBound;
+pub use crate::postgres::storage::block::{MutableSegmentBound, MutableSegmentRange};
 
 /// One segment of a [`SegmentView`], in the origin reader's ordinal position.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SegmentViewEntry {
     pub id: SegmentId,
     pub docs: SegmentViewDocs,
@@ -128,15 +128,19 @@ pub struct SegmentViewEntry {
 /// What the origin reader knew about the segment's documents. Mirrors the
 /// [`SegmentMetaEntryContent`] split: immutable content is fixed on disk, mutable content is
 /// materialized per open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SegmentViewDocs {
     /// Fixed on disk, so a replaying reader gets the same documents from the segment id alone.
     /// The counts ride along only because `EXPLAIN ANALYZE` renders per-segment doc counts out
     /// of the shared state rather than out of a reader.
-    Immutable { max_doc: u32, num_deleted_docs: u32 },
+    Immutable {
+        max_doc: u32,
+        num_deleted_docs: u32,
+    },
     /// Materialized per open from the log prefix the bound selects; every replaying reader
     /// must use the same bound.
     Mutable(MutableSegmentBound),
+    MutableRange(MutableSegmentRange),
     /// Nothing known: the view only pins the segment set. See
     /// [`SegmentView::from_unordered_ids`].
     IdOnly,
@@ -148,6 +152,7 @@ impl SegmentViewDocs {
         match self {
             SegmentViewDocs::Immutable { max_doc, .. } => max_doc,
             SegmentViewDocs::Mutable(bound) => bound.live_docs(),
+            SegmentViewDocs::MutableRange(range) => range.num_docs(),
             SegmentViewDocs::IdOnly => 0,
         }
     }
@@ -160,19 +165,32 @@ impl SegmentViewDocs {
             SegmentViewDocs::Immutable {
                 num_deleted_docs, ..
             } => num_deleted_docs,
-            SegmentViewDocs::Mutable(_) | SegmentViewDocs::IdOnly => 0,
+            SegmentViewDocs::Mutable(_)
+            | SegmentViewDocs::MutableRange(_)
+            | SegmentViewDocs::IdOnly => 0,
         }
     }
 
     pub fn mutable_bound(self) -> Option<MutableSegmentBound> {
         match self {
             SegmentViewDocs::Mutable(bound) => Some(bound),
+            SegmentViewDocs::MutableRange(range) => Some(MutableSegmentBound {
+                max_doc: range.end,
+                num_deleted_docs: 0,
+            }),
             _ => None,
         }
     }
 }
 
 impl SegmentViewEntry {
+    pub fn source_id(&self) -> SegmentId {
+        match self.docs {
+            SegmentViewDocs::MutableRange(range) => range.map_segment_id(self.id),
+            _ => self.id,
+        }
+    }
+
     pub fn max_doc(&self) -> u32 {
         self.docs.max_doc()
     }
@@ -223,14 +241,14 @@ impl SegmentView {
     /// Capture the view of `segment_readers` (in ordinal order), taking mutable bounds from
     /// `directory`. Both must come from the same open.
     pub fn capture(segment_readers: &[tantivy::SegmentReader], directory: &MVCCDirectory) -> Self {
-        let mutable = directory.mutable_bounds();
+        let mutable = directory.mutable_views();
         Self::new(
             segment_readers
                 .iter()
                 .map(|reader| {
                     let id = reader.segment_id();
                     let docs = match mutable.get(&id) {
-                        Some(bound) => SegmentViewDocs::Mutable(*bound),
+                        Some(docs) => *docs,
                         None => SegmentViewDocs::Immutable {
                             max_doc: reader.max_doc(),
                             num_deleted_docs: reader.num_deleted_docs(),
@@ -243,8 +261,8 @@ impl SegmentView {
     }
 
     /// A view that only pins the segment set. Ordinal order is the iterator's (arbitrary for a
-    /// set), and it carries no replay data, so it is only for readers whose addresses never
-    /// leave the process (a `paradedb.aggregate` worker).
+    /// set), and it carries no replay data, so it is only for readers that use physical segment IDs and whose addresses never
+    /// leave the process.
     pub fn from_unordered_ids(ids: impl IntoIterator<Item = SegmentId>) -> Self {
         Self::new(
             ids.into_iter()
@@ -282,8 +300,18 @@ impl SegmentView {
     }
 
     pub fn mutable_bound(&self, id: &SegmentId) -> Option<MutableSegmentBound> {
-        self.ordinal_of(id)
-            .and_then(|ord| self.inner.entries[ord].mutable_bound())
+        self.entries()
+            .iter()
+            .filter(|entry| entry.source_id() == *id)
+            .filter_map(SegmentViewEntry::mutable_bound)
+            .max_by_key(|bound| (bound.max_doc, bound.num_deleted_docs))
+    }
+
+    pub fn source_ids(&self) -> HashSet<SegmentId> {
+        self.entries()
+            .iter()
+            .map(SegmentViewEntry::source_id)
+            .collect()
     }
 }
 
@@ -332,6 +360,7 @@ enum LoadedSegmentMetaEntry {
     Memory {
         meta: SegmentMetaEntry,
         tantivy_meta: SegmentMeta,
+        range: Option<MutableSegmentRange>,
         entry: SegmentMetaEntryMutable,
         // Resolved lazily on first read: loaded from the shared-memory mutable segment cache if
         // present, or indexed by whichever process touches it first and published to shared memory.
@@ -432,14 +461,25 @@ impl MVCCDirectory {
 
     /// The bound each loaded mutable segment was materialized from.
     pub fn mutable_bounds(&self) -> HashMap<SegmentId, MutableSegmentBound> {
+        self.mutable_views()
+            .into_iter()
+            .filter_map(|(id, docs)| docs.mutable_bound().map(|bound| (id, bound)))
+            .collect()
+    }
+
+    fn mutable_views(&self) -> HashMap<SegmentId, SegmentViewDocs> {
         self.all_entries
             .lock()
             .iter()
             .filter_map(|(id, lsme)| match lsme {
                 LoadedSegmentMetaEntry::Persisted { .. } => None,
-                LoadedSegmentMetaEntry::Memory { meta, .. } => {
-                    meta.mutable_bound().map(|bound| (*id, bound))
-                }
+                LoadedSegmentMetaEntry::Memory { meta, range, .. } => Some((
+                    *id,
+                    match range {
+                        Some(range) => SegmentViewDocs::MutableRange(*range),
+                        None => SegmentViewDocs::Mutable(meta.mutable_bound().unwrap()),
+                    },
+                )),
             })
             .collect()
     }
@@ -506,6 +546,7 @@ impl MVCCDirectory {
             LoadedSegmentMetaEntry::Memory {
                 meta,
                 tantivy_meta,
+                range,
                 directory,
                 ..
             } => {
@@ -538,9 +579,10 @@ impl MVCCDirectory {
                             heap_fetch_state,
                             expression_state,
                             &self.mvcc_style,
+                            range,
                         )
                     };
-                    let key =
+                    let mut key =
                         crate::postgres::storage::mutable_cache::MutableCacheKey::for_segment(
                             &self.indexrel,
                             &meta,
@@ -548,6 +590,13 @@ impl MVCCDirectory {
                         .expect(
                             "LoadedSegmentMetaEntry::Memory should have a mutable SegmentMetaEntry",
                         );
+                    if let Some(range) = range {
+                        key.start_doc = range.start;
+                        key.bound = MutableSegmentBound {
+                            max_doc: range.end,
+                            num_deleted_docs: 0,
+                        };
+                    }
                     if matches!(
                         &*self.mvcc_style,
                         MvccSatisfies::Snapshot
@@ -873,30 +922,61 @@ impl Directory for MVCCDirectory {
                         );
                     });
 
-                    let all_entries: HashMap<_, _> = loaded
-                        .entries
-                        .into_iter()
-                        .zip(&loaded.meta.segments)
-                        .map(|(entry, tantivy_meta)| {
-                            let lsme = match entry.content {
-                                SegmentMetaEntryContent::Immutable(content) => {
-                                    LoadedSegmentMetaEntry::Persisted {
-                                        meta: entry,
-                                        entry: content,
+                    let mut all_entries = HashMap::default();
+                    let mut segment_metas = Vec::new();
+                    for (entry, tantivy_meta) in loaded.entries.into_iter().zip(&loaded.meta.segments) {
+                        match entry.content {
+                            SegmentMetaEntryContent::Immutable(content) => {
+                                all_entries.insert(entry.segment_id(), LoadedSegmentMetaEntry::Persisted { meta: entry, entry: content });
+                                segment_metas.push(tantivy_meta.clone());
+                            }
+                            SegmentMetaEntryContent::Mutable(content) => {
+                                let mut chunks = Vec::new();
+                                match &*self.mvcc_style {
+                                    MvccSatisfies::ParallelWorker(view) => {
+                                        for captured in view.entries().iter().filter(|captured| captured.source_id() == entry.segment_id()) {
+                                            let range = match captured.docs {
+                                                SegmentViewDocs::MutableRange(range) => Some(range),
+                                                _ => None,
+                                            };
+                                            chunks.push((range, None));
+                                        }
                                     }
-                                }
-                                SegmentMetaEntryContent::Mutable(content) => {
-                                    LoadedSegmentMetaEntry::Memory {
-                                        meta: entry,
-                                        tantivy_meta: tantivy_meta.clone(),
-                                        entry: content,
-                                        directory: Arc::new(OnceLock::default()),
+                                    MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+                                        if entry.num_deleted_docs() == 0 && crate::gucs::enable_mutable_segment_cache() => {
+                                        let key = crate::postgres::storage::mutable_cache::MutableCacheKey::for_segment(&self.indexrel, &entry).unwrap();
+                                        let cached = crate::postgres::storage::mutable_cache::cached_prefix(&key);
+                                        let start = cached.last().map_or(0, |(range, _)| range.end);
+                                        chunks.extend(cached.into_iter().map(|(range, directory)| (Some(range), Some(directory))));
+                                        if start < entry.max_doc() {
+                                            chunks.push((Some(MutableSegmentRange { start, end: entry.max_doc() }), None));
+                                        }
                                     }
+                                    _ => chunks.push((None, None)),
                                 }
-                            };
-                            (entry.segment_id(), lsme)
-                        })
-                        .collect();
+                                for (range, cached) in chunks {
+                                    let chunk_meta = match range {
+                                        Some(range) => inventory.new_segment_meta(range.map_segment_id(entry.segment_id()), range.num_docs()),
+                                        None => tantivy_meta.clone(),
+                                    };
+                                    let directory = OnceLock::new();
+                                    if let Some(cached) = cached {
+                                        directory.set(cached).expect("new directory lock");
+                                    }
+                                    all_entries.insert(chunk_meta.id(), LoadedSegmentMetaEntry::Memory {
+                                        meta: entry,
+                                        tantivy_meta: chunk_meta.clone(),
+                                        range,
+                                        entry: content,
+                                        directory: Arc::new(directory),
+                                    });
+                                    segment_metas.push(chunk_meta);
+                                }
+                            }
+                        }
+                    }
+                    loaded.total_segments += segment_metas.len().saturating_sub(loaded.meta.segments.len());
+                    loaded.meta.segments = segment_metas;
 
                     match &*self.mvcc_style {
                         // The view came from a reader that already ordered these segments, and
@@ -929,8 +1009,8 @@ impl Directory for MVCCDirectory {
                                     LoadedSegmentMetaEntry::Persisted { meta, .. } => {
                                         meta.num_docs()
                                     }
-                                    LoadedSegmentMetaEntry::Memory { meta, .. } => {
-                                        (u32::MAX as usize) + meta.num_docs()
+                                    LoadedSegmentMetaEntry::Memory { tantivy_meta, .. } => {
+                                        (u32::MAX as usize) + tantivy_meta.num_docs() as usize
                                     }
                                 }
                             });
@@ -1059,16 +1139,22 @@ pub fn index_memory_segment(
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
     mvcc_style: &MvccSatisfies,
+    range: Option<MutableSegmentRange>,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::heap::HeapDocFetcher;
     use pgrx::PgTupleDesc;
 
     let directory = RamDirectory::create();
-    let ctids = match mvcc_style {
-        MvccSatisfies::VacuumMerge { live_ctids } => {
+    let ctids = match (mvcc_style, range) {
+        (MvccSatisfies::VacuumMerge { live_ctids }, _) => {
             Cow::Borrowed(live_ctids[&segment.segment_id()].as_slice())
         }
+        (_, Some(range)) => Cow::Owned(
+            segment
+                .mutable_range(indexrel, range)
+                .map_err(|e| anyhow::anyhow!("Could not read mutable range: {e}"))?,
+        ),
         _ => Cow::Owned(
             segment
                 .mutable_snapshot(indexrel)
@@ -1314,20 +1400,37 @@ mod tests {
             .map(|r| r.segment_id())
             .collect();
 
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM t WHERE data ||| 'c'").unwrap(),
+            Some(5)
+        );
+
         // The mutable segment's log grows past the captured view.
         Spi::run("INSERT INTO t (data) SELECT 'd' FROM generate_series(1, 7);").unwrap();
         let fresh =
             SearchIndexReader::empty(&indexrel, MvccSatisfies::Snapshot).expect("open fresh");
-        let fresh_mutable = fresh
-            .segment_readers()
+        let fresh_view = fresh.segment_view();
+        let fresh_mutable = fresh_view
+            .entries()
             .iter()
-            .find(|r| r.segment_id() == mutable[0].id)
-            .expect("mutable segment still there");
+            .filter(|entry| entry.source_id() == mutable[0].source_id())
+            .collect::<Vec<_>>();
         assert_eq!(
-            fresh_mutable.max_doc(),
+            fresh_mutable
+                .iter()
+                .map(|entry| entry.max_doc())
+                .sum::<u32>(),
             12,
             "a plain snapshot sees the new rows"
         );
+        if crate::gucs::enable_mutable_segment_cache() {
+            assert_eq!(fresh_mutable.len(), 2, "reuse the prefix and add a tail");
+            let tail = SegmentView::new(vec![fresh_mutable[1].clone()]);
+            let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(tail))
+                .expect("replay a worker assigned only the uncached tail");
+            assert_eq!(replay.segment_readers().len(), 1);
+            assert_eq!(replay.segment_readers()[0].max_doc(), 7);
+        }
 
         // A replaying reader sees what the origin saw.
         let replay = SearchIndexReader::empty(&indexrel, MvccSatisfies::ParallelWorker(view))

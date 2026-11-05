@@ -587,6 +587,75 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_router_quantization_option_persists_through_reindex() {
+        use tantivy::directory::RamDirectory;
+
+        Spi::run(
+            "CREATE TABLE centroid_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
+             CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body)
+                 WITH (vector_router_quantization = true);
+             CREATE TABLE centroid_full_precision_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
+             CREATE INDEX centroid_full_precision_idx ON centroid_full_precision_settings USING paradedb (id, body);",
+        ).unwrap();
+        let relation = |name: &str| {
+            let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+            PgSearchRelation::open(oid)
+        };
+        let quantized = relation("centroid_quantized_idx");
+        assert!(quantized.options().vector_router_quantization());
+        assert!(quantized.settings().unwrap().vector_centroid_quantization);
+        assert!(
+            quantized
+                .create_in_memory_index(RamDirectory::create())
+                .unwrap()
+                .settings()
+                .vector_centroid_quantization
+        );
+        drop(quantized);
+        assert!(
+            !relation("centroid_full_precision_idx")
+                .options()
+                .vector_router_quantization()
+        );
+        assert!(
+            !relation("centroid_full_precision_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
+
+        // The reloption changes the next build, while existing segments retain
+        // their persisted representation until the index is rebuilt.
+        Spi::run("ALTER INDEX centroid_quantized_idx SET (vector_router_quantization = false);")
+            .unwrap();
+        let quantized = relation("centroid_quantized_idx");
+        assert!(!quantized.options().vector_router_quantization());
+        assert!(quantized.settings().unwrap().vector_centroid_quantization);
+        drop(quantized);
+        Spi::run("REINDEX INDEX centroid_quantized_idx;").unwrap();
+        assert!(
+            !relation("centroid_quantized_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
+
+        Spi::run(
+            "ALTER INDEX centroid_quantized_idx SET (vector_router_quantization = true);
+                  REINDEX INDEX centroid_quantized_idx;",
+        )
+        .unwrap();
+        assert!(
+            relation("centroid_quantized_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
+    }
+
+    #[pg_test]
     fn test_new_index_uses_configured_codecs() {
         use tantivy::columnar::CodecType;
         use tantivy::directory::RamDirectory;

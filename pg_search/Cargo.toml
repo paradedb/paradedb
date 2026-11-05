@@ -32,18 +32,19 @@ dst = { path = "../dst" }
 antithesis-instrumentation = { version = "0.1", optional = true } # coverage shim; see lib.rs
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
+# Keep direct Arrow dependencies on DataFusion's major version.
 arrow-array = "59.1.0"
 arrow-buffer = "59.1.0"
 arrow-schema = "59.1.0"
 arrow-select = "59.1.0"
-base64 = "0.22.1"
+base64 = "0.23.1"
 bitpacking = "0.9.3"
 chrono = "0.4.45"
 time = "0.3.47"
 env_logger = { version = "0.11.10", optional = true }
 log = "0.4.34"
 once_cell = "1.21.4"
-parking_lot = "0.12.5"
+parking_lot = "0.13.0"
 tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
 rustix = { version = "1.1.5", features = ["fs"] }
@@ -102,17 +103,17 @@ prost = "0.14.3"
 
 # Selects the BLAS backend tantivy's SuperKMeans clusterer runs on: Accelerate on macOS, OpenBLAS elsewhere.
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "ced81ac6f010ff79e74b161df9454e51bc1a8d0e", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "738408113432215334bcb086a94bff78be8e8fab", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "ced81ac6f010ff79e74b161df9454e51bc1a8d0e", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "738408113432215334bcb086a94bff78be8e8fab", features = [
   "openblas",
 ] }
 
 [dev-dependencies]
 pgrx-tests.workspace = true
 postgres = "0.19.14"
-rstest = "0.27.0"
+rstest = "0.28.0"
 proptest = "1.11.0"

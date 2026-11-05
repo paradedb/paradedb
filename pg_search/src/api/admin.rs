@@ -21,8 +21,8 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
-use crate::postgres::access::IndexOid;
-use crate::postgres::index::IndexKind;
+use crate::postgres::access::{IndexAccess, IndexOid};
+use crate::postgres::index::{IndexKind, is_partitioned_index, leaf_partition_index_accesses};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
@@ -419,7 +419,7 @@ fn vector_info(
         let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            let Some(info) = vector_index.info() else {
+            let Some(info) = vector_index.info()? else {
                 continue;
             };
             let quantized = info.quantized_layers.is_some();
@@ -440,7 +440,7 @@ fn vector_info(
                 .context("quantized bytes per row exceeds SQL integer range")?;
             let cluster_stats = info.cluster_stats.as_ref();
             let total_rows = vector_index
-                .cluster_sizes()
+                .cluster_sizes()?
                 .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
@@ -530,7 +530,7 @@ fn vector_config(
     Ok(TableIterator::new(rows))
 }
 
-/// Per-cluster posting-list sizes and ball-bound radii for a single vector
+/// Per-cluster posting-list sizes for a single vector
 /// `field` of `index`, one row per segment that stores that field, in cluster
 /// order.
 #[pg_extern]
@@ -539,14 +539,7 @@ fn vector_clusters(
     index: IndexOid,
     field: String,
 ) -> anyhow::Result<
-    TableIterator<
-        'static,
-        (
-            name!(segno, String),
-            name!(cluster_sizes, Option<Vec<i64>>),
-            name!(cluster_radii, Option<Vec<f32>>),
-        ),
-    >,
+    TableIterator<'static, (name!(segno, String), name!(cluster_sizes, Option<Vec<i64>>))>,
 > {
     let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
@@ -562,18 +555,13 @@ fn vector_clusters(
         let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            if vector_index.info().is_none() {
+            if vector_index.info()?.is_none() {
                 continue;
             }
             let sizes = vector_index
-                .cluster_sizes()
+                .cluster_sizes()?
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.cluster_radii();
-            rows.push((
-                segment_reader.segment_id().short_uuid_string(),
-                sizes,
-                radii,
-            ));
+            rows.push((segment_reader.segment_id().short_uuid_string(), sizes));
         }
     }
 
@@ -650,23 +638,15 @@ fn validate_checksum(index: IndexOid) -> Result<SetOfIterator<'static, String>> 
 type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
 
 /// Helper function to verify that all indexed ctids exist in the heap.
-/// Returns (total_checked, total_docs, missing_ctids, docs_without_ctid)
+/// Returns (total_checked, total_docs, missing_ctids).
 fn verify_heap_references(
-    index_rel: &PgSearchRelation,
+    heap_rel: &PgSearchRelation,
     search_reader: &SearchIndexReader,
     sample_rate: Option<f64>,
     report_progress: bool,
     verbose: bool,
     segment_filter: &Option<HashSet<usize>>,
 ) -> HeapCheckResult {
-    // Get the heap relation OID from the index
-    let heap_oid = index_rel
-        .rel_oid()
-        .ok_or_else(|| anyhow::anyhow!("Could not determine heap relation for index"))?;
-
-    // Open the heap relation
-    let heap_rel = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
-
     // Set up heap fetch state
     let scan = unsafe { pg_sys::table_index_fetch_begin(heap_rel.as_ptr()) };
     let slot = unsafe {
@@ -1218,12 +1198,17 @@ pub mod pdb {
         });
 
         let index_rel = index.read();
-        let index_kind = IndexKind::for_index(index_rel.clone())?;
+        // Verification reads the heap, so each leaf opens after its table. Only the
+        // requested relation is authorized, as a scan through the parent would be.
+        let partitions: Box<dyn Iterator<Item = IndexAccess>> =
+            if is_partitioned_index(index_rel.oid()) {
+                Box::new(leaf_partition_index_accesses(&index_rel))
+            } else {
+                Box::new(std::iter::once(index_rel))
+            };
 
         let mut results = Vec::new();
-
-        // We process each partition of the index
-        for partition in index_kind.partitions() {
+        for partition in partitions {
             let partition_name = partition.name().to_owned();
 
             if report_progress {
@@ -1505,7 +1490,7 @@ pub mod pdb {
                     );
                 }
                 let heap_check_result = super::verify_heap_references(
-                    &partition,
+                    partition.heap(),
                     &search_reader,
                     sample_rate,
                     report_progress,

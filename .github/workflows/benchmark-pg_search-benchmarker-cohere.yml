@@ -1,24 +1,8 @@
 name: Benchmark vectors (Benchmarker Cohere)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/actions/setup-benchmark-cluster/**"
-      - ".github/actions/setup-pg-search-build-environment/**"
-      - ".github/actions/setup-pg-search-toolchain/**"
-      - ".github/actions/setup-postgres/**"
-      - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/publish-benchmark-results/**"
-      - ".github/actions/stage-benchmark-results/**"
-      - ".github/workflows/publish-benchmark-results.yml"
-      - ".github/actions/setup-benchmarker/**"
-      - ".github/workflows/benchmark-pg_search-benchmarker-cohere.yml"
-      - "benchmarks/cohere/**"
-      - "benchmarks/datasets/cohere/**"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -33,6 +17,13 @@ on:
         type: choice
         options: [pg_search, pg_vectorsearch]
         default: pg_search
+      disable_replication:
+        description: "Disable both pg_vectorsearch replication mechanisms"
+        type: boolean
+        default: false
+      pr_number:
+        description: "PR to receive CI results for a manual run"
+        default: ""
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
         default: ""
@@ -54,6 +45,11 @@ permissions:
 
 jobs:
   cohere:
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      id-token: write
     name: Cohere ${{ matrix.size }} (${{ inputs.engine || (github.event.label.name == 'benchmark-cohere-pgvectorsearch' && 'pg_vectorsearch') || 'pg_search' }})
     if: >-
       github.event_name != 'pull_request' ||
@@ -71,6 +67,7 @@ jobs:
       - extras=s3-cache
     env:
       COHERE_SIZE: ${{ matrix.size }}
+      DISABLE_REPLICATION: ${{ inputs.disable_replication && 'true' || 'false' }}
       COHERE_ENGINE: ${{ inputs.engine || (github.event.label.name == 'benchmark-cohere-pgvectorsearch' && 'pg_vectorsearch') || 'pg_search' }}
       PG_VECTORSEARCH_REF: "5f71e47deb62057e7f8e3bc5c5f964bc343522b0"
       pg_version: "18"
@@ -96,11 +93,18 @@ jobs:
       - name: Record benchmark commit and connection
         id: commit_info
         run: |
+          set -euo pipefail
+          if [ "$DISABLE_REPLICATION" = true ] && [ "$COHERE_ENGINE" != pg_vectorsearch ]; then
+            echo "disable_replication requires engine=pg_vectorsearch" >&2
+            exit 1
+          fi
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
           if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then
             echo "COHERE_CONFIG=benchmarks/cohere/pg_vectorsearch/${COHERE_SIZE}.toml" >> "$GITHUB_ENV"
-            echo "RESULT_DATASET=cohere-${COHERE_SIZE}-pgvectorsearch" >> "$GITHUB_ENV"
+            suffix=""
+            if [ "$DISABLE_REPLICATION" = true ]; then suffix="-no-replication"; fi
+            echo "RESULT_DATASET=cohere-${COHERE_SIZE}-pgvectorsearch${suffix}" >> "$GITHUB_ENV"
           else
             echo "COHERE_CONFIG=benchmarks/cohere/${COHERE_SIZE}.toml" >> "$GITHUB_ENV"
             echo "RESULT_DATASET=cohere-${COHERE_SIZE}" >> "$GITHUB_ENV"
@@ -120,6 +124,28 @@ jobs:
           rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
+
+      - name: Disable pg_vectorsearch replication
+        if: env.DISABLE_REPLICATION == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifacts/config
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import tomllib
+
+          source = Path(os.environ["COHERE_CONFIG"]).read_text()
+          config = tomllib.loads(source)
+          assert config["engine"] == "pg_vectorsearch"
+          assert config["index"] == {"nlist": 0}
+          assert source.count("[index]\n") == 1
+          updated = source.replace("[index]\n", "[index]\nboundary_epsilon = 0.0\nsoar_lambda = 0.0\n")
+          target = Path("benchmark-artifacts/config") / f"{os.environ['COHERE_SIZE']}.toml"
+          target.write_text(updated)
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"COHERE_CONFIG={target}\n")
+          PYTHON
 
       - name: Test Cohere benchmark helpers
         run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
@@ -159,7 +185,7 @@ jobs:
 
       - name: Create pdbench checkout token
         id: pdbench_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
@@ -198,8 +224,11 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Restore Cohere heap snapshot
@@ -210,9 +239,12 @@ jobs:
           (cd benchmarks && cargo run --release -- restore-heap \
             --dataset cohere --size "$COHERE_SIZE" \
             --pgdata /home/runner/.pgrx/data-18 --stanza bench \
-            --repo-bucket paradedb-ci-benchmarks --repo-path-prefix /snapshots \
+            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
             --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
             --repo-s3-key-type shared)
+          workers=32
+          if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then workers=8; fi
+          echo "max_worker_processes = $workers" >> /home/runner/.pgrx/data-18/postgresql.auto.conf
           (cd pg_search && cargo pgrx start pg18)
 
       - name: Refresh extension and build index
@@ -250,6 +282,32 @@ jobs:
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log
 
+      - name: Verify replication is disabled
+        if: env.DISABLE_REPLICATION == 'true'
+        run: |
+          set -euo pipefail
+          expected_rows="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["dataset"]["expected_rows"])' "$COHERE_CONFIG")"
+          index="$(jq -r '.data.index.name' benchmark-artifacts/search/"$COHERE_SIZE"/*_build.json)"
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -v index_name="$index" -v expected_rows="$expected_rows" <<'SQL' \
+            > benchmark-artifacts/replication-verification.json
+          WITH options AS (
+            SELECT count(*) = 2 AND bool_and(option_value::float8 = 0) AS disabled
+            FROM pg_class c CROSS JOIN LATERAL pg_options_to_table(c.reloptions)
+            WHERE c.oid = :'index_name'::regclass
+              AND option_name IN ('boundary_epsilon', 'soar_lambda')
+          ), postings AS (
+            SELECT sum(entry_count)::bigint AS entries, sum(dead_count)::bigint AS dead
+            FROM prism_posting_pages(:'index_name'::regclass)
+          )
+          SELECT json_build_object('options_disabled', options.disabled,
+            'posting_entries', postings.entries, 'dead_entries', postings.dead,
+            'expected_rows', :expected_rows)
+          FROM options CROSS JOIN postings;
+          SQL
+          cat benchmark-artifacts/replication-verification.json
+          jq -e '.options_disabled and .posting_entries == .expected_rows and .dead_entries == 0' \
+            benchmark-artifacts/replication-verification.json
+
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
@@ -257,7 +315,7 @@ jobs:
 
       - name: Import published ground-truth fixtures
         env:
-          FIXTURE_SOURCE: s3://paradedb-benchmarks/datasets/cohere/queries
+          FIXTURE_SOURCE: s3://paradedb-benchmark/datasets/cohere/v1/queries
         run: |
           set -euo pipefail
           python3 -m venv .cohere-fixtures
@@ -273,7 +331,6 @@ jobs:
 
           db = duckdb.connect()
           db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
-          db.execute("CREATE SECRET (TYPE s3, PROVIDER credential_chain);")
           url = os.environ["PARADEDB_URL"].replace("'", "''")
           db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
           for query in ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct"):
@@ -361,6 +418,12 @@ jobs:
           psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
             -c 'SELECT json_agg(emb::text ORDER BY id) FROM pdbench_queries' \
             > benchmark-artifacts/query_vectors.json
+          if [ "$DISABLE_REPLICATION" = true ]; then
+            printf '\nBoundary and SOAR replication disabled: `boundary_epsilon=0`, `soar_lambda=0`.\n\n' \
+              >> benchmark-artifacts/operating_points.md
+            jq -r '"Verified \(.posting_entries) postings for \(.expected_rows) vectors; \(.dead_entries) dead entries."' \
+              benchmark-artifacts/replication-verification.json >> benchmark-artifacts/operating_points.md
+          fi
           cat benchmark-artifacts/operating_points.md >> "$GITHUB_STEP_SUMMARY"
           {
             git -C pdbench rev-parse HEAD
@@ -371,10 +434,19 @@ jobs:
       - name: Verify k6 index and filter plans
         run: python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
 
+      - name: Upload index, recall, and buffer diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ env.RESULT_DATASET }}-diagnostics
+          path: benchmark-artifacts/
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ env.COHERE_ENGINE }}","pg_vectorsearch":"${{ env.COHERE_ENGINE == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ env.COHERE_ENGINE }}","disable_replication":"${{ env.DISABLE_REPLICATION }}","pg_vectorsearch":"${{ env.COHERE_ENGINE == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -403,21 +475,12 @@ jobs:
           benchmark_type: benchmarker
           metadata: >-
             {"dataset":"${{ env.RESULT_DATASET }}",
-             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number || inputs.pr_number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
              "context_file":"benchmark-artifacts/operating_points.md",
              "sweep_reports_dir":"benchmark-artifacts/comparison",
              "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
              "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
-
-      - name: Upload index, recall, and buffer diagnostics
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: ${{ env.RESULT_DATASET }}-diagnostics
-          path: benchmark-artifacts/
-          retention-days: 30
-          if-no-files-found: warn
 
       - name: Database logs
         if: failure() || cancelled()

@@ -677,7 +677,7 @@ fn vector_error_cone_audit_internal(
 fn is_quantized(segment: &tantivy::SegmentReader, field: tantivy::schema::Field) -> Result<bool> {
     Ok(segment
         .vector_index(field)?
-        .info()
+        .info()?
         .is_some_and(|info| info.quantized_layers.is_some()))
 }
 
@@ -690,7 +690,7 @@ fn ensure_quantized_segments(
     let mut quantized = false;
     let mut skipped = 0;
     for segment in reader.segment_readers() {
-        match segment.vector_index(field)?.info() {
+        match segment.vector_index(field)?.info()? {
             Some(info) if info.quantized_layers.is_some() => quantized = true,
             Some(_) => skipped += 1,
             None => {}
@@ -1216,7 +1216,7 @@ pub(crate) mod test_support {
             INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
                 FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
             CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
-                WITH (vector_fields='{\"vec\":{\"quantization\":{\"layers\":[1,4]}}}', target_segment_count=1);").unwrap();
+                WITH (quantization='[1,4]', target_segment_count=1);").unwrap();
         PgSearchRelation::open(
             Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
                 .unwrap()
@@ -1356,7 +1356,7 @@ mod tests {
     fn unsupported_vector_storage_names_index_and_reindex() {
         let indexrel = vector_metadata_fixture();
         Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
-        for version in [4, 3, 99] {
+        for version in [5, 3, 99] {
             replace_vector_version(&indexrel, version);
             let before = crate::index::reader::io_stats::vector_buffer_reads();
             let plan = Spi::get_one::<pgrx::Json>(
@@ -1378,7 +1378,7 @@ mod tests {
                 Some(2048)
             );
             Spi::run("SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')").unwrap();
-            if version != 4 {
+            if version != 5 {
                 expect_reindex(&vector_query());
                 expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
             }

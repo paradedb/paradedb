@@ -24,7 +24,7 @@ use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
 use crate::parallel_worker::WorkerStyle;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{SearchFieldConfig, SearchFieldType, VectorQuantizationConfig};
 
 use crate::api::tokenizers::search_field_config_from_type;
 use crate::gucs::{global_enable_background_merging, global_target_segment_count};
@@ -41,13 +41,13 @@ use tokenizers::SearchTokenizer;
  * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
  * Note that for string options, postgres will give you the offset of the string, and you have to read the string
  * yourself (see get_tokenizer)
-*/
+ */
 
 /* READING OPTIONS
  * options are placed in relation.rd_options
  * As in ambuild(), cast relation.rd_options into SearchIndexOptionsData using PgBox
  * (because SearchIndexOptionsData is a postgres-allocated object) and use getters and setters
-*/
+ */
 
 const MIN_TARGET_SEGMENT_COUNT: usize = 4;
 /// A partitioned build keeps one spill file buffer per partition open outside the worker budget,
@@ -149,12 +149,11 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
 }
 
 #[pg_guard]
-extern "C-unwind" fn validate_vector_fields(value: *const std::os::raw::c_char) {
-    let json_str = cstr_to_rust_str(value);
-    if json_str.is_empty() {
+extern "C-unwind" fn validate_quantization(value: *const std::os::raw::c_char) {
+    if value.is_null() {
         return;
     }
-    deserialize_config_fields(json_str, &SearchFieldConfig::vector_from_json);
+    VectorQuantizationConfig::parse(&cstr_to_rust_str(value)).unwrap_or_else(|e| panic!("{e}"));
 }
 
 #[pg_guard]
@@ -235,7 +234,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -292,9 +291,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "vector_fields".as_pg_cstr(),
+            optname: "quantization".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_fields_offset) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, quantization_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -309,6 +308,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, layer_sizes_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "vector_router_quantization".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_router_quantization) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -400,7 +406,6 @@ struct LazyInfo {
     json: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
-    vector: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
@@ -430,6 +435,12 @@ impl BM25IndexOptions {
         }
 
         self.options_data().background_layer_sizes()
+    }
+
+    /// Whether new vector segments use one-bit router codes and exact reranking.
+    /// Captured in stored index settings during creation or rebuilding.
+    pub fn vector_router_quantization(&self) -> bool {
+        self.options_data().vector_router_quantization
     }
 
     pub fn target_segment_count(&self) -> usize {
@@ -476,7 +487,15 @@ impl BM25IndexOptions {
     }
 
     pub fn partition_by(&self) -> Vec<FieldName> {
-        self.options_data().partition_by()
+        let options = self.options_data();
+        if options.partition_by_offset != 0 {
+            return options.partition_by();
+        }
+        self.attributes()
+            .iter()
+            .filter(|(_, attr)| matches!(attr.tantivy_type, SearchFieldType::Vector(..)))
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -552,12 +571,8 @@ impl BM25IndexOptions {
         self.lazy.inet.borrow()
     }
 
-    /// Returns the vector-field configurations.
-    pub fn vector_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
-        if self.lazy.vector.borrow().is_none() {
-            *self.lazy.vector.borrow_mut() = Some(self.options_data().vector_configs());
-        }
-        self.lazy.vector.borrow()
+    pub fn quantization(&self) -> Option<VectorQuantizationConfig> {
+        self.options_data().quantization()
     }
 
     /// Resolves indexed types and explicit field options.
@@ -571,6 +586,12 @@ impl BM25IndexOptions {
         }
 
         let field_type = self.get_field_type(field_name);
+
+        if matches!(field_type, Some(SearchFieldType::Vector(..))) {
+            return Some(SearchFieldConfig::Vector {
+                quantization: self.quantization(),
+            });
+        }
 
         if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) = field_type {
             return search_field_config_from_type(tokenizer_oid, typmod, inner_typoid);
@@ -629,13 +650,6 @@ impl BM25IndexOptions {
             })
             .or_else(|| {
                 self.inet_config()
-                    .as_ref()
-                    .unwrap()
-                    .get(field_name)
-                    .cloned()
-            })
-            .or_else(|| {
-                self.vector_config()
                     .as_ref()
                     .unwrap()
                     .get(field_name)
@@ -802,7 +816,7 @@ struct BM25IndexOptionsData {
     json_fields_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
-    vector_fields_offset: i32,
+    quantization_offset: i32,
     key_field_offset: i32, // Accepted for compatibility; never read.
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
@@ -814,6 +828,7 @@ struct BM25IndexOptionsData {
     max_leaf_size: i32,
     training_sample_ratio: f64,
     partition_by_offset: i32,
+    vector_router_quantization: bool,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -824,7 +839,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     json_fields_offset: 0,
     range_fields_offset: 0,
     datetime_fields_offset: 0,
-    vector_fields_offset: 0,
+    quantization_offset: 0,
     key_field_offset: 0,
     layer_sizes_offset: 0,
     inet_fields_offset: 0,
@@ -836,6 +851,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
+    vector_router_quantization: false,
 };
 
 impl BM25IndexOptionsData {
@@ -966,12 +982,12 @@ impl BM25IndexOptionsData {
         )
     }
 
-    /// Returns the vector-field configurations.
-    pub fn vector_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
-        self.deserialize_configs(
-            self.vector_fields_offset,
-            &SearchFieldConfig::vector_from_json,
-        )
+    fn quantization(&self) -> Option<VectorQuantizationConfig> {
+        if self.quantization_offset == 0 {
+            return None;
+        }
+        let value = self.get_str(self.quantization_offset, String::new());
+        Some(VectorQuantizationConfig::parse(&value).unwrap_or_else(|e| panic!("{e}")))
     }
 
     fn deserialize_configs(
@@ -1060,10 +1076,11 @@ pub unsafe fn init() {
     );
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
-        "vector_fields".as_pg_cstr(),
-        "JSON string specifying per-vector-field options, including quantization".as_pg_cstr(),
+        "quantization".as_pg_cstr(),
+        "Quantization layer widths for all vector fields (default [1,1]); 0 disables quantization"
+            .as_pg_cstr(),
         std::ptr::null(),
-        Some(validate_vector_fields),
+        Some(validate_quantization),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(
@@ -1080,6 +1097,14 @@ pub unsafe fn init() {
         "The sizes of each layer to merge in the foreground".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_layer_sizes),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_bool_reloption(
+        RELOPT_KIND_PDB,
+        "vector_router_quantization".as_pg_cstr(),
+        "Use one-bit centroid routing with exact reranking when creating or rebuilding the index"
+            .as_pg_cstr(),
+        false,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

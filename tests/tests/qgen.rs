@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use tests::fixtures::querygen::distinctgen::arb_distinct_mode;
-use tests::fixtures::querygen::groupbygen::arb_group_by;
+use tests::fixtures::querygen::groupbygen::{SelectItem, arb_group_by};
 use tests::fixtures::querygen::joingen::{JoinType, arb_joins, arb_semi_joins};
 use tests::fixtures::querygen::mutationgen::churn_setup;
 use tests::fixtures::querygen::numericgen::arb_numeric_expr;
@@ -38,6 +38,7 @@ use tests::fixtures::*;
 
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
+use num_traits::ToPrimitive;
 use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
@@ -121,17 +122,18 @@ const COLUMNS: &[Column] = &[
         ),
     Column::new("age", "INTEGER", "'20'")
         .random_generator_sql("(floor(random() * 100) + 1)"),
+    Column::new("op_expr_col", "INTEGER", "'3'")
+        .whereable(false)
+        .groupable(true)
+        .index_expression(IndexExpression::Multiply { factor: 10 })
+        .random_generator_sql("(floor(random() * 100) + 1)"),
     Column::new("quantity", "INTEGER", "'7'")
         .whereable(true)
         .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")
-        .groupable({
-            // TODO: Grouping on a float fails to ORDER BY (even in cases without an ORDER BY):
-            // ```
-            // Cannot ORDER BY OrderByInfo
-            // ```
-            false
-        })
+        .groupable(
+            true
+        )
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
     // Additional NUMERIC columns for testing Numeric64 vs NumericBytes storage
     Column::new("small_numeric", "NUMERIC(5,2)", "'12.34'")
@@ -144,7 +146,7 @@ const COLUMNS: &[Column] = &[
         .groupable(false)
         .random_generator_sql("(random() * 10000)::numeric(18,6)"),
     Column::new("big_numeric", "NUMERIC", "'12345.67890'")
-        .groupable(false)  // Cannot aggregate NumericBytes
+        .groupable(false)
         .random_generator_sql("(random() * 100000)::numeric"),
     Column::new("rating", "INTEGER", "'4'")
         .indexed({
@@ -198,6 +200,14 @@ const COLUMNS: &[Column] = &[
                 WHEN 4 THEN NULL \
                 ELSE ARRAY[]::text[] \
             END)",
+        ),
+    Column::new("embedding", "vector(3)", "'[1,1,1]'")
+        .whereable(false)
+        .groupable(false)
+        .orderable(false)
+        .index_expression(IndexExpression::VectorCosine)
+        .random_generator_sql(
+            "ARRAY[(floor(random() * 10) + 1)::float4, (floor(random() * 10) + 1)::float4, (floor(random() * 10) + 1)::float4]::vector(3)",
         ),
 ];
 
@@ -597,132 +607,155 @@ async fn generated_group_by_aggregates(database: Db, #[case] churn_on: bool) {
     let setup_sql = churn_setup(&pool, setup_sql, &tables_and_sizes, COLUMNS, churn_on);
 
     // Columns that can be used for grouping (must be columnar indexed)
-    let columns: Vec<_> = COLUMNS
+    let where_columns: Vec<_> = COLUMNS
         .iter()
-        .filter(|col| col.is_groupable && col.is_whereable)
+        .filter(|col| col.is_whereable)
         .cloned()
         .collect();
 
-    let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
+    let mut grouping_columns: Vec<_> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable)
+        .filter(|col| col.index_expression.is_none_or(|e| e.indexes_bare_column()))
+        .map(|col| col.name.to_string())
+        .collect();
+    grouping_columns.extend(
+        [
+            // FuncExpr matching an index expression
+            "upper(category)",
+            // OpExpr; pair this with the IndexExpression variant from earlier,
+            "op_expr_col * 10",
+            // JSON projections
+            "metadata->>'brand'",
+            "metadata->'brand'",
+            // TODO(issue #7207)
+            //"(metadata->>'rating')::bigint",
+            // TODO(issue #6834): numeric JSON `->>` grouping isn't pushed down exactly
+            //"metadata->'details'->>'score'",
+        ]
+        .map(String::from),
+    );
 
     proptest!(qgen_proptest_config(), |(
-        text_where_expr in arb_wheres(
-            vec![table_name],
-            &columns,
-        ),
-        numeric_where_expr in arb_wheres(
-            vec![table_name],
-            &columns_named(vec!["age", "price", "rating"]),
-        ),
-        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec![
-            "COUNT(*)", "SUM(price)", "AVG(price)", "MIN(quantity)", "MAX(quantity)", "SUM(age)", "AVG(age)",
-            "COUNT(metadata->>'brand')",
-            "COUNT((metadata->>'rating')::bigint)",
-            "SUM((metadata->>'rating')::bigint)",
-            "AVG((metadata->>'rating')::bigint)",
-            "MIN((metadata->>'rating')::bigint)",
-            "MAX((metadata->>'rating')::bigint)",
-            "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
-            "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
-            "SUM(COALESCE((metadata->>'rating')::bigint, 7))",
-            "SUM((metadata->'details'->>'score')::double precision)",
-            "AVG((metadata->'details'->>'score')::double precision)",
-            "MIN((metadata->'details'->>'score')::double precision)",
-            "MAX((metadata->'details'->>'score')::double precision)",
-            "AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))",
-        ]),
-        limit in prop::option::of(5..21_usize),
-        offset in prop::option::of(0..4_usize),
-        gucs in any::<PgGucs>(),
-    )| {
-        let select_list = group_by_expr.to_select_list();
-        let group_by_clause = group_by_expr.to_sql();
+            text_where_expr in arb_wheres(
+                vec![table_name],
+                &where_columns,
+            ),
+            numeric_where_expr in arb_wheres(
+                vec![table_name],
+                &columns_named(vec!["age", "price", "rating"]),
+            ),
+            group_by_expr in arb_group_by(grouping_columns.clone(), vec![
+                "COUNT(*)", "SUM(price)", "AVG(price)", "MIN(quantity)", "MAX(quantity)", "SUM(age)", "AVG(age)",
+                "COUNT(metadata->>'brand')",
+                "COUNT((metadata->>'rating')::bigint)",
+                "SUM((metadata->>'rating')::bigint)",
+                "AVG((metadata->>'rating')::bigint)",
+                "MIN((metadata->>'rating')::bigint)",
+                "MAX((metadata->>'rating')::bigint)",
+                "COUNT(COALESCE((metadata->>'rating')::bigint, 0))",
+                "SUM(COALESCE((metadata->>'rating')::bigint, -1))",
+                "SUM(COALESCE((metadata->>'rating')::bigint, 7))",
+                "SUM((metadata->'details'->>'score')::double precision)",
+                "AVG((metadata->'details'->>'score')::double precision)",
+                "MIN((metadata->'details'->>'score')::double precision)",
+                "MAX((metadata->'details'->>'score')::double precision)",
+                "AVG(COALESCE((metadata->'details'->>'score')::double precision, 1.5))",
+            ]),
+            limit in prop::option::of(5..21_usize),
+            offset in prop::option::of(0..4_usize),
+            gucs in any::<PgGucs>(),
+        )| {
+            let select_list = group_by_expr.to_select_list();
+            let group_by_clause = group_by_expr.to_sql();
 
-        let order_by_and_offset_clause: String = if group_by_expr.group_by_columns.is_empty() {
-            String::new()
-        } else {
-            let order_by_items: Vec<String> = group_by_expr.group_by_columns
-                .iter()
-                .map(|item| {format!("{item} ASC NULLS LAST")})
-                .collect();
-            // only apply OFFSET when there are grouping columns, otherwise
-            // we'd offset the single aggregate row
-            let offset_clause = offset
-                .map(|value| format!(" OFFSET {value}"))
+            let order_by_and_offset_clause: String = if group_by_expr.group_by_columns.is_empty() {
+                String::new()
+            } else {
+                let order_by_items: Vec<String> = group_by_expr.group_by_columns
+                    .iter()
+                    .map(|item| {format!("{item} ASC NULLS LAST")})
+                    .collect();
+                // only apply OFFSET when there are grouping columns, otherwise
+                // we'd offset the single aggregate row
+                let offset_clause = offset
+                    .map(|value| format!(" OFFSET {value}"))
+                    .unwrap_or_default();
+
+                format!("ORDER BY {}{offset_clause}", order_by_items.join(", "))
+            };
+
+            let limit_clause = limit
+                .map(|value| format!(" LIMIT {value}"))
                 .unwrap_or_default();
 
-            format!("ORDER BY {}{offset_clause}", order_by_items.join(", "))
-        };
+            // Create combined WHERE clause for PostgreSQL using = operator
+            let pg_where_clause = format!(
+                "({}) AND ({})",
+                text_where_expr.to_sql(" = "),
+                numeric_where_expr.to_sql(" < ")
+            );
 
-        let limit_clause = limit
-            .map(|value| format!(" LIMIT {value}"))
-            .unwrap_or_default();
+            // Create combined WHERE clause for BM25 using appropriate operators
+            let bm25_where_clause = format!(
+                "({}) AND ({})",
+                text_where_expr.to_sql("@@@"),
+                numeric_where_expr.to_sql(" < ")
+            );
 
-        // Create combined WHERE clause for PostgreSQL using = operator
-        let pg_where_clause = format!(
-            "({}) AND ({})",
-            text_where_expr.to_sql(" = "),
-            numeric_where_expr.to_sql(" < ")
-        );
+            let pg_query = format!(
+                "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
+            );
 
-        // Create combined WHERE clause for BM25 using appropriate operators
-        let bm25_where_clause = format!(
-            "({}) AND ({})",
-            text_where_expr.to_sql("@@@"),
-            numeric_where_expr.to_sql(" < ")
-        );
+            let bm25_query = format!(
+                "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
+            );
 
-        let pg_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
-        );
+            // Custom result comparator for GROUP BY results
+            let compare_results =
+                |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
+                // Fetch all rows as dynamic results and convert to string representation
+                let rows = query.fetch_dynamic_result(conn)?;
+                let string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        // Convert entire row to a string representation for comparison
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
 
-        let bm25_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
-        );
+                            // Try to get value as different types, converting to string
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
+                                format!("{val:.6}")
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{val:.6}")
+                            } else if let Ok(val) = row.try_get::<sqlx::types::Uuid, _>(i) {
+                                val.to_string()
+    } else if let Ok(val) = row.try_get::<serde_json::Value, _>(i) {
+        val.to_string()
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
 
-        // Custom result comparator for GROUP BY results
-        let compare_results =
-            |query: &str, _: QuerySide, conn: &mut PgConnection| -> Result<Vec<String>, sqlx::Error> {
-            // Fetch all rows as dynamic results and convert to string representation
-            let rows = query.fetch_dynamic_result(conn)?;
-            let string_rows: Vec<String> = rows
-                .into_iter()
-                .map(|row| {
-                    // Convert entire row to a string representation for comparison
-                    let mut row_string = String::new();
-                    for i in 0..row.len() {
-                        if i > 0 {
-                            row_string.push('|');
+                            row_string.push_str(&value_str);
                         }
+                        row_string
+                    })
+                    .collect();
 
-                        // Try to get value as different types, converting to string
-                        let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
-                            val.to_string()
-                        } else if let Ok(val) = row.try_get::<i32, _>(i) {
-                            val.to_string()
-                        } else if let Ok(val) = row.try_get::<sqlx::types::BigDecimal, _>(i) {
-                            format!("{val:.6}")
-                        } else if let Ok(val) = row.try_get::<f64, _>(i) {
-                            format!("{val:.6}")
-                        } else if let Ok(val) = row.try_get::<sqlx::types::Uuid, _>(i) {
-                            val.to_string()
-                        } else if let Ok(val) = row.try_get::<String, _>(i) {
-                            val
-                        } else {
-                            "NULL".to_string()
-                        };
+                Ok(string_rows)
+            };
 
-                        row_string.push_str(&value_str);
-                    }
-                    row_string
-                })
-                .collect();
-
-            Ok(string_rows)
-        };
-
-        qgen_oracle!("qgen: generated_group_by_aggregates - ParadeDB result matches PostgreSQL", compare_outcome_retrying(&pg_query, &bm25_query, &gucs, &pool, &setup_sql, compare_results))?;
-    });
+            qgen_oracle!("qgen: generated_group_by_aggregates - ParadeDB result matches PostgreSQL", compare_outcome_retrying(&pg_query, &bm25_query, &gucs, &pool, &setup_sql, compare_results))?;
+        });
 }
 
 #[rstest]
@@ -863,6 +896,23 @@ async fn generated_subquery(database: Db, #[case] churn_on: bool) {
     });
 }
 
+#[derive(Debug)]
+struct FloatAggregate(f64);
+
+impl PartialEq for FloatAggregate {
+    fn eq(&self, other: &Self) -> bool {
+        approx::relative_eq!(self.0, other.0, epsilon = 1e-9, max_relative = 1e-12)
+    }
+}
+
+#[test]
+fn float_aggregate_comparison() {
+    let exact = FloatAggregate(923.6953125);
+    assert_eq!(exact, FloatAggregate(923.695312500002));
+    assert_ne!(exact, FloatAggregate(923.6953135));
+    assert_ne!(Some(exact), None);
+}
+
 /// Property test for aggregate-on-join via DataFusion: ensures equivalence between
 /// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
 ///
@@ -902,6 +952,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
     let base_grouping_cols: Vec<&str> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
+        .filter(|col| col.index_expression.is_none_or(|e| e.indexes_bare_column()))
         .map(|col| col.name)
         .collect();
 
@@ -925,6 +976,7 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
                     // Group by text and JSONB representations
                     grouping_columns.push(format!("{table}.metadata->>'brand'"));
                     grouping_columns.push(format!("{table}.metadata->'brand'"));
+                    grouping_columns.push(format!("{table}.op_expr_col * 10"));
                     aggregates.extend([
                         format!("SUM({table}.age)"),
                         format!("AVG({table}.age)"),
@@ -950,6 +1002,11 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
         let join_clause = join_expr.to_sql();
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
+
+        let float_aggregates: Vec<bool> = group_by_expr.target_list.iter().map(|item| {
+            matches!(item, SelectItem::Aggregate(agg)
+                if ["AVG(", "STDDEV(", "VARIANCE("].iter().any(|prefix| agg.starts_with(prefix)))
+        }).collect();
 
         // Build WHERE clauses
         let bm25_where = outer_bm25.to_sql("@@@");
@@ -1016,11 +1073,19 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
             &setup_sql,
             |query, _, conn| {
                 let rows = query.fetch_dynamic_result(conn)?;
-                let mut string_rows: Vec<String> = rows
+                let mut result_rows = rows
                     .into_iter()
                     .map(|row| {
                         let mut row_string = String::new();
-                        for i in 0..row.len() {
+                        let mut float_values = Vec::new();
+                        for (i, &is_float) in float_aggregates.iter().enumerate() {
+                            if is_float {
+                                let value = row.try_get::<Option<sqlx::types::BigDecimal>, _>(i)
+                                    .map(|value| value.map(|value| value.to_f64().expect("bounded aggregate fits f64")))
+                                    .or_else(|_| row.try_get::<Option<f64>, _>(i))?;
+                                float_values.push(value.map(FloatAggregate));
+                                continue;
+                            }
                             if i > 0 {
                                 row_string.push('|');
                             }
@@ -1043,11 +1108,11 @@ async fn generated_aggregate_join(database: Db, #[case] churn_on: bool) {
                             };
                             row_string.push_str(&value_str);
                         }
-                        row_string
+                        Ok::<_, sqlx::Error>((row_string, float_values))
                     })
-                    .collect();
-                string_rows.sort();
-                Ok(string_rows)
+                    .collect::<Result<Vec<_>, _>>()?;
+                result_rows.sort_by(|left, right| left.0.cmp(&right.0));
+                Ok(result_rows)
             },
         ))?;
     });
@@ -1620,9 +1685,16 @@ async fn generated_pdb_agg_single_table(database: Db) {
     });
 }
 
-/// Property test for top-K scored and fast-field-ordered joins comparing `HashJoinExec`
-/// (`paradedb.enable_rank_join = off`) against `RankJoinExec` (`paradedb.enable_rank_join = on`,
-/// `paradedb.rank_join_min_rows = 0`).
+#[derive(Clone, Copy, Debug)]
+enum RankJoinOrderKind {
+    FastField,
+    Score(usize),
+    VectorDistance { query: [u8; 3], table_idx: usize },
+}
+
+/// Property test for top-K scored, fast-field-ordered, and vector-distance-ordered `INNER` and
+/// `SEMI` joins comparing `HashJoinExec` (`paradedb.enable_rank_join = off`) against
+/// `RankJoinExec` (`paradedb.enable_rank_join = on`, `paradedb.rank_join_min_rows = 0`).
 #[rstest]
 #[tokio::test]
 async fn generated_rank_join(database: Db) {
@@ -1656,59 +1728,138 @@ async fn generated_rank_join(database: Db) {
         )
     });
 
+    let order_kind_strategy = prop_oneof![
+        1 => Just(RankJoinOrderKind::FastField),
+        1 => Just(RankJoinOrderKind::Score(1)),
+        1 => Just(RankJoinOrderKind::Score(usize::MAX)),
+        2 => (1..=5u8, 1..=5u8, 1..=5u8, 0..3usize)
+            .prop_map(|(x, y, z, table_idx)| RankJoinOrderKind::VectorDistance {
+                query: [x, y, z],
+                table_idx,
+            }),
+    ];
+
     proptest!(qgen_proptest_config(), |(
-        (join, table_wheres, extra_base_where, mut order_parts) in join_and_where_strategy,
+        (join, table_wheres, extra_base_where, order_parts) in join_and_where_strategy,
+        semi_exists in proptest::option::of(proptest::bool::ANY),
         disjunctive in proptest::bool::ANY,
-        scored_tables in prop_oneof![Just(0usize), Just(1usize), Just(usize::MAX)],
+        order_kind in order_kind_strategy,
+        extra_vector_tiebreaker in proptest::bool::ANY,
         multiply_scores in proptest::bool::ANY,
         descending in proptest::bool::ANY,
         limit in 1..=25usize,
         offset in 0..=10usize,
         mut gucs in any::<PgGucs>(),
     )| {
+        let dir = if descending { "DESC" } else { "ASC" };
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
         let first_table = used_tables[0];
 
-        let where_sep = if disjunctive { " OR " } else { " AND " };
-        let where_clauses = table_wheres
-            .iter()
-            .map(|w| format!("({})", w.to_sql("@@@")))
-            .collect::<Vec<_>>()
-            .join(where_sep);
+        let (from_prefix, where_clauses, visible_tables, mut order_parts, use_disjunctive) =
+            if let Some(((outer, inner, join_col), use_exists)) =
+                join.as_equi_pair().zip(semi_exists)
+            {
+                let outer_where = table_wheres[0].to_sql("@@@");
+                let inner_where = table_wheres[1].to_sql("@@@");
+                let subq = if use_exists {
+                    format!(
+                        "EXISTS (SELECT 1 FROM {inner} WHERE {inner}.{join_col} = {outer}.{join_col} AND ({inner_where}))"
+                    )
+                } else {
+                    format!(
+                        "{outer}.{join_col} IN (SELECT {inner}.{join_col} FROM {inner} WHERE {inner_where})"
+                    )
+                };
+                (
+                    format!("FROM {outer}"),
+                    format!("({outer_where}) AND {subq}"),
+                    &used_tables[..1],
+                    vec![format!("{outer}.id")],
+                    false,
+                )
+            } else {
+                let where_sep = if disjunctive { " OR " } else { " AND " };
+                let where_clauses = table_wheres
+                    .iter()
+                    .map(|w| format!("({})", w.to_sql("@@@")))
+                    .collect::<Vec<_>>()
+                    .join(where_sep);
+                (
+                    join_clause.clone(),
+                    where_clauses,
+                    &used_tables[..],
+                    order_parts,
+                    disjunctive,
+                )
+            };
+
         let where_bm25 = match &extra_base_where {
             Some(base_w) => format!("({}) AND ({where_clauses})", base_w.to_sql("@@@")),
             None => where_clauses,
         };
 
-        // Disjunctive score joins require scoring all tables; conjunctive joins also test
-        // single-sided score (`scored_tables == 1`) and fast-field (`scored_tables == 0`) sorts.
-        let n_scored = if disjunctive {
-            used_tables.len()
-        } else {
-            scored_tables.min(used_tables.len())
+        // Non-equi / keyless steps decline vector distance ORDER BY in JoinScan; fall
+        // back to FastField ordering on keyless join shapes so every vector-ordered
+        // case exercises JoinScan.
+        let effective_order = match order_kind {
+            RankJoinOrderKind::VectorDistance { .. } if join.has_keyless_step() => {
+                RankJoinOrderKind::FastField
+            }
+            other => other,
         };
-        let dir = if descending { "DESC" } else { "ASC" };
-        let score_sep = if !disjunctive && multiply_scores {
-            " * "
-        } else {
-            " + "
+        let is_vector_order = matches!(effective_order, RankJoinOrderKind::VectorDistance { .. });
+        let n_scored = match effective_order {
+            RankJoinOrderKind::VectorDistance { .. } => 0,
+            RankJoinOrderKind::FastField if !use_disjunctive => 0,
+            RankJoinOrderKind::FastField => visible_tables.len(),
+            RankJoinOrderKind::Score(n) => {
+                if use_disjunctive {
+                    visible_tables.len()
+                } else {
+                    n.min(visible_tables.len())
+                }
+            }
         };
-        let lead_order = if n_scored == 0 {
-            format!("{first_table}.quantity {dir}")
-        } else {
-            let combined = used_tables[..n_scored]
-                .iter()
-                .map(|t| format!("pdb.score({t}.id)"))
-                .collect::<Vec<_>>()
-                .join(score_sep);
-            format!("{combined} {dir}")
+
+        let (select_table, order_by) = match effective_order {
+            RankJoinOrderKind::VectorDistance {
+                query: [x, y, z],
+                table_idx,
+            } => {
+                let vec_table = visible_tables[table_idx % visible_tables.len()];
+                let mut parts = vec![format!(
+                    "{vec_table}.embedding <=> '[{x},{y},{z}]'::vector ASC"
+                )];
+                if extra_vector_tiebreaker {
+                    parts.push(format!("{vec_table}.age {dir}"));
+                }
+                parts.push(format!("{vec_table}.id {dir}"));
+                (vec_table, parts.join(", "))
+            }
+            RankJoinOrderKind::FastField | RankJoinOrderKind::Score(_) => {
+                let score_sep = if !use_disjunctive && multiply_scores {
+                    " * "
+                } else {
+                    " + "
+                };
+                let lead_order = if n_scored == 0 {
+                    format!("{first_table}.quantity {dir}")
+                } else {
+                    let combined = visible_tables[..n_scored]
+                        .iter()
+                        .map(|t| format!("pdb.score({t}.id)"))
+                        .collect::<Vec<_>>()
+                        .join(score_sep);
+                    format!("{combined} {dir}")
+                };
+                order_parts.insert(0, lead_order);
+                (first_table, order_parts.join(", "))
+            }
         };
-        order_parts.insert(0, lead_order);
-        let order_by = order_parts.join(", ");
 
         let bm25_query = format!(
-            "SELECT {first_table}.id, {first_table}.name {join_clause} \
+            "SELECT {select_table}.id, {select_table}.name {from_prefix} \
              WHERE {where_bm25} \
              ORDER BY {order_by} \
              LIMIT {limit} OFFSET {offset}"
@@ -1716,12 +1867,23 @@ async fn generated_rank_join(database: Db) {
 
         gucs.join_custom_scan = true;
         gucs.custom_scan = true;
+        if is_vector_order {
+            // Vector distance ORDER BY requires `enable_filter_pushdown` when local scalar/heap
+            // predicates are present so `RankJoinExec` and `HashJoinExec` push identical index queries.
+            gucs.filter_pushdown = true;
+        }
 
         let base_gucs = gucs.set();
         let sides = Sides {
-            baseline: format!("{base_gucs}SET paradedb.enable_rank_join TO off;\n"),
+            baseline: format!(
+                "{base_gucs}\
+                 SET paradedb.vector_cluster_max_probe TO 1.0;\n\
+                 SET paradedb.enable_rank_join TO off;\n"
+            ),
             candidate: format!(
-                "{base_gucs}SET paradedb.enable_rank_join TO on;\n\
+                "{base_gucs}\
+                 SET paradedb.vector_cluster_max_probe TO 1.0;\n\
+                 SET paradedb.enable_rank_join TO on;\n\
                  SET paradedb.rank_join_min_rows TO 0;\n"
             ),
         };
@@ -1738,6 +1900,13 @@ async fn generated_rank_join(database: Db) {
             )
         )?;
 
+        // TODO: Loosen this guard once `RankJoinRule` lifts its constant-score restriction
+        // (currently negated predicates lower to `ConstScore(Exists, 0.0) + must_not` with
+        // `is_constant_score() == true`, which Gate 1 in `SubtreeScoreStats::from_leaf_queries`
+        // rejects for score sorts). Requiring a bare indexed `Atom` per table is a conservative
+        // sufficient condition that guarantees Gate 1 (non-constant positive BM25 score) and
+        // Gate 2 (balanced score bounds) without duplicating `RankJoinRule`'s analysis in
+        // `wheregen`, while the result oracle above runs on all `arb_wheres` shapes.
         if !join.has_keyless_step()
             && !join_clause.contains(" AND ")
             && !join_clause.contains(".name =")
@@ -1745,10 +1914,16 @@ async fn generated_rank_join(database: Db) {
             && extra_base_where.is_none()
             && (n_scored == 0 || descending)
             && !gucs.parallel_workers
+            && gucs.filter_pushdown
             && table_wheres
                 .iter()
                 .all(|w| matches!(w, WhereExpr::Atom { is_indexed: true, .. }))
         {
+            let forbidden_candidate: &[&str] = if is_vector_order {
+                &["Sort Key:"]
+            } else {
+                &[]
+            };
             qgen_oracle!(
                 "qgen: generated_rank_join - RankJoinExec planned",
                 compare_plan_retrying_on(
@@ -1758,9 +1933,28 @@ async fn generated_rank_join(database: Db) {
                     &pool,
                     &setup_sql,
                     &["RankJoinExec"],
-                    &[],
+                    forbidden_candidate,
                 )
             )?;
+
+            if is_vector_order {
+                let baseline_plan_sides = Sides {
+                    baseline: sides.candidate.clone(),
+                    candidate: sides.baseline.clone(),
+                };
+                qgen_oracle!(
+                    "qgen: generated_rank_join - vector HashJoinExec + lazy_sort planned",
+                    compare_plan_retrying_on(
+                        &baseline_plan_sides,
+                        &bm25_query,
+                        &bm25_query,
+                        &pool,
+                        &setup_sql,
+                        &["lazy_sort="],
+                        &["Sort Key:", "RankJoinExec"],
+                    )
+                )?;
+            }
         }
     });
 }

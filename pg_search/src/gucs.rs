@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::guc::GucEnum;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
@@ -75,6 +76,18 @@ static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
+
+/// Recheck saved plans when their diagnostic policy changes, including SET LOCAL rollback.
+/// PostgreSQL calls assign hooks before updating the GUC's stored value.
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn assign_planner_warnings(
+    new_value: std::ffi::c_int,
+    _extra: *mut std::ffi::c_void,
+) {
+    if new_value != PLANNER_WARNINGS.get().to_ordinal() {
+        unsafe { pg_sys::ResetPlanCache() };
+    }
+}
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -211,6 +224,11 @@ static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// the row-count floor.
 static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
+/// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0`.
+static RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD: GucSetting<f64> =
+    GucSetting::<f64>::new(crate::scan::rank_join_rule::UNSCORED_SELECTIVITY_THRESHOLD);
+
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
 /// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
 /// a window query with a LIMIT takes that path regardless.
@@ -332,6 +350,22 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_router_rerank_factor() -> f32 {
+    VECTOR_ROUTER_RERANK_FACTOR.get() as f32
+}
+
+pub fn vector_router_min_beam_fraction() -> f32 {
+    VECTOR_ROUTER_MIN_BEAM_FRACTION.get() as f32
+}
+
+pub fn vector_router_aps() -> bool {
+    VECTOR_ROUTER_APS.get()
+}
+
 /// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
@@ -438,16 +472,22 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_enum_guc(
-        c"paradedb.planner_warnings",
-        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
-        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
-          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
-          an error instead. When set to 'off', suppresses checks and warnings.",
-        &PLANNER_WARNINGS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
+    unsafe {
+        GucRegistry::define_enum_guc_with_hooks(
+            c"paradedb.planner_warnings",
+            c"Controls ParadeDB planning and execution diagnostics",
+            c"When set to 'warning' (default), logs warnings about scan fallbacks, filter spills, \
+              and stale visibility maps. When set to 'error', raises an error instead, except \
+              during EXPLAIN without ANALYZE. When set to 'off', suppresses these diagnostics. \
+              Changing this setting invalidates cached plans.",
+            &PLANNER_WARNINGS,
+            GucContext::Userset,
+            GucFlags::default(),
+            None,
+            Some(assign_planner_warnings),
+            None,
+        );
+    }
 
     GucRegistry::define_enum_guc(
         c"paradedb.disjunction_pruning",
@@ -647,8 +687,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.global_enable_background_merging",
-        c"Enable background merging",
-        c"Enable background merging",
+        c"Enable write-triggered background merging",
+        c"Periodic mutable sweeps are controlled separately by paradedb.mutable_sweep_interval",
         &GLOBAL_ENABLE_BACKGROUND_MERGING,
         GucContext::Sighup,
         GucFlags::default(),
@@ -685,6 +725,34 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_rerank_factor",
+        c"Approximate candidates retained per requested centroid by quantized routing",
+        c"Retain ceil(factor * router_k) candidates before exact reranking. A factor of 1 removes padding but still reranks exactly. Does not widen list selection or change document probing budgets.",
+        &VECTOR_ROUTER_RERANK_FACTOR,
+        1.0,
+        16.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_min_beam_fraction",
+        c"Minimum fraction of each quantized router level's lists to open",
+        c"Query-time shortlist breadth. Full-precision routing retains its existing beam.",
+        &VECTOR_ROUTER_MIN_BEAM_FRACTION,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_router_aps",
+        c"Allow stacked routing to stop after quiet lists",
+        c"Applies to full-precision and quantized hierarchical routing.",
+        &VECTOR_ROUTER_APS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Registered so SHOW and pg_settings stay stable. Nothing reads these.
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
@@ -839,6 +907,18 @@ pub fn init() {
         &RANK_JOIN_MIN_ROWS,
         0,
         i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.rank_join_unscored_selectivity_threshold",
+        c"Minimum estimated selectivity on unscored (RA) join inputs for RankJoinExec",
+        c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
+          inputs of a single-sided (NRJN) join when paradedb.rank_join_min_rows > 0.",
+        &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1262,6 +1342,12 @@ pub fn enable_rank_join() -> bool {
 
 pub fn rank_join_min_rows() -> usize {
     RANK_JOIN_MIN_ROWS.get().max(0) as usize
+}
+
+pub fn rank_join_unscored_selectivity_threshold() -> f64 {
+    RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD
+        .get()
+        .clamp(0.0, 1.0)
 }
 
 pub fn joinscan_force_topk_as_agg() -> bool {

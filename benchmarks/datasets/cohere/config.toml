@@ -1,6 +1,6 @@
 sampling_seed = 0
 load_format = "parquet"
-s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
+s3_base_path = "s3://paradedb-benchmark/datasets/cohere/v1"
 tables = []
 
 [root_table]

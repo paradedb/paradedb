@@ -17,7 +17,7 @@ Unless otherwise noted, run commands from the `benchmarks/` directory.
 Upload your source data as partitioned parquet files to S3. Each table should be in its own subdirectory under a `source/parquet/` path (filename doesn't matter):
 
 ```text
-s3://<dataset-bucket>/datasets/{dataset-name}/source/parquet/
+s3://<dataset-bucket>/datasets/{dataset-name}/v1/source/parquet/
 ├── {table_a}/
 │   ├── part-0001.parquet
 │   ├── part-0002.parquet
@@ -31,7 +31,7 @@ s3://<dataset-bucket>/datasets/{dataset-name}/source/parquet/
 For example, for the Stack Overflow dataset:
 
 ```text
-s3://<dataset-bucket>/datasets/stackoverflow/source/parquet/
+s3://<dataset-bucket>/datasets/stackoverflow/v1/source/parquet/
 ├── stackoverflow_posts/
 ├── comments/
 └── users/
@@ -45,7 +45,7 @@ Create a TOML config file at `datasets/{dataset-name}/config.toml` that describe
 
 ```toml
 sampling_seed = 723
-s3_base_path = "s3://<dataset-bucket>/datasets/root_dataset"
+s3_base_path = "s3://<dataset-bucket>/datasets/root_dataset/v1"
 
 [root_table]
 name = "root_table_name"
@@ -81,22 +81,22 @@ Run the `sample` command once for each dataset size you need. The `--rows` argum
 ```bash
 # Sample to 10k rows
 cargo run --release -- sample \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/source/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/sampled/10k/parquet/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/source/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/10k/parquet/ \
   --config ./datasets/stackoverflow/config.toml \
   --rows 10000
 
 # Sample to 100k rows
 cargo run --release -- sample \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/source/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/sampled/100k/parquet/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/source/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/100k/parquet/ \
   --config ./datasets/stackoverflow/config.toml \
   --rows 100000
 
 # Sample to 1m rows
 cargo run --release -- sample \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/source/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/sampled/1m/parquet/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/source/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/1m/parquet/ \
   --config ./datasets/stackoverflow/config.toml \
   --rows 1000000
 ```
@@ -114,20 +114,20 @@ Run the `convert` command for each sampled size to produce CSV versions. The `--
 ```bash
 # Convert 10k sampled data
 cargo run --release -- convert \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/sampled/10k/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/sampled/10k/csv/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/10k/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/10k/csv/ \
   --tables stackoverflow_posts,comments,users
 
 # Convert 100k sampled data
 cargo run --release -- convert \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/sampled/100k/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/sampled/100k/csv/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/100k/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/100k/csv/ \
   --tables stackoverflow_posts,comments,users
 
 # Convert 1m sampled data
 cargo run --release -- convert \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/sampled/1m/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/sampled/1m/csv/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/1m/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/sampled/1m/csv/ \
   --tables stackoverflow_posts,comments,users
 ```
 
@@ -135,8 +135,8 @@ You can also convert the full source data:
 
 ```bash
 cargo run --release -- convert \
-  --input s3://<dataset-bucket>/datasets/stackoverflow/source/parquet/ \
-  --output s3://<dataset-bucket>/datasets/stackoverflow/source/csv/ \
+  --input s3://<dataset-bucket>/datasets/stackoverflow/v1/source/parquet/ \
+  --output s3://<dataset-bucket>/datasets/stackoverflow/v1/source/csv/ \
   --tables stackoverflow_posts,comments,users
 ```
 
@@ -164,7 +164,7 @@ cargo run --release -- load-heap \
 
 ## Step 6: Snapshot or Restore the Heap
 
-The snapshot commands shell out to `pgbackrest`, so install and configure pgBackRest before using them. Use `--config` to provide your own pgBackRest config, or pass repository settings to generate one. The examples below use ParadeDB's CI snapshot repository: `s3://paradedb-ci-benchmarks/snapshots/{dataset}/{size}/`.
+The snapshot commands shell out to `pgbackrest`, so install and configure pgBackRest before using them. Use `--config` to provide your own pgBackRest config, or pass repository settings to generate one. The examples below use ParadeDB's CI snapshot repository: `s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/`.
 
 Stop Postgres before snapshotting a loaded heap:
 
@@ -172,7 +172,7 @@ Stop Postgres before snapshotting a loaded heap:
 PGDATA="/home/runner/.pgrx/data-18"
 BACKREST_ARGS=(
   --stanza bench
-  --repo-bucket paradedb-ci-benchmarks
+  --repo-bucket paradedb-benchmark
   --repo-path-prefix /snapshots
   --repo-region us-east-1
   --repo-endpoint s3.us-east-1.amazonaws.com
@@ -201,7 +201,7 @@ cargo run --release -- restore-heap \
 Useful snapshot options:
 
 - `--repo-bucket`: S3 bucket for the pgBackRest repository.
-- `--repo-path-prefix`: Prefix inside the bucket.
+- `--repo-path-prefix`: Prefix inside the bucket; appends `{dataset}/v1/{size}/pg_backrest/`.
 - `--repo-s3-key-type`: Use `shared`, `auto`, or `web-id`.
 - `--process-max`: Max pgBackRest worker processes. Defaults to available CPUs.
 
@@ -221,7 +221,7 @@ cargo run --release -- benchmark \
 After preparing data and publishing snapshots, your artifacts will look like this:
 
 ```text
-s3://<dataset-bucket>/datasets/{dataset-name}/
+s3://<dataset-bucket>/datasets/{dataset-name}/v1/
 ├── source/
 │   ├── parquet/
 │   │   ├── {table_a}/
@@ -246,8 +246,8 @@ s3://<dataset-bucket>/datasets/{dataset-name}/
     └── 1m/
         └── ...
 
-s3://<snapshot-bucket>/snapshots/{dataset-name}/
-├── 100k/
-├── 1m/
-└── 20m/
+s3://<snapshot-bucket>/snapshots/{dataset-name}/v1/
+├── 100k/pg_backrest/
+├── 1m/pg_backrest/
+└── 20m/pg_backrest/
 ```

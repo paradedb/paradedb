@@ -5,7 +5,7 @@ table = "cohere_wiki"
 expected_rows = 10000000
 dims = 1024
 vector_field = "emb"
-s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
+s3_base_path = "s3://paradedb-benchmark/datasets/cohere/v1"
 
 [postgres.build]
 shared_buffers = "12GB"
@@ -15,11 +15,12 @@ max_parallel_maintenance_workers = 8
 [postgres.search]
 shared_buffers = "12GB"
 max_parallel_workers = 8
-max_worker_processes = 8
+max_worker_processes = 32
 
 [index]
 training_sample_ratio = 0.32
 target_segment_count = 8
+vector_router_quantization = true
 
 [search]
 runs = 1

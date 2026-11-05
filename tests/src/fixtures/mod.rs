@@ -21,6 +21,7 @@
 pub mod backend;
 pub mod db;
 pub mod fault_grace;
+pub mod locking;
 pub mod querygen;
 pub mod tables;
 pub mod utils;

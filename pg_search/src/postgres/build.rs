@@ -20,7 +20,9 @@ use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::build_partitioning::{check_fast_dims, normalized_dims};
+use crate::postgres::build_partitioning::{
+    check_fast_dims, normalized_dims, partition_vector_field,
+};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -192,19 +194,40 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
-    let vector_configs = options.vector_config();
-    for (field_name, config) in vector_configs.iter().flatten() {
-        validate_field_config(field_name, config, options, |t| {
-            matches!(t, SearchFieldType::Vector(..))
-        });
-        let Some(SearchFieldType::Vector(_, schema_dims, _)) = options.get_field_type(field_name)
-        else {
-            unreachable!("vector field validation accepted a non-vector field")
-        };
-        if config.quantization_layers().is_some() && schema_dims < MIN_QUANTIZATION_DIMENSIONS {
-            panic!(
-                "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
+    for (field_name, attr) in options.attributes().iter() {
+        if matches!(attr.tantivy_type, SearchFieldType::Vector(_, 0, _)) {
+            pg_sys::ereport!(
+                ERROR,
+                PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+                format!("vector field '{field_name}' must declare dimensions using vector(N)")
             );
+        }
+    }
+
+    // TODO: Support multiple vector fields in a single index after exploring what
+    // partitioning on multiple vector fields would entail.
+    if options
+        .attributes()
+        .values()
+        .filter(|attr| matches!(attr.tantivy_type, SearchFieldType::Vector(..)))
+        .count()
+        > 1
+    {
+        panic!("a ParadeDB index may only index one vector field");
+    }
+
+    if options
+        .quantization()
+        .is_some_and(|config| config.layers().is_some())
+    {
+        for attribute in options.attributes().values() {
+            if let SearchFieldType::Vector(_, dims, _) = attribute.tantivy_type
+                && dims < MIN_QUANTIZATION_DIMENSIONS
+            {
+                panic!(
+                    "quantization requires dimension ≥ 64; the quantization error model is not validated below this"
+                );
+            }
         }
     }
 
@@ -228,25 +251,27 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     for sort_field in &sort_by {
         check_single_valued(sort_field, "sort_by");
     }
-    for partition_field in options.partition_by() {
-        check_single_valued(&partition_field, "partition_by");
+    let partition_by = options.partition_by();
+    for partition_field in &partition_by {
+        check_single_valued(partition_field, "partition_by");
     }
     // The stored schema does not exist yet, so the checks read the one this build will write.
     let schema = planned_schema(index_relation);
-    let partition_by = options.partition_by();
-    for (dims, reloption) in [(&sort_by, "sort_by"), (&partition_by, "partition_by")] {
-        if let Err(e) = check_fast_dims(&schema, dims, reloption) {
-            panic!("{e}");
-        }
-    }
+    check_fast_dims(&schema, &sort_by, "sort_by").unwrap_or_else(|e| panic!("{e}"));
 
     // `partition_by` cuts on the raw heap value and prunes on the columnar field, so a
     // normalized one leaves it with boundaries nothing can test against. `sort_by` only lays the
     // segment out, and a normalized one still orders it, so that costs pruning alone.
-    if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
-        panic!(
-            "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
-        );
+    if partition_vector_field(&schema, &partition_by)
+        .unwrap_or_else(|e| panic!("{e}"))
+        .is_none()
+    {
+        check_fast_dims(&schema, &partition_by, "partition_by").unwrap_or_else(|e| panic!("{e}"));
+        if let Some(dim) = normalized_dims(&schema, &partition_by).first() {
+            panic!(
+                "partition_by field '{dim}' must have a columnar field in raw order. Add it to the index with the 'raw' normalizer"
+            );
+        }
     }
     for dim in normalized_dims(&schema, &sort_by) {
         warning!(
@@ -390,6 +415,50 @@ mod tests {
     use tantivy::schema::{FAST, NumericOptions, Schema};
 
     #[pg_test]
+    fn vector_index_rejects_unspecified_dimensions() {
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE unspecified_vector_dims (id BIGINT, embedding vector);",
+        )
+        .unwrap();
+        for rows in ["", "(1, NULL)", "(1, '[1,2,3]')"] {
+            Spi::run("TRUNCATE unspecified_vector_dims").unwrap();
+            if !rows.is_empty() {
+                Spi::run(&format!(
+                    "INSERT INTO unspecified_vector_dims VALUES {rows}"
+                ))
+                .unwrap();
+            }
+            for partition_option in [
+                "",
+                ", partition_by = 'embedding'",
+                ", partition_by = ''",
+                ", partition_by = 'id'",
+            ] {
+                Spi::run(&format!(
+                    r#"
+                    DO $$
+                    BEGIN
+                        BEGIN
+                            CREATE INDEX ON unspecified_vector_dims USING paradedb (id, embedding)
+                            WITH (target_segment_count = 4{partition_option});
+                        EXCEPTION WHEN invalid_parameter_value THEN
+                            IF SQLERRM <> 'vector field ''embedding'' must declare dimensions using vector(N)' THEN
+                                RAISE;
+                            END IF;
+                            RETURN;
+                        END;
+                        RAISE EXCEPTION 'index accepted unspecified vector dimensions';
+                    END
+                    $$;
+                    "#,
+                ))
+                .unwrap();
+            }
+        }
+    }
+
+    #[pg_test]
     fn test_build_sort_by_field_empty() {
         let schema = Schema::builder().build();
         let result = SearchIndexSchema::build_sort_by_field(&[], &schema);
@@ -515,6 +584,75 @@ mod tests {
         let sort_field = stored_settings.sort_by_field.as_ref().unwrap();
         assert_eq!(sort_field.field, "score");
         assert_eq!(sort_field.order, Order::Desc);
+    }
+
+    #[pg_test]
+    fn test_router_quantization_option_persists_through_reindex() {
+        use tantivy::directory::RamDirectory;
+
+        Spi::run(
+            "CREATE TABLE centroid_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
+             CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body)
+                 WITH (vector_router_quantization = true);
+             CREATE TABLE centroid_full_precision_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
+             CREATE INDEX centroid_full_precision_idx ON centroid_full_precision_settings USING paradedb (id, body);",
+        ).unwrap();
+        let relation = |name: &str| {
+            let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))
+                .unwrap()
+                .unwrap();
+            PgSearchRelation::open(oid)
+        };
+        let quantized = relation("centroid_quantized_idx");
+        assert!(quantized.options().vector_router_quantization());
+        assert!(quantized.settings().unwrap().vector_centroid_quantization);
+        assert!(
+            quantized
+                .create_in_memory_index(RamDirectory::create())
+                .unwrap()
+                .settings()
+                .vector_centroid_quantization
+        );
+        drop(quantized);
+        assert!(
+            !relation("centroid_full_precision_idx")
+                .options()
+                .vector_router_quantization()
+        );
+        assert!(
+            !relation("centroid_full_precision_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
+
+        // The reloption changes the next build, while existing segments retain
+        // their persisted representation until the index is rebuilt.
+        Spi::run("ALTER INDEX centroid_quantized_idx SET (vector_router_quantization = false);")
+            .unwrap();
+        let quantized = relation("centroid_quantized_idx");
+        assert!(!quantized.options().vector_router_quantization());
+        assert!(quantized.settings().unwrap().vector_centroid_quantization);
+        drop(quantized);
+        Spi::run("REINDEX INDEX centroid_quantized_idx;").unwrap();
+        assert!(
+            !relation("centroid_quantized_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
+
+        Spi::run(
+            "ALTER INDEX centroid_quantized_idx SET (vector_router_quantization = true);
+                  REINDEX INDEX centroid_quantized_idx;",
+        )
+        .unwrap();
+        assert!(
+            relation("centroid_quantized_idx")
+                .settings()
+                .unwrap()
+                .vector_centroid_quantization
+        );
     }
 
     #[pg_test]

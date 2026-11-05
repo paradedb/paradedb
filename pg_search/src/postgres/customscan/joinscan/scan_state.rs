@@ -53,7 +53,6 @@ use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-use super::planning::get_source_attno_by_name;
 use super::window_func::{
     SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
     WindowAggIndex,
@@ -70,6 +69,7 @@ use crate::postgres::customscan::datafusion::topk_agg::{
 };
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
+    VectorScoreColumn,
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
@@ -81,7 +81,8 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
     apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, make_source_unnested_col, translate_pg_node_string,
+    make_source_score_col, make_source_unnested_col, make_source_vector_score_col,
+    translate_pg_node_string,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::heap::VisibilityChecker;
@@ -1675,9 +1676,17 @@ fn resolve_orderby_feature(
         OrderByFeature::NullTest { .. } => {
             unreachable!("NullTest is handled by apply_sort directly")
         }
-        OrderByFeature::VectorDistance { .. } => {
-            unimplemented!("Vector distance ORDER BY is not supported in JoinScan")
-        }
+        OrderByFeature::VectorDistance { rti, .. } => join_clause
+            .plan
+            .output_sources()
+            .iter()
+            .find(|s| s.scan_info.heap_rti == *rti)
+            .map(|source| make_source_vector_score_col(source))
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!(
+                    "JoinScan: could not find source for vector ORDER BY RTI {rti}"
+                ))
+            }),
     }
 }
 
@@ -1901,7 +1910,23 @@ fn apply_sort(
     }
 
     let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
-    df.sort(sort_exprs)
+    // When LIMIT/OFFSET is parameterized, `df.limit(...)` is deferred until execution
+    // (`bind_runtime_limit_offset`). Seed `Sort.fetch` with the planning estimate so
+    // logical barrier/reduction rules (`VisibilityFilterOptimizerRule`,
+    // `LateMaterializationRule`) and unbound `EXPLAIN (GENERIC_PLAN)` (`RankJoinRule`)
+    // see a Top-K `Sort`; `bind_runtime_limit_offset` replaces `Sort.fetch` with the
+    // resolved `skip + fetch` whenever parameter values are bound (`EXPLAIN EXECUTE` and
+    // execution).
+    let parameterized_fetch = join_clause
+        .limit_offset
+        .as_ref()
+        .filter(|lo| lo.has_any_param())
+        .map(|lo| (lo.planning_estimate().max(0.0) as usize).max(1));
+    let (state, plan) = df.into_parts();
+    let sorted = LogicalPlanBuilder::from(plan)
+        .sort_with_limit(sort_exprs, parameterized_fetch)?
+        .build()?;
+    Ok(DataFrame::new(state, sorted))
 }
 
 fn build_sort_exprs(
@@ -1928,7 +1953,14 @@ fn build_sort_exprs(
             other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
-        sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
+        if info.is_vector_distance() {
+            // Vector similarity scores produced by `SearchIndexReader::search_top_k_in_segments`
+            // are higher for closer vectors (smaller distance), so ascending vector distance
+            // corresponds to descending similarity score (`DESC NULLS LAST`).
+            sort_exprs.push(expr.sort(false, false));
+        } else {
+            sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
+        }
     }
 
     Ok(sort_exprs)
@@ -2121,7 +2153,8 @@ fn build_source_df<'a>(
             required_early: &mut crate::api::HashSet<String>,
         ) {
             required_early.insert(name.to_string());
-            let attno = unsafe { get_source_attno_by_name(source, name) };
+            let context = source.to_source_context();
+            let attno = context.get_attno_by_name(name);
             if let Some(attno) = attno
                 && let Some(registered) = source.column_name(attno)
                 && registered != name
@@ -2234,6 +2267,7 @@ fn build_source_df<'a>(
             RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
 
         provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
+        provider.set_vector_score_alias(&VectorScoreColumn::new(&display_alias).to_string());
         provider.configure_deferred_outputs(
             &required_early,
             VisibilityMode::Deferred { plan_position },

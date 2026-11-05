@@ -36,11 +36,11 @@ Join pushdown is automatically used when a query meets several conditions. If an
 | Requirement      | Description                                                                                                                                                  |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | ParadeDB indexes | All tables participating in the join must have a ParadeDB index.                                                                                             |
-| Search predicate | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                        |
+| Search predicate | The query must contain a ParadeDB operator such as `&&&`, `===`, or a vector distance `ORDER BY` (`<->`, `<=>`, `<#>`).                                      |
 | Indexed fields   | All join keys, filters, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/reference/indexing/columnar). |
 | LIMIT clause     | The query must include a `LIMIT`.                                                                                                                            |
 
-If any checks fail, ParadeDB will emit a `NOTICE` explaining why and fall back to Postgres' native join execution.
+If any checks fail (including unsupported `ORDER BY` shapes), ParadeDB will emit a `NOTICE` controlled by `paradedb.planner_warnings` explaining why and fall back to Postgres' native join execution. Vector distance `ORDER BY` currently requires ascending order on `INNER` or `SEMI` joins and excludes rows with a `NULL` vector (matching Base Scan behavior).
 
 To demonstrate, let's create a second table called `orders` that can be joined with `mock_items`:
 

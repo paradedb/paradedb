@@ -57,7 +57,9 @@
 //!    respective ParadeDB indexes. This allows the join to be executed entirely within the index:
 //!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
-//!    - ORDER BY columns must be fast fields for efficient sorting
+//!    - ORDER BY expressions must be fast-field columns, indexed expressions, `pdb.score()` /
+//!      sums of `pdb.score()`, or ascending vector distance expressions (`<->`, `<=>`, `<#>`)
+//!      with a `LIMIT` on the preserved side of `INNER` / `SEMI` equi-joins
 //!    - If any required column is not a fast field, we would need to access the heap
 //!      during the join, breaking the late materialization strategy.
 //!
@@ -145,11 +147,11 @@ pub mod scan_state;
 pub mod visibility_filter;
 pub mod window_func;
 
-pub use self::build::{CtidColumn, ScoreColumn};
-use self::build::{JoinCSClause, PlannerRootId, RelNode, RelationAlias};
+pub use self::build::{CtidColumn, ScoreColumn, VectorScoreColumn};
+use self::build::{FunctionRti, JoinCSClause, PlannerRootId, RelNode, RelationAlias};
 use self::planning::{
     collect_join_sources_base_rel, collect_required_fields, ensure_score_bubbling, extract_orderby,
-    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    get_score_func_rti, pathkey_uses_scores_from_source, validate_order_by,
 };
 use self::privdat::PrivateData;
 use self::window_func::{
@@ -157,9 +159,8 @@ use self::window_func::{
 };
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::explain::{
-    explain_physical_plan, format_join_level_expr, get_attname_safe, get_plan_with_merged_metrics,
+    explain_physical_plan, format_join_level_expr, get_plan_with_merged_metrics,
 };
-use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::node::NodeExt;
 use crate::schema::SearchFieldType;
 
@@ -218,6 +219,7 @@ use std::sync::Arc;
 use super::aggregatescan::datafusion_project::datafusion_agg_to_datum;
 use super::datafusion::pdb_agg_udaf::{debug_assert_single_document, json_document_to_datum};
 use super::datafusion::topk_agg::bind_topk_agg_fetch;
+use super::pullup::{Access, ResTarget};
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -710,7 +712,8 @@ impl JoinScan {
                 let is_source_var = all_sources.iter().any(|s| s.contains_rti(rti));
                 let is_lateral_unnest =
                     crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
-                        root, rti,
+                        root,
+                        FunctionRti(rti),
                     )
                     .is_some_and(|u| all_sources.iter().any(|s| s.contains_rti(u.source_rti.0)));
                 if !is_source_var && !is_lateral_unnest {
@@ -783,34 +786,41 @@ impl JoinScan {
             }
         }
 
-        order_by_columns_are_fast_fields(root, &all_sources, has_distinct)?;
-
+        let columnar_decline = JoinDeclineReason::new(
+            "JoinScan not used: join conditions must reference columnar indexed fields",
+        );
         for jk in join_keys {
-            let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
-            let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
+            let outer_source = all_sources
+                .iter()
+                .find(|s| s.contains_rti(jk.outer_rti))
+                .map(|s| s.to_source_context());
+            let inner_source = all_sources
+                .iter()
+                .find(|s| s.contains_rti(jk.inner_rti))
+                .map(|s| s.to_source_context());
             match (outer_source, inner_source) {
                 (Some(outer), Some(inner)) => {
-                    let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
-                    let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
-                    let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
-                    let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                    let outer_ff = resolve_fast_field(
-                        jk.outer_attno as i32,
-                        &outer_hr.tuple_desc(),
-                        &outer_ir,
-                    );
-                    let inner_ff = resolve_fast_field(
-                        jk.inner_attno as i32,
-                        &inner_hr.tuple_desc(),
-                        &inner_ir,
-                    );
-                    match (&outer_ff, &inner_ff) {
-                        (Some(outer_ff), Some(inner_ff)) => {
-                            let either_numeric =
-                                outer_ff.field_type().is_some_and(|ft| ft.is_numeric())
-                                    || inner_ff.field_type().is_some_and(|ft| ft.is_numeric());
+                    let outer_resolved =
+                        outer.resolve_fast_field(ResTarget::Attno(jk.outer_attno), Access::Scalar);
+                    let inner_resolved =
+                        inner.resolve_fast_field(ResTarget::Attno(jk.inner_attno), Access::Scalar);
+                    match (&outer_resolved, &inner_resolved) {
+                        (Some(outer_resolved), Some(inner_resolved)) => {
+                            let either_numeric = outer_resolved
+                                .field
+                                .field_type()
+                                .is_some_and(|ft| ft.is_numeric())
+                                || inner_resolved
+                                    .field
+                                    .field_type()
+                                    .is_some_and(|ft| ft.is_numeric());
                             if either_numeric
-                                && !numeric_pushdown_safe(outer_ff, &outer_ir, inner_ff, &inner_ir)
+                                && !numeric_pushdown_safe(
+                                    &outer_resolved.field,
+                                    outer.indexrel().ok_or(columnar_decline.clone())?,
+                                    &inner_resolved.field,
+                                    inner.indexrel().ok_or(columnar_decline.clone())?,
+                                )
                             {
                                 return Err(JoinDeclineReason::new(
                                     "JoinScan not used: join conditions compare NUMERIC columns with an unresolvable or mismatched representation",
@@ -818,9 +828,7 @@ impl JoinScan {
                             }
                         }
                         _ => {
-                            return Err(JoinDeclineReason::new(
-                                "JoinScan not used: join conditions must reference columnar indexed fields",
-                            ));
+                            return Err(columnar_decline);
                         }
                     }
                 }
@@ -838,6 +846,8 @@ impl JoinScan {
             .with_distinct(has_distinct)
             .with_window_aggs(window_aggs)
             .with_pg_projected_resnos(pg_projected_resnos);
+
+        validate_order_by(root, &join_clause)?;
 
         for source in join_clause.plan.sources_mut() {
             let score_in_tlist = source.contains_score((*root).processed_tlist.cast());
@@ -1065,6 +1075,7 @@ impl JoinScan {
             return;
         }
 
+        let estate = state.csstate.ss.ps.state;
         let planstate = state.planstate();
         // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
         let expr_context = state.csstate.ss.ps.ps_ExprContext;
@@ -1080,6 +1091,14 @@ impl JoinScan {
         custom_state
             .join_clause
             .solve_postgres_expressions(expr_context);
+        for ob in &mut custom_state.join_clause.order_by {
+            unsafe { ob.resolve_query_vector(estate, planstate) };
+        }
+        for source in custom_state.join_clause.plan.sources_mut() {
+            if let Some(ref mut vec_ob) = source.scan_info.vector_order_by {
+                unsafe { vec_ob.resolve_query_vector(estate, planstate) };
+            }
+        }
 
         let bytes = unsafe { Self::rebake_for_mpp(state) };
         // Keep the leader's own execution in sync with what's dispatched to workers:
@@ -1309,6 +1328,36 @@ impl CustomScan for JoinScan {
 
             let updated_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist_ptr);
             build_output_projection(&mut private_data, &updated_entries, root);
+
+            // Replace any remaining non-projected `Pruned` entries (such as resjunk
+            // `ORDER BY` expressions evaluated inside DataFusion) with `NULL` placeholders
+            // in both `scan.plan.targetlist` and `custom_scan_tlist`. This prevents
+            // PostgreSQL's `set_customscan_references` (`search_indexed_tlist_for_non_var`)
+            // from rewriting matching subexpressions in `pg_projected_resnos` to an
+            // `INDEX_VAR` pointing at a `NULL` resjunk slot, while also avoiding unresolved
+            // `Var` references in the absorbed resjunk entry itself.
+            for tlist in [tlist_ptr, node.custom_scan_tlist] {
+                let entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
+                for (idx, col_info) in private_data.output_columns.iter().enumerate() {
+                    if matches!(col_info, privdat::OutputColumnInfo::Pruned)
+                        && let Some(te) = entries.get_ptr(idx)
+                        && !private_data
+                            .join_clause
+                            .pg_projected_resnos
+                            .contains(&(*te).resno)
+                    {
+                        let expr = (*te).expr.cast::<pg_sys::Node>();
+                        if (*expr).type_ != pg_sys::NodeTag::T_Const {
+                            (*te).expr = pg_sys::makeNullConst(
+                                pg_sys::exprType(expr),
+                                pg_sys::exprTypmod(expr),
+                                pg_sys::exprCollation(expr),
+                            )
+                            .cast();
+                        }
+                    }
+                }
+            }
             // Snapshot custom_exprs before setrefs rewrites it, for MPP re-baking.
             // Needed for any of: maybe_solve_and_rebake (resolves Param/PostgresExpression
             // nodes) or rebake_for_mpp_fallback (serial replan on a short-launch decline,
@@ -1397,8 +1446,8 @@ impl CustomScan for JoinScan {
         let join_clause = &state.custom_state().join_clause;
         explainer.add_text("Relation Tree", join_clause.plan.explain());
 
-        let mut base_relations = Vec::new();
-        join_clause.collect_base_relations(&mut base_relations);
+        let mut contexts = Vec::new();
+        join_clause.collect_source_contexts(&mut contexts);
 
         fn collect_join_cond_strings(node: &RelNode, acc: &mut Vec<String>) {
             match node {
@@ -1434,16 +1483,12 @@ impl CustomScan for JoinScan {
 
                         acc.push(format!(
                             "{} = {}",
-                            get_attname_safe(
-                                Some(outer_source.scan_info.heaprelid),
-                                outer_attno,
-                                &outer_alias
-                            ),
-                            get_attname_safe(
-                                Some(inner_source.scan_info.heaprelid),
-                                inner_attno,
-                                &inner_alias
-                            )
+                            outer_source
+                                .to_source_context()
+                                .get_attname_for_display(outer_attno, &outer_alias),
+                            inner_source
+                                .to_source_context()
+                                .get_attname_for_display(inner_attno, &inner_alias)
                         ));
                     }
 
@@ -1542,11 +1587,10 @@ impl CustomScan for JoinScan {
                             )
                         }
                         OrderByFeature::Var { rti, attno, name } => {
-                            if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
-                                let col_name = get_attname_safe(
-                                    Some(info.heaprelid),
+                            if let Some(context) = contexts.iter().find(|i| i.heap_rti == *rti) {
+                                let col_name = context.get_attname_for_display(
                                     *attno,
-                                    info.alias.as_deref().unwrap_or("?"),
+                                    context.alias.as_deref().unwrap_or("?"),
                                 );
                                 format!("{} {}", col_name, oi.direction.as_ref())
                             } else {
@@ -1601,6 +1645,15 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
+            let runtime_limit_offset = join_clause
+                .limit_offset
+                .as_ref()
+                .filter(|lo| lo.has_any_param())
+                .and_then(|lo| {
+                    let mut resolved = lo.clone();
+                    resolved.resolve_mut(state.csstate.ss.ps.state)?;
+                    Some((resolved.static_offset()?, resolved.static_limit()?))
+                });
             let build_with = |ctx: &datafusion::prelude::SessionContext, bytes: &[u8]| {
                 let logical_plan = deserialize_logical_plan_for_explain(
                     bytes,
@@ -1608,6 +1661,7 @@ impl CustomScan for JoinScan {
                     expr_context.as_ptr(),
                 )
                 .expect("Failed to deserialize logical plan");
+                let logical_plan = bind_runtime_limit_offset(logical_plan, runtime_limit_offset);
                 runtime
                     .block_on(build_physical_plan(ctx, logical_plan))
                     .expect("Failed to create execution plan")
@@ -1744,10 +1798,11 @@ impl CustomScan for JoinScan {
                     Self::build_source_manifests(state, &join_clause, &plan_sources);
 
                 // For parameterized LIMIT/OFFSET, the planning-time logical plan has no Limit
-                // node. Resolve the fetch once; each planning pass below injects it (before
-                // physical planning) so SegmentedTopKRule can detect SortExec(fetch=K) and
-                // apply its TopK optimization. Static cases were already pushed in
-                // `build_clause_df`.
+                // node (and `Sort.fetch` holds a planning-time placeholder). Resolve the fetch
+                // once; each planning pass below injects it into `Sort.fetch` / `__topk_agg`
+                // and wraps the plan in `Limit` before physical planning so `RankJoinRule` and
+                // `SegmentedTopKRule` detect `SortExec(fetch=K)`. Static cases were already
+                // pushed in `build_clause_df`.
                 let runtime_limit_offset = {
                     let estate = state.csstate.ss.ps.state;
                     join_clause
@@ -2471,9 +2526,9 @@ impl JoinScan {
             && (1..(*root).simple_rel_array_size).any(|rti| {
                 crate::postgres::customscan::joinscan::build::try_extract_lateral_unnest(
                     root,
-                    rti as pg_sys::Index,
+                    FunctionRti(rti as pg_sys::Index),
                 )
-                .is_some_and(|u| u.source_rti.0 == sources[0].rti)
+                .is_some_and(|u| u.source_rti.0 == sources[0].heap_rti)
             });
 
         if sources.len() < 2 && !has_lateral_unnest {
@@ -2487,7 +2542,7 @@ impl JoinScan {
 
         let aliases: Vec<String> = sources
             .iter()
-            .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.relid))
+            .map(|s| RelationAlias::new(s.alias.as_deref()).warning_context(s.heaprel.oid()))
             .collect();
 
         let warn = |reason| JoinPathDecline::Warn {
@@ -2532,7 +2587,7 @@ impl JoinScan {
             && !plan.has_search_predicate()
             && !sources
                 .iter()
-                .any(|source| search_operator_relations::applies_to(root, source.rti))
+                .any(|source| search_operator_relations::applies_to(root, source.heap_rti))
         {
             return Err(JoinPathDecline::Quiet);
         }
@@ -3004,6 +3059,22 @@ impl JoinScan {
     }
 }
 
+fn bind_sort_fetch(plan: LogicalPlan, k: usize) -> datafusion::common::Result<LogicalPlan> {
+    use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
+    plan.transform_down(|node| match node {
+        LogicalPlan::Sort(mut sort) => {
+            sort.fetch = Some(k);
+            Ok(Transformed::new(
+                LogicalPlan::Sort(sort),
+                true,
+                TreeNodeRecursion::Jump,
+            ))
+        }
+        other => Ok(Transformed::no(other)),
+    })
+    .map(|t| t.data)
+}
+
 fn bind_runtime_limit_offset(
     logical_plan: LogicalPlan,
     runtime_limit_offset: Option<(usize, usize)>,
@@ -3011,8 +3082,11 @@ fn bind_runtime_limit_offset(
     match runtime_limit_offset {
         Some((skip, fetch)) => {
             use datafusion::logical_expr::LogicalPlanBuilder;
-            let logical_plan = bind_topk_agg_fetch(logical_plan, skip.saturating_add(fetch))
-                .expect("failed to bind limit to __topk_agg");
+            let k = skip.saturating_add(fetch);
+            let logical_plan =
+                bind_topk_agg_fetch(logical_plan, k).expect("failed to bind limit to __topk_agg");
+            let logical_plan =
+                bind_sort_fetch(logical_plan, k).expect("failed to bind limit to Sort");
             LogicalPlanBuilder::from(logical_plan)
                 .limit(skip, Some(fetch))
                 .expect("failed to add Limit to logical plan")

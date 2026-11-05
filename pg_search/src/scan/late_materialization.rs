@@ -20,6 +20,7 @@ use std::fmt::{self, Debug};
 use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FieldCardinality};
+use crate::postgres::customscan::datafusion::carry_value::CARRY_VALUE_NAME;
 use crate::scan::deferred_lookup::{PhysicalDeferredField, decoded_data_type};
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::table_provider::pg_search_provider_from_scan;
@@ -156,7 +157,10 @@ pub(crate) fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<BaseColum
                         None
                     }
                 } else {
-                    None
+                    agg.aggr_expr
+                        .get(idx - keys.len())
+                        .and_then(carried_column)
+                        .and_then(|c| trace_column(agg.input.as_ref(), c))
                 }
             } else {
                 None
@@ -363,7 +367,23 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             // immediately below it.
             references_deferred
         }
-        LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
+        LogicalPlan::Aggregate(agg) => {
+            // An aggregate that only carries a deferred column to its output, as the
+            // value of a column its group keys decide, lets it pass through deferred:
+            // the decode then runs above the aggregate, once per surviving group.
+            let mut cols = HashSet::new();
+            for expr in &agg.group_expr {
+                expr.add_column_refs(&mut cols);
+            }
+            for expr in agg.aggr_expr.iter().filter(|e| carried_column(e).is_none()) {
+                expr.add_column_refs(&mut cols);
+            }
+            cols.iter().any(|c| {
+                trace_column(agg.input.as_ref(), c)
+                    .is_some_and(|base| deferred_fields.iter().any(|df| base.is(df)))
+            })
+        }
+        LogicalPlan::Window(_) => true,
         LogicalPlan::Join(join) => {
             let mut join_refs = HashSet::new();
             for (l, r) in &join.on {
@@ -459,6 +479,23 @@ fn group_keys(agg: &Aggregate) -> Vec<&Expr> {
             expr => vec![expr],
         })
         .collect()
+}
+
+/// The column that an aggregate output only carries to the output: the argument of a
+/// `pdb_carry_value`, which the Aggregate Scan emits for a column its group keys decide.
+/// Every row of a group holds the same value, so the packed deferred term of any of them
+/// stands for it and the column can be decoded after the aggregate.
+fn carried_column(expr: &Expr) -> Option<&Column> {
+    let Expr::AggregateFunction(func) = unalias(expr) else {
+        return None;
+    };
+    if func.func.name() != CARRY_VALUE_NAME || func.params.args.len() != 1 {
+        return None;
+    }
+    match &func.params.args[0] {
+        Expr::Column(c) => Some(c),
+        _ => None,
+    }
 }
 
 fn unalias(expr: &Expr) -> &Expr {

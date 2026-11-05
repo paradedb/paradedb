@@ -131,9 +131,13 @@ sequential, bitmap, and sort alternatives disabled; plan checks require the
 PRISM index and explicitly allow PostgreSQL filtering. No text-filter pushdown
 or ParadeDB vector-stage telemetry is claimed for PRISM.
 
-PRISM index construction and the subsequent vacuum use no parallel maintenance
-workers because the pinned version's parallel sampling accumulated excessive
-memory with TOASTed vectors. Search retains the normal cluster settings.
+PRISM uses `paradedb/pg_vectorsearch` at
+`1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, which bounds per-tuple detoast
+memory during parallel builds. The table requests eight parallel workers;
+parallel maintenance and query limits are eight, with an eight-process worker
+pool. CI requires observed build workers to be positive and publishes the
+actual worker count and peak summed RSS (which includes shared mappings).
+Index construction and the subsequent vacuum both allow parallel maintenance.
 Results use separate `benchmarker cohere-<size>-pgvectorsearch` histories and
 diagnostics artifacts. The same publisher produces the recall, p50/p95/p99, QPS,
 buffer, and index-build tables. PRISM sweep comparisons look for a preceding

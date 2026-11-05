@@ -12,7 +12,7 @@ s3_base_path = "s3://paradedb-benchmarks/datasets/cohere"
 [postgres.build]
 shared_buffers = "12GB"
 maintenance_work_mem = "12GB"
-max_parallel_maintenance_workers = 0
+max_parallel_maintenance_workers = 8
 
 [postgres.search]
 shared_buffers = "12GB"

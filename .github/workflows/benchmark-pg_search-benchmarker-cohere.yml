@@ -69,7 +69,7 @@ jobs:
       COHERE_SIZE: ${{ matrix.size }}
       DISABLE_REPLICATION: ${{ inputs.disable_replication && 'true' || 'false' }}
       COHERE_ENGINE: ${{ inputs.engine || (github.event.label.name == 'benchmark-cohere-pgvectorsearch' && 'pg_vectorsearch') || 'pg_search' }}
-      PG_VECTORSEARCH_REF: "5f71e47deb62057e7f8e3bc5c5f964bc343522b0"
+      PG_VECTORSEARCH_REF: "1bc1c77b2a07611d57c8a1eae767939bd1e39ee1"
       pg_version: "18"
       PDBENCH_REF: ${{ inputs.pdbench_ref || ((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-cohere-pgvectorsearch') && 'ac64c0a34a1558ca72e07a342b51b52076befa50') || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
@@ -158,13 +158,25 @@ jobs:
         with:
           pg_version: ${{ env.pg_version }}
 
-      - name: Checkout pg_vectorsearch
+      - name: Create pg_vectorsearch checkout token
+        if: env.COHERE_ENGINE == 'pg_vectorsearch'
+        id: pg_vectorsearch_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pg_vectorsearch
+          permission-contents: read
+
+      - name: Checkout pg_vectorsearch memory fix
         if: env.COHERE_ENGINE == 'pg_vectorsearch'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: timescale/pg_vectorsearch
+          repository: paradedb/pg_vectorsearch
           ref: ${{ env.PG_VECTORSEARCH_REF }}
           path: pg-vectorsearch
+          token: ${{ steps.pg_vectorsearch_token.outputs.token }}
           persist-credentials: false
 
       - name: Install pg_vectorsearch build tools
@@ -250,34 +262,39 @@ jobs:
       - name: Refresh extension and build index
         run: |
           set -euo pipefail
-          build_url="$PARADEDB_URL"
           if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then
-            build_url="${PARADEDB_URL}?options=-c%20max_parallel_maintenance_workers%3D0"
-            psql "$build_url" -XAt -v ON_ERROR_STOP=1 \
+            psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
               -c 'CREATE EXTENSION pg_vectorsearch;' \
+              -c 'ALTER TABLE cohere_wiki SET (parallel_workers = 8);' \
               -c 'SELECT pg_vectorsearch_version(), pg_vectorsearch_git_commit();' \
               | tee benchmark-artifacts/pg-vectorsearch-version.log
           else
-            psql "$build_url" -X -v ON_ERROR_STOP=1 --single-transaction \
+            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
               -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
             cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
           fi
-          psql "$build_url" -X -v ON_ERROR_STOP=1 \
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
             -c "SELECT name, setting, unit FROM pg_settings
                 WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
                                'max_worker_processes', 'max_parallel_maintenance_workers',
                                'parallel_leader_participation', 'paradedb.global_target_segment_count')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
-          pdbench build --url "$build_url" --config "$COHERE_CONFIG" \
+          pdbench build --url "$PARADEDB_URL" --config "$COHERE_CONFIG" \
             --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
             --force-rebuild \
             | tee benchmark-artifacts/index-build.log
           jq '.data | [
             {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
-            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
+            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
+            {name: (.index.name + " peak summed RSS"), unit: "GiB", value: (.metrics.resources.peak_rss_bytes / 1073741824)}
           ]' benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
-          psql "$build_url" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+          if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then
+            jq -e '.data.metrics.workers.max_parallel_workers > 0' \
+              benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json
+          fi
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log
@@ -418,6 +435,12 @@ jobs:
           psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
             -c 'SELECT json_agg(emb::text ORDER BY id) FROM pdbench_queries' \
             > benchmark-artifacts/query_vectors.json
+          if [ "$COHERE_ENGINE" = pg_vectorsearch ]; then
+            printf '\npg_vectorsearch fork: `%s`. Requested parallel maintenance workers: 8; worker pool: 8.\n\n' \
+              "$PG_VECTORSEARCH_REF" >> benchmark-artifacts/operating_points.md
+            jq -r '.data.metrics | "Observed index-build workers: \(.workers.max_parallel_workers). Peak summed RSS: \(.resources.peak_rss_bytes / 1073741824) GiB (includes shared mappings)."' \
+              benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json >> benchmark-artifacts/operating_points.md
+          fi
           if [ "$DISABLE_REPLICATION" = true ]; then
             printf '\nBoundary and SOAR replication disabled: `boundary_epsilon=0`, `soar_lambda=0`.\n\n' \
               >> benchmark-artifacts/operating_points.md

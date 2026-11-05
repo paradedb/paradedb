@@ -1,0 +1,2651 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ParadeDB Benchmarker</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sql-formatter@15.4.2/dist/sql-formatter.min.js"></script>
+    <style>
+      :root {
+        --c1: #7c3aed;
+        --c2: #f97316;
+        --c3: #10b981;
+        --c4: #ec4899;
+        --c5: #3b82f6;
+        --bg: #0f0f0f;
+        --panel: #1a1a1a;
+        --border: #2a2a2a;
+        --text: #e5e5e5;
+        --text-dim: #737373;
+        --grid: #252525;
+      }
+      html.light {
+        --bg: #fafafa;
+        --panel: #ffffff;
+        --border: #e5e5e5;
+        --text: #171717;
+        --text-dim: #737373;
+        --grid: #f0f0f0;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "JetBrains Mono", monospace;
+        background: var(--bg);
+        color: var(--text);
+        padding: 20px;
+        min-height: 100vh;
+        transition:
+          background 0.3s,
+          color 0.3s;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .header h1 {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .elapsed {
+        font-size: 20px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .theme-toggle {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .theme-toggle:hover {
+        border-color: var(--c1);
+      }
+      .stats-row {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+      }
+      .stat-group {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        border-left: 3px solid var(--c1);
+      }
+      .stat-group-header {
+        margin-bottom: 8px;
+      }
+      .stat-group-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+      }
+      .stat {
+        text-align: left;
+      }
+      .stat-value {
+        font-size: 14px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .stat-label {
+        font-size: 9px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+      }
+      .stat-group-header {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .stat-group-header:hover {
+        opacity: 0.8;
+      }
+      .expand-icon {
+        font-size: 10px;
+        transition: transform 0.2s;
+      }
+      .stat-group.expanded .expand-icon {
+        transform: rotate(90deg);
+      }
+      .query-details {
+        display: none;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+      .stat-group.expanded .query-details {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .warmup-status {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+      .warmup-label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
+        color: var(--text-dim);
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      }
+      .warmup-track {
+        height: 6px;
+        overflow: hidden;
+        background: var(--border);
+        border-radius: 3px;
+      }
+      .warmup-fill {
+        height: 100%;
+        width: 0;
+        background: var(--c1);
+        border-radius: inherit;
+        transition: width 0.2s ease;
+      }
+      .query-item {
+        background: var(--bg);
+        border-radius: 4px;
+        padding: 8px;
+        cursor: pointer;
+        position: relative;
+      }
+      .query-item:hover {
+        background: var(--border);
+      }
+      .query-tooltip {
+        display: none;
+        position: fixed;
+        right: 300px;
+        top: 100px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        max-width: 500px;
+        max-height: 400px;
+        overflow: auto;
+        z-index: 1000;
+        font-size: 11px;
+        white-space: pre-wrap;
+        font-family: "JetBrains Mono", monospace;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      }
+      .query-tooltip.visible {
+        display: block;
+      }
+      .config-modal {
+        display: none;
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+        min-width: 400px;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow: auto;
+        z-index: 1001;
+        font-size: 11px;
+        font-family: "JetBrains Mono", monospace;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      }
+      .config-modal.visible {
+        display: block;
+      }
+      .config-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border);
+      }
+      .config-modal-title {
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .config-modal-close {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 0 4px;
+      }
+      .config-modal-close:hover {
+        color: var(--text);
+      }
+      .config-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .config-item:last-child {
+        border-bottom: none;
+      }
+      .config-key {
+        color: var(--text-dim);
+      }
+      .config-value {
+        font-weight: 600;
+        text-align: right;
+        max-width: 60%;
+        word-break: break-all;
+      }
+      .config-section {
+        margin-top: 12px;
+      }
+      .config-section-title {
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: var(--c1);
+      }
+      .config-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 8px;
+      }
+      .config-tab {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 6px 12px;
+        color: var(--text-dim);
+        font-family: inherit;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+      }
+      .config-tab:hover {
+        border-color: var(--c1);
+        color: var(--text);
+      }
+      .config-tab.active {
+        background: var(--c1);
+        border-color: var(--c1);
+        color: white;
+      }
+      .config-tab-content {
+        display: none;
+      }
+      .config-tab-content.active {
+        display: block;
+      }
+      .schema-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+      }
+      .schema-table th,
+      .schema-table td {
+        padding: 4px 8px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .schema-table th {
+        color: var(--text-dim);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 9px;
+      }
+      .index-def {
+        background: var(--bg);
+        padding: 8px;
+        border-radius: 4px;
+        margin-top: 8px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 10px;
+      }
+      .index-name {
+        font-weight: 600;
+        color: var(--c1);
+        margin-bottom: 4px;
+      }
+      .modal-backdrop {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+      }
+      .modal-backdrop.visible {
+        display: block;
+      }
+      .query-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .query-name {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .query-info {
+        font-size: 9px;
+        font-weight: 400;
+        color: var(--text-dim);
+        margin-left: 12px;
+        text-transform: none;
+        letter-spacing: normal;
+      }
+      .query-stats {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 6px;
+      }
+      .query-stat-value {
+        font-size: 11px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .query-stat-label {
+        font-size: 8px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+      }
+      .chart-container {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 16px;
+        min-width: 0;
+      }
+      .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .chart-header h2 {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .chart-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .reset-zoom {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 8px;
+        color: var(--text-dim);
+        font-family: inherit;
+        font-size: 9px;
+        cursor: pointer;
+        text-transform: uppercase;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .reset-zoom.visible {
+        opacity: 1;
+      }
+      .reset-zoom:hover {
+        border-color: var(--c1);
+        color: var(--text);
+      }
+      .chart-header select {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 11px;
+        font-family: inherit;
+        cursor: pointer;
+        text-transform: uppercase;
+      }
+      .legend {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-dim);
+        cursor: pointer;
+        user-select: none;
+      }
+      .legend-item:hover {
+        opacity: 0.8;
+      }
+      .legend-item.disabled {
+        opacity: 0.4;
+        text-decoration: line-through;
+      }
+      .legend-item.disabled .legend-color {
+        opacity: 0.3;
+      }
+      .legend-color {
+        width: 16px;
+        height: 3px;
+        border-radius: 1px;
+      }
+      .chart-wrapper {
+        position: relative;
+        height: clamp(140px, 30vh, 300px);
+      }
+      .chart-wrapper.small {
+        height: clamp(80px, 14vh, 140px);
+      }
+      .main-row {
+        display: grid;
+        grid-template-columns: 1fr 340px;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .stats-column {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .stats-column .stat-group {
+        min-width: unset;
+        flex: unset;
+      }
+      .two-charts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .telemetry-window {
+        margin-bottom: 16px;
+      }
+      .telemetry-window-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin: 0 0 8px 2px;
+      }
+      .telemetry-window-title {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .telemetry-window-time,
+      .telemetry-errors {
+        color: var(--text-dim);
+        font-size: 10px;
+      }
+      .telemetry-errors {
+        margin: 0 0 8px 2px;
+        color: #ef4444;
+      }
+      .telemetry-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        gap: 16px;
+      }
+      .telemetry-grid .chart-container {
+        margin-bottom: 0;
+      }
+      .telemetry-grid .chart-wrapper {
+        height: clamp(150px, 22vh, 220px);
+      }
+
+      @media (max-width: 1200px) {
+        .main-row {
+          grid-template-columns: 1fr 300px;
+        }
+        .query-stats {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      @media (max-width: 1000px) {
+        .main-row {
+          grid-template-columns: 1fr 260px;
+          gap: 12px;
+        }
+        body {
+          padding: 16px;
+        }
+        .chart-container {
+          padding: 14px;
+        }
+        .query-stat-value {
+          font-size: 10px;
+        }
+        .query-stat-label {
+          font-size: 7px;
+        }
+      }
+      @media (max-width: 850px) {
+        .main-row {
+          grid-template-columns: 1fr;
+        }
+        .stats-column {
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+        .stats-column .stat-group {
+          flex: 1;
+          min-width: 280px;
+        }
+        .query-stats {
+          grid-template-columns: repeat(6, 1fr);
+        }
+      }
+      @media (max-width: 700px) {
+        .two-charts {
+          grid-template-columns: 1fr;
+        }
+        .stats-row {
+          flex-direction: column;
+        }
+        body {
+          padding: 12px;
+        }
+        .main-row {
+          gap: 12px;
+        }
+        .chart-container {
+          padding: 12px;
+        }
+        .stats-column .stat-group {
+          min-width: 100%;
+        }
+        .query-stats {
+          grid-template-columns: repeat(3, 1fr);
+        }
+        .telemetry-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      #runs-container {
+        display: contents;
+      }
+    </style>
+  <script>window.__DASHBOARD_EMBEDDED_DATA = {"backends":{"pg_vectorsearch":{"alias":"pg_vectorsearch","color":"#F1FF5C","config":{"pg_vectorsearch.version":"0.2.0-dev","postgresql":{"effective_cache_size":"5242888kB","jit":"off","max_connections":"100","max_parallel_workers":"8","max_parallel_workers_per_gather":"8","random_page_cost":"4","shared_buffers":"15728648kB","work_mem":"4096kB"},"prism":{"prism.centroid_beam_scale":"0.5","prism.centroid_error_scale":"0","prism.distance_mode":"default","prism.fastscan_bits":"16","prism.leaf_refine_threshold":"0","prism.log_build_stats":"off","prism.nprobe":"50","prism.probe_expand":"2","prism.query_limit":"0","prism.recent_buffers":"on","prism.rerank":"on","prism.rerank_pool":"0"},"version":"PostgreSQL 18.6 (Ubuntu 18.6-1.pgdg26.04+2) on aarch64-unknown-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit"},"container":""}},"broadcastInterval":200,"chartDuration":54.997,"containers":{},"elapsed":49.997,"meta":{"benchmarker":"ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3","commit":"cb348775ec9763c1b20d87398230aa9b8295d10b","engine":"pg_vectorsearch","pdbench":"e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c","pg_vectorsearch":"1bc1c77b2a07611d57c8a1eae767939bd1e39ee1","ref":"cb348775ec9763c1b20d87398230aa9b8295d10b","variant":"pg_vectorsearch-no-replication"},"runs":{"pg_vectorsearch":{"alias":"pg_vectorsearch","backend":"pg_vectorsearch","chart":"","color":"#F1FF5C","container":"","endTime":1793905278769,"ingestRate":null,"name":"pg_vectorsearch","queries":{"search":{"count":16611,"executor":"ramping-vus","max":7.117,"mean":2.977791162482702,"min":1.445,"name":"search","p50":2.855,"p95":4.243,"p99":4.774,"qps":332.23993439606375,"query":"SELECT _id, title FROM msmarco\nORDER BY emb \u003c=\u003e $1::vector(1024)\nLIMIT 10","timeline":[{"time":1793905228772,"mean":3.086,"p50":3.086,"p90":3.086,"p95":3.086,"p99":3.086,"count":1,"hits":10},{"time":1793905228972,"mean":3.001970149253731,"p50":2.834,"p90":3.782,"p95":4.1,"p99":6.894,"count":67,"hits":10},{"time":1793905229172,"mean":2.966716417910447,"p50":2.834,"p90":3.762,"p95":4.191,"p99":6.894,"count":134,"hits":10},{"time":1793905229372,"mean":2.9772599999999994,"p50":2.856,"p90":3.762,"p95":4.191,"p99":4.54,"count":200,"hits":10},{"time":1793905229572,"mean":2.9819774436090234,"p50":2.852,"p90":3.779,"p95":4.191,"p99":6.894,"count":266,"hits":10},{"time":1793905229772,"mean":2.9753132530120476,"p50":2.848,"p90":3.762,"p95":4.192,"p99":6.894,"count":332,"hits":10},{"time":1793905229972,"mean":2.9756867469879507,"p50":2.854,"p90":3.767,"p95":4.266,"p99":4.543,"count":332,"hits":10},{"time":1793905230172,"mean":2.9873383685800574,"p50":2.854,"p90":3.781,"p95":4.199,"p99":4.546,"count":331,"hits":10},{"time":1793905230372,"mean":2.9765391566265063,"p50":2.852,"p90":3.775,"p95":4.199,"p99":6.885,"count":332,"hits":10},{"time":1793905230572,"mean":2.9758138138138137,"p50":2.856,"p90":3.781,"p95":4.291,"p99":4.574,"count":333,"hits":10},{"time":1793905230772,"mean":2.988141993957704,"p50":2.861,"p90":3.792,"p95":4.203,"p99":4.574,"count":331,"hits":10},{"time":1793905230972,"mean":2.979144578313254,"p50":2.855,"p90":3.781,"p95":4.203,"p99":6.885,"count":332,"hits":10},{"time":1793905231172,"mean":2.9771861861861857,"p50":2.867,"p90":3.781,"p95":4.286,"p99":4.574,"count":333,"hits":10},{"time":1793905231372,"mean":2.9859006024096386,"p50":2.86,"p90":3.788,"p95":4.203,"p99":4.574,"count":332,"hits":10},{"time":1793905231572,"mean":2.979915662650603,"p50":2.86,"p90":3.768,"p95":4.203,"p99":6.9,"count":332,"hits":10},{"time":1793905231772,"mean":2.9755975975975972,"p50":2.865,"p90":3.767,"p95":4.27,"p99":4.582,"count":333,"hits":10},{"time":1793905231972,"mean":2.980304216867472,"p50":2.854,"p90":3.778,"p95":4.2,"p99":4.582,"count":332,"hits":10},{"time":1793905232172,"mean":2.974120481927711,"p50":2.843,"p90":3.767,"p95":4.2,"p99":6.888,"count":332,"hits":10},{"time":1793905232372,"mean":2.9738614457831334,"p50":2.852,"p90":3.767,"p95":4.239,"p99":4.582,"count":332,"hits":10},{"time":1793905232572,"mean":2.9773222891566267,"p50":2.842,"p90":3.783,"p95":4.222,"p99":4.582,"count":332,"hits":10},{"time":1793905232772,"mean":2.968651651651651,"p50":2.834,"p90":3.761,"p95":4.222,"p99":6.886,"count":333,"hits":10},{"time":1793905232972,"mean":2.96899099099099,"p50":2.853,"p90":3.761,"p95":4.239,"p99":4.559,"count":333,"hits":10},{"time":1793905233172,"mean":2.9803554216867467,"p50":2.855,"p90":3.781,"p95":4.222,"p99":4.564,"count":332,"hits":10},{"time":1793905233372,"mean":2.972465465465465,"p50":2.853,"p90":3.755,"p95":4.211,"p99":6.886,"count":333,"hits":10},{"time":1793905233572,"mean":2.975042168674699,"p50":2.861,"p90":3.772,"p95":4.252,"p99":4.564,"count":332,"hits":10},{"time":1793905233772,"mean":2.9868580060422936,"p50":2.881,"p90":3.788,"p95":4.211,"p99":4.564,"count":331,"hits":10},{"time":1793905233972,"mean":2.975018072289154,"p50":2.844,"p90":3.772,"p95":4.211,"p99":6.891,"count":332,"hits":10},{"time":1793905234172,"mean":2.972693693693694,"p50":2.849,"p90":3.776,"p95":4.262,"p99":4.559,"count":333,"hits":10},{"time":1793905234372,"mean":2.9819307228915677,"p50":2.849,"p90":3.788,"p95":4.199,"p99":4.559,"count":332,"hits":10},{"time":1793905234572,"mean":2.9740630630630625,"p50":2.842,"p90":3.776,"p95":4.199,"p99":6.908,"count":333,"hits":10},{"time":1793905234772,"mean":2.9774487951807225,"p50":2.845,"p90":3.779,"p95":4.267,"p99":4.552,"count":332,"hits":10},{"time":1793905234972,"mean":2.9934108761329314,"p50":2.878,"p90":3.782,"p95":4.221,"p99":4.552,"count":331,"hits":10},{"time":1793905235172,"mean":2.980225903614458,"p50":2.85,"p90":3.778,"p95":4.221,"p99":6.883,"count":332,"hits":10},{"time":1793905235372,"mean":2.9849818731117823,"p50":2.874,"p90":3.778,"p95":4.275,"p99":4.552,"count":331,"hits":10},{"time":1793905235572,"mean":2.9916344410876143,"p50":2.874,"p90":3.785,"p95":4.221,"p99":4.552,"count":331,"hits":10},{"time":1793905235772,"mean":2.971900900900901,"p50":2.855,"p90":3.737,"p95":4.221,"p99":6.877,"count":333,"hits":10},{"time":1793905235972,"mean":2.9732012012011997,"p50":2.865,"p90":3.772,"p95":4.266,"p99":4.541,"count":333,"hits":10},{"time":1793905236172,"mean":2.9844531722054373,"p50":2.865,"p90":3.774,"p95":4.19,"p99":4.542,"count":331,"hits":10},{"time":1793905236372,"mean":2.968874251497007,"p50":2.845,"p90":3.737,"p95":4.19,"p99":6.877,"count":334,"hits":10},{"time":1793905236572,"mean":2.9750873493975902,"p50":2.858,"p90":3.771,"p95":4.28,"p99":4.558,"count":332,"hits":10},{"time":1793905236772,"mean":2.993758308157101,"p50":2.868,"p90":3.777,"p95":4.225,"p99":4.574,"count":331,"hits":10},{"time":1793905236972,"mean":2.981403614457833,"p50":2.856,"p90":3.766,"p95":4.225,"p99":6.888,"count":332,"hits":10},{"time":1793905237172,"mean":2.9865542168674692,"p50":2.868,"p90":3.784,"p95":4.293,"p99":4.574,"count":332,"hits":10},{"time":1793905237372,"mean":2.997963636363638,"p50":2.87,"p90":3.797,"p95":4.225,"p99":4.574,"count":330,"hits":10},{"time":1793905237572,"mean":2.982421686746991,"p50":2.857,"p90":3.754,"p95":4.189,"p99":6.899,"count":332,"hits":10},{"time":1793905237772,"mean":2.9862416918429004,"p50":2.865,"p90":3.784,"p95":4.285,"p99":4.587,"count":331,"hits":10},{"time":1793905237972,"mean":2.9849909365558913,"p50":2.86,"p90":3.787,"p95":4.189,"p99":4.587,"count":331,"hits":10},{"time":1793905238172,"mean":2.97268674698795,"p50":2.851,"p90":3.746,"p95":4.189,"p99":6.907,"count":332,"hits":10},{"time":1793905238372,"mean":2.9790843373493967,"p50":2.86,"p90":3.75,"p95":4.278,"p99":4.587,"count":332,"hits":10},{"time":1793905238572,"mean":2.9826616314199397,"p50":2.854,"p90":3.784,"p95":4.2,"p99":4.587,"count":331,"hits":10},{"time":1793905238772,"mean":2.961592814371257,"p50":2.842,"p90":3.744,"p95":4.2,"p99":6.881,"count":334,"hits":10},{"time":1793905238972,"mean":2.97806626506024,"p50":2.859,"p90":3.75,"p95":4.273,"p99":4.551,"count":332,"hits":10},{"time":1793905239172,"mean":2.97482282282282,"p50":2.851,"p90":3.801,"p95":4.2,"p99":4.551,"count":333,"hits":10},{"time":1793905239372,"mean":2.956251497005985,"p50":2.842,"p90":3.728,"p95":4.2,"p99":6.881,"count":334,"hits":10},{"time":1793905239572,"mean":2.9725225225225205,"p50":2.846,"p90":3.762,"p95":4.262,"p99":4.666,"count":333,"hits":10},{"time":1793905239772,"mean":2.975436746987951,"p50":2.844,"p90":3.786,"p95":4.199,"p99":4.666,"count":332,"hits":10},{"time":1793905239972,"mean":2.9586257485029934,"p50":2.829,"p90":3.757,"p95":4.199,"p99":6.891,"count":334,"hits":10},{"time":1793905240172,"mean":2.9805090361445785,"p50":2.863,"p90":3.771,"p95":4.277,"p99":4.666,"count":332,"hits":10},{"time":1793905240372,"mean":2.9845558912386716,"p50":2.863,"p90":3.786,"p95":4.189,"p99":4.666,"count":331,"hits":10},{"time":1793905240572,"mean":2.970096096096096,"p50":2.839,"p90":3.758,"p95":4.189,"p99":6.891,"count":333,"hits":10},{"time":1793905240772,"mean":2.9909728096676735,"p50":2.88,"p90":3.776,"p95":4.284,"p99":4.56,"count":331,"hits":10},{"time":1793905240972,"mean":2.9885572289156634,"p50":2.857,"p90":3.797,"p95":4.204,"p99":4.56,"count":332,"hits":10},{"time":1793905241172,"mean":2.9771746987951806,"p50":2.844,"p90":3.756,"p95":4.204,"p99":6.889,"count":332,"hits":10},{"time":1793905241372,"mean":2.9910392749244727,"p50":2.866,"p90":3.792,"p95":4.284,"p99":4.555,"count":331,"hits":10},{"time":1793905241572,"mean":2.9858277945619336,"p50":2.866,"p90":3.797,"p95":4.222,"p99":4.555,"count":331,"hits":10},{"time":1793905241772,"mean":2.971876876876876,"p50":2.854,"p90":3.751,"p95":4.222,"p99":6.889,"count":333,"hits":10},{"time":1793905241972,"mean":2.9889848484848494,"p50":2.873,"p90":3.776,"p95":4.268,"p99":4.553,"count":330,"hits":10},{"time":1793905242172,"mean":2.9836566265060216,"p50":2.872,"p90":3.787,"p95":4.222,"p99":4.553,"count":332,"hits":10},{"time":1793905242372,"mean":2.9749879879879852,"p50":2.855,"p90":3.751,"p95":4.222,"p99":6.898,"count":333,"hits":10},{"time":1793905242572,"mean":2.9853825301204795,"p50":2.872,"p90":3.769,"p95":4.264,"p99":4.544,"count":332,"hits":10},{"time":1793905242772,"mean":2.9778433734939753,"p50":2.857,"p90":3.778,"p95":4.201,"p99":4.544,"count":332,"hits":10},{"time":1793905242972,"mean":2.9706526946107794,"p50":2.848,"p90":3.767,"p95":4.259,"p99":6.898,"count":334,"hits":10},{"time":1793905243172,"mean":2.9749728915662663,"p50":2.863,"p90":3.754,"p95":4.259,"p99":4.531,"count":332,"hits":10},{"time":1793905243372,"mean":2.9662462462462496,"p50":2.841,"p90":3.778,"p95":4.178,"p99":4.531,"count":333,"hits":10},{"time":1793905243572,"mean":2.965556886227546,"p50":2.834,"p90":3.74,"p95":4.259,"p99":6.91,"count":334,"hits":10},{"time":1793905243772,"mean":2.9742168674698797,"p50":2.86,"p90":3.751,"p95":4.183,"p99":4.548,"count":332,"hits":10},{"time":1793905243972,"mean":2.9734578313253017,"p50":2.86,"p90":3.798,"p95":4.183,"p99":4.559,"count":332,"hits":10},{"time":1793905244172,"mean":2.9780030120481933,"p50":2.835,"p90":3.782,"p95":4.23,"p99":6.892,"count":332,"hits":10},{"time":1793905244372,"mean":2.9852710843373513,"p50":2.869,"p90":3.78,"p95":4.203,"p99":4.559,"count":332,"hits":10},{"time":1793905244572,"mean":2.9799638554216874,"p50":2.858,"p90":3.791,"p95":4.203,"p99":4.559,"count":332,"hits":10},{"time":1793905244772,"mean":2.9830540540540547,"p50":2.84,"p90":3.78,"p95":4.23,"p99":6.892,"count":333,"hits":10},{"time":1793905244972,"mean":2.9791891891891886,"p50":2.85,"p90":3.753,"p95":4.203,"p99":4.556,"count":333,"hits":10},{"time":1793905245172,"mean":2.96746107784431,"p50":2.847,"p90":3.78,"p95":4.203,"p99":4.556,"count":334,"hits":10},{"time":1793905245372,"mean":2.977066265060238,"p50":2.84,"p90":3.757,"p95":4.282,"p99":6.892,"count":332,"hits":10},{"time":1793905245572,"mean":2.976174698795179,"p50":2.856,"p90":3.753,"p95":4.185,"p99":4.557,"count":332,"hits":10},{"time":1793905245772,"mean":2.9705090361445783,"p50":2.856,"p90":3.783,"p95":4.197,"p99":4.557,"count":332,"hits":10},{"time":1793905245972,"mean":2.9835709969788535,"p50":2.856,"p90":3.762,"p95":4.285,"p99":6.888,"count":331,"hits":10},{"time":1793905246172,"mean":2.9844199395770383,"p50":2.864,"p90":3.757,"p95":4.205,"p99":4.558,"count":331,"hits":10},{"time":1793905246372,"mean":2.9744924924924905,"p50":2.857,"p90":3.792,"p95":4.205,"p99":4.568,"count":333,"hits":10},{"time":1793905246572,"mean":2.9888731117824765,"p50":2.858,"p90":3.785,"p95":4.265,"p99":6.888,"count":331,"hits":10},{"time":1793905246772,"mean":2.983472891566266,"p50":2.873,"p90":3.781,"p95":4.205,"p99":4.568,"count":332,"hits":10},{"time":1793905246972,"mean":2.9740210843373487,"p50":2.85,"p90":3.799,"p95":4.205,"p99":4.568,"count":332,"hits":10},{"time":1793905247172,"mean":2.9776283987915413,"p50":2.852,"p90":3.78,"p95":4.265,"p99":4.568,"count":331,"hits":10},{"time":1793905247372,"mean":2.980072507552871,"p50":2.873,"p90":3.752,"p95":4.192,"p99":4.554,"count":331,"hits":10},{"time":1793905247572,"mean":2.9729309309309317,"p50":2.857,"p90":3.78,"p95":4.196,"p99":4.557,"count":333,"hits":10},{"time":1793905247772,"mean":2.977990963855423,"p50":2.853,"p90":3.764,"p95":4.253,"p99":4.557,"count":332,"hits":10},{"time":1793905247972,"mean":2.9823795180722903,"p50":2.867,"p90":3.764,"p95":4.181,"p99":4.557,"count":332,"hits":10},{"time":1793905248172,"mean":2.9864384384384377,"p50":2.857,"p90":3.787,"p95":4.253,"p99":6.805,"count":333,"hits":10},{"time":1793905248372,"mean":2.9811626506024074,"p50":2.851,"p90":3.777,"p95":4.273,"p99":4.557,"count":332,"hits":10},{"time":1793905248572,"mean":2.9804909638554213,"p50":2.858,"p90":3.764,"p95":4.181,"p99":4.548,"count":332,"hits":10},{"time":1793905248772,"mean":2.984298192771084,"p50":2.838,"p90":3.79,"p95":4.296,"p99":6.875,"count":332,"hits":10},{"time":1793905248972,"mean":2.9751831831831836,"p50":2.84,"p90":3.764,"p95":4.296,"p99":4.548,"count":333,"hits":10},{"time":1793905249172,"mean":2.97742469879518,"p50":2.85,"p90":3.759,"p95":4.2,"p99":4.582,"count":332,"hits":10},{"time":1793905249372,"mean":2.9890422960725065,"p50":2.856,"p90":3.795,"p95":4.294,"p99":6.884,"count":331,"hits":10},{"time":1793905249572,"mean":2.9730301204819254,"p50":2.846,"p90":3.762,"p95":4.297,"p99":4.582,"count":332,"hits":10},{"time":1793905249772,"mean":2.977677710843374,"p50":2.865,"p90":3.759,"p95":4.194,"p99":4.582,"count":332,"hits":10},{"time":1793905249972,"mean":2.9902114803625386,"p50":2.86,"p90":3.8,"p95":4.285,"p99":6.909,"count":331,"hits":10},{"time":1793905250172,"mean":2.974322289156627,"p50":2.85,"p90":3.768,"p95":4.285,"p99":4.569,"count":332,"hits":10},{"time":1793905250372,"mean":2.9765705705705705,"p50":2.86,"p90":3.755,"p95":4.18,"p99":4.586,"count":333,"hits":10},{"time":1793905250572,"mean":2.9910906344410866,"p50":2.873,"p90":3.782,"p95":4.26,"p99":6.904,"count":331,"hits":10},{"time":1793905250772,"mean":2.9758584337349405,"p50":2.844,"p90":3.768,"p95":4.29,"p99":4.586,"count":332,"hits":10},{"time":1793905250972,"mean":2.9792771084337346,"p50":2.86,"p90":3.755,"p95":4.177,"p99":4.586,"count":332,"hits":10},{"time":1793905251172,"mean":2.9874229607250746,"p50":2.865,"p90":3.776,"p95":4.286,"p99":6.881,"count":331,"hits":10},{"time":1793905251372,"mean":2.9713723723723735,"p50":2.854,"p90":3.773,"p95":4.286,"p99":4.578,"count":333,"hits":10},{"time":1793905251572,"mean":2.9806777108433757,"p50":2.857,"p90":3.771,"p95":4.189,"p99":4.547,"count":332,"hits":10},{"time":1793905251772,"mean":2.98784894259819,"p50":2.857,"p90":3.776,"p95":4.266,"p99":6.88,"count":331,"hits":10},{"time":1793905251972,"mean":2.9740271084337357,"p50":2.854,"p90":3.785,"p95":4.286,"p99":4.547,"count":332,"hits":10},{"time":1793905252172,"mean":2.9863614457831322,"p50":2.859,"p90":3.784,"p95":4.191,"p99":4.547,"count":332,"hits":10},{"time":1793905252372,"mean":2.990419939577039,"p50":2.865,"p90":3.784,"p95":4.274,"p99":6.88,"count":331,"hits":10},{"time":1793905252572,"mean":2.974297297297295,"p50":2.864,"p90":3.78,"p95":4.281,"p99":4.551,"count":333,"hits":10},{"time":1793905252772,"mean":2.98237048192771,"p50":2.867,"p90":3.784,"p95":4.179,"p99":4.554,"count":332,"hits":10},{"time":1793905252972,"mean":2.9815301204819282,"p50":2.862,"p90":3.78,"p95":4.274,"p99":6.897,"count":332,"hits":10},{"time":1793905253172,"mean":2.972975903614457,"p50":2.862,"p90":3.772,"p95":4.279,"p99":4.554,"count":332,"hits":10},{"time":1793905253372,"mean":2.980184290030211,"p50":2.873,"p90":3.774,"p95":4.168,"p99":4.554,"count":331,"hits":10},{"time":1793905253572,"mean":2.9805377643504523,"p50":2.859,"p90":3.774,"p95":4.279,"p99":6.896,"count":331,"hits":10},{"time":1793905253772,"mean":2.9737807807807815,"p50":2.862,"p90":3.772,"p95":4.3,"p99":4.527,"count":333,"hits":10},{"time":1793905253972,"mean":2.9867824773413902,"p50":2.869,"p90":3.774,"p95":4.19,"p99":4.532,"count":331,"hits":10},{"time":1793905254172,"mean":2.983352409638556,"p50":2.863,"p90":3.774,"p95":4.288,"p99":6.896,"count":332,"hits":10},{"time":1793905254372,"mean":2.9764414414414433,"p50":2.864,"p90":3.771,"p95":4.272,"p99":4.544,"count":333,"hits":10},{"time":1793905254572,"mean":2.9863102409638564,"p50":2.869,"p90":3.771,"p95":4.19,"p99":4.557,"count":332,"hits":10},{"time":1793905254772,"mean":2.9808825301204815,"p50":2.845,"p90":3.771,"p95":4.256,"p99":6.918,"count":332,"hits":10},{"time":1793905254972,"mean":2.9736276276276263,"p50":2.864,"p90":3.771,"p95":4.263,"p99":4.557,"count":333,"hits":10},{"time":1793905255172,"mean":2.980433734939759,"p50":2.85,"p90":3.775,"p95":4.187,"p99":4.557,"count":332,"hits":10},{"time":1793905255372,"mean":2.9739036144578317,"p50":2.845,"p90":3.771,"p95":4.215,"p99":6.918,"count":332,"hits":10},{"time":1793905255572,"mean":2.973409638554217,"p50":2.855,"p90":3.776,"p95":4.278,"p99":4.552,"count":332,"hits":10},{"time":1793905255772,"mean":2.981111782477341,"p50":2.864,"p90":3.78,"p95":4.215,"p99":4.552,"count":331,"hits":10},{"time":1793905255972,"mean":2.97018018018018,"p50":2.852,"p90":3.758,"p95":4.218,"p99":6.9,"count":333,"hits":10},{"time":1793905256172,"mean":2.974927927927928,"p50":2.863,"p90":3.77,"p95":4.282,"p99":4.568,"count":333,"hits":10},{"time":1793905256372,"mean":2.9904501510574018,"p50":2.867,"p90":3.804,"p95":4.271,"p99":4.568,"count":331,"hits":10},{"time":1793905256572,"mean":2.9853192771084336,"p50":2.863,"p90":3.77,"p95":4.271,"p99":6.9,"count":332,"hits":10},{"time":1793905256772,"mean":2.992703927492448,"p50":2.874,"p90":3.799,"p95":4.282,"p99":4.568,"count":331,"hits":10},{"time":1793905256972,"mean":3.005401215805472,"p50":2.884,"p90":3.811,"p95":4.271,"p99":4.568,"count":329,"hits":10},{"time":1793905257172,"mean":2.989557575757577,"p50":2.859,"p90":3.788,"p95":4.222,"p99":6.941,"count":330,"hits":10},{"time":1793905257372,"mean":2.9848885542168704,"p50":2.874,"p90":3.788,"p95":4.264,"p99":4.546,"count":332,"hits":10},{"time":1793905257572,"mean":2.9848700906344425,"p50":2.86,"p90":3.793,"p95":4.222,"p99":4.546,"count":331,"hits":10},{"time":1793905257772,"mean":2.9683963963963955,"p50":2.845,"p90":3.759,"p95":4.217,"p99":6.921,"count":333,"hits":10},{"time":1793905257972,"mean":2.9698258258258243,"p50":2.851,"p90":3.768,"p95":4.264,"p99":4.553,"count":333,"hits":10},{"time":1793905258172,"mean":2.9815391566265053,"p50":2.866,"p90":3.784,"p95":4.217,"p99":4.553,"count":332,"hits":10},{"time":1793905258372,"mean":2.970999999999999,"p50":2.84,"p90":3.768,"p95":4.217,"p99":6.874,"count":333,"hits":10},{"time":1793905258572,"mean":2.9762942942942945,"p50":2.853,"p90":3.784,"p95":4.278,"p99":4.553,"count":333,"hits":10},{"time":1793905258772,"mean":2.990474320241692,"p50":2.869,"p90":3.785,"p95":4.21,"p99":4.566,"count":331,"hits":10},{"time":1793905258972,"mean":2.97725,"p50":2.853,"p90":3.778,"p95":4.189,"p99":6.874,"count":332,"hits":10},{"time":1793905259172,"mean":2.981719879518074,"p50":2.861,"p90":3.785,"p95":4.27,"p99":4.566,"count":332,"hits":10},{"time":1793905259372,"mean":2.9930545454545454,"p50":2.881,"p90":3.791,"p95":4.198,"p99":4.566,"count":330,"hits":10},{"time":1793905259572,"mean":2.9772921686746976,"p50":2.861,"p90":3.78,"p95":4.198,"p99":6.888,"count":332,"hits":10},{"time":1793905259772,"mean":2.976684684684682,"p50":2.863,"p90":3.78,"p95":4.27,"p99":4.537,"count":333,"hits":10},{"time":1793905259972,"mean":2.987572289156625,"p50":2.877,"p90":3.79,"p95":4.198,"p99":4.557,"count":332,"hits":10},{"time":1793905260172,"mean":2.969804804804805,"p50":2.846,"p90":3.755,"p95":4.198,"p99":6.888,"count":333,"hits":10},{"time":1793905260372,"mean":2.9716306306306315,"p50":2.852,"p90":3.759,"p95":4.279,"p99":4.557,"count":333,"hits":10},{"time":1793905260572,"mean":2.983851963746224,"p50":2.852,"p90":3.761,"p95":4.205,"p99":4.557,"count":331,"hits":10},{"time":1793905260772,"mean":2.9642372372372368,"p50":2.843,"p90":3.753,"p95":4.205,"p99":6.867,"count":333,"hits":10},{"time":1793905260972,"mean":2.966744744744743,"p50":2.846,"p90":3.757,"p95":4.259,"p99":4.538,"count":333,"hits":10},{"time":1793905261172,"mean":2.9772108433734914,"p50":2.85,"p90":3.761,"p95":4.205,"p99":4.538,"count":332,"hits":10},{"time":1793905261372,"mean":2.9619371257485025,"p50":2.843,"p90":3.752,"p95":4.205,"p99":6.867,"count":334,"hits":10},{"time":1793905261572,"mean":2.9652904191616765,"p50":2.848,"p90":3.756,"p95":4.259,"p99":4.537,"count":334,"hits":10},{"time":1793905261772,"mean":2.9801234939759036,"p50":2.853,"p90":3.764,"p95":4.226,"p99":4.537,"count":332,"hits":10},{"time":1793905261972,"mean":2.967607784431137,"p50":2.85,"p90":3.756,"p95":4.226,"p99":6.879,"count":334,"hits":10},{"time":1793905262172,"mean":2.9731981981981983,"p50":2.855,"p90":3.775,"p95":4.28,"p99":4.577,"count":333,"hits":10},{"time":1793905262372,"mean":2.9872537764350464,"p50":2.869,"p90":3.778,"p95":4.226,"p99":4.577,"count":331,"hits":10},{"time":1793905262572,"mean":2.971279279279281,"p50":2.853,"p90":3.754,"p95":4.199,"p99":6.901,"count":333,"hits":10},{"time":1793905262772,"mean":2.9779219219219226,"p50":2.864,"p90":3.766,"p95":4.28,"p99":4.623,"count":333,"hits":10},{"time":1793905262972,"mean":2.984876132930514,"p50":2.847,"p90":3.771,"p95":4.199,"p99":4.623,"count":331,"hits":10},{"time":1793905263172,"mean":2.966398203592815,"p50":2.841,"p90":3.747,"p95":4.179,"p99":6.899,"count":334,"hits":10},{"time":1793905263372,"mean":2.970189189189187,"p50":2.847,"p90":3.751,"p95":4.283,"p99":4.623,"count":333,"hits":10},{"time":1793905263572,"mean":2.9850722891566233,"p50":2.856,"p90":3.781,"p95":4.194,"p99":4.623,"count":332,"hits":10},{"time":1793905263772,"mean":2.9674714714714714,"p50":2.839,"p90":3.738,"p95":4.194,"p99":6.887,"count":333,"hits":10},{"time":1793905263972,"mean":2.9724354354354365,"p50":2.856,"p90":3.773,"p95":4.283,"p99":4.566,"count":333,"hits":10},{"time":1793905264172,"mean":2.9883776435045317,"p50":2.872,"p90":3.8,"p95":4.217,"p99":4.566,"count":331,"hits":10},{"time":1793905264372,"mean":2.974072072072073,"p50":2.848,"p90":3.742,"p95":4.217,"p99":6.887,"count":333,"hits":10},{"time":1793905264572,"mean":2.974397590361447,"p50":2.852,"p90":3.765,"p95":4.275,"p99":4.548,"count":332,"hits":10},{"time":1793905264772,"mean":2.9849546827794566,"p50":2.863,"p90":3.786,"p95":4.217,"p99":4.548,"count":331,"hits":10},{"time":1793905264972,"mean":2.9710240240240235,"p50":2.842,"p90":3.742,"p95":4.217,"p99":6.902,"count":333,"hits":10},{"time":1793905265172,"mean":2.967072072072074,"p50":2.842,"p90":3.767,"p95":4.266,"p99":4.545,"count":333,"hits":10},{"time":1793905265372,"mean":2.9769066265060258,"p50":2.842,"p90":3.785,"p95":4.199,"p99":4.545,"count":332,"hits":10},{"time":1793905265572,"mean":2.9658233532934117,"p50":2.835,"p90":3.742,"p95":4.184,"p99":6.91,"count":334,"hits":10},{"time":1793905265772,"mean":2.9664071856287393,"p50":2.837,"p90":3.767,"p95":4.259,"p99":4.552,"count":334,"hits":10},{"time":1793905265972,"mean":2.9789969879518052,"p50":2.844,"p90":3.792,"p95":4.208,"p99":4.552,"count":332,"hits":10},{"time":1793905266172,"mean":2.9691891891891884,"p50":2.844,"p90":3.745,"p95":4.208,"p99":6.908,"count":333,"hits":10},{"time":1793905266372,"mean":2.975972972972973,"p50":2.851,"p90":3.782,"p95":4.271,"p99":4.553,"count":333,"hits":10},{"time":1793905266572,"mean":2.98446827794562,"p50":2.863,"p90":3.792,"p95":4.23,"p99":4.553,"count":331,"hits":10},{"time":1793905266772,"mean":2.975207831325301,"p50":2.851,"p90":3.754,"p95":4.23,"p99":6.894,"count":332,"hits":10},{"time":1793905266972,"mean":2.982879518072289,"p50":2.875,"p90":3.774,"p95":4.271,"p99":4.566,"count":332,"hits":10},{"time":1793905267172,"mean":2.9876596385542182,"p50":2.875,"p90":3.788,"p95":4.23,"p99":4.566,"count":332,"hits":10},{"time":1793905267372,"mean":2.969891891891891,"p50":2.835,"p90":3.749,"p95":4.212,"p99":6.894,"count":333,"hits":10},{"time":1793905267572,"mean":2.978504504504505,"p50":2.854,"p90":3.769,"p95":4.253,"p99":4.566,"count":333,"hits":10},{"time":1793905267772,"mean":2.9814939759036156,"p50":2.86,"p90":3.788,"p95":4.212,"p99":4.566,"count":332,"hits":10},{"time":1793905267972,"mean":2.962230538922155,"p50":2.835,"p90":3.741,"p95":4.183,"p99":6.893,"count":334,"hits":10},{"time":1793905268172,"mean":2.9803042168674674,"p50":2.856,"p90":3.768,"p95":4.273,"p99":4.542,"count":332,"hits":10},{"time":1793905268372,"mean":2.9822620481927693,"p50":2.86,"p90":3.787,"p95":4.243,"p99":4.555,"count":332,"hits":10},{"time":1793905268572,"mean":2.9622942942942947,"p50":2.842,"p90":3.755,"p95":4.243,"p99":6.864,"count":333,"hits":10},{"time":1793905268772,"mean":2.980228915662651,"p50":2.848,"p90":3.762,"p95":4.273,"p99":4.568,"count":332,"hits":10},{"time":1793905268972,"mean":2.979009036144578,"p50":2.845,"p90":3.787,"p95":4.243,"p99":4.568,"count":332,"hits":10},{"time":1793905269172,"mean":2.9561467065868254,"p50":2.83,"p90":3.749,"p95":4.183,"p99":6.864,"count":334,"hits":10},{"time":1793905269372,"mean":2.9732522522522506,"p50":2.841,"p90":3.764,"p95":4.279,"p99":4.568,"count":333,"hits":10},{"time":1793905269572,"mean":2.977633633633634,"p50":2.845,"p90":3.777,"p95":4.173,"p99":4.568,"count":333,"hits":10},{"time":1793905269772,"mean":2.9554149253731348,"p50":2.834,"p90":3.76,"p95":4.173,"p99":6.872,"count":335,"hits":10},{"time":1793905269972,"mean":2.978304216867471,"p50":2.841,"p90":3.769,"p95":4.279,"p99":4.559,"count":332,"hits":10},{"time":1793905270172,"mean":2.976581325301206,"p50":2.844,"p90":3.787,"p95":4.208,"p99":4.559,"count":332,"hits":10},{"time":1793905270372,"mean":2.9653153153153173,"p50":2.84,"p90":3.769,"p95":4.208,"p99":6.844,"count":333,"hits":10},{"time":1793905270572,"mean":2.9851722054380656,"p50":2.873,"p90":3.773,"p95":4.279,"p99":4.543,"count":331,"hits":10},{"time":1793905270772,"mean":2.9831867469879514,"p50":2.868,"p90":3.774,"p95":4.208,"p99":4.543,"count":332,"hits":10},{"time":1793905270972,"mean":2.9666257485029943,"p50":2.839,"p90":3.754,"p95":4.191,"p99":6.844,"count":334,"hits":10},{"time":1793905271172,"mean":2.9904018126888205,"p50":2.868,"p90":3.772,"p95":4.288,"p99":4.546,"count":331,"hits":10},{"time":1793905271372,"mean":2.9822771084337347,"p50":2.852,"p90":3.787,"p95":4.193,"p99":4.56,"count":332,"hits":10},{"time":1793905271572,"mean":2.9647964071856268,"p50":2.833,"p90":3.743,"p95":4.193,"p99":6.882,"count":334,"hits":10},{"time":1793905271772,"mean":2.9828549848942605,"p50":2.854,"p90":3.763,"p95":4.269,"p99":4.56,"count":331,"hits":10},{"time":1793905271972,"mean":2.9764728915662637,"p50":2.852,"p90":3.787,"p95":4.193,"p99":4.56,"count":332,"hits":10},{"time":1793905272172,"mean":2.9603582089552205,"p50":2.839,"p90":3.751,"p95":4.193,"p99":6.887,"count":335,"hits":10},{"time":1793905272372,"mean":2.9772951807228902,"p50":2.847,"p90":3.762,"p95":4.269,"p99":4.535,"count":332,"hits":10},{"time":1793905272572,"mean":2.972921686746988,"p50":2.846,"p90":3.77,"p95":4.204,"p99":4.535,"count":332,"hits":10},{"time":1793905272772,"mean":2.9625988023952106,"p50":2.838,"p90":3.761,"p95":4.204,"p99":6.874,"count":334,"hits":10},{"time":1793905272972,"mean":2.980075301204821,"p50":2.849,"p90":3.769,"p95":4.27,"p99":4.527,"count":332,"hits":10},{"time":1793905273172,"mean":2.9731204819277117,"p50":2.849,"p90":3.773,"p95":4.204,"p99":4.553,"count":332,"hits":10},{"time":1793905273372,"mean":2.963218562874251,"p50":2.831,"p90":3.745,"p95":4.188,"p99":6.874,"count":334,"hits":10},{"time":1793905273572,"mean":2.978585585585584,"p50":2.862,"p90":3.757,"p95":4.27,"p99":4.572,"count":333,"hits":10},{"time":1793905273772,"mean":2.970900900900901,"p50":2.859,"p90":3.779,"p95":4.182,"p99":4.572,"count":333,"hits":10},{"time":1793905273972,"mean":2.961488023952095,"p50":2.834,"p90":3.741,"p95":4.182,"p99":6.884,"count":334,"hits":10},{"time":1793905274172,"mean":2.978412650602408,"p50":2.853,"p90":3.757,"p95":4.265,"p99":4.572,"count":332,"hits":10},{"time":1793905274372,"mean":2.9738348348348334,"p50":2.848,"p90":3.766,"p95":4.187,"p99":4.572,"count":333,"hits":10},{"time":1793905274572,"mean":2.9668108108108107,"p50":2.845,"p90":3.753,"p95":4.187,"p99":6.895,"count":333,"hits":10},{"time":1793905274772,"mean":2.9837078313253,"p50":2.867,"p90":3.762,"p95":4.273,"p99":4.567,"count":332,"hits":10},{"time":1793905274972,"mean":2.98260843373494,"p50":2.867,"p90":3.778,"p95":4.213,"p99":4.569,"count":332,"hits":10},{"time":1793905275172,"mean":2.979636636636637,"p50":2.85,"p90":3.763,"p95":4.273,"p99":6.895,"count":333,"hits":10},{"time":1793905275372,"mean":2.9817583081571013,"p50":2.867,"p90":3.764,"p95":4.213,"p99":4.569,"count":331,"hits":10},{"time":1793905275572,"mean":2.975536144578312,"p50":2.862,"p90":3.786,"p95":4.259,"p99":4.569,"count":332,"hits":10},{"time":1793905275772,"mean":2.976918674698792,"p50":2.844,"p90":3.767,"p95":4.273,"p99":6.86,"count":332,"hits":10},{"time":1793905275972,"mean":2.977219879518072,"p50":2.853,"p90":3.761,"p95":4.259,"p99":4.578,"count":332,"hits":10},{"time":1793905276172,"mean":2.9701561561561567,"p50":2.848,"p90":3.78,"p95":4.259,"p99":4.578,"count":333,"hits":10},{"time":1793905276372,"mean":2.981222891566267,"p50":2.843,"p90":3.772,"p95":4.289,"p99":6.86,"count":332,"hits":10},{"time":1793905276572,"mean":2.981231927710844,"p50":2.863,"p90":3.761,"p95":4.2,"p99":4.578,"count":332,"hits":10},{"time":1793905276772,"mean":2.9747987987988,"p50":2.855,"p90":3.785,"p95":4.2,"p99":4.774,"count":333,"hits":10},{"time":1793905276972,"mean":2.983039156626509,"p50":2.853,"p90":3.775,"p95":4.273,"p99":6.863,"count":332,"hits":10},{"time":1793905277172,"mean":2.9821540785498533,"p50":2.862,"p90":3.77,"p95":4.259,"p99":4.774,"count":331,"hits":10},{"time":1793905277372,"mean":2.9762672672672683,"p50":2.856,"p90":3.792,"p95":4.269,"p99":4.774,"count":333,"hits":10},{"time":1793905277572,"mean":2.990981873111783,"p50":2.856,"p90":3.783,"p95":4.269,"p99":6.895,"count":331,"hits":10},{"time":1793905277772,"mean":2.9838640483383694,"p50":2.864,"p90":3.772,"p95":4.268,"p99":4.54,"count":331,"hits":10},{"time":1793905277972,"mean":2.9781506024096394,"p50":2.856,"p90":3.795,"p95":4.254,"p99":4.54,"count":332,"hits":10},{"time":1793905278172,"mean":2.9779274924471286,"p50":2.859,"p90":3.783,"p95":4.254,"p99":4.54,"count":331,"hits":10},{"time":1793905278372,"mean":2.978374622356495,"p50":2.879,"p90":3.757,"p95":4.193,"p99":4.555,"count":331,"hits":10},{"time":1793905278572,"mean":2.971930930930929,"p50":2.847,"p90":3.794,"p95":4.232,"p99":4.576,"count":333,"hits":10}],"vus":1}},"startTime":1793905228772,"totalIngested":0}},"script":"import { check } from \"k6\";\nimport exec from \"k6/execution\";\nimport db from \"k6/x/database\";\n\nconst points = JSON.parse(open(__ENV.OPERATING_POINTS));\nconst point = points.find((item) =\u003e item.name === __ENV.OPERATING_POINT);\nif (!point?.reached)\n  throw new Error(\"A reached recall operating point is required\");\n\nconst vectors = JSON.parse(open(__ENV.QUERY_VECTORS));\nif (vectors.length !== point.query_vectors)\n  throw new Error(`Expected ${point.query_vectors} pdbench query vectors`);\n\nconst session = {\n  ...point.session,\n  [point.param || \"paradedb.vector_cluster_max_probe\"]: point.probe,\n};\nconst settings = Object.entries(session)\n  .map(([key, value]) =\u003e `-c ${key}=${value}`)\n  .join(\" \");\nconst url = `${__ENV.PARADEDB_URL}?default_query_exec_mode=exec\u0026options=${encodeURIComponent(settings)}`;\nconst backends = db.backends({\n  backends: [\n    {\n      type: point.backend || \"paradedb\",\n      connection: url,\n      container: \"\",\n    },\n  ],\n});\nconst warmup = Number(__ENV.WARMUP_SECONDS || 10);\nconst duration = Number(__ENV.DURATION_SECONDS || 50);\nconst scenarios = {\n  search: {\n    executor: \"ramping-vus\",\n    startVUs: 1,\n    stages: [\n      { duration: `${warmup}s`, target: 1 },\n      { duration: `${duration}s`, target: 1 },\n    ],\n    gracefulRampDown: \"0s\",\n    exec: \"search\",\n    tags: { warmup: \"true\" },\n  },\n};\nexport const options = { scenarios, thresholds: { checks: [\"rate==1\"] } };\n\nexport function search() {\n  const vector = vectors[exec.scenario.iterationInTest % vectors.length];\n  const result = backends\n    .get(point.backend || \"paradedb\")\n    .query(point.sql, vector);\n  if (result.deadlineReached) return;\n  check(result, {\n    \"query succeeds\": (r) =\u003e !r.error,\n    [`returns ${point.neighbors} neighbors`]: (r) =\u003e r.hits === point.neighbors,\n  });\n}\n","script_path":"/home/runner/_work/paradedb/paradedb/benchmarks/cohere/k6/search.js","startTime":1793905218746,"timelineWindow":1000};</script>
+</head>
+  <body>
+    <div class="header">
+      <h1>
+        <a
+          href="https://github.com/paradedb/benchmarker"
+          style="color: inherit; text-decoration: none"
+          >ParadeDB Benchmarker</a
+        >
+      </h1>
+      <div style="display: flex; align-items: center; gap: 16px">
+        <div
+          id="timeline-settings"
+          style="font-size: 11px; color: var(--text-dim)"
+        ></div>
+        <div class="elapsed" id="elapsed">00:00</div>
+        <button class="theme-toggle" onclick="toggleTheme()">◐ Theme</button>
+      </div>
+    </div>
+
+    <div
+      id="notes-container"
+      style="
+        display: none;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text-dim);
+        font-size: 13px;
+      "
+    ></div>
+
+    <div id="chart-groups-container"></div>
+
+    <div class="main-row" id="ingest-container" style="display: none">
+      <div class="chart-container">
+        <div class="chart-header">
+          <h2>Ingest (docs/s)</h2>
+          <div class="chart-controls">
+            <button class="reset-zoom" id="reset-ingest" onclick="resetZoom()">
+              Reset Zoom
+            </button>
+            <div class="legend" id="ingest-legend"></div>
+          </div>
+        </div>
+        <div class="chart-wrapper small">
+          <canvas id="ingestChart"></canvas>
+        </div>
+      </div>
+      <div class="stats-column" id="ingest-stats-container"></div>
+    </div>
+
+    <div class="two-charts" id="metrics-container" style="display: none">
+      <div class="chart-container">
+        <div class="chart-header">
+          <h2>CPU %</h2>
+          <button class="reset-zoom" id="reset-cpu" onclick="resetZoom()">
+            Reset Zoom
+          </button>
+        </div>
+        <div class="chart-wrapper small">
+          <canvas id="cpuChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-container">
+        <div class="chart-header">
+          <h2>Memory</h2>
+          <button class="reset-zoom" id="reset-memory" onclick="resetZoom()">
+            Reset Zoom
+          </button>
+        </div>
+        <div class="chart-wrapper small">
+          <canvas id="memoryChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-row" id="update-container" style="display: none"></div>
+
+    <div id="telemetry-container" style="display: none">
+      <div id="telemetry-windows"></div>
+    </div>
+
+    <div id="query-tooltip" class="query-tooltip"></div>
+    <div
+      id="modal-backdrop"
+      class="modal-backdrop"
+      onclick="hideConfigModal()"
+    ></div>
+    <div id="config-modal" class="config-modal">
+      <div class="config-modal-header">
+        <span class="config-modal-title" id="config-modal-title"
+          >Configuration</span
+        >
+        <button class="config-modal-close" onclick="hideConfigModal()">
+          &times;
+        </button>
+      </div>
+      <div id="config-modal-content"></div>
+    </div>
+
+    <script>
+      const COLORS = [
+        "#7C3AED",
+        "#F97316",
+        "#10B981",
+        "#EC4899",
+        "#3B82F6",
+        "#EAB308",
+        "#06B6D4",
+      ];
+      let isDark = false;
+      let runColors = {};
+      let selectedMetric = "p95";
+      let lastMetric = "p95";
+      let chartType = "latency"; // 'latency' | 'hits' | 'throughput'
+      let lastChartType = "latency";
+      let colorIndex = 0;
+      let lastElapsed = 0;
+      let chartDuration = 30; // Will be updated from server
+      let selectedQueries = new Set(); // Empty = show all (aggregated)
+      let allQueryTypes = new Set();
+      let lastData = null; // Store last data for filter updates
+      let queryTexts = {}; // Store query text per query name
+      let runConfigs = {}; // Store config per run name
+      let chartInstances = {}; // Chart instances per dashboard group
+      let telemetryCharts = {}; // Generic backend telemetry charts
+      let chartLegendKeys = {}; // Legend keys per dashboard group
+      let chartGroupOrder = []; // Track order of chart groups by first emission
+
+      function resetState() {
+        runColors = {};
+        colorIndex = 0;
+        lastElapsed = 0;
+        chartDuration = 30;
+        selectedQueries = new Set();
+        allQueryTypes = new Set();
+        lastData = null;
+        queryTexts = {};
+        runConfigs = {};
+        isZoomed = false;
+        chartType = "latency";
+        lastChartType = "latency";
+        document
+          .querySelectorAll(".reset-zoom")
+          .forEach((btn) => btn.classList.remove("visible"));
+        document.getElementById("chart-groups-container").innerHTML = "";
+        document.getElementById("ingest-legend").innerHTML = "";
+        chartLegendKeys = {};
+        document.getElementById("ingest-stats-container").innerHTML = "";
+        document.getElementById("ingest-container").style.display = "none";
+        document.getElementById("update-container").innerHTML = "";
+        document.getElementById("update-container").style.display = "none";
+        document.getElementById("telemetry-windows").innerHTML = "";
+        document.getElementById("telemetry-container").style.display = "none";
+        // Destroy existing dashboard charts
+        Object.values(chartInstances).forEach((chart) => chart.destroy());
+        Object.values(telemetryCharts).forEach((chart) => chart.destroy());
+        chartInstances = {};
+        telemetryCharts = {};
+        chartGroupOrder = [];
+        [cpuChart, memoryChart, ingestChart].forEach((chart) => {
+          chart.data.datasets = [];
+          chart.options.scales.x.min = 0;
+          chart.options.scales.x.max = chartDuration;
+          delete chart.options.scales.y.max;
+          chart.update("none");
+        });
+      }
+
+      // Get base name without chart suffix (e.g., "paradedb-prod (chart)" -> "paradedb-prod")
+      function getBaseName(run) {
+        const match = run.match(/^(.+?) \(.+\)$/);
+        return match ? match[1] : run;
+      }
+
+      // Short version string for a backend label, from the captured config.
+      // ParadeDB reports the pg_search version (composite record text like
+      // "(0.25.6,rev,...)"); postgres-family the "PostgreSQL x.y" banner;
+      // ES/OpenSearch/Mongo/ClickHouse a bare version string.
+      function backendVersion(cfg) {
+        if (!cfg) return "";
+        const pdb = cfg["paradedb.version"];
+        if (typeof pdb === "string") {
+          const m = pdb.match(/\(?"?v?([0-9][^,")]*)/);
+          if (m) return m[1];
+        }
+        const v = cfg.version;
+        if (typeof v !== "string" || v === "") return "";
+        const pg = v.match(/^PostgreSQL (\S+)/);
+        if (pg) return pg[1];
+        return v.split(" ")[0];
+      }
+
+      function sanitizeColor(value) {
+        const color = String(value || "").trim();
+        if (/^#[0-9a-fA-F]{3,8}$/.test(color)) {
+          return color;
+        }
+        if (/^(rgb|rgba|hsl|hsla)\([0-9.,%\s]+\)$/.test(color)) {
+          return color;
+        }
+        // Allow named CSS colors (e.g. "red", "blue", "darkgreen")
+        if (/^[a-zA-Z]{3,20}$/.test(color)) {
+          return color;
+        }
+        return "";
+      }
+
+      function getRunColor(name, runData) {
+        // Use base name for color so same backend has same color across charts
+        const baseName = getBaseName(name);
+        if (!runColors[baseName]) {
+          // Workload defaults and script overrides arrive with the run data.
+          if (runData?.color) {
+            const customColor = sanitizeColor(runData.color);
+            if (customColor) {
+              runColors[baseName] = customColor;
+            }
+          }
+          // Fall back to cycling colors
+          if (!runColors[baseName]) {
+            runColors[baseName] = COLORS[colorIndex % COLORS.length];
+            colorIndex++;
+          }
+        }
+        return runColors[baseName];
+      }
+
+      // Cache for container colors
+      const containerColors = {};
+      let containerColorIndex = 0;
+
+      function getContainerColor(name, container) {
+        // Check for custom color first
+        if (container?.color) {
+          const customColor = sanitizeColor(container.color);
+          if (customColor) {
+            containerColors[name] = customColor;
+            return customColor;
+          }
+        }
+        // Try to match with a run's color for consistency across panels
+        if (lastData?.runs) {
+          for (const [runName, runData] of Object.entries(lastData.runs)) {
+            if (
+              runData.backend === container?.backend ||
+              runData.container === name
+            ) {
+              return getRunColor(runName, runData);
+            }
+          }
+        }
+        // Fall back to cycling colors (only cache if no backend info yet)
+        if (!containerColors[name]) {
+          containerColors[name] = COLORS[containerColorIndex % COLORS.length];
+          containerColorIndex++;
+        }
+        return containerColors[name];
+      }
+
+      function shadeColor(color, percent) {
+        // Lighten or darken a hex color
+        const num = parseInt(color.replace("#", ""), 16);
+        const amt = Math.round(2.55 * percent);
+        const R = Math.min(255, Math.max(0, (num >> 16) + amt));
+        const G = Math.min(255, Math.max(0, ((num >> 8) & 0x00ff) + amt));
+        const B = Math.min(255, Math.max(0, (num & 0x0000ff) + amt));
+        return (
+          "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1)
+        );
+      }
+
+      function toggleTheme() {
+        isDark = !isDark;
+        document.documentElement.classList.toggle("light", !isDark);
+        updateChartColors();
+      }
+
+      function getGridColor() {
+        return isDark ? "#252525" : "#f0f0f0";
+      }
+      function getTickColor() {
+        return "#737373";
+      }
+
+      function updateChartColors() {
+        [
+          ...Object.values(chartInstances),
+          ...Object.values(telemetryCharts),
+          cpuChart,
+          memoryChart,
+          ingestChart,
+        ].forEach((chart) => {
+          chart.options.scales.x.grid.color = getGridColor();
+          chart.options.scales.y.grid.color = getGridColor();
+          if (chart.options.plugins.legend?.labels) {
+            chart.options.plugins.legend.labels.color = getTickColor();
+          }
+          chart.update("none");
+        });
+      }
+
+      function createChartOptions(yUnit = "", chartId = "") {
+        return {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "nearest", axis: "x", intersect: true },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) =>
+                  `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}${yUnit}`,
+                title: (items) =>
+                  items.length ? `${items[0].parsed.x.toFixed(0)}s` : "",
+              },
+            },
+            zoom: {
+              zoom: {
+                wheel: {
+                  enabled: true,
+                  modifierKey: "ctrl",
+                },
+                drag: {
+                  enabled: true,
+                  backgroundColor: "rgba(124, 58, 237, 0.1)",
+                  borderColor: "rgba(124, 58, 237, 0.5)",
+                  borderWidth: 1,
+                },
+                mode: "x",
+                onZoomComplete: ({ chart }) => syncZoom(chart),
+              },
+              pan: {
+                enabled: true,
+                mode: "x",
+                onPanComplete: ({ chart }) => syncZoom(chart),
+              },
+              limits: {
+                x: { min: 0, minRange: 1 },
+              },
+            },
+          },
+          elements: {
+            point: { radius: 0, hitRadius: 5, hoverRadius: 3 },
+            line: { borderWidth: 2, tension: 0.3 },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              min: 0,
+              max: chartDuration,
+              grid: { color: getGridColor() },
+              ticks: {
+                color: getTickColor(),
+                font: { family: "JetBrains Mono", size: 10 },
+                maxTicksLimit: 8,
+                callback: (v) => Math.round(v) + "s",
+              },
+            },
+            y: {
+              min: 0,
+              suggestedMax: 10,
+              grid: { color: getGridColor() },
+              ticks: {
+                color: getTickColor(),
+                font: { family: "JetBrains Mono", size: 10 },
+                maxTicksLimit: 6,
+                callback: (v) => Math.round(v) + yUnit,
+              },
+            },
+          },
+        };
+      }
+
+      let isZoomed = false;
+
+      // Calculate Y min/max for visible data points within X range
+      function getVisibleYRange(chart, xMin, xMax) {
+        let yMin = Infinity;
+        let yMax = -Infinity;
+
+        chart.data.datasets.forEach((dataset) => {
+          if (dataset.hidden) return;
+          dataset.data.forEach((point) => {
+            if (point.x >= xMin && point.x <= xMax) {
+              if (point.y < yMin) yMin = point.y;
+              if (point.y > yMax) yMax = point.y;
+            }
+          });
+        });
+
+        if (yMin === Infinity) return null;
+
+        // Add 10% padding
+        const padding = (yMax - yMin) * 0.1 || 1;
+        return { min: Math.max(0, yMin - padding), max: yMax + padding };
+      }
+
+      function getAllCharts() {
+        return [
+          ...Object.values(chartInstances),
+          ...Object.values(telemetryCharts),
+          cpuChart,
+          memoryChart,
+          ingestChart,
+        ];
+      }
+
+      function syncZoom(sourceChart) {
+        const xMin = sourceChart.scales.x.min;
+        const xMax = sourceChart.scales.x.max;
+
+        // Only consider zoomed if not showing full extent
+        const atFullExtent = xMin <= 0.1 && xMax >= chartDuration - 0.1;
+        if (atFullExtent) {
+          isZoomed = false;
+          document
+            .querySelectorAll(".reset-zoom")
+            .forEach((btn) => btn.classList.remove("visible"));
+          return;
+        }
+
+        isZoomed = true;
+        document
+          .querySelectorAll(".reset-zoom")
+          .forEach((btn) => btn.classList.add("visible"));
+
+        // Sync X axis to all charts first
+        getAllCharts().forEach((chart) => {
+          if (chart !== sourceChart) {
+            chart.options.scales.x.min = xMin;
+            chart.options.scales.x.max = xMax;
+          }
+        });
+
+        // Defer Y axis recalculation to ensure zoom plugin has finished
+        setTimeout(() => {
+          getAllCharts().forEach((chart) => {
+            const yRange = getVisibleYRange(chart, xMin, xMax);
+            if (yRange) {
+              chart.options.scales.y.min = yRange.min;
+              chart.options.scales.y.max = yRange.max;
+            }
+            chart.update("none");
+          });
+        }, 0);
+      }
+
+      function resetZoom() {
+        isZoomed = false;
+        getAllCharts().forEach((chart) => {
+          // Don't use chart.resetZoom() as it can be unreliable
+          // Instead, explicitly reset all scale options
+          chart.options.scales.x.min = 0;
+          chart.options.scales.x.max = chartDuration;
+          // Reset Y axis to auto-scale based on full dataset
+          chart.options.scales.y.min = 0;
+          chart.options.scales.y.max = getYMax(chart.data.datasets);
+          // Force scales to update by triggering a full update
+          chart.update("resize");
+        });
+        document
+          .querySelectorAll(".reset-zoom")
+          .forEach((btn) => btn.classList.remove("visible"));
+      }
+
+      // Create or get dashboard group section
+      function getOrCreateChartGroup(chartName) {
+        const groupId = chartName || "default";
+        const safeGroupId = groupId.replace(/[^a-zA-Z0-9]/g, "_");
+
+        if (chartInstances[groupId]) {
+          return chartInstances[groupId];
+        }
+
+        // Track order of chart groups by first emission
+        if (!chartGroupOrder.includes(groupId)) {
+          chartGroupOrder.push(groupId);
+        }
+
+        const container = document.getElementById("chart-groups-container");
+        const section = document.createElement("div");
+        section.id = `chart-group-${safeGroupId}`;
+        section.className = "main-row";
+        const chartTitle = chartName
+          ? `<span style="color: var(--text); margin-right: 8px;">${escapeHtml(chartName)}</span>`
+          : "";
+        section.innerHTML = `
+        <div class="chart-container">
+          <div class="chart-header">
+            <h2>${chartTitle}<select class="chart-type-select" data-chart="${safeGroupId}">
+              <option value="latency" selected>Latency</option>
+              <option value="hits">Hits</option>
+              <option value="throughput">Throughput</option>
+            </select> <span class="metric-wrapper"><select class="metric-select" data-chart="${safeGroupId}">
+              <option value="p50">P50</option>
+              <option value="mean">Mean</option>
+              <option value="p90">P90</option>
+              <option value="p95" selected>P95</option>
+              <option value="p99">P99</option>
+            </select> (ms)</span><span class="hits-unit" style="display:none;">(avg)</span><span class="throughput-unit" style="display:none;">(qps)</span></h2>
+            <div class="chart-controls">
+              <button class="reset-zoom" onclick="resetZoom()" title="Double-click chart to reset">Reset Zoom</button>
+              <div class="legend" id="legend-${safeGroupId}"></div>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="chart-${safeGroupId}"></canvas>
+          </div>
+        </div>
+        <div class="stats-column" id="stats-${safeGroupId}"></div>
+      `;
+        container.appendChild(section);
+
+        // Sync select elements with current state
+        const metricSelect = section.querySelector(
+          `.metric-select[data-chart="${safeGroupId}"]`,
+        );
+        if (metricSelect) metricSelect.value = selectedMetric;
+        const chartTypeSelect = section.querySelector(
+          `.chart-type-select[data-chart="${safeGroupId}"]`,
+        );
+        if (chartTypeSelect) chartTypeSelect.value = chartType;
+        if (metricSelect) {
+          metricSelect.addEventListener("change", (event) =>
+            updateMetricSelectionForGroup(groupId, event.target.value),
+          );
+        }
+        if (chartTypeSelect) {
+          chartTypeSelect.addEventListener("change", (event) =>
+            updateChartTypeForGroup(groupId, event.target.value),
+          );
+        }
+        // Sync metric wrapper visibility based on chart type
+        const metricWrapper = section.querySelector(".metric-wrapper");
+        const hitsUnit = section.querySelector(".hits-unit");
+        const throughputUnit = section.querySelector(".throughput-unit");
+        if (metricWrapper)
+          metricWrapper.style.display =
+            chartType === "latency" ? "inline" : "none";
+        if (hitsUnit)
+          hitsUnit.style.display = chartType === "hits" ? "inline" : "none";
+        if (throughputUnit)
+          throughputUnit.style.display =
+            chartType === "throughput" ? "inline" : "none";
+
+        // Create chart instance
+        const canvas = document.getElementById(`chart-${safeGroupId}`);
+        const chart = new Chart(canvas, {
+          type: "line",
+          data: { datasets: [] },
+          options: createChartOptions("ms", groupId),
+        });
+
+        // Add double-click to reset zoom
+        canvas.addEventListener("dblclick", resetZoom);
+
+        chartInstances[groupId] = chart;
+        chartLegendKeys[groupId] = "";
+
+        return chart;
+      }
+
+      function updateMetricSelectionForGroup(groupId, value) {
+        if (!value) return;
+        selectedMetric = value;
+        // Sync all metric selects to the same value
+        document.querySelectorAll(".metric-select").forEach((s) => {
+          s.value = selectedMetric;
+        });
+        if (lastData) update(lastData);
+      }
+
+      function updateChartTypeForGroup(groupId, value) {
+        if (!value) return;
+        chartType = value;
+        // Sync all chart type selects and visibility
+        document.querySelectorAll(".chart-type-select").forEach((s) => {
+          s.value = chartType;
+        });
+        // Update metric wrapper visibility for all charts
+        document.querySelectorAll(".metric-wrapper").forEach((mw) => {
+          mw.style.display = chartType === "latency" ? "inline" : "none";
+        });
+        document.querySelectorAll(".hits-unit").forEach((hu) => {
+          hu.style.display = chartType === "hits" ? "inline" : "none";
+        });
+        document.querySelectorAll(".throughput-unit").forEach((tu) => {
+          tu.style.display = chartType === "throughput" ? "inline" : "none";
+        });
+        if (lastData) update(lastData);
+      }
+
+      const cpuChart = new Chart(document.getElementById("cpuChart"), {
+        type: "line",
+        data: { datasets: [] },
+        options: createChartOptions("%", "cpu"),
+      });
+
+      const memoryChart = new Chart(document.getElementById("memoryChart"), {
+        type: "line",
+        data: { datasets: [] },
+        options: {
+          ...createChartOptions("GB", "memory"),
+          plugins: {
+            ...createChartOptions("GB", "memory").plugins,
+            tooltip: {
+              callbacks: {
+                label: (ctx) =>
+                  `${ctx.dataset.label}: ${(ctx.parsed.y / 1e9).toFixed(2)}GB`,
+                title: (items) =>
+                  items.length ? `${items[0].parsed.x.toFixed(0)}s` : "",
+              },
+            },
+          },
+          scales: {
+            ...createChartOptions().scales,
+            y: {
+              min: 0,
+              suggestedMax: 1e9,
+              grid: { color: getGridColor() },
+              ticks: {
+                color: getTickColor(),
+                font: { family: "JetBrains Mono", size: 10 },
+                maxTicksLimit: 6,
+                callback: (v) => Math.round((v / 1e9) * 10) / 10 + "GB",
+              },
+            },
+          },
+        },
+      });
+
+      const ingestChart = new Chart(document.getElementById("ingestChart"), {
+        type: "line",
+        data: { datasets: [] },
+        options: {
+          ...createChartOptions("/s", "ingest"),
+          plugins: {
+            ...createChartOptions("/s", "ingest").plugins,
+            tooltip: {
+              callbacks: {
+                label: (ctx) =>
+                  `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y)}/s`,
+                title: (items) =>
+                  items.length ? `${items[0].parsed.x.toFixed(0)}s` : "",
+              },
+            },
+          },
+          scales: {
+            ...createChartOptions().scales,
+            y: {
+              min: 0,
+              grid: { color: getGridColor() },
+              ticks: {
+                color: getTickColor(),
+                font: { family: "JetBrains Mono", size: 10 },
+                maxTicksLimit: 6,
+                callback: (v) => formatNumber(Math.round(v)) + "/s",
+              },
+            },
+          },
+        },
+      });
+
+      // Add double-click to reset zoom on all charts
+      ["cpuChart", "memoryChart", "ingestChart"].forEach((id) => {
+        document.getElementById(id).addEventListener("dblclick", resetZoom);
+      });
+
+      function getYMax(datasets) {
+        let max = 0;
+        datasets.forEach((ds) =>
+          ds.data.forEach((p) => {
+            if (p.y > max) max = p.y;
+          }),
+        );
+        return max > 0 ? max * 1.2 : 10;
+      }
+
+      // Update Y axis based on zoom state
+      function updateChartYAxis(chart) {
+        if (isZoomed) {
+          // When zoomed, recalculate Y range for visible data
+          const xMin = chart.options.scales.x.min;
+          const xMax = chart.options.scales.x.max;
+          const yRange = getVisibleYRange(chart, xMin, xMax);
+          if (yRange) {
+            chart.options.scales.y.min = yRange.min;
+            chart.options.scales.y.max = yRange.max;
+          }
+        } else {
+          // When not zoomed, auto-scale to full dataset
+          chart.options.scales.y.min = 0;
+          chart.options.scales.y.max = getYMax(chart.data.datasets);
+        }
+      }
+
+      // Update chart datasets in place to preserve hover state
+      function updateChartDatasets(chart, newDatasets, forceReplace = false) {
+        const getDatasetKey = (ds) => ds.datasetKey || ds.label;
+        const existingLabels = new Set(
+          chart.data.datasets.map((ds) => getDatasetKey(ds)),
+        );
+        const newLabels = new Set(newDatasets.map((ds) => getDatasetKey(ds)));
+
+        // Update existing datasets
+        chart.data.datasets.forEach((ds) => {
+          const datasetKey = getDatasetKey(ds);
+          const newDs = newDatasets.find(
+            (n) => getDatasetKey(n) === datasetKey,
+          );
+          if (newDs) {
+            if (forceReplace) {
+              // Full replace when metric changes
+              ds.data.length = 0;
+              newDs.data.forEach((pt) => ds.data.push(pt));
+            } else {
+              // Only push new points to preserve hover state
+              const lastTime =
+                ds.data.length > 0 ? ds.data[ds.data.length - 1].x : 0;
+              newDs.data.forEach((pt) => {
+                if (pt.x > lastTime) {
+                  ds.data.push(pt);
+                }
+              });
+            }
+            ds.borderColor = newDs.borderColor;
+            ds.backgroundColor = newDs.backgroundColor;
+            // Copy scriptable pointRadius function
+            if (newDs.pointRadius) {
+              ds.pointRadius = newDs.pointRadius;
+            }
+            ds.label = newDs.label;
+            ds.datasetKey = newDs.datasetKey;
+          }
+        });
+
+        // Add new datasets
+        newDatasets.forEach((ds) => {
+          if (!existingLabels.has(getDatasetKey(ds))) {
+            chart.data.datasets.push(ds);
+          }
+        });
+
+        // Remove datasets that no longer exist (in place)
+        for (let i = chart.data.datasets.length - 1; i >= 0; i--) {
+          if (!newLabels.has(getDatasetKey(chart.data.datasets[i]))) {
+            chart.data.datasets.splice(i, 1);
+          }
+        }
+      }
+
+      function formatElapsed(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+      }
+
+      function formatNumber(n) {
+        if (!n && n !== 0) return "-";
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+        if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+        return Math.floor(n).toString();
+      }
+
+      function safeId(value) {
+        return String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+      }
+
+      function formatLatency(ms) {
+        if (!ms) return "-";
+        if (ms >= 10000) return (ms / 1000).toFixed(1) + "s";
+        if (ms >= 1000) return (ms / 1000).toFixed(2) + "s";
+        if (ms >= 100) return Math.round(ms) + "ms";
+        if (ms >= 10) return ms.toFixed(0) + "ms";
+        return ms.toFixed(1) + "ms";
+      }
+
+      function hasQueries(run) {
+        // A warmup creates the backend card before measured samples arrive.
+        return run.warmingUp || Object.keys(run.queries || {}).length > 0;
+      }
+
+      function hasQueryTimelines(run) {
+        return Object.values(run.queries || {}).some(
+          (q) => q.timeline?.length > 0,
+        );
+      }
+
+      function updateStats(runs, backendsBlock) {
+        backendsBlock = backendsBlock || {};
+        // Group runs by chart (show runs with queries even before timeline data)
+        const runsByChart = {};
+        Object.keys(runs)
+          .filter((name) => hasQueries(runs[name]))
+          .sort()
+          .forEach((name) => {
+            const run = runs[name];
+            const chartGroup = run.chart || "default";
+            if (!runsByChart[chartGroup]) {
+              runsByChart[chartGroup] = [];
+            }
+            runsByChart[chartGroup].push(name);
+          });
+
+        // Calculate earliest start time per chart group
+        const chartStartTimes = {};
+        Object.keys(runsByChart).forEach((chartGroup) => {
+          chartStartTimes[chartGroup] = Infinity;
+          runsByChart[chartGroup].forEach((name) => {
+            const run = runs[name];
+            if (run.startTime && run.startTime < chartStartTimes[chartGroup]) {
+              chartStartTimes[chartGroup] = run.startTime;
+            }
+          });
+        });
+
+        // Update stats for each chart group (in emission order by start time)
+        const sortedChartGroups = Object.keys(runsByChart).sort((a, b) => {
+          const aTime = chartStartTimes[a] || Infinity;
+          const bTime = chartStartTimes[b] || Infinity;
+          if (aTime === bTime) return a.localeCompare(b);
+          return aTime - bTime;
+        });
+        sortedChartGroups.forEach((chartGroup) => {
+          const safeChartId = (chartGroup || "default").replace(
+            /[^a-zA-Z0-9]/g,
+            "_",
+          );
+          // Ensure chart group exists
+          getOrCreateChartGroup(chartGroup === "default" ? "" : chartGroup);
+          const container = document.getElementById(`stats-${safeChartId}`);
+          if (!container) return;
+
+          // Sort backends by selected metric (fastest first)
+          const sortedBackends = runsByChart[chartGroup]
+            .slice()
+            .sort((a, b) => {
+              const runA = runs[a];
+              const runB = runs[b];
+              // Get average metric across all queries for each backend
+              const getAvgMetric = (run) => {
+                const queries = run.queries || {};
+                const values = Object.values(queries)
+                  .map((q) => q[selectedMetric])
+                  .filter((v) => v != null && v > 0);
+                return values.length > 0
+                  ? values.reduce((s, v) => s + v, 0) / values.length
+                  : Infinity;
+              };
+              return getAvgMetric(runA) - getAvgMetric(runB);
+            });
+
+          sortedBackends.forEach((name, idx) => {
+            const run = runs[name];
+            const color = getRunColor(name, run);
+            const safeNameId = safeId(name);
+            const statId = `stat-${safeNameId}`;
+            const queryContainerId = `${safeNameId}-queries`;
+
+            // Look up the deduplicated backend snapshot for this run.
+            const backendSnapshot = backendsBlock[run.backend] || {};
+            const backendConfig = backendSnapshot.config || {};
+            const containerInfo = backendSnapshot.container_info || null;
+            runConfigs[name] = backendSnapshot;
+
+            const labelId = `label-${safeNameId}`;
+            let el = document.getElementById(statId);
+
+            if (!el) {
+              el = document.createElement("div");
+              el.id = statId;
+              el.className = "stat-group expanded";
+              el.style.borderLeftColor = color;
+
+              // Build limits string from container_info on the backend snapshot.
+              let limitsStr = "";
+              if (containerInfo) {
+                const parts = [];
+                if (containerInfo.cpu_limit)
+                  parts.push(escapeHtml(containerInfo.cpu_limit));
+                if (containerInfo.memory_limit)
+                  parts.push(escapeHtml(containerInfo.memory_limit));
+                if (parts.length > 0)
+                  limitsStr = `<span style="color: var(--text-dim); font-size: 9px; margin-left: 8px;">${parts.join(" / ")}</span>`;
+              }
+
+              el.innerHTML = `
+              <div class="stat-group-header">
+                <div id="${labelId}" class="stat-group-label" style="color: ${color};">${escapeHtml(getBaseName(name))}</div>${limitsStr}
+              </div>
+              <div class="warmup-status" id="${safeNameId}-warmup">
+                <div class="warmup-label">
+                  <span>Warmup</span>
+                  <span id="${safeNameId}-warmup-percent">0%</span>
+                </div>
+                <div class="warmup-track">
+                  <div class="warmup-fill" id="${safeNameId}-warmup-fill" style="background: ${color};"></div>
+                </div>
+              </div>
+              <div class="query-details" id="${queryContainerId}"></div>
+            `;
+              container.appendChild(el);
+            }
+
+            const warmupEl = document.getElementById(`${safeNameId}-warmup`);
+            const progress = Math.max(
+              0,
+              Math.min(100, Number(run.warmupProgress) || 0),
+            );
+            warmupEl.style.display = run.warmingUp ? "block" : "none";
+            document.getElementById(
+              `${safeNameId}-warmup-percent`,
+            ).textContent = `${Math.floor(progress)}%`;
+            document.getElementById(`${safeNameId}-warmup-fill`).style.width =
+              `${progress}%`;
+
+            // Set up config click handler after element is in the DOM.
+            // Runs on every update so it works even if config arrives later.
+            const hasGlobalCapture =
+              (lastData && (lastData.dataset_yaml || lastData.script)) || false;
+            const hasConfig =
+              Object.keys(backendConfig).length > 0 ||
+              containerInfo ||
+              hasGlobalCapture;
+            if (hasConfig) {
+              const labelEl = document.getElementById(labelId);
+              if (labelEl && !labelEl.dataset.configHandler) {
+                labelEl.style.cursor = "pointer";
+                labelEl.style.textDecoration = "underline";
+                labelEl.style.textDecorationStyle = "dotted";
+                labelEl.addEventListener("click", () => showConfigModal(name));
+                labelEl.dataset.configHandler = "1";
+              }
+            }
+
+            // Append the backend version to the label (config may arrive
+            // after the label is first rendered, so re-check every update).
+            {
+              const labelEl = document.getElementById(labelId);
+              if (labelEl) {
+                const ver = backendVersion(backendConfig);
+                const text = ver
+                  ? `${getBaseName(name)} ${ver}`
+                  : getBaseName(name);
+                if (labelEl.textContent !== text) labelEl.textContent = text;
+              }
+            }
+
+            // Update query details - only create if not exists, then just update values
+            const queriesEl = document.getElementById(queryContainerId);
+            const queries = run.queries || {};
+            const queryNames = Object.keys(queries).sort();
+
+            queryNames.forEach((qName) => {
+              const q = queries[qName];
+              const queryKey = `${name}::${qName}`;
+              const queryId = `${safeNameId}-${safeId(qName)}`;
+              let queryEl = document.getElementById(queryId);
+
+              // Store query text if available
+              if (q.query) {
+                queryTexts[queryKey] = q.query;
+              }
+
+              if (!queryEl) {
+                // Create new query item
+                queryEl = document.createElement("div");
+                queryEl.id = queryId;
+                queryEl.className = "query-item";
+                queryEl.dataset.query = qName;
+
+                // Build info string with VUs and executor if available
+                const infoParts = [];
+                if (q.vus) infoParts.push(`${q.vus} VUs`);
+                if (q.executor) infoParts.push(q.executor);
+                const infoStr =
+                  infoParts.length > 0
+                    ? `<span class="query-info">${infoParts.map(escapeHtml).join(" · ")}</span>`
+                    : "";
+
+                queryEl.innerHTML = `
+                <div class="query-header">
+                  <div class="query-name">${escapeHtml(qName)}${infoStr}</div>
+                </div>
+                <div class="query-stats">
+                  <div><div class="query-stat-value" id="${queryId}-qps">0</div><div class="query-stat-label">QPS</div></div>
+                  <div><div class="query-stat-value" id="${queryId}-min">0</div><div class="query-stat-label">Min</div></div>
+                  <div><div class="query-stat-value" id="${queryId}-mean">0</div><div class="query-stat-label">Mean</div></div>
+                  <div><div class="query-stat-value" id="${queryId}-p50">0</div><div class="query-stat-label">P50</div></div>
+                  <div><div class="query-stat-value" id="${queryId}-p95">0</div><div class="query-stat-label">P95</div></div>
+                  <div><div class="query-stat-value" id="${queryId}-p99">0</div><div class="query-stat-label">P99</div></div>
+                  <div><div class="query-stat-value" id="${queryId}-max">0</div><div class="query-stat-label">Max</div></div>
+                </div>
+              `;
+                queryEl.addEventListener("click", () =>
+                  showQueryModal(queryKey, qName),
+                );
+                queriesEl.appendChild(queryEl);
+              }
+
+              // Update values only
+              document.getElementById(`${queryId}-qps`).textContent =
+                formatNumber(q.qps || 0);
+              document.getElementById(`${queryId}-min`).textContent =
+                formatLatency(q.min);
+              document.getElementById(`${queryId}-mean`).textContent =
+                formatLatency(q.mean);
+              document.getElementById(`${queryId}-p50`).textContent =
+                formatLatency(q.p50);
+              document.getElementById(`${queryId}-p95`).textContent =
+                formatLatency(q.p95);
+              document.getElementById(`${queryId}-p99`).textContent =
+                formatLatency(q.p99);
+              document.getElementById(`${queryId}-max`).textContent =
+                formatLatency(q.max);
+            });
+          });
+        });
+      }
+
+      function updateLegend(runs) {
+        // Group runs by chart (show runs with queries even before timeline data)
+        const runsByChart = {};
+        Object.keys(runs)
+          .filter((name) => hasQueries(runs[name]))
+          .sort()
+          .forEach((name) => {
+            const run = runs[name];
+            const chartGroup = run.chart || "default";
+            if (!runsByChart[chartGroup]) {
+              runsByChart[chartGroup] = [];
+            }
+            runsByChart[chartGroup].push(name);
+          });
+
+        // Calculate earliest start time per chart group
+        const chartStartTimes = {};
+        Object.keys(runsByChart).forEach((chartGroup) => {
+          chartStartTimes[chartGroup] = Infinity;
+          runsByChart[chartGroup].forEach((name) => {
+            const run = runs[name];
+            if (run.startTime && run.startTime < chartStartTimes[chartGroup]) {
+              chartStartTimes[chartGroup] = run.startTime;
+            }
+          });
+        });
+
+        // Update legend for each chart group (in emission order by start time)
+        const sortedChartGroups = Object.keys(runsByChart).sort((a, b) => {
+          const aTime = chartStartTimes[a] || Infinity;
+          const bTime = chartStartTimes[b] || Infinity;
+          if (aTime === bTime) return a.localeCompare(b);
+          return aTime - bTime;
+        });
+        sortedChartGroups.forEach((chartGroup) => {
+          const safeChartId = (chartGroup || "default").replace(
+            /[^a-zA-Z0-9]/g,
+            "_",
+          );
+          const legend = document.getElementById(`legend-${safeChartId}`);
+          if (!legend) return;
+
+          const runNames = runsByChart[chartGroup].slice().sort();
+
+          // Build a key to detect if legend structure changed
+          const queryList = [];
+          runNames.forEach((name) => {
+            const queries = runs[name].queries || {};
+            Object.keys(queries)
+              .sort()
+              .forEach((qName) => queryList.push(qName));
+          });
+          const legendKey =
+            queryList.join(",") +
+            "|" +
+            Array.from(selectedQueries).sort().join(",");
+
+          // Only rebuild if structure changed
+          if (legendKey === chartLegendKeys[chartGroup]) return;
+          chartLegendKeys[chartGroup] = legendKey;
+
+          const items = [];
+          runNames.forEach((name) => {
+            const run = runs[name];
+            const baseColor = getRunColor(name, run);
+            const queries = run.queries || {};
+            const queryNames = Object.keys(queries).sort();
+
+            queryNames.forEach((qName, idx) => {
+              const color =
+                idx === 0 ? baseColor : shadeColor(baseColor, idx * 15);
+              const isEnabled = selectedQueries.has(qName);
+              const disabledClass = isEnabled ? "" : " disabled";
+              items.push(
+                `<div class="legend-item${disabledClass}" data-query="${escapeHtml(qName)}" title="Click to toggle, Shift+click to isolate"><div class="legend-color" style="background: ${color}"></div> ${escapeHtml(qName)}</div>`,
+              );
+            });
+          });
+          legend.innerHTML = items.join("");
+          legend.querySelectorAll(".legend-item").forEach((item) => {
+            item.addEventListener("click", (event) => {
+              toggleQueryFilter(item.dataset.query, event);
+            });
+          });
+        });
+      }
+
+      function updateQueryFilters(runs) {
+        // Collect all query names across all runs
+        const queryNames = new Set();
+        Object.values(runs).forEach((run) => {
+          Object.keys(run.queries || {}).forEach((qName) => {
+            queryNames.add(qName);
+          });
+        });
+
+        // Initialize selectedQueries with all queries when first discovered
+        queryNames.forEach((qn) => {
+          if (!allQueryTypes.has(qn)) {
+            selectedQueries.add(qn);
+          }
+        });
+        allQueryTypes = queryNames;
+      }
+
+      function formatQueryText(queryText) {
+        const trimmed = queryText.trim();
+        // Try JSON first
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            return JSON.stringify(parsed, null, 2);
+          } catch (e) {
+            // Not valid JSON, continue
+          }
+        }
+        // Try SQL formatting
+        try {
+          return sqlFormatter.format(trimmed, {
+            language: "postgresql",
+            tabWidth: 2,
+            keywordCase: "upper",
+          });
+        } catch (e) {
+          // Fallback to original
+          return queryText;
+        }
+      }
+
+      function showQueryModal(queryKey, qName) {
+        const queryText = queryTexts[queryKey];
+        if (!queryText) return;
+
+        const formatted = formatQueryText(queryText);
+        document.getElementById("config-modal-title").textContent = qName;
+        document.getElementById("config-modal-content").innerHTML = `
+          <pre style="white-space: pre-wrap; word-break: break-word; font-size: 11px; margin: 0; background: var(--bg); padding: 12px; border-radius: 4px;">${escapeHtml(formatted)}</pre>
+        `;
+        document.getElementById("modal-backdrop").classList.add("visible");
+        document.getElementById("config-modal").classList.add("visible");
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function showConfigModal(runName) {
+        const snapshot = runConfigs[runName] || {};
+        const config = snapshot.config || {};
+        const containerInfo = snapshot.container_info || null;
+        const hasGlobalCapture =
+          (lastData && (lastData.dataset_yaml || lastData.script)) || false;
+        if (
+          Object.keys(config).length === 0 &&
+          !containerInfo &&
+          !hasGlobalCapture
+        ) {
+          return;
+        }
+
+        document.getElementById("config-modal-title").textContent = runName;
+
+        const preScript = config.pre_script;
+        const postScript = config.post_script;
+
+        let tabsHtml = '<div class="config-tabs">';
+        tabsHtml +=
+          '<button class="config-tab active" onclick="switchConfigTab(\'config\')">Config</button>';
+        if (preScript) {
+          tabsHtml +=
+            '<button class="config-tab" onclick="switchConfigTab(\'pre\')">Pre</button>';
+        }
+        if (postScript) {
+          tabsHtml +=
+            '<button class="config-tab" onclick="switchConfigTab(\'post\')">Post</button>';
+        }
+        if (containerInfo) {
+          tabsHtml +=
+            '<button class="config-tab" onclick="switchConfigTab(\'container\')">Container</button>';
+        }
+        const datasetYaml = (lastData && lastData.dataset_yaml) || "";
+        const scriptSource = (lastData && lastData.script) || "";
+        if (datasetYaml) {
+          tabsHtml +=
+            '<button class="config-tab" onclick="switchConfigTab(\'dataset\')">Dataset</button>';
+        }
+        if (scriptSource) {
+          tabsHtml +=
+            '<button class="config-tab" onclick="switchConfigTab(\'script\')">Script</button>';
+        }
+        tabsHtml += "</div>";
+
+        function formatConfigValue(val) {
+          if (val === null || val === undefined) return "-";
+          if (typeof val === "object") return JSON.stringify(val);
+          return String(val);
+        }
+
+        // Config tab — DB GUCs etc.
+        let configHtml =
+          '<div id="tab-config" class="config-tab-content active">';
+        // Core postgres info first (settings section, then version), then
+        // extension sections (paradedb etc.) alphabetically.
+        const sectionRank = (name) =>
+          name === "postgresql" ? 0 : name === "version" ? 1 : 2;
+        const configEntries = Object.entries(config).sort(
+          (a, b) =>
+            sectionRank(a[0]) - sectionRank(b[0]) || a[0].localeCompare(b[0]),
+        );
+        for (const [section, value] of configEntries) {
+          if (["pre_script", "post_script"].includes(section)) continue;
+
+          if (
+            typeof value === "object" &&
+            value !== null &&
+            !Array.isArray(value)
+          ) {
+            configHtml += `<div class="config-section">
+            <div class="config-section-title">${escapeHtml(section)}</div>`;
+            for (const [key, val] of Object.entries(value)) {
+              configHtml += `<div class="config-item">
+              <span class="config-key">${escapeHtml(key)}</span>
+              <span class="config-value">${escapeHtml(formatConfigValue(val))}</span>
+            </div>`;
+            }
+            configHtml += "</div>";
+          } else if (!Array.isArray(value)) {
+            configHtml += `<div class="config-item">
+            <span class="config-key">${escapeHtml(section)}</span>
+            <span class="config-value">${escapeHtml(formatConfigValue(value))}</span>
+          </div>`;
+          }
+        }
+        configHtml += "</div>";
+
+        // Pre / Post tabs.
+        const codeBlock = (text) =>
+          `<pre style="white-space: pre-wrap; word-break: break-word; font-size: 10px; margin: 0; background: var(--bg); padding: 12px; border-radius: 4px;">${escapeHtml(text)}</pre>`;
+        let preHtml = '<div id="tab-pre" class="config-tab-content">';
+        if (preScript) preHtml += codeBlock(preScript);
+        preHtml += "</div>";
+
+        let postHtml = '<div id="tab-post" class="config-tab-content">';
+        if (postScript) postHtml += codeBlock(postScript);
+        postHtml += "</div>";
+
+        // Container tab — docker inspect subset.
+        let containerHtml =
+          '<div id="tab-container" class="config-tab-content">';
+        if (containerInfo) {
+          containerHtml += renderContainerInfo(containerInfo);
+        }
+        containerHtml += "</div>";
+
+        // Dataset / Script tabs — global to the run, hidden when absent.
+        const sourceBlock = (text) =>
+          `<pre style="white-space: pre-wrap; word-break: break-word; font-size: 10px; margin: 0; background: var(--bg); padding: 12px; border-radius: 4px;">${escapeHtml(text)}</pre>`;
+        let datasetHtml = '<div id="tab-dataset" class="config-tab-content">';
+        if (datasetYaml) datasetHtml += sourceBlock(datasetYaml);
+        datasetHtml += "</div>";
+        let scriptHtml = '<div id="tab-script" class="config-tab-content">';
+        if (scriptSource) scriptHtml += sourceBlock(scriptSource);
+        scriptHtml += "</div>";
+
+        document.getElementById("config-modal-content").innerHTML =
+          tabsHtml +
+          configHtml +
+          preHtml +
+          postHtml +
+          containerHtml +
+          datasetHtml +
+          scriptHtml;
+        document.getElementById("modal-backdrop").classList.add("visible");
+        document.getElementById("config-modal").classList.add("visible");
+      }
+
+      // renderContainerInfo turns the docker-inspect subset into the same
+      // sections/items layout used by the Config tab.
+      function renderContainerInfo(info) {
+        const items = (kvs) =>
+          kvs
+            .map(
+              ([k, v]) =>
+                `<div class="config-item">
+                  <span class="config-key">${escapeHtml(k)}</span>
+                  <span class="config-value">${escapeHtml(v)}</span>
+                </div>`,
+            )
+            .join("");
+        const section = (title, body) =>
+          `<div class="config-section">
+            <div class="config-section-title">${escapeHtml(title)}</div>
+            ${body}
+          </div>`;
+
+        let html = "";
+
+        const idRows = [];
+        if (info.image) idRows.push(["image", info.image]);
+        if (info.image_id) idRows.push(["image_id", info.image_id]);
+        if (info.cpu_limit) idRows.push(["cpu_limit", info.cpu_limit]);
+        if (info.memory_limit) idRows.push(["memory_limit", info.memory_limit]);
+        if (Array.isArray(info.cap_add) && info.cap_add.length)
+          idRows.push(["cap_add", info.cap_add.join(", ")]);
+        if (Array.isArray(info.security_opt) && info.security_opt.length)
+          idRows.push(["security_opt", info.security_opt.join(", ")]);
+        if (idRows.length) html += section("identity", items(idRows));
+
+        if (Array.isArray(info.cmd) && info.cmd.length) {
+          html += section(
+            "cmd",
+            `<pre style="white-space: pre-wrap; word-break: break-word; font-size: 10px; margin: 0;">${escapeHtml(info.cmd.join(" "))}</pre>`,
+          );
+        }
+
+        if (Array.isArray(info.env) && info.env.length) {
+          html += section(
+            "env",
+            items(
+              info.env.map((e) => {
+                const idx = e.indexOf("=");
+                return idx >= 0 ? [e.slice(0, idx), e.slice(idx + 1)] : [e, ""];
+              }),
+            ),
+          );
+        }
+
+        return html;
+      }
+
+      function switchConfigTab(tabName) {
+        // Update tab buttons
+        document.querySelectorAll(".config-tab").forEach((btn) => {
+          btn.classList.toggle(
+            "active",
+            btn.textContent.toLowerCase() === tabName,
+          );
+        });
+        // Update tab content
+        document.querySelectorAll(".config-tab-content").forEach((content) => {
+          content.classList.toggle("active", content.id === "tab-" + tabName);
+        });
+      }
+
+      function hideConfigModal() {
+        document.getElementById("modal-backdrop").classList.remove("visible");
+        document.getElementById("config-modal").classList.remove("visible");
+      }
+
+      function toggleQueryFilter(queryName, event) {
+        if (event && event.shiftKey) {
+          // Shift+click: isolate this query (show only this one)
+          if (selectedQueries.size === 1 && selectedQueries.has(queryName)) {
+            // Already isolated - restore all
+            allQueryTypes.forEach((q) => selectedQueries.add(q));
+          } else {
+            // Isolate this query
+            selectedQueries.clear();
+            selectedQueries.add(queryName);
+          }
+        } else {
+          // Regular click: toggle visibility
+          if (selectedQueries.has(queryName)) {
+            selectedQueries.delete(queryName);
+          } else {
+            selectedQueries.add(queryName);
+          }
+        }
+        // Re-render chart with updated filters
+        if (lastData) {
+          update(lastData);
+        }
+        // Recalculate Y axis if zoomed
+        if (isZoomed) {
+          setTimeout(() => {
+            getAllCharts().forEach((chart) => {
+              const xMin = chart.options.scales.x.min;
+              const xMax = chart.options.scales.x.max;
+              const yRange = getVisibleYRange(chart, xMin, xMax);
+              if (yRange) {
+                chart.options.scales.y.min = yRange.min;
+                chart.options.scales.y.max = yRange.max;
+              }
+              chart.update("none");
+            });
+          }, 0);
+        }
+      }
+
+      function updateUpdateStats(runs) {
+        const container = document.getElementById("update-container");
+        const entries = Object.entries(runs)
+          .filter(([, run]) => (run.updates?.attempts || 0) > 0)
+          .sort(([a], [b]) => a.localeCompare(b));
+        if (entries.length === 0) {
+          container.style.display = "none";
+          container.innerHTML = "";
+          return;
+        }
+
+        container.style.display = "flex";
+        container.innerHTML = entries
+          .map(([name, run]) => {
+            const updates = run.updates;
+            const color = getRunColor(name, run);
+            return `<div class="stat-group" style="border-left-color: ${color}">
+              <div class="stat-group-header"><div class="stat-group-label" style="color: ${color}">${escapeHtml(getBaseName(name))} updates</div></div>
+              <div class="stats" style="grid-template-columns: repeat(5, 1fr)">
+                <div class="stat"><div class="stat-value">${formatNumber(updates.attempts || 0)}</div><div class="stat-label">Attempts</div></div>
+                <div class="stat"><div class="stat-value">${formatNumber(updates.documents || 0)}</div><div class="stat-label">Documents</div></div>
+                <div class="stat"><div class="stat-value">${formatNumber(updates.errors || 0)}</div><div class="stat-label">Errors</div></div>
+                <div class="stat"><div class="stat-value">${formatLatency(updates.mean)}</div><div class="stat-label">Mean</div></div>
+                <div class="stat"><div class="stat-value">${formatLatency(updates.p95)}</div><div class="stat-label">P95</div></div>
+              </div>
+            </div>`;
+          })
+          .join("");
+      }
+
+      function stableHash(value) {
+        let hash = 2166136261;
+        for (let i = 0; i < value.length; i++) {
+          hash ^= value.charCodeAt(i);
+          hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(36);
+      }
+
+      function telemetryColor(key) {
+        const hue = parseInt(stableHash(key), 36) % 360;
+        return `hsl(${hue} 70% 50%)`;
+      }
+
+      function formatBytes(value) {
+        const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        let amount = Number(value) || 0;
+        let index = 0;
+        while (Math.abs(amount) >= 1024 && index < units.length - 1) {
+          amount /= 1024;
+          index++;
+        }
+        return `${amount.toFixed(index === 0 ? 0 : 1)}${units[index]}`;
+      }
+
+      function formatTelemetryValue(value, unit) {
+        if (unit === "bytes") return formatBytes(value);
+        if (unit === "ms") return formatLatency(value);
+        const formatted = formatNumber(value);
+        if (!unit || unit === "count") return formatted;
+        return `${formatted} ${unit}`;
+      }
+
+      function telemetrySeriesKey(point) {
+        const labels = Object.entries(point.labels || {}).sort(([a], [b]) =>
+          a.localeCompare(b),
+        );
+        return `${point.name}|${labels.map(([key, value]) => `${key}=${value}`).join(",")}`;
+      }
+
+      function telemetrySeriesLabel(point) {
+        const base = String(point.name || "value")
+          .split(".")
+          .pop();
+        const labels = Object.entries(point.labels || {})
+          .filter(([, value]) => value !== "")
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, value]) => `${key}=${value}`);
+        return labels.length > 0 ? `${base} (${labels.join(", ")})` : base;
+      }
+
+      function telemetryGroup(point) {
+        const parts = String(point.name || "telemetry").split(".");
+        const name = parts.length > 1 ? parts.slice(0, -1).join(".") : parts[0];
+        return { name, unit: point.unit || "" };
+      }
+
+      function updateTelemetry(telemetry) {
+        const container = document.getElementById("telemetry-container");
+        const windowsContainer = document.getElementById("telemetry-windows");
+        const seenCharts = new Set();
+        const seenWindows = new Set();
+        let hasWindows = false;
+
+        Object.entries(telemetry || {})
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([backend, windows]) => {
+            (windows || []).forEach((window, windowIndex) => {
+              hasWindows = true;
+              const windowKey = `${backend}:${window.startTime || 0}:${windowIndex}`;
+              const windowId = `telemetry-window-${stableHash(windowKey)}`;
+              seenWindows.add(windowId);
+
+              let windowEl = document.getElementById(windowId);
+              if (!windowEl) {
+                windowEl = document.createElement("section");
+                windowEl.id = windowId;
+                windowEl.className = "telemetry-window";
+                windowEl.innerHTML = `<div class="telemetry-window-header"><div class="telemetry-window-title"></div><div class="telemetry-window-time"></div></div><div class="telemetry-errors"></div><div class="telemetry-grid"></div>`;
+              }
+              windowsContainer.appendChild(windowEl);
+              windowEl.querySelector(".telemetry-window-title").textContent =
+                `${backend} database telemetry`;
+              const duration =
+                window.endTime && window.startTime
+                  ? Math.max(0, (window.endTime - window.startTime) / 1000)
+                  : null;
+              windowEl.querySelector(".telemetry-window-time").textContent =
+                duration == null
+                  ? "collecting"
+                  : `${duration.toFixed(1)}s window`;
+              const errors = window.errors || [];
+              const errorsEl = windowEl.querySelector(".telemetry-errors");
+              errorsEl.textContent = errors.join(" · ");
+              errorsEl.style.display = errors.length > 0 ? "block" : "none";
+
+              const groups = new Map();
+              (window.samples || []).forEach((sample) => {
+                (sample.values || []).forEach((point) => {
+                  if (!Number.isFinite(point.value)) return;
+                  const group = telemetryGroup(point);
+                  const groupKey = `${group.name}|${group.unit}`;
+                  if (!groups.has(groupKey)) {
+                    groups.set(groupKey, { ...group, series: new Map() });
+                  }
+                  const seriesKey = telemetrySeriesKey(point);
+                  const series = groups.get(groupKey).series;
+                  if (!series.has(seriesKey)) {
+                    series.set(seriesKey, {
+                      label: telemetrySeriesLabel(point),
+                      kind: point.kind,
+                      data: [],
+                    });
+                  }
+                  series.get(seriesKey).data.push({
+                    x: (sample.time - window.startTime) / 1000,
+                    y: point.value,
+                  });
+                });
+              });
+
+              const grid = windowEl.querySelector(".telemetry-grid");
+              Array.from(groups.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .forEach(([groupKey, group]) => {
+                  const chartKey = `${windowKey}:${groupKey}`;
+                  const chartId = `telemetry-chart-${stableHash(chartKey)}`;
+                  const cardId = `telemetry-card-${stableHash(chartKey)}`;
+                  seenCharts.add(chartKey);
+
+                  let card = document.getElementById(cardId);
+                  if (!card) {
+                    card = document.createElement("div");
+                    card.id = cardId;
+                    card.className = "chart-container";
+                    card.innerHTML = `<div class="chart-header"><h2></h2><button class="reset-zoom" onclick="resetZoom()">Reset Zoom</button></div><div class="chart-wrapper"><canvas id="${chartId}"></canvas></div>`;
+                  }
+                  grid.appendChild(card);
+                  card.querySelector("h2").textContent = group.unit
+                    ? `${group.name} (${group.unit})`
+                    : group.name;
+
+                  let chart = telemetryCharts[chartKey];
+                  if (!chart) {
+                    const options = createChartOptions("", chartKey);
+                    options.plugins.legend = {
+                      display: true,
+                      labels: {
+                        color: getTickColor(),
+                        boxWidth: 12,
+                        font: { family: "JetBrains Mono", size: 9 },
+                      },
+                    };
+                    options.plugins.tooltip.callbacks.label = (ctx) =>
+                      `${ctx.dataset.label}: ${formatTelemetryValue(ctx.parsed.y, group.unit)}`;
+                    options.scales.y.ticks.callback = (value) =>
+                      formatTelemetryValue(value, group.unit);
+                    const canvas = document.getElementById(chartId);
+                    chart = new Chart(canvas, {
+                      type: "line",
+                      data: { datasets: [] },
+                      options,
+                    });
+                    canvas.addEventListener("dblclick", resetZoom);
+                    telemetryCharts[chartKey] = chart;
+                  }
+
+                  const datasets = Array.from(group.series.entries())
+                    .sort(([, a], [, b]) => a.label.localeCompare(b.label))
+                    .map(([seriesKey, series]) => {
+                      const color = telemetryColor(`${chartKey}:${seriesKey}`);
+                      return {
+                        datasetKey: seriesKey,
+                        label:
+                          series.kind === "gauge"
+                            ? `${series.label} [gauge]`
+                            : series.label,
+                        borderColor: color,
+                        backgroundColor: color,
+                        data: series.data,
+                        pointRadius: (ctx) =>
+                          ctx.dataset.data.length === 1 ? 2 : 0,
+                      };
+                    });
+                  updateChartDatasets(chart, datasets, true);
+                  updateChartYAxis(chart);
+                  chart.update("none");
+                });
+            });
+          });
+
+        Object.keys(telemetryCharts).forEach((key) => {
+          if (seenCharts.has(key)) return;
+          const chart = telemetryCharts[key];
+          chart.canvas.closest(".chart-container")?.remove();
+          chart.destroy();
+          delete telemetryCharts[key];
+        });
+        windowsContainer
+          .querySelectorAll(".telemetry-window")
+          .forEach((windowEl) => {
+            if (!seenWindows.has(windowEl.id)) windowEl.remove();
+          });
+        container.style.display = hasWindows ? "block" : "none";
+      }
+
+      function update(data) {
+        // Store for filter updates
+        lastData = data;
+
+        // Detect restart: elapsed time went backwards
+        if (data.elapsed < lastElapsed - 1) {
+          resetState();
+        }
+        lastElapsed = data.elapsed;
+
+        // Update chart duration from server
+        if (data.chartDuration && data.chartDuration > chartDuration) {
+          chartDuration = data.chartDuration;
+          // Only auto-scroll when not zoomed
+          if (!isZoomed) {
+            getAllCharts().forEach((chart) => {
+              chart.options.scales.x.min = 0;
+              chart.options.scales.x.max = chartDuration;
+            });
+          }
+        }
+
+        document.getElementById("elapsed").textContent = formatElapsed(
+          data.elapsed,
+        );
+
+        // Display timeline settings if present
+        const settingsEl = document.getElementById("timeline-settings");
+        if (data.broadcastInterval != null || data.timelineWindow != null) {
+          const parts = [];
+          if (data.broadcastInterval != null)
+            parts.push("updating every " + data.broadcastInterval + "ms");
+          if (data.timelineWindow != null)
+            parts.push(
+              data.timelineWindow === 0
+                ? "no smoothing"
+                : "smoothed over " + data.timelineWindow + "ms",
+            );
+          settingsEl.textContent = parts.join(", ");
+        }
+
+        // Display notes if present
+        const notesContainer = document.getElementById("notes-container");
+        if (data.notes) {
+          notesContainer.textContent = data.notes;
+          notesContainer.style.display = "block";
+        }
+
+        const runs = data.runs || {};
+        // Only show runs with query timeline data
+        const runNames = Object.keys(runs)
+          .filter((name) => hasQueryTimelines(runs[name]))
+          .sort();
+
+        updateQueryFilters(runs); // Initialize selected queries first
+        updateStats(runs, data.backends);
+        updateLegend(runs);
+        updateUpdateStats(runs);
+        updateTelemetry(data.telemetry || {});
+
+        // Group runs by chart and track earliest start time per chart
+        const runsByChart = {};
+        const chartStartTimes = {};
+        runNames.forEach((name) => {
+          const run = runs[name];
+          const chartGroup = run.chart || "default";
+          if (!runsByChart[chartGroup]) {
+            runsByChart[chartGroup] = [];
+            chartStartTimes[chartGroup] = Infinity;
+          }
+          runsByChart[chartGroup].push(name);
+          // Track earliest start time for this chart group
+          if (run.startTime && run.startTime < chartStartTimes[chartGroup]) {
+            chartStartTimes[chartGroup] = run.startTime;
+          }
+        });
+
+        // Update latency/hits chart for each dashboard group
+        const metricChanged = selectedMetric !== lastMetric;
+        const chartTypeChanged = chartType !== lastChartType;
+        lastMetric = selectedMetric;
+        lastChartType = chartType;
+
+        // Sort chart groups by earliest start time (emission order)
+        const chartGroupsSorted = Object.keys(runsByChart).sort((a, b) => {
+          const aTime = chartStartTimes[a] || Infinity;
+          const bTime = chartStartTimes[b] || Infinity;
+          if (aTime === bTime) return a.localeCompare(b);
+          return aTime - bTime;
+        });
+        // Throughput conversion: count of samples in window → qps.
+        // Sliding window uses timelineWindow; non-overlapping mode uses broadcastInterval.
+        const throughputWindowMs =
+          data.timelineWindow && data.timelineWindow > 0
+            ? data.timelineWindow
+            : data.broadcastInterval || 1000;
+        const throughputDivisor = throughputWindowMs / 1000;
+
+        chartGroupsSorted.forEach((chartGroup) => {
+          const chart = getOrCreateChartGroup(
+            chartGroup === "default" ? "" : chartGroup,
+          );
+          const groupRunNames = runsByChart[chartGroup];
+
+          const datasets = [];
+          groupRunNames.forEach((name) => {
+            const run = runs[name];
+            const baseColor = getRunColor(name, run);
+            const queries = run.queries || {};
+            const queryNames = Object.keys(queries).filter((qn) =>
+              selectedQueries.has(qn),
+            );
+
+            // Use each run's own start time so scenarios starting later still begin at x=0
+            const startTime = run.startTime || 0;
+
+            if (queryNames.length === 0 && Object.keys(queries).length === 0) {
+              // No query breakdown available, skip this run
+            } else {
+              // Show each selected query as separate line
+              queryNames.forEach((qName, idx) => {
+                const q = queries[qName];
+                // Slightly vary color for multiple queries in same run
+                const color =
+                  idx === 0 ? baseColor : shadeColor(baseColor, idx * 15);
+                const timelineData = (q.timeline || [])
+                  .map((p) => {
+                    const elapsedMs = p.time - startTime;
+                    if (
+                      chartType === "throughput" &&
+                      data.timelineWindow > 0 &&
+                      elapsedMs < data.timelineWindow
+                    ) {
+                      return null;
+                    }
+
+                    let y;
+                    if (chartType === "hits") {
+                      y = p.hits || 0;
+                    } else if (chartType === "throughput") {
+                      y = (p.count || 0) / throughputDivisor;
+                    } else {
+                      y = p[selectedMetric];
+                    }
+                    return { x: elapsedMs / 1000, y };
+                  })
+                  .filter((p) => p !== null);
+                datasets.push({
+                  datasetKey: `${name}::${qName}`,
+                  label: qName,
+                  borderColor: color,
+                  backgroundColor: color,
+                  data: timelineData,
+                  // Use scriptable option - checks data length on each render
+                  pointRadius: (ctx) => (ctx.dataset.data.length === 1 ? 2 : 0),
+                });
+              });
+            }
+          });
+
+          updateChartDatasets(
+            chart,
+            datasets,
+            metricChanged || chartTypeChanged,
+          );
+          updateChartYAxis(chart);
+
+          // Update y-axis unit based on chart type
+          if (chartType === "hits") {
+            chart.options.scales.y.ticks.callback = (v) =>
+              formatNumber(Math.round(v));
+            chart.options.plugins.tooltip.callbacks.label = (ctx) =>
+              `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y)}`;
+          } else if (chartType === "throughput") {
+            chart.options.scales.y.ticks.callback = (v) =>
+              formatNumber(Math.round(v)) + " qps";
+            chart.options.plugins.tooltip.callbacks.label = (ctx) =>
+              `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} qps`;
+          } else {
+            chart.options.scales.y.ticks.callback = (v) => Math.round(v) + "ms";
+            chart.options.plugins.tooltip.callbacks.label = (ctx) =>
+              `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}ms`;
+          }
+
+          chart.update("none");
+        });
+
+        // Update CPU/Memory charts from containers data (independent of runs)
+        const containers = data.containers || {};
+
+        // Find the run associated with each container
+        const getContainerRun = (containerName, container) => {
+          const allRuns = Object.values(runs);
+
+          // Prefer exact container-name matches.
+          const byContainer = allRuns.filter(
+            (run) => run.container === containerName,
+          );
+          if (byContainer.length === 1) {
+            return byContainer[0];
+          }
+          if (byContainer.length > 1) {
+            return byContainer.sort(
+              (a, b) => (a.startTime || 0) - (b.startTime || 0),
+            )[0];
+          }
+
+          // Fallback to backend only when unambiguous.
+          const byBackend = allRuns.filter(
+            (run) => run.backend === container.backend,
+          );
+          if (byBackend.length === 1) {
+            return byBackend[0];
+          }
+          return null;
+        };
+
+        // Only show containers whose associated run has started (has a startTime)
+        const activeContainerNames = Object.keys(containers)
+          .filter((name) => {
+            const container = containers[name];
+            const matchingRun = getContainerRun(name, container);
+            return matchingRun?.startTime > 0;
+          })
+          .sort();
+
+        const hasMetricsData = activeContainerNames.some((name) => {
+          const c = containers[name];
+          return (
+            (c.cpu && c.cpu.length > 0) || (c.memory && c.memory.length > 0)
+          );
+        });
+
+        if (activeContainerNames.length > 0 && hasMetricsData) {
+          document.getElementById("metrics-container").style.display = "grid";
+
+          // Find start time for each container based on its associated run
+          const getContainerBaseline = (container) => {
+            const matchingRun = getContainerRun(container.name, container);
+            return matchingRun?.startTime || data.startTime || Date.now();
+          };
+
+          const cpuDatasets = activeContainerNames.map((name) => {
+            const container = containers[name];
+            const color = getContainerColor(name, container);
+            const baseline = getContainerBaseline(container);
+            const displayName = container.alias || name;
+            return {
+              datasetKey: `cpu:${name}`,
+              label: displayName,
+              borderColor: color,
+              data: (container.cpu || []).map((p) => ({
+                x: (p.time - baseline) / 1000,
+                y: p.value,
+              })),
+            };
+          });
+          updateChartDatasets(cpuChart, cpuDatasets);
+          updateChartYAxis(cpuChart);
+          cpuChart.update("none");
+
+          const memoryDatasets = activeContainerNames.map((name) => {
+            const container = containers[name];
+            const color = getContainerColor(name, container);
+            const baseline = getContainerBaseline(container);
+            const displayName = container.alias || name;
+            return {
+              datasetKey: `memory:${name}`,
+              label: displayName,
+              borderColor: color,
+              data: (container.memory || []).map((p) => ({
+                x: (p.time - baseline) / 1000,
+                y: p.value,
+              })),
+            };
+          });
+          updateChartDatasets(memoryChart, memoryDatasets);
+          updateChartYAxis(memoryChart);
+          memoryChart.update("none");
+        }
+
+        // Update ingest chart (only if any run has ingest data)
+        // Check all runs, not just those with query timelines
+        const runsWithIngest = Object.keys(runs).filter(
+          (name) => runs[name].totalIngested > 0,
+        );
+        if (runsWithIngest.length > 0) {
+          document.getElementById("ingest-container").style.display = "grid";
+          document.getElementById("ingest-legend").innerHTML = runsWithIngest
+            .map((name) => {
+              const color = getRunColor(name, runs[name]);
+              const cfg = (lastData?.backends?.[runs[name].backend] || {})
+                .config;
+              const ver = backendVersion(cfg);
+              const label = ver ? `${name} ${ver}` : name;
+              return `<div class="legend-item"><div class="legend-color" style="background: ${color}"></div> ${escapeHtml(label)}</div>`;
+            })
+            .join("");
+
+          // Update ingest stats
+          const ingestStatsContainer = document.getElementById(
+            "ingest-stats-container",
+          );
+          runsWithIngest.forEach((name) => {
+            const run = runs[name];
+            const color = getRunColor(name, run);
+            const ingestId = safeId(name);
+            let el = document.getElementById(`ingest-stat-${ingestId}`);
+            if (!el) {
+              el = document.createElement("div");
+              el.id = `ingest-stat-${ingestId}`;
+              el.className = "stat-group";
+              el.style.borderLeftColor = color;
+              el.innerHTML = `
+              <div class="stat-group-header">
+                <div class="stat-group-label" style="color: ${color}">${escapeHtml(getBaseName(name))}</div>
+              </div>
+              <div class="stats" style="grid-template-columns: 1fr 1fr;">
+                <div class="stat"><div class="stat-value" id="ingest-${ingestId}-total">0</div><div class="stat-label">Total</div></div>
+                <div class="stat"><div class="stat-value" id="ingest-${ingestId}-rate">0</div><div class="stat-label">Rate/s</div></div>
+              </div>
+            `;
+              ingestStatsContainer.appendChild(el);
+            }
+            document.getElementById(`ingest-${ingestId}-total`).textContent =
+              formatNumber(run.totalIngested);
+            document.getElementById(`ingest-${ingestId}-rate`).textContent =
+              formatNumber(Math.floor(run.avgIngestRate || 0));
+          });
+
+          const ingestDatasets = runsWithIngest.map((name) => {
+            const run = runs[name];
+            const color = getRunColor(name, run);
+            // Use each run's own start time so ingest offset is relative to when
+            // the run began (same as query charts). This keeps second/third phases
+            // visible within the chart's x-axis range.
+            const startTime = run.startTime || data.startTime || 0;
+            return {
+              datasetKey: `ingest:${name}`,
+              label: name,
+              borderColor: color,
+              data: (run.ingestRate || []).map((p) => ({
+                x: (p.time - startTime) / 1000,
+                y: p.value,
+              })),
+            };
+          });
+          updateChartDatasets(ingestChart, ingestDatasets);
+          updateChartYAxis(ingestChart);
+          ingestChart.update("none");
+        }
+      }
+
+      if (window.__DASHBOARD_EMBEDDED_DATA) {
+        update(window.__DASHBOARD_EMBEDDED_DATA);
+      } else {
+        const events = new EventSource("/events");
+        events.onmessage = (e) => {
+          try {
+            update(JSON.parse(e.data));
+          } catch (err) {
+            console.error(err);
+          }
+        };
+      }
+
+      // Force charts to resize when window resizes
+      let resizeTimeout;
+      window.addEventListener("resize", () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          getAllCharts().forEach((chart) => {
+            chart.resize();
+          });
+        }, 100);
+      });
+
+      // Close modal on escape key
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          hideConfigModal();
+        }
+      });
+    </script>
+  </body>
+</html>

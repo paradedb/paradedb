@@ -1,0 +1,362 @@
+name: Benchmark MS MARCO (quantized main)
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  msmarco:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      id-token: write
+    name: MS MARCO 113m (main-quantized)
+    if: github.event.label.name == 'benchmark-msmarco-pg_search'
+    timeout-minutes: 720
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache
+    env:
+      MSMARCO_SIZE: 113m
+      pg_version: "18"
+      VARIANT: main-quantized
+      PDBENCH_REF: e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c
+      BENCHMARKER_REF: ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3
+      BENCHMARK_REF: ${{ github.event.pull_request.head.sha }}
+      MSMARCO_CONFIG: benchmarks/msmarco/113m.toml
+
+    steps:
+      - name: Remove benchmark label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BENCHMARK_LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$BENCHMARK_LABEL" || true
+
+      - name: Checkout extension to benchmark
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          persist-credentials: false
+
+      - name: Record benchmark commit and connection
+        id: commit_info
+        run: |
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
+
+      - name: Record benchmark configuration
+        run: |
+          mkdir -p benchmark-artifacts
+          git rev-parse HEAD > benchmark-artifacts/extension-commit.txt
+          git rev-parse HEAD > benchmark-artifacts/workflow-commit.txt
+          cp "$MSMARCO_CONFIG" benchmark-artifacts/config.toml
+
+      - name: Test vector benchmark helpers
+        run: python3 -m unittest discover -s benchmarks/msmarco -p 'test_*.py'
+
+      - name: Configure RunsOn caching
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
+
+      - name: Set up benchmark cluster
+        uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: ${{ env.pg_version }}
+
+      - name: Create pdbench checkout token
+        id: pdbench_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.2.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pdbench
+          permission-contents: read
+
+      - name: Checkout pdbench
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: paradedb/pdbench
+          ref: ${{ env.PDBENCH_REF }}
+          path: pdbench
+          token: ${{ steps.pdbench_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Install pdbench toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Cache pdbench build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: pdbench -> target
+
+      - name: Build pdbench
+        working-directory: pdbench
+        run: |
+          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+
+      - name: Set up Benchmarker
+        uses: ./.github/actions/setup-benchmarker
+        with:
+          ref: ${{ env.BENCHMARKER_REF }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
+          aws-region: us-east-1
+
+      - name: Restore MS MARCO heap snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifacts
+          (cd pg_search && cargo pgrx stop pg18)
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset msmarco --size "$MSMARCO_SIZE" \
+            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
+            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
+            --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
+            --repo-s3-key-type shared)
+          (cd pg_search && cargo pgrx start pg18)
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET max_worker_processes = 32;"
+          (cd pg_search && cargo pgrx stop pg18 && cargo pgrx start pg18)
+
+      - name: Refresh pg_search and build index
+        run: |
+          set -euo pipefail
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c "SELECT name, setting, unit FROM pg_settings
+                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                               'max_worker_processes', 'max_parallel_maintenance_workers',
+                               'parallel_leader_participation', 'paradedb.global_target_segment_count',
+                               'paradedb.vector_router_rerank_factor', 'paradedb.vector_router_min_beam_fraction',
+                               'paradedb.vector_router_aps')
+                ORDER BY name;" \
+            | tee benchmark-artifacts/index-build-settings.log
+          pdbench build --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
+            --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
+            --force-rebuild \
+            | tee benchmark-artifacts/index-build.log
+          test "$(psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT 'vector_router_quantization=true' = ANY(reloptions) FROM pg_class WHERE oid = 'msmarco_bm25_idx'::regclass")" = t
+          profile="$(basename "$MSMARCO_CONFIG" .toml)"
+          jq '.data | [
+            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
+            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
+            {name: (.index.name + " peak summed RSS"), unit: "GiB", value: (.metrics.resources.peak_rss_bytes / 1073741824)}
+          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+            -c 'VACUUM (ANALYZE) msmarco;' \
+            | tee benchmark-artifacts/index-vacuum.log
+
+      - name: Install fixture reader
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: python3-venv
+
+      - name: Refresh AWS credentials for query fixtures
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
+          aws-region: us-east-1
+
+      - name: Import published ground-truth fixtures
+        env:
+          FIXTURE_SOURCE: s3://paradedb-benchmark/datasets/msmarco/v1/queries
+        run: |
+          set -euo pipefail
+          python3 -m venv .msmarco-fixtures
+          .msmarco-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '
+            CREATE TABLE IF NOT EXISTS pdbench_ground_truth (
+              corpus text, query_stem text, query_id int, gt_ids text[],
+              PRIMARY KEY (corpus, query_stem, query_id)
+            );'
+          .msmarco-fixtures/bin/python - <<'PYTHON'
+          import os
+          import duckdb
+
+          db = duckdb.connect()
+          db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
+          url = os.environ["PARADEDB_URL"].replace("'", "''")
+          db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
+          for query in ("knn_top10_unfiltered", "knn_top100_unfiltered"):
+              source = f"{os.environ['FIXTURE_SOURCE']}/ground_truth_{query}_{os.environ['MSMARCO_SIZE']}.parquet"
+              count = db.execute("SELECT count(*) FROM read_parquet(?)", [source]).fetchone()[0]
+              if count != 1677:
+                  raise ValueError(f"{query}: expected 1677 ground-truth rows, found {count}")
+              db.execute("DELETE FROM pg.public.pdbench_ground_truth WHERE corpus = 'msmarco' AND query_stem = ?", [query])
+              db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'msmarco', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
+          PYTHON
+
+      - name: Verify quantized router before recall sweep
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-artifacts/router-preflight
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c 'SELECT json_build_array(emb::text) FROM msmarco LIMIT 1' \
+            > benchmark-artifacts/router-preflight/query_vectors.json
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path(os.environ["MSMARCO_CONFIG"]).read_text())
+          search = config["search"]
+          points = []
+          for k in (10, 100):
+              query = f"knn_top{k}_unfiltered"
+              sql = Path(f"benchmarks/msmarco/assets/msmarco/queries/{query}.sql").read_text()
+              sql = sql.replace("{{ table }}", config["dataset"]["table"])
+              sql = sql.replace("{{ dims }}", str(config["dataset"]["dims"]))
+              points.append({
+                  "name": query,
+                  "reached": True,
+                  "filtered": False,
+                  "neighbors": k,
+                  "dimensions": config["dataset"]["dims"],
+                  "session": search["session"] | {"statement_timeout": "120s"},
+                  "param": search["sweep"]["param"],
+                  "probe": str(search["sweep"]["start"]),
+                  "sql": sql.replace("current_setting('msmarco.qvec')", "$1"),
+              })
+          Path("benchmark-artifacts/router-preflight/operating_points.json").write_text(json.dumps(points))
+          PYTHON
+          python3 benchmarks/msmarco/verify_plans.py benchmark-artifacts/router-preflight --quantized
+
+      - name: Sweep recall targets with pdbench
+        run: |
+          set -euo pipefail
+          for k in 10 100; do
+            query="knn_top${k}_unfiltered"
+            pdbench search --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
+              --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
+              --query "$query" --set "search.k=$k" --no-compare --html
+          done
+
+      - name: Prepare k6 operating points
+        run: |
+          set -euo pipefail
+          python3 benchmarks/msmarco/prepare_k6.py --dataset msmarco --runs benchmark-artifacts/search --output benchmark-artifacts
+          jq '[.[] | select(.reached and .buffers.shared_hit_mean != null)
+            | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
+          ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json
+          psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+            -c 'SELECT json_agg(emb::text ORDER BY id) FROM (SELECT id, emb FROM pdbench_queries ORDER BY id LIMIT 100) AS queries' \
+            > benchmark-artifacts/query_vectors.json
+          cat benchmark-artifacts/operating_points.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            git -C pdbench rev-parse HEAD
+            git -C benchmarker rev-parse HEAD
+          } > benchmark-artifacts/tool-commits.txt
+          {
+            printf 'Variant: `%s`. Unfiltered MS MARCO 113m, top-10/top-100 at R90/R95/R99.\n\n' "$VARIANT"
+            printf 'pg_search: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
+            printf 'Tantivy #357: `70d25cbf4f938eeb26f284bfa7ee5aa26996d810`; pg_search main: `f0f9ff86518af8bb66070b4056fcd52ad0b69f8a`. Router quantization is enabled via its persisted index option. Eight build/query workers are available with a 32-process worker pool.\n\n'
+            printf 'Build RSS is the sum across sampled processes and includes shared mappings. These runs do not update the rolling main baseline.\n\n'
+            cat benchmark-artifacts/operating_points.md
+          } > benchmark-artifacts/result-context.md
+
+      - name: Verify k6 vector query plans
+        run: |
+          python3 benchmarks/msmarco/verify_plans.py benchmark-artifacts --quantized
+          cat benchmark-artifacts/router-metrics.md >> benchmark-artifacts/result-context.md
+
+      - name: Measure selected operating points with k6
+        env:
+          BENCHMARKER_META: >-
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"pg_search","variant":"${{ env.VARIANT }}","tantivy":"70d25cbf4f938eeb26f284bfa7ee5aa26996d810"}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          root="$PWD"
+          mkdir -p benchmarker/results
+          while IFS= read -r point; do
+            (
+              cd benchmarker/results
+              "$root/benchmarker/k6" run --out dashboard=json,html \
+                -e PARADEDB_URL="$PARADEDB_URL" \
+                -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
+                -e OPERATING_POINT="$point" \
+                -e QUERY_VECTORS="$root/benchmark-artifacts/query_vectors.json" \
+                "$root/benchmarks/msmarco/k6/search.js"
+            )
+            jsons=(benchmarker/results/dashboard_*.json)
+            htmls=(benchmarker/results/dashboard_*.html)
+            test "${#jsons[@]}" -eq 1 && test "${#htmls[@]}" -eq 1
+            mv "${jsons[0]}" "benchmarker/results/${point}.json"
+            mv "${htmls[0]}" "benchmarker/results/${point}.html"
+          done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
+
+      - name: Stage Benchmarker results
+        uses: ./.github/actions/stage-benchmark-results
+        with:
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"msmarco-113m-${{ env.VARIANT }}",
+             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "publish_baseline":"false",
+             "context_file":"benchmark-artifacts/result-context.md",
+             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
+
+      - name: Save database log
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts
+          if [[ -f ~/.pgrx/18.log ]]; then cp ~/.pgrx/18.log benchmark-artifacts/postgres.log; fi
+
+      - name: Upload index, recall, and buffer diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: msmarco-113m-${{ env.VARIANT }}-diagnostics
+          path: |
+            benchmark-artifacts/
+            benchmarker/results/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Database logs
+        if: failure() || cancelled()
+        run: tail -200 ~/.pgrx/18.log
+
+      - name: Stop database
+        if: always()
+        working-directory: pg_search
+        run: cargo pgrx stop pg18
+
+  publish-results:
+    name: Publish Benchmark Results
+    needs: msmarco
+    if: always() && !cancelled() && (needs.msmarco.result == 'success' || needs.msmarco.result == 'failure')
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit

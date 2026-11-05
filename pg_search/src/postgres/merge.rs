@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashSet;
-use crate::index::merge_policy::{LayeredMergeCandidate, LayeredMergePolicy};
+use crate::index::merge_policy::{
+    LayeredMergeCandidate, LayeredMergePolicy, MUTABLE_SEGMENT_LAYER,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::PgSearchRelation;
@@ -305,12 +307,13 @@ fn backpressure(
     candidates
         .chunk_by(|(left, _), (right, _)| left == right)
         .filter(|layer| {
-            if layer[0].0 == 0 {
-                layer
+            let (layer_size, _) = &layer[0];
+            if *layer_size == MUTABLE_SEGMENT_LAYER {
+                let eligible_segment_count: usize = layer
                     .iter()
-                    .map(|(_, candidate)| candidate.0.len())
-                    .sum::<usize>()
-                    > 2
+                    .map(|(_, MergeCandidate(segment_ids))| segment_ids.len())
+                    .sum();
+                eligible_segment_count > 2
             } else {
                 visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
             }

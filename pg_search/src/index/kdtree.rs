@@ -884,6 +884,225 @@ mod tests {
     }
 
     #[test]
+    fn ctid_fallback_splits_a_mostly_null_key() {
+        // A heap of 1000 rows, 50 to a block, with ctids encoded as the build encodes them.
+        // Nine rows in ten have a NULL key. NULLs are all equal and a split value is never NULL,
+        // so the key alone can only cut them off from the rest; the ctid fallback has to split
+        // the NULLs themselves, by where they sit in the heap.
+        let tid = |block: u64, offset: u64| (block << 16) | offset;
+        let ctids: Vec<u64> = (0..1000u64).map(|i| tid(i / 50, i % 50 + 1)).collect();
+        let sample: Vec<Point> = (0..1000i64)
+            .map(|i| {
+                vec![if i % 10 == 0 {
+                    PdbOwnedValue::I64(i)
+                } else {
+                    PdbOwnedValue::Null
+                }]
+            })
+            .collect();
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8, Some(ctids.clone()));
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+        check_invariants(&tree, &sample, Some(&ctids));
+
+        // The root separates the NULLs from the values at the smallest value. The 900 NULLs get
+        // seven of the eight partitions, by their share of the rows, and the fallback cuts them.
+        assert_eq!(
+            tree.split_dims(),
+            [vec![DimHandle::Index(0)], vec![DimHandle::Ctid; 6]].concat(),
+            "{tree}"
+        );
+        let null_box = (Bound::Unbounded, Bound::Excluded(PdbOwnedValue::I64(0)));
+        for p in 0..7 {
+            assert_eq!(tree.partition_bounds(p).unwrap()[0], null_box, "{tree}");
+        }
+        assert_eq!(
+            tree.partition_bounds(7).unwrap(),
+            vec![(Bound::Included(PdbOwnedValue::I64(0)), Bound::Unbounded)],
+            "{tree}"
+        );
+        // No split value, on the key or on ctid, is NULL.
+        for p in 0..8 {
+            for (lo, hi) in tree.partition_bounds(p).unwrap() {
+                for b in [lo, hi] {
+                    if let Bound::Included(v) | Bound::Excluded(v) = b {
+                        assert!(!matches!(v, PdbOwnedValue::Null), "{tree}");
+                    }
+                }
+            }
+        }
+
+        // Walking the heap in ctid order, the NULL rows fill partitions 0 through 6 in turn:
+        // each partition is one contiguous stretch of the heap, of about 900 / 7 rows.
+        let mut null_counts = vec![0usize; 7];
+        let mut last = 0;
+        for (point, &ctid) in sample.iter().zip(&ctids) {
+            let p = tree.route(point, ctid);
+            if matches!(point[0], PdbOwnedValue::Null) {
+                assert!(
+                    p < 7,
+                    "NULL at ctid {ctid} routed to the values' partition\n{tree}"
+                );
+                assert!(
+                    p >= last,
+                    "NULL at ctid {ctid} went back to partition {p}\n{tree}"
+                );
+                last = p;
+                null_counts[p] += 1;
+            } else {
+                assert_eq!(p, 7, "value {point:?} at ctid {ctid}\n{tree}");
+            }
+        }
+        for count in &null_counts {
+            assert!((127..=130).contains(count), "{null_counts:?}\n{tree}");
+        }
+
+        // Rows the sample never saw route by the same rules: a NULL at the very start of the
+        // heap goes first, a NULL past its end (a block added after sampling) goes to the last
+        // NULL partition, and a value goes to the values' partition wherever it sits.
+        let null = [PdbOwnedValue::Null];
+        assert_eq!(tree.route(&null, tid(0, 1)), 0);
+        assert_eq!(tree.route(&null, tid(10_000, 1)), 6);
+        assert_eq!(tree.route(&[PdbOwnedValue::I64(0)], tid(0, 1)), 7);
+        assert_eq!(tree.route(&[PdbOwnedValue::I64(5)], tid(10, 7)), 7);
+        // A value below the smallest sampled one falls in the NULLs' box, so it is split by
+        // ctid alongside them: it lands wherever a NULL at the same ctid would.
+        for ctid in [tid(0, 1), tid(10, 7), tid(19, 50)] {
+            assert_eq!(
+                tree.route(&[PdbOwnedValue::I64(-5)], ctid),
+                tree.route(&null, ctid),
+                "ctid {ctid}\n{tree}"
+            );
+        }
+    }
+
+    /// Unique ctids in heap order, one per sample row.
+    fn heap_ctids(n: usize) -> Vec<u64> {
+        (0..n as u64)
+            .map(|i| ((i / 50) << 16) | (i % 50 + 1))
+            .collect()
+    }
+
+    /// Rows per partition when every sample row is routed with its ctid.
+    fn route_counts(tree: &KdTree, sample: &[Point], ctids: &[u64]) -> Vec<usize> {
+        let mut counts = vec![0usize; tree.partition_count()];
+        for (point, &ctid) in sample.iter().zip(ctids) {
+            counts[tree.route(point, ctid)] += 1;
+        }
+        counts
+    }
+
+    #[test]
+    fn proportional_leaves_handle_lopsided_cuts() {
+        let expected_splits = [vec![DimHandle::Index(0)], vec![DimHandle::Ctid; 6]].concat();
+
+        // The only cut is one row from the end: rounding would give the left all eight leaves,
+        // so the clamp keeps one for the single row on the right.
+        let mut sample = i64s(std::iter::repeat_n(0, 999));
+        sample.push(vec![PdbOwnedValue::I64(1)]);
+        let ctids = heap_ctids(sample.len());
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8, Some(ctids.clone()));
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+        check_invariants(&tree, &sample, Some(&ctids));
+        assert_eq!(tree.split_dims(), expected_splits, "{tree}");
+        let counts = route_counts(&tree, &sample, &ctids);
+        assert_eq!(counts[7], 1, "{counts:?}\n{tree}");
+        assert!(
+            counts[..7].iter().all(|c| (141..=144).contains(c)),
+            "{counts:?}\n{tree}"
+        );
+
+        // The mirror image, one row from the start: rounding would give the left no leaf at
+        // all, so the clamp gives it one and the other seven go right.
+        let mut sample = i64s([0]);
+        sample.extend(i64s(std::iter::repeat_n(1, 999)));
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8, Some(ctids.clone()));
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+        check_invariants(&tree, &sample, Some(&ctids));
+        assert_eq!(tree.split_dims(), expected_splits, "{tree}");
+        let counts = route_counts(&tree, &sample, &ctids);
+        assert_eq!(counts[0], 1, "{counts:?}\n{tree}");
+        assert!(
+            counts[1..].iter().all(|c| (141..=144).contains(c)),
+            "{counts:?}\n{tree}"
+        );
+
+        // Without the fallback the hot side cannot be cut, and its unused leaves do not turn
+        // into extra partitions: one per side, never more than the target.
+        let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), 8, None);
+        assert_eq!(tree.partition_count(), 2, "{tree}");
+        check_invariants(&tree, &sample, None);
+    }
+
+    #[test]
+    fn proportional_leaves_with_fewer_rows_than_leaves() {
+        // Fewer rows than requested partitions: no division by zero, and at most one
+        // partition per row.
+        for n in [2usize, 3, 7] {
+            let ctids = heap_ctids(n);
+
+            let distinct = i64s(0..n as i64);
+            for fallback in [None, Some(ctids.clone())] {
+                let tree = KdTree::from_sample(dims(&["k"]), distinct.clone(), 8, fallback.clone());
+                assert_eq!(tree.partition_count(), n, "{tree}");
+                check_invariants(&tree, &distinct, fallback.as_deref());
+            }
+
+            // All equal: only the fallback can cut, and it cuts down to one row per partition.
+            let equal = i64s(std::iter::repeat_n(7, n));
+            let tree = KdTree::from_sample(dims(&["k"]), equal.clone(), 8, Some(ctids.clone()));
+            assert_eq!(tree.partition_count(), n, "{tree}");
+            check_invariants(&tree, &equal, Some(&ctids));
+            let tree = KdTree::from_sample(dims(&["k"]), equal, 8, None);
+            assert_eq!(tree.partition_count(), 1, "{tree}");
+        }
+    }
+
+    #[test]
+    fn proportional_leaves_keep_even_cuts_even() {
+        // A cut that lands on its target gets the same leaves `k / 2` gave it, odd `k`
+        // included, so a unique key still splits into equal partitions.
+        let sample = i64s(0..1000);
+        let ctids = heap_ctids(sample.len());
+        for k in [2, 3, 5, 7, 8, 13] {
+            let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), k, Some(ctids.clone()));
+            assert_eq!(tree.partition_count(), k, "{tree}");
+            assert!(!tree.split_dims().contains(&DimHandle::Ctid), "{tree}");
+            let ideal = sample.len() / k;
+            let counts = route_counts(&tree, &sample, &ctids);
+            assert!(
+                counts.iter().all(|&c| c == ideal || c == ideal + 1),
+                "k = {k}: {counts:?}\n{tree}"
+            );
+        }
+    }
+
+    #[test]
+    fn proportional_leaves_never_exceed_the_target() {
+        // Hot values at either end of the key, across skews and targets. With unique ctids
+        // and more rows than leaves, the fallback always reaches the target exactly; without
+        // it, the tree may fall short but never goes over.
+        let n = 1000usize;
+        let ctids = heap_ctids(n);
+        for hot_rows in [500, 900, 990, 999] {
+            let cold = (1..=(n - hot_rows) as i64).map(|v| v * 10);
+            let hot_low: Vec<Point> = i64s(std::iter::repeat_n(0, hot_rows).chain(cold.clone()));
+            let hot_high: Vec<Point> = i64s(cold.chain(std::iter::repeat_n(1_000_000, hot_rows)));
+            for sample in [hot_low, hot_high] {
+                for k in 2..=16 {
+                    let tree =
+                        KdTree::from_sample(dims(&["k"]), sample.clone(), k, Some(ctids.clone()));
+                    assert_eq!(tree.partition_count(), k, "hot {hot_rows}, k {k}\n{tree}");
+                    check_invariants(&tree, &sample, Some(&ctids));
+
+                    let tree = KdTree::from_sample(dims(&["k"]), sample.clone(), k, None);
+                    assert!(tree.partition_count() <= k, "hot {hot_rows}, k {k}\n{tree}");
+                    check_invariants(&tree, &sample, None);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn mixed_types_and_serde_round_trip() {
         let sample: Vec<Point> = (0..300)
             .map(|i| {

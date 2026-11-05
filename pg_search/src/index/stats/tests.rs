@@ -850,5 +850,46 @@ mod tests {
         let high: Vec<SegmentId> = segments_for_partition(&reader, &boundaries, 1).into();
         assert_eq!((low.len(), high.len()), (7, 1), "{low:?} / {high:?}");
         assert!(low.iter().all(|id| !high.contains(id)));
+
+        // Pruning on ctid with the persisted cuts tells the hot segments apart. Each of the
+        // seven ctid partitions keeps exactly its own hot segment, and every other hot segment
+        // is pruned by its ctid box. The cold segment has no ctid box, and its rows are spread
+        // across the heap, so its empirical ctid range keeps it in every partition.
+        let ctid_boundaries = RangePartitioning {
+            partition_by: FieldName::from("ctid"),
+            split_points: ctid_cuts,
+        };
+        let mut own_segments: Vec<SegmentId> = Vec::new();
+        let mut everywhere: Option<Vec<SegmentId>> = None;
+        for partition in 0..7 {
+            let chosen: Vec<SegmentId> =
+                segments_for_partition(&reader, &ctid_boundaries, partition).into();
+            assert_eq!(
+                chosen.len(),
+                2,
+                "ctid partition {partition}: its hot segment and the cold one: {chosen:?}"
+            );
+            assert!(
+                chosen.iter().filter(|id| high.contains(id)).count() == 1,
+                "ctid partition {partition} must keep the cold segment: {chosen:?}"
+            );
+            own_segments.extend(chosen.iter().filter(|id| !high.contains(id)));
+            everywhere = Some(match everywhere {
+                None => chosen,
+                Some(prev) => prev.into_iter().filter(|id| chosen.contains(id)).collect(),
+            });
+        }
+        assert_eq!(
+            everywhere.unwrap(),
+            high,
+            "only the cold segment is in every partition"
+        );
+        own_segments.sort();
+        own_segments.dedup();
+        assert_eq!(
+            own_segments.len(),
+            7,
+            "each ctid partition keeps a different hot segment"
+        );
     }
 }

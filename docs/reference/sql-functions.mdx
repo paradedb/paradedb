@@ -6,7 +6,9 @@ canonical: https://www.paradedb.com/docs/reference/sql-functions
 
 This page lists the callable, user-facing SQL functions and function-like casts that make up ParadeDB's SQL API. It intentionally omits planner support functions, type input/output functions such as `pdb.simple_in`, and generated cast helper names. Use the casts documented here instead of calling those helpers directly.
 
-Search queries use the `pdb` schema. Tokenizer utilities and operational functions also live in the `paradedb` schema.
+Older `paradedb.*` query builders and scoring functions are also intentionally omitted because `pdb.*` supersedes them.
+
+Use `pdb` for query builders, scoring, and aggregates. Tokenizer utilities use `paradedb`; index diagnostics and maintenance functions span both schemas, as listed below.
 
 ## Query Builders
 
@@ -83,7 +85,6 @@ These functions are placeholders that ParadeDB's custom scan resolves during que
 | ----------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `pdb.agg`         | `pdb.agg(agg jsonb) -> jsonb`                  | Execute an Elasticsearch-compatible aggregate inside ParadeDB's aggregate scan.                 | [Aggregate Syntax](/reference/aggregates/overview)                        |
 | `pdb.agg`         | `pdb.agg(agg jsonb, visibility text) -> jsonb` | Choose `transaction`, `raw`, or `threshold` visibility. Omitting visibility uses `transaction`. | [Aggregate Syntax](/reference/aggregates/overview)                        |
-| `pdb.agg`         | `pdb.agg(agg jsonb, solve_mvcc bool) -> jsonb` | Deprecated compatibility overload. `true` means `transaction` and `false` means `raw`.          | [Aggregate Syntax](/reference/aggregates/overview)                        |
 | `pdb.combine_agg` | `pdb.combine_agg(agg jsonb) -> jsonb`          | Combine grouped facets using `pdb.combine_agg(pdb.agg(...)) OVER ()`.                           | [Facets with GROUP BY](/reference/aggregates/facets#facets-with-group-by) |
 
 `paradedb.aggregate()` requires schema `USAGE`, table-level `SELECT`, and no active

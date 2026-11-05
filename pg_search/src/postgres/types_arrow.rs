@@ -210,9 +210,7 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(), // Convert u64 to i64 for INT8OID
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
-                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
-                    pgrx::pg_sys::Oid::from(val as u32).into_datum()
-                } // Cast u64 to u32 for OID
+                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => Some(pg_sys::Datum::from(val as u32)),
                 PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
                     let numeric_str = val.to_string();
                     numeric_str
@@ -228,7 +226,7 @@ pub fn arrow_array_to_datum(
             let arr = array.as_primitive::<arrow_array::types::UInt32Type>();
             let val = arr.value(index);
             match &oid {
-                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => pgrx::pg_sys::Oid::from(val).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => Some(pg_sys::Datum::from(val)),
                 _ => return Err(anyhow!("Unsupported OID for UInt32 Arrow type: {oid:?}")),
             }
         }

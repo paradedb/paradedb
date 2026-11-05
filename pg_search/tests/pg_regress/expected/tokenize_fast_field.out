@@ -132,32 +132,41 @@ WHERE id @@@ pdb.all()
 GROUP BY description
 ORDER BY description
 LIMIT 5;
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  Aggregate Scan not used: grouping column description is indexed as a computed expression, which cannot be read back as the column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Limit
-   Output: description, (pdb.agg_fn('COUNT(*)'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-         Output: description, pdb.agg_fn('COUNT(*)'::text)
-         Index: search_idx
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: description
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"description","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: description, (count(*))
+   ->  GroupAggregate
+         Output: description, count(*)
+         Group Key: mock_items.description
+         ->  Sort
+               Output: description
+               Sort Key: mock_items.description
+               ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
+                     Output: description
+                     Table: mock_items
+                     Index: search_idx
+                     Worker Selection: Cost model
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(17 rows)
 
 SELECT description, COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY description
 ORDER BY description
 LIMIT 5;
+WARNING:  Aggregate Scan not used: grouping column description is indexed as a computed expression, which cannot be read back as the column. To disable this warning: SET paradedb.planner_warnings = 'off' (table: mock_items)
         description        | count 
 ---------------------------+-------
- anti-aging serum          |     1
- artistic ceramic vase     |     1
- bluetooth-enabled speaker |     1
- classic leather sofa      |     1
- colorful kids toy         |     1
+ Anti-aging serum          |     1
+ Artistic ceramic vase     |     1
+ Bluetooth-enabled speaker |     1
+ Classic leather sofa      |     1
+ Colorful kids toy         |     1
 (5 rows)
 
 DROP INDEX search_idx;

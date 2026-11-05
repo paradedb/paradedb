@@ -443,7 +443,10 @@ pub enum FieldSource {
     Heap { attno: usize },
 
     /// Expression index (scalar result)
-    Expression { att_idx: usize },
+    Expression {
+        att_idx: usize,
+        attno: Option<usize>,
+    },
 
     /// Field extracted from a composite type
     CompositeField {
@@ -465,15 +468,10 @@ impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
     /// column's value as it is, so it names that column; a computed expression or a
     /// composite field has no single column to read back.
-    pub fn heap_attno(&self, index: &PgSearchRelation) -> Option<usize> {
+    pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),
-            FieldSource::Expression { att_idx } => {
-                let expr = index.index_expressions().get_ptr(att_idx)?;
-                let var = unsafe { nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast())) }?;
-                let varattno = unsafe { (*var).varattno };
-                (varattno > 0).then(|| (varattno - 1) as usize)
-            }
+            FieldSource::Expression { attno, .. } => attno,
             FieldSource::CompositeField { .. } => None,
         }
     }
@@ -563,7 +561,7 @@ pub unsafe fn resolve_field_value(
 ) -> (pg_sys::Datum, bool) {
     match source {
         FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
-        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::Expression { att_idx, .. } => expr_results[*att_idx],
         FieldSource::CompositeField {
             expression_idx,
             field_idx,
@@ -744,10 +742,14 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
+                let node = expression.cast();
                 let source = FieldSource::Expression {
                     att_idx: expression_idx,
+                    attno: nodecast!(Var, T_Var, strip_tokenizer_cast(node))
+                        .map(|var| (*var).varattno)
+                        .filter(|&attno| attno > 0)
+                        .map(|attno| (attno - 1) as usize),
                 };
-                let node = expression.cast();
 
                 let typoid = pg_sys::exprType(node);
                 let mut attname = None;
@@ -1512,6 +1514,59 @@ pub fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
         }
     }
     node
+}
+
+/// Recursively strips all `PlaceHolderVar` wrappers anywhere inside `node`.
+///
+/// PostgreSQL 15 does not have a `readfuncs.c` reader for `PLACEHOLDERVAR`, so any expression
+/// tree serialized via `nodeToString` (for later `stringToNode` deserialization) must have
+/// nested `PlaceHolderVar` nodes (such as those introduced by `paradedb.placeholder_support`
+/// around `pdb.score(...)` in join/aggregate queries) unwrapped to their `phexpr` first.
+pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn contains_phv_walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_PlaceHolderVar {
+            return true;
+        }
+        pg_sys::expression_tree_walker(node, Some(contains_phv_walker), context)
+    }
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn strip_phv_mutator(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
+        if let Some(phv) = crate::nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) {
+            return strip_phv_mutator((*phv).phexpr.cast(), context);
+        }
+
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let fnptr = strip_phv_mutator as *const ();
+            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(strip_phv_mutator), context)
+        }
+    }
+
+    if !contains_phv_walker(node, std::ptr::null_mut()) {
+        return node;
+    }
+    strip_phv_mutator(node, std::ptr::null_mut())
 }
 
 /// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`

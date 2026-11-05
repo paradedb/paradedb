@@ -1,11 +1,13 @@
 # ParadeDB Benchmarks
 
+For Cohere vector CI, see [the pdbench and k6 pipeline](cohere/README.md).
+
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.
 
 ## Prerequisites
 
 The benchmarking scripts require a Postgres database with [`pg_search`](/pg_search) installed. If you are building `pg_search` with
-`cargo pgrx`, make sure to build in `--release` mode. It also requires AWS credentials to be available in order to load the data.
+`cargo pgrx`, make sure to build in `--release` mode. It also requires AWS credentials with access to the CI account’s `paradedb-benchmark` bucket to load data and restore snapshots.
 
 ### pg_stat_statements
 
@@ -44,13 +46,13 @@ cargo run --release -- benchmark \
   --index bm25
 ```
 
-To reuse that heap through pgBackRest, stop Postgres before snapshotting or restoring:
+Heap snapshots live at `s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/`. To reuse that heap through pgBackRest, stop Postgres before snapshotting or restoring:
 
 ```bash
 PGDATA="/home/runner/.pgrx/data-18"
 BACKREST_ARGS=(
   --stanza bench
-  --repo-bucket paradedb-ci-benchmarks
+  --repo-bucket paradedb-benchmark
   --repo-path-prefix /snapshots
   --repo-region us-east-1
   --repo-endpoint s3.us-east-1.amazonaws.com
@@ -80,10 +82,11 @@ cargo run -- --help
 ## Notable `benchmark` Options
 
 - `--dataset` defaults to "stackoverflow"
-- `--index` (required): Selects the index to build/benchmark, `datasets/{dataset}/indexes/{index}.sql` (e.g. `bm25`, `hnsw`, `ivfflat`).
+- `--index` (required): Selects the index to build/benchmark, `datasets/{dataset}/indexes/{index}.sql` (e.g. `bm25`).
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
+- `--query-filter`: Runs only the queries whose name (`{query}` or `{query} - {variant}`) matches this regex. The dirty (`% visible`) runs of a matching query also run.
 - `--vacuum`: Controls whether `VACUUM FULL ANALYZE`, followed by `VACUUM ANALYZE` to update the visibility map, runs before the queries. Defaults to `true`.
 
 ## Notable Heap Options
@@ -93,6 +96,22 @@ cargo run -- --help
 - `snapshot-heap --pgdata` / `restore-heap --pgdata`: Points pgBackRest at the stopped Postgres data directory. This can also be provided with `PGDATA`.
 - `snapshot-heap --config` / `restore-heap --config`: Uses an existing pgBackRest config instead of generating one.
 - `snapshot-heap --repo-*` / `restore-heap --repo-*`: Provides the S3 repository settings when generating a pgBackRest config.
+
+## Benchmarking a PR
+
+The `benchmark-stackoverflow` label runs every Stack Overflow query on a PR. To run only some of them, add a conversation comment (not a review comment) with a regex. The workflow passes it to `--query-filter`:
+
+```text
+@paradedb stackoverflow ^count_filter
+```
+
+With a size before the regex, the workflow runs only that dataset size. The `20m` size takes most of a full run, so `100k` or `1m` gives a faster result:
+
+```text
+@paradedb stackoverflow 1m ^count_filter
+```
+
+The commenter needs write access, and the PR branch must be in `paradedb/paradedb`. The workflow replies with a link to the run. Then it posts the results to the PR, one comment for each dataset size.
 
 ## Datasets
 
@@ -106,7 +125,7 @@ The queries that are benchmarked for a dataset are located directly under `datas
 
 - `config.toml`
 - `create_tables.sql`
-- `indexes/{index}.sql` (one file per index variant, e.g. `bm25`, `hnsw`, `ivfflat`; chosen with `benchmark --index`)
+- `indexes/{index}.sql` (one file per index variant, e.g. `bm25`; chosen with `benchmark --index`)
 - `prewarm.sql`
 - `queries/{query}/*.sql` or `queries/{query}.sql` (or under `queries/{index}/`)
 - `after_create_index.sql` (optional)

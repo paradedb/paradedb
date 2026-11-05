@@ -23,6 +23,7 @@ ANALYZE issue_join_pre_filter_posts;
 
 SET max_parallel_workers_per_gather = 0;
 SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.enable_rank_join TO off;
 SET work_mem TO '4GB';
 
 -- Note: This test reliably reproduces the pre-filter "Column 0 not fetched" panic.
@@ -59,5 +60,6 @@ ORDER BY
 LIMIT 10;
 
 -- Teardown
+RESET paradedb.enable_rank_join;
 DROP TABLE issue_join_pre_filter_users CASCADE;
 DROP TABLE issue_join_pre_filter_posts CASCADE;

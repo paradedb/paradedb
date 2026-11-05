@@ -6,6 +6,9 @@ SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 1.0;
 SET paradedb.vector_stats = on;
 
+SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
+    = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
+
 CREATE FUNCTION quant_fixture_vector(d integer, n integer)
 RETURNS vector
 LANGUAGE SQL IMMUTABLE PARALLEL SAFE
@@ -73,7 +76,7 @@ CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":false}}'
+    quantization = '0'
 );
 INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
@@ -94,7 +97,7 @@ CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
 CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":true}}'
+    quantization = '[1,1]'
 );
 DROP TABLE q_explicit_below_floor;
 
@@ -107,12 +110,22 @@ CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
+    quantization = '[1,1,1,1]'
 );
+CREATE INDEX q_zero_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[0,0]');
+CREATE INDEX q_wide_layer_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[5]');
+CREATE INDEX q_empty_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[]');
+CREATE INDEX q_json_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '{"layers":[1,1]}');
+CREATE INDEX q_legacy_fields_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (vector_fields = '{"vec":{"quantization":false}}');
 CREATE INDEX q_grid_first_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
+    quantization = '[4]'
 );
 DROP TABLE q_schedule_validation;
 
@@ -291,6 +304,7 @@ SELECT
         AS layer0_populated,
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
         AS layer0_selection_accounted,
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
@@ -299,8 +313,10 @@ SELECT
         AS exact_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
         AS routing_flat,
-    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
-        AS bound_flat,
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bounds_skips') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bound_armed_probe_sum') IS NULL
+        AS no_radii,
     jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
         AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
         AS io_flat,
@@ -400,7 +416,7 @@ CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    quantization = '[1,4]',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '400kb',
@@ -427,7 +443,7 @@ CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    quantization = '[1,4]',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '50kb',

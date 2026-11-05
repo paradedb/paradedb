@@ -141,7 +141,7 @@ WHERE p.title ||| 'post';
      :       ProjectionExec: expr=[__pdb_k0@0 as __pdb_k0, __pdb_k1@1 as __pdb_k1, 0 as __grouping_id, __pdb_m0@2 as __pdb_m0]
      :         AggregateExec: mode=Single, gby=[author@1 as __pdb_k0, p_0_labels@0 as __pdb_k1], aggr=[count(1) as __pdb_m0]
      :           UnnestExec
-     :             TantivyDecodeExec: decode=[author]
+     :             TantivyDecodeExec: decode=[labels, author]
      :               ProjectionExec: expr=[labels@0 as p_0_labels, author@1 as author]
      :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, post_id@0)], projection=[labels@1, author@2]
      :                   CooperativeExec

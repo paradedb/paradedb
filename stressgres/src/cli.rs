@@ -76,6 +76,7 @@ pub enum Command {
     Headless(HeadlessArgs),
 
     /// Parse a log file and generate metric graphs from the contained data
+    #[cfg(feature = "graph")]
     Graph(GraphArgs),
 
     /// Parse a log file and generate an aggregated CSV report of contained data
@@ -136,6 +137,7 @@ pub struct HeadlessArgs {
 }
 
 /// Arguments for parsing a log file and generating the desired charts.
+#[cfg(feature = "graph")]
 #[derive(Debug, Args)]
 pub struct GraphArgs {
     /// Path to the log file produced by a headless run.

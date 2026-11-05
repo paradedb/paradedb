@@ -21,6 +21,7 @@ mod auto;
 mod cli;
 mod csv;
 mod fault_tolerance;
+#[cfg(feature = "graph")]
 mod graph;
 mod headless;
 mod metrics;
@@ -121,6 +122,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         // When using the "graph" subcommand.
+        #[cfg(feature = "graph")]
         Command::Graph(graph_args) => {
             graph::run(&graph_args)?;
         }

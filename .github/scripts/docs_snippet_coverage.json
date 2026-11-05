@@ -200,6 +200,12 @@
       "setup": [
         "reference/full-text/top-k.mdx::fence-024"
       ]
+    },
+    "reference/full-text/top-k.mdx::fence-028": {
+      "warning": "ORDER BY columns whose collation is not byte-ordered (C-like) cannot be pushed down to the index"
+    },
+    "reference/full-text/top-k.mdx::fence-030": {
+      "warning": "ORDER BY columns cannot be pushed down to the index"
     }
   }
 }

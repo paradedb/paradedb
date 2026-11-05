@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::access::IndexAccess;
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::{Result, anyhow};
 use pgrx::{PgList, pg_sys};
@@ -89,6 +90,17 @@ pub fn leaf_partition_indexes(
     leaf_partition_index_oids(parent)
         .into_iter()
         .map(|oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
+}
+
+/// The leaf partition indexes under `parent`, each opened after its table as it is reached,
+/// for a caller that reads the heap. A leaf's locks are released when the returned guard is
+/// dropped, so a caller that advances one leaf at a time holds one leaf at a time.
+pub fn leaf_partition_index_accesses(
+    parent: &PgSearchRelation,
+) -> impl Iterator<Item = IndexAccess> + use<> {
+    leaf_partition_index_oids(parent)
+        .into_iter()
+        .map(|oid| IndexAccess::open(oid, pg_sys::AccessShareLock as _))
 }
 
 /// The leaves in `leaves` whose `AccessShareLock` is free right now, each opened as it is

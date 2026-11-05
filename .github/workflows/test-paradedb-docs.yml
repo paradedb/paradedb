@@ -47,26 +47,27 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       # Reuse the shared cache without saving entries from this workflow.
       - name: Set Up pg_search Toolchain
+        id: toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}
           cache_save: "false"
 
       - name: Install System Dependencies
-        uses: paradedb/actions/apt-install@v14
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           packages: libsecret-1-dev libopenblas-dev lld
 
       - name: Install .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
@@ -152,12 +153,20 @@ jobs:
       - name: Check Documentation Snippet Coverage
         run: python3 .github/scripts/extract_code_snippets.py
 
+      - name: Restore pgrx-compiled Postgres
+        id: cache-pgrx-pg
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install
+          key: pgrx-install-v1-ubuntu26-full-arm64-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
+
       - name: Set Up PostgreSQL (pgrx)
         id: postgres
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
           pg_impl: pgrx
+          pgrx_cache_hit: ${{ steps.cache-pgrx-pg.outputs.cache-hit == 'true' }}
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/

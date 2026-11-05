@@ -767,6 +767,7 @@ LIMIT 10;
 -- ORDER BY score DESC on the probe side allows Top K to tighten its score
 -- threshold after the first batch and push it into the scanner (dynamic_filter_pushdown_score=1).
 -- =============================================================================
+SET paradedb.enable_rank_join = off;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id, t2.id, paradedb.score(t2.id)
 FROM dyn_filter_t1 t1
@@ -793,6 +794,7 @@ LIMIT 10;
      :           PgSearchScan: table=t2, segments=2, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=8.19 K, output_bytes=224.0 KB, output_batches=4, dynamic_filter_pushdown_gallop=1, dynamic_filter_pushdown_score=1, rows_pruned=11.81 K, rows_scanned=20.00 K]
 (14 rows)
 
+RESET paradedb.enable_rank_join;
 -- =============================================================================
 -- TEST 6: Top K dynamic filter does not prune NULLs
 -- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
@@ -1030,8 +1032,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val ||| 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: t1.id, t1.val
    Relation Tree: t1 INNER t2
@@ -1040,13 +1042,13 @@ LIMIT 15;
    Order By: t1.id desc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-     :   SortExec: TopK(fetch=15), expr=[id@1 DESC], preserve_partitioning=[false]
+     :   GlobalLimitExec: skip=0, fetch=15
      :     VisibilityFilterExec: tables=[t1, t2], pruned=[t2]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, t1_id@0)], projection=[ctid_0@0, id@1, ctid_1@3]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@1, t1_id@0)], order=[id@1 DESC], projection=[ctid_0@0, id@1, ctid_1@3]
      :         CooperativeExec
-     :           PgSearchScan: table=t1, segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+     :           PgSearchScan: table=t1, segments=2, lazy_sort=30, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"val","value":"val","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
      :         CooperativeExec
-     :           PgSearchScan: table=t2, segments=2, dynamic_filters=1, query="all"
+     :           PgSearchScan: table=t2, segments=2, lazy_sort=0, dynamic_filters=1, query="all"
 (15 rows)
 
 SELECT t1.id, t1.val

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Filters on `ctid` or `tableoid` that ParadeDB evaluates against the heap, such as `b.ctid > '(0,2)'` on a Join Scan source, now return the same rows as PostgreSQL. The filter used to compare an invalid `ctid` and a zero `tableoid`, so it matched every row or none.

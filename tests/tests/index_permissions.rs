@@ -1,0 +1,386 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use rstest::*;
+use sqlx::PgConnection;
+use tests::fixtures::*;
+
+fn direct_reads(index: &str) -> Vec<String> {
+    vec![
+        format!("SELECT * FROM paradedb.index_info({index})"),
+        format!("SELECT * FROM paradedb.index_info({index}, true)"),
+        format!("SELECT * FROM pdb.index_segments({index})"),
+        format!(
+            r#"SELECT paradedb.aggregate(
+                {index}, paradedb.all(),
+                '{{"emails":{{"terms":{{"field":"email","size":100}}}}}}')"#
+        ),
+    ]
+}
+
+fn assert_denied_query(conn: &mut PgConnection, query: &str) -> sqlx::Error {
+    let error = query.execute_result(conn).expect_err(query);
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(|err| err.code())
+            .as_deref(),
+        Some("42501"),
+        "{query}: {error}"
+    );
+    error
+}
+
+fn assert_denied(conn: &mut PgConnection, queries: &[String]) {
+    for query in queries {
+        assert_denied_query(conn, query);
+    }
+}
+
+#[rstest]
+fn standalone_index_maintenance_follows_reindex_permissions(mut conn: PgConnection) {
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let owner = format!("maintenance_owner_{suffix}");
+    let caller = format!("maintenance_caller_{suffix}");
+    format!(
+        "BEGIN;
+        CREATE ROLE {owner} NOSUPERUSER NOBYPASSRLS;
+        CREATE ROLE {caller} NOSUPERUSER NOBYPASSRLS INHERIT;
+        CREATE SCHEMA index_maintenance;
+        CREATE TABLE index_maintenance.docs(id integer, email text);
+        INSERT INTO index_maintenance.docs VALUES (1, 'private@example.com');
+        CREATE INDEX docs_idx ON index_maintenance.docs USING paradedb (id, (email::pdb.literal));
+        ALTER TABLE index_maintenance.docs OWNER TO {owner};
+        GRANT USAGE ON SCHEMA index_maintenance TO {owner}, {caller};"
+    )
+    .execute(&mut conn);
+    let (version,) =
+        "SELECT current_setting('server_version_num')::integer".fetch_one::<(i32,)>(&mut conn);
+    let query =
+        "SELECT count(*) FROM paradedb.merge_lock_garbage_collect('index_maintenance.docs_idx')";
+
+    // Permission errors abort a transaction; savepoints keep each probe independent.
+    let denied = |conn: &mut PgConnection, query: &str| {
+        "SAVEPOINT maintenance_denied".execute(conn);
+        let error = assert_denied_query(conn, query);
+        "ROLLBACK TO SAVEPOINT maintenance_denied; RELEASE SAVEPOINT maintenance_denied"
+            .execute(conn);
+        error
+    };
+    let cannot_read = |conn: &mut PgConnection| {
+        for query in direct_reads("'index_maintenance.docs_idx'") {
+            let error = denied(conn, &query);
+            // Require the table ACL error: an RLS rejection must not mask a
+            // missing SELECT check while this fixture has FORCE RLS enabled.
+            assert_eq!(
+                error.as_database_error().unwrap().message(),
+                "permission denied for table docs",
+                "{query}: {error}"
+            );
+        }
+    };
+    format!("SET ROLE {caller}").execute(&mut conn);
+    denied(&mut conn, query);
+    "RESET ROLE".execute(&mut conn);
+
+    // Reading data or monitoring an index does not authorize its maintenance.
+    format!(
+        "GRANT SELECT ON index_maintenance.docs TO {caller};
+        GRANT pg_monitor TO {caller}; SET ROLE {caller}"
+    )
+    .execute(&mut conn);
+    denied(&mut conn, query);
+    format!(
+        "RESET ROLE; REVOKE SELECT ON index_maintenance.docs FROM {caller};
+        REVOKE pg_monitor FROM {caller}"
+    )
+    .execute(&mut conn);
+
+    // Owners qualify on every supported PostgreSQL version, even under FORCE RLS.
+    "ALTER TABLE index_maintenance.docs ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE index_maintenance.docs FORCE ROW LEVEL SECURITY"
+        .execute(&mut conn);
+    format!("SET ROLE {owner}").execute(&mut conn);
+    query.execute(&mut conn);
+    "RESET ROLE".execute(&mut conn);
+
+    if version >= 170000 {
+        // A table-level MAINTAIN grant needs neither SELECT nor RLS bypass.
+        format!("GRANT MAINTAIN ON index_maintenance.docs TO {caller}; SET ROLE {caller}")
+            .execute(&mut conn);
+        let privileges = "SELECT
+            has_table_privilege(current_user, 'index_maintenance.docs', 'SELECT'),
+            has_table_privilege(current_user, 'index_maintenance.docs', 'MAINTAIN')"
+            .fetch_one::<(bool, bool)>(&mut conn);
+        assert_eq!(privileges, (false, true));
+        query
+            .execute_result(&mut conn)
+            .expect("table-level MAINTAIN must authorize index maintenance");
+        cannot_read(&mut conn);
+        format!(
+            "RESET ROLE; REVOKE MAINTAIN ON index_maintenance.docs FROM {caller}; SET ROLE {caller}"
+        )
+        .execute(&mut conn);
+        denied(&mut conn, query);
+        "RESET ROLE".execute(&mut conn);
+
+        // Cloud operators inherit pg_maintain without owning customer tables.
+        format!("GRANT pg_maintain TO {caller}; SET ROLE {caller}").execute(&mut conn);
+        let (owns_table,) = "SELECT relowner = current_user::regrole
+            FROM pg_class WHERE oid = 'index_maintenance.docs'::regclass"
+            .fetch_one::<(bool,)>(&mut conn);
+        assert!(!owns_table);
+        query
+            .execute_result(&mut conn)
+            .expect("inherited pg_maintain must authorize index maintenance");
+        cannot_read(&mut conn);
+        format!("RESET ROLE; REVOKE pg_maintain FROM {caller}; SET ROLE {caller}")
+            .execute(&mut conn);
+        denied(&mut conn, query);
+        "RESET ROLE".execute(&mut conn);
+    }
+    // The entire fixture, including its cluster-wide roles, is transactional.
+    "ROLLBACK".execute(&mut conn);
+}
+
+#[rstest]
+fn standalone_index_reads_enforce_permissions(mut conn: PgConnection) {
+    // Roles are cluster-wide; use a unique name so parallel tests cannot share
+    // grants and accidentally turn a negative assertion into an authorized read.
+    let role = format!("index_reader_{}", uuid::Uuid::new_v4().simple());
+    format!(
+        r#"
+        CREATE ROLE {role} NOSUPERUSER NOBYPASSRLS NOINHERIT;
+        CREATE SCHEMA index_permissions;
+        GRANT USAGE ON SCHEMA index_permissions TO {role};
+        CREATE TABLE index_permissions.secrets (id integer PRIMARY KEY, email text);
+        INSERT INTO index_permissions.secrets VALUES (1, 'private@example.com');
+        CREATE INDEX secrets_idx ON index_permissions.secrets
+            USING paradedb (id, (email::pdb.literal));
+        "#
+    )
+    .execute(&mut conn);
+    let (oid,) = "SELECT 'index_permissions.secrets_idx'::regclass::oid::bigint"
+        .fetch_one::<(i64,)>(&mut conn);
+    let by_name = direct_reads("'index_permissions.secrets_idx'");
+    let by_oid = direct_reads(&format!("{oid}::regclass"));
+
+    format!("SET ROLE {role}").execute(&mut conn);
+    assert_denied(
+        &mut conn,
+        &["SELECT email FROM index_permissions.secrets".into()],
+    );
+    assert_denied(&mut conn, &by_name);
+    assert_denied(&mut conn, &by_oid);
+    "RESET ROLE".execute(&mut conn);
+
+    // A grant on an unrelated column must not authorize arbitrary index fields.
+    format!("GRANT SELECT (id) ON index_permissions.secrets TO {role}").execute(&mut conn);
+    format!("SET ROLE {role}").execute(&mut conn);
+    "SELECT id FROM index_permissions.secrets".execute(&mut conn);
+    assert_denied(&mut conn, &by_name);
+    assert_denied(&mut conn, &by_oid);
+    "RESET ROLE".execute(&mut conn);
+
+    format!("GRANT SELECT ON index_permissions.secrets TO {role}").execute(&mut conn);
+    format!("SET ROLE {role}").execute(&mut conn);
+    for query in by_name.iter().chain(&by_oid) {
+        query.execute(&mut conn);
+    }
+    let (result,) = format!(
+        r#"SELECT paradedb.aggregate({oid}::regclass, paradedb.all(),
+            '{{"emails":{{"terms":{{"field":"email","size":100}}}}}}')"#
+    )
+    .fetch_one::<(serde_json::Value,)>(&mut conn);
+    assert_eq!(result["emails"]["buckets"][0]["key"], "private@example.com");
+    "RESET ROLE".execute(&mut conn);
+
+    // Numeric OIDs bypass name resolution, but must not bypass schema USAGE.
+    format!("REVOKE USAGE ON SCHEMA index_permissions FROM {role}").execute(&mut conn);
+    format!("SET ROLE {role}").execute(&mut conn);
+    for query in &by_oid {
+        let error = assert_denied_query(&mut conn, query);
+        assert_eq!(
+            error.as_database_error().unwrap().message(),
+            "permission denied for schema index_permissions"
+        );
+    }
+    "RESET ROLE".execute(&mut conn);
+    format!("GRANT USAGE ON SCHEMA index_permissions TO {role}").execute(&mut conn);
+
+    // Table SELECT alone is insufficient when RLS applies. With no policies,
+    // ordinary SELECT returns no rows, and direct index reads must fail closed.
+    "ALTER TABLE index_permissions.secrets ENABLE ROW LEVEL SECURITY".execute(&mut conn);
+    format!("SET ROLE {role}").execute(&mut conn);
+    let (count,) = "SELECT count(*) FROM index_permissions.secrets".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 0);
+    assert_denied(&mut conn, &by_name);
+    assert_denied(&mut conn, &by_oid);
+    "SET row_security = off".execute(&mut conn);
+    assert_denied(&mut conn, &by_oid);
+    "RESET row_security; RESET ROLE".execute(&mut conn);
+
+    // PostgreSQL's BYPASSRLS and owner semantics still apply.
+    format!("ALTER ROLE {role} BYPASSRLS; SET ROLE {role}").execute(&mut conn);
+    for query in &by_oid {
+        query.execute(&mut conn);
+    }
+    "RESET ROLE".execute(&mut conn);
+    format!(
+        "ALTER ROLE {role} NOBYPASSRLS;
+         ALTER TABLE index_permissions.secrets OWNER TO {role}; SET ROLE {role}"
+    )
+    .execute(&mut conn);
+    for query in &by_oid {
+        query.execute(&mut conn);
+    }
+    "ALTER TABLE index_permissions.secrets FORCE ROW LEVEL SECURITY".execute(&mut conn);
+    assert_denied(&mut conn, &by_oid);
+    "RESET ROLE".execute(&mut conn);
+    format!("DROP SCHEMA index_permissions CASCADE; DROP ROLE {role}").execute(&mut conn);
+}
+
+#[rstest]
+fn partitioned_index_metadata_checks_the_requested_table(mut conn: PgConnection) {
+    let role = format!("partition_reader_{}", uuid::Uuid::new_v4().simple());
+    format!(
+        r#"
+        CREATE ROLE {role} NOSUPERUSER NOBYPASSRLS;
+        CREATE SCHEMA partition_permissions;
+        GRANT USAGE ON SCHEMA partition_permissions TO {role};
+        CREATE TABLE partition_permissions.parent (id integer) PARTITION BY RANGE (id);
+        CREATE TABLE partition_permissions.child PARTITION OF partition_permissions.parent
+            FOR VALUES FROM (0) TO (10);
+        INSERT INTO partition_permissions.parent VALUES (1);
+        CREATE INDEX parent_idx ON partition_permissions.parent USING paradedb (id);
+        "#
+    )
+    .execute(&mut conn);
+    let (parent_oid,) = "SELECT 'partition_permissions.parent_idx'::regclass::oid::bigint"
+        .fetch_one::<(i64,)>(&mut conn);
+    let (child_oid,) = "SELECT indexrelid::bigint FROM pg_index
+        WHERE indrelid = 'partition_permissions.child'::regclass"
+        .fetch_one::<(i64,)>(&mut conn);
+    let metadata = |oid| {
+        vec![
+            format!("SELECT sum(num_docs)::bigint FROM paradedb.index_info({oid}::regclass)"),
+            format!("SELECT sum(num_docs)::bigint FROM pdb.index_segments({oid}::regclass)"),
+        ]
+    };
+    format!("SET ROLE {role}").execute(&mut conn);
+    assert_denied(&mut conn, &metadata(parent_oid));
+    assert_denied(&mut conn, &metadata(child_oid));
+    "RESET ROLE".execute(&mut conn);
+    format!("GRANT SELECT ON partition_permissions.parent TO {role}; SET ROLE {role}")
+        .execute(&mut conn);
+    // Access via the parent follows the parent's grants, as a SQL scan does.
+    for query in metadata(parent_oid) {
+        let (docs,) = query.as_str().fetch_one::<(i64,)>(&mut conn);
+        assert_eq!(docs, 1, "{query}");
+    }
+    // Naming the child directly requires its own privileges.
+    for query in metadata(child_oid) {
+        let error = assert_denied_query(&mut conn, &query);
+        assert_eq!(
+            error.as_database_error().unwrap().message(),
+            "permission denied for table child"
+        );
+    }
+    "RESET ROLE".execute(&mut conn);
+    "ALTER TABLE partition_permissions.parent ENABLE ROW LEVEL SECURITY".execute(&mut conn);
+    format!("SET ROLE {role}").execute(&mut conn);
+    assert_denied(&mut conn, &metadata(parent_oid));
+    "RESET ROLE".execute(&mut conn);
+    format!("DROP SCHEMA partition_permissions CASCADE; DROP ROLE {role}").execute(&mut conn);
+}
+
+#[rstest]
+fn standalone_index_reads_honor_definer_and_invoker(mut conn: PgConnection) {
+    let owner = format!("index_owner_{}", uuid::Uuid::new_v4().simple());
+    let caller = format!("index_caller_{}", uuid::Uuid::new_v4().simple());
+    // Roles are created inside the transaction so a failed assertion cleans them up.
+    format!(
+        r#"
+        BEGIN;
+        CREATE ROLE {owner} NOSUPERUSER NOBYPASSRLS NOINHERIT;
+        CREATE ROLE {caller} NOSUPERUSER NOBYPASSRLS NOINHERIT;
+        CREATE SCHEMA index_identity AUTHORIZATION {owner};
+        GRANT USAGE ON SCHEMA index_identity TO {caller};
+        CREATE TABLE index_identity.secrets(id integer PRIMARY KEY, email text);
+        INSERT INTO index_identity.secrets VALUES (1, 'first'), (2, 'second');
+        CREATE INDEX secrets_idx ON index_identity.secrets
+            USING paradedb (id, (email::pdb.literal));
+        ALTER TABLE index_identity.secrets OWNER TO {owner};
+        ALTER TABLE index_identity.secrets ENABLE ROW LEVEL SECURITY;
+        CREATE FUNCTION index_identity.definer_segments() RETURNS bigint
+        LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+          SELECT coalesce(sum(num_docs), 0)::bigint
+          FROM pdb.index_segments('index_identity.secrets_idx'::regclass)
+        $$;
+        CREATE FUNCTION index_identity.invoker_segments() RETURNS bigint
+        LANGUAGE sql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $$
+          SELECT coalesce(sum(num_docs), 0)::bigint
+          FROM pdb.index_segments('index_identity.secrets_idx'::regclass)
+        $$;
+        ALTER FUNCTION index_identity.definer_segments() OWNER TO {owner};
+        ALTER FUNCTION index_identity.invoker_segments() OWNER TO {owner};
+        REVOKE EXECUTE ON FUNCTION index_identity.definer_segments(),
+            index_identity.invoker_segments() FROM PUBLIC;
+        GRANT EXECUTE ON FUNCTION index_identity.definer_segments(),
+            index_identity.invoker_segments() TO {caller};
+        "#
+    )
+    .execute(&mut conn);
+    let ownership = "SELECT count(*), bool_and(p.proowner = c.relowner)
+        FROM pg_proc p JOIN pg_class c ON c.oid = 'index_identity.secrets'::regclass
+        WHERE p.pronamespace = 'index_identity'::regnamespace"
+        .fetch_one::<(i64, bool)>(&mut conn);
+    assert_eq!(ownership, (2, true));
+    let (privileged_owner,) =
+        format!("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = '{owner}'")
+            .fetch_one::<(bool,)>(&mut conn);
+    assert!(!privileged_owner);
+
+    format!("SET ROLE {caller}").execute(&mut conn);
+    let privileges = "SELECT
+        has_table_privilege(current_user, 'index_identity.secrets', 'SELECT'),
+        pg_has_role(current_user, 'pg_stat_scan_tables', 'USAGE')"
+        .fetch_one::<(bool, bool)>(&mut conn);
+    assert_eq!(privileges, (false, false));
+    let (docs,) = "SELECT index_identity.definer_segments()".fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(docs, 2);
+
+    for query in [
+        "SELECT index_identity.invoker_segments()",
+        "SELECT * FROM pdb.index_segments('index_identity.secrets_idx')",
+        "SELECT email FROM index_identity.secrets",
+    ] {
+        "SAVEPOINT denied_call".execute(&mut conn);
+        assert_denied_query(&mut conn, query);
+        "ROLLBACK TO SAVEPOINT denied_call".execute(&mut conn);
+    }
+    "RESET ROLE; ALTER TABLE index_identity.secrets FORCE ROW LEVEL SECURITY".execute(&mut conn);
+    format!("SET ROLE {caller}").execute(&mut conn);
+    "SAVEPOINT forced_rls".execute(&mut conn);
+    let err = assert_denied_query(&mut conn, "SELECT index_identity.definer_segments()");
+    let db_err = err.as_database_error().unwrap();
+    assert_eq!(
+        db_err.message(),
+        "direct index reads are not supported when row-level security applies to table index_identity.secrets"
+    );
+    "ROLLBACK TO SAVEPOINT forced_rls; RESET ROLE; ROLLBACK".execute(&mut conn);
+}

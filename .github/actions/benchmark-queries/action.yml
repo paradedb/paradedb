@@ -13,7 +13,7 @@ inputs:
     description: "Pre-sampled dataset size (e.g. 100k, 1m, 20m)"
     required: true
   index:
-    description: "Index variant (e.g. bm25, hnsw, ivfflat). Uses datasets/{dataset}/indexes/{index}.sql."
+    description: "Index variant to build/benchmark (resolves to datasets/{dataset}/indexes/{index}.sql), e.g. bm25"
     required: true
   ref:
     description: "Full SHA of the commit benchmarked"
@@ -22,28 +22,20 @@ inputs:
     description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
     required: false
     default: "true"
+  query_filter:
+    description: "Regex that selects the queries to run by name. Runs every query when empty."
+    required: false
+    default: ""
   publish_baseline:
     description: "Whether to push results to the gh-pages baseline that later runs are diffed against. Only a run on main should; every run compares against the baseline regardless."
     required: false
     default: "false"
   alert_threshold:
     description: >-
-      Ratio of current to baseline value above which github-action-benchmark alerts
-      (e.g. 115%). Callers using the paired-bootstrap strategy should loosen this into a
-      catastrophic-regression backstop, since the comparison script owns real alerting.
+      Ratio of current to baseline value above which github-action-benchmark alerts,
+      e.g. "115%".
     required: false
     default: "115%"
-  alert_strategy:
-    description: >-
-      How regressions are detected. "point-ratio": only the alert_threshold point comparison.
-      "paired-bootstrap": percentile series whose runs published per-query samples alert when the
-      bootstrapped lower 95% bound of the paired percentile ratio exceeds 1.15x. Pairing cancels
-      cross-query latency variance, so this is both less noisy and more sensitive than a point
-      comparison. Series without samples fall back to disjoint-CI, then 15% point comparisons.
-      p99 series stay on the charts but never trigger alerts. One run is not enough to detect a p99 regression.
-    required: false
-    default: "point-ratio"
-
 runs:
   using: "composite"
   steps:
@@ -64,11 +56,17 @@ runs:
         DATASET: ${{ inputs.dataset }}
         FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
         INDEX: ${{ inputs.index }}
+        QUERY_FILTER: ${{ inputs.query_filter }}
         SIZE: ${{ inputs.size }}
       run: |
         POSTGRES_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres"
         results_file="results_${DATASET}_${INDEX}_${SIZE}.json"
         rm -f results.json "$results_file"
+
+        filter_args=()
+        if [ -n "${QUERY_FILTER}" ]; then
+          filter_args=(--query-filter "${QUERY_FILTER}")
+        fi
 
         # The heap has already been restored from a snapshot. The benchmark builds the
         # index and runs queries against it.
@@ -79,7 +77,8 @@ runs:
           --size "${SIZE}" \
           --runs 10 \
           --output json \
-          --fail-on-error "${FAIL_ON_ERROR}"
+          --fail-on-error "${FAIL_ON_ERROR}" \
+          "${filter_args[@]}"
 
         # Historical benchmark code writes to a shared results.json file.
         if [ -f results.json ]; then
@@ -88,7 +87,7 @@ runs:
 
     - name: Upload Query Benchmark Results
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       env:
         DATASET: ${{ inputs.dataset }}
         INDEX: ${{ inputs.index }}

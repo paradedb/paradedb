@@ -27,7 +27,33 @@ use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
 };
+use std::cell::RefCell;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+thread_local! {
+    // The `conn` fixture drops its `Db` before the test body runs, so drop test
+    // databases when the test thread exits.
+    // Create databases on the test thread, not in spawned async tasks: executor
+    // worker threads can outlive the test and delay this cleanup.
+    static TEST_DATABASES: TestDatabases = const { TestDatabases(RefCell::new(Vec::new())) };
+}
+
+struct TestDatabases(RefCell<Vec<String>>);
+
+impl Drop for TestDatabases {
+    fn drop(&mut self) {
+        let db_names = self.0.take();
+        // Wait for the drops, so that the process cannot exit before they finish.
+        block_on(async_std::task::spawn(async move {
+            for db_name in db_names {
+                if let Err(err) = Postgres::cleanup_test(&db_name).await {
+                    // A panic in a thread-local destructor aborts the process.
+                    eprintln!("could not drop test database {db_name}: {err}");
+                }
+            }
+        }));
+    }
+}
 
 fn lost_connection(e: &Error) -> bool {
     use crate::fixtures::fault_grace::{TransientKind, classify_transient};
@@ -41,7 +67,10 @@ macro_rules! tolerate_transient_setup {
         let mut retry = crate::fixtures::fault_grace::FaultRetry::default();
         loop {
             match $op.await {
-                Ok(value) => break value,
+                Ok(value) => {
+                    retry.note_resolved();
+                    break value;
+                }
                 Err(err) => {
                     if !lost_connection(&err) {
                         panic!(concat!($what, ": {:#?}"), err);
@@ -55,12 +84,47 @@ macro_rules! tolerate_transient_setup {
     }};
 }
 
+/// A test database. It is dropped when the thread that created it exits.
 pub struct Db {
     context: TestContext<Postgres>,
 }
 
 impl Db {
     pub async fn new() -> Self {
+        static CLEANUP: std::sync::Once = std::sync::Once::new();
+        // Earlier test binaries may leave databases whose persistent workers still hold slots.
+        CLEANUP.call_once(|| {
+            block_on(async {
+                let url = dotenvy::var("DATABASE_URL").expect("DATABASE_URL must be set");
+                let mut conn = PgConnection::connect(&url)
+                    .await
+                    .expect("test cleanup connection");
+                let exists: bool =
+                    sqlx::query_scalar("SELECT to_regclass('_sqlx_test.databases') IS NOT NULL")
+                        .fetch_one(&mut conn)
+                        .await
+                        .expect("test database registry");
+                if !exists {
+                    return;
+                }
+                let names: Vec<String> =
+                    sqlx::query_scalar("SELECT d.db_name FROM _sqlx_test.databases d WHERE NOT EXISTS (SELECT FROM pg_stat_activity a WHERE a.datname=d.db_name AND a.backend_type <> 'pg_search mutable sweep')")
+                        .fetch_all(&mut conn)
+                        .await
+                        .expect("test database names");
+                for name in names {
+                    let command =
+                        format!("DROP DATABASE IF EXISTS \"{}\"", name.replace('"', "\"\""));
+                    if conn.execute(AssertSqlSafe(command)).await.is_ok() {
+                        sqlx::query("DELETE FROM _sqlx_test.databases WHERE db_name=$1")
+                            .bind(name)
+                            .execute(&mut conn)
+                            .await
+                            .expect("test database cleanup record");
+                    }
+                }
+            });
+        });
         let path =
             // timestamp
             SystemTime::now()
@@ -88,6 +152,7 @@ impl Db {
             Postgres::test_context(&args)
         );
 
+        TEST_DATABASES.with(|databases| databases.0.borrow_mut().push(context.db_name.clone()));
         Self { context }
     }
 
@@ -96,15 +161,6 @@ impl Db {
             "failed to connect to test database",
             self.context.connect_opts.connect()
         )
-    }
-}
-
-impl Drop for Db {
-    fn drop(&mut self) {
-        let db_name = self.context.db_name.to_string();
-        async_std::task::spawn(async move {
-            Postgres::cleanup_test(db_name.as_str()).await.ok(); // ignore errors as there's nothing we can do about it
-        });
     }
 }
 

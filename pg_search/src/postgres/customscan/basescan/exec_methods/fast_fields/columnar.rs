@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use arrow_array::{Array, RecordBatch};
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::ExecutionPlan;
 use futures::StreamExt;
 use tokio::runtime::Runtime;
@@ -26,7 +26,9 @@ use tokio::runtime::Runtime;
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
 use crate::nodecast;
-use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::exec_methods::{
+    ExecMethod, ExecState, shared_task_context,
+};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::heap::VisibilityChecker;
@@ -377,8 +379,7 @@ impl ColumnarExecState {
         )
         .with_table_alias(index_rel.name());
 
-        let task_ctx = Arc::new(TaskContext::default());
-        match plan.execute(0, task_ctx) {
+        match plan.execute(0, shared_task_context()) {
             Ok(stream) => Some(stream),
             Err(e) => {
                 pgrx::error!("Failed to execute plan: {e}");

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793841636607,
+  "lastUpdate": 1793866470236,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -65827,6 +65827,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13379925428-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866466743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 13.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.942,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 14.219,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 16.801,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 17.755,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 18.142,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 26.554,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 28.343,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 29.13,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 12.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 13.606,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 13.981,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 15.846,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 16.982,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 17.544,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 30.339,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 31.923,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 32.117,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.982,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.306,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 8.111,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.638,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 23.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 28.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 30.009,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13398698701-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -69013,6 +69171,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13379925428-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866468147,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 75.47982198850576,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 59.26991965460789,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 37.479763019390326,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 77.05411575632864,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 62.716410293260004,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 33.131162409294745,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 167.51958870843444,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 113.82127617776158,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 41.4701540782622,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13398698701-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -70434,6 +70660,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13379925428-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866470224,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 4.3539806426166665,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43199.9140625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13398698701-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -73035,6 +73294,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13379925428-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866469200,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 16135.54,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 27523.24,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 54523.54,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 17047.01,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 25534.73,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 50019.95,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 2388.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3611.17,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 9893.65,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13398698701-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

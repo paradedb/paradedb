@@ -65,11 +65,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-<<<<<<< HEAD
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
-=======
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
->>>>>>> 041b7c6 (ci: Restore rolling RunsOn image (#7269))
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hn-ci' || inputs.dataset == '')) ||
@@ -208,11 +204,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-<<<<<<< HEAD
       - extras=s3-cache # S3-backed cache; https://runs-on.com/caching/magic-cache/
-=======
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
->>>>>>> 041b7c6 (ci: Restore rolling RunsOn image (#7269))
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'push' ||

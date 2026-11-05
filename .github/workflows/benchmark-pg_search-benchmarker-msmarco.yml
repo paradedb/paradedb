@@ -1,4 +1,4 @@
-name: Benchmark MS MARCO (quantized main)
+name: Benchmark MS MARCO (quantized main with adaptive probing)
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (main-quantized)
+    name: MS MARCO 113m (main-quantized-adaptive)
     if: github.event.label.name == 'benchmark-msmarco-pg_search'
     timeout-minutes: 720
     runs-on:
@@ -28,7 +28,7 @@ jobs:
     env:
       MSMARCO_SIZE: 113m
       pg_version: "18"
-      VARIANT: main-quantized
+      VARIANT: main-quantized-adaptive
       PDBENCH_REF: e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c
       BENCHMARKER_REF: ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3
       BENCHMARK_REF: ${{ github.event.pull_request.head.sha }}
@@ -276,7 +276,7 @@ jobs:
           {
             printf 'Variant: `%s`. Unfiltered MS MARCO 113m, top-10/top-100 at R90/R95/R99.\n\n' "$VARIANT"
             printf 'pg_search: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
-            printf 'Tantivy #357: `70d25cbf4f938eeb26f284bfa7ee5aa26996d810`; pg_search main: `f0f9ff86518af8bb66070b4056fcd52ad0b69f8a`. Router quantization is enabled via its persisted index option. Eight build/query workers are available with a 32-process worker pool.\n\n'
+            printf 'Combined Tantivy: `ecddbac46d793cbc8ed56bc772f43517416d898d`; pg_search main: `f0f9ff86518af8bb66070b4056fcd52ad0b69f8a`. Adaptive changes from Tantivy `462e2043e0465a4da13e42d2639921baff79fc67` are applied on top of the quantized router. The sweep varies search effort with adaptive probing enabled and automatic headroom. Eight build/query workers are available with a 32-process worker pool.\n\n'
             printf 'Build RSS is the sum across sampled processes and includes shared mappings. These runs do not update the rolling main baseline.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
@@ -289,7 +289,7 @@ jobs:
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"pg_search","variant":"${{ env.VARIANT }}","tantivy":"70d25cbf4f938eeb26f284bfa7ee5aa26996d810"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"pg_search","variant":"${{ env.VARIANT }}","tantivy":"ecddbac46d793cbc8ed56bc772f43517416d898d"}
         run: |
           set -euo pipefail
           shopt -s nullglob

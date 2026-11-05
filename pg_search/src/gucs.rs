@@ -337,12 +337,19 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Maximum fraction of each segment's IVF clusters probed by a vector query.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+/// Optional work ceiling; zero selects the search mode's default.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.0);
 
 /// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
-    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+    let configured = VECTOR_CLUSTER_MAX_PROBE.get();
+    if configured > 0.0 {
+        configured as f32
+    } else if VECTOR_ADAPTIVE_PROBING.get() {
+        1.0
+    } else {
+        0.02
+    }
 }
 
 static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -400,7 +407,36 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
+static VECTOR_SEARCH_EFFORT: GucSetting<f64> = GucSetting::<f64>::new(4.4);
+
+pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
+    VECTOR_ADAPTIVE_PROBING
+        .get()
+        .then(|| tantivy::vector::AdaptiveProbeParams {
+            effort: VECTOR_SEARCH_EFFORT.get(),
+        })
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_adaptive_probing",
+        c"Stop vector probing early using admission-rate decay",
+        c"Enabled by default. Uses one router window scaled by search effort, segment size, and filter selectivity, with admission-based early stopping.",
+        &VECTOR_ADAPTIVE_PROBING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_search_effort",
+        c"Search effort for adaptive vector probing (default 4.4)",
+        c"Larger values widen the router window and require more admission-rate decay before stopping. Each increment of one divides the stopping fraction by ten. Calibrate against measured recall; this is not a recall probability.",
+        &VECTOR_SEARCH_EFFORT,
+        0.000001,
+        f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
@@ -700,10 +736,10 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"IVF work ceiling, as a fraction of cluster count, for vector ORDER BY queries",
+        c"0 selects automatic headroom: 1.0 with adaptive probing, 0.02 otherwise. Positive values explicitly cap the work budget.",
         &VECTOR_CLUSTER_MAX_PROBE,
-        0.000001,
+        0.0,
         1.0,
         GucContext::Userset,
         GucFlags::default(),

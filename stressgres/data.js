@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793866389528,
+  "lastUpdate": 1793866414668,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -512533,6 +512533,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13306915491-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866412526,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3918.64197679964,
+            "unit": "median tps",
+            "extra": "avg tps: 3909.1102529223795, max tps: 4737.239062275994, count: 58908"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4569.624507928644,
+            "unit": "median tps",
+            "extra": "avg tps: 4599.218792196069, max tps: 5911.707799485006, count: 58908"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.1513581766138,
+            "unit": "median tps",
+            "extra": "avg tps: 165.14452410823824, max tps: 3125.941804893055, count: 58908"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.66230150465911,
+            "unit": "median tps",
+            "extra": "avg tps: 39.515137696615376, max tps: 552.3274586491091, count: 58908"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.652713762851462,
+            "unit": "median tps",
+            "extra": "avg tps: 39.72844927148488, max tps: 535.5964609551881, count: 58908"
+          }
+        ],
+        "publication_id": "13398398434-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -527324,6 +527377,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13306915491-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866414583,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.381991582456157, max cpu: 4.657933, count: 58908"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.105598984857743, max mem: 21.21484375, count: 58908"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.515694899172217, max cpu: 4.644412, count: 58908"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.829924548660625, max mem: 20.8359375, count: 58908"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.441315808705433, max cpu: 31.923988, count: 58908"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.365865854913594, max mem: 21.37109375, count: 58908"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.05281116317, max document_count: 10002.0, count: 58908"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.041556325117, max document_count: 10002.0, count: 58908"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58908"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.25963,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.5086093391282, max cpu: 32.416786, count: 58908"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 52.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.30350331767332, max mem: 62.02734375, count: 58908"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.233618,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.482582924897176, max cpu: 32.36994, count: 58908"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 52.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.05972574554814, max mem: 66.55859375, count: 58908"
+          }
+        ],
+        "publication_id": "13398398434-other"
       }
     ]
   }

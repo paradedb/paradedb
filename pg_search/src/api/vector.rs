@@ -677,7 +677,7 @@ fn vector_error_cone_audit_internal(
 fn is_quantized(segment: &tantivy::SegmentReader, field: tantivy::schema::Field) -> Result<bool> {
     Ok(segment
         .vector_index(field)?
-        .info()
+        .info()?
         .is_some_and(|info| info.quantized_layers.is_some()))
 }
 
@@ -690,7 +690,7 @@ fn ensure_quantized_segments(
     let mut quantized = false;
     let mut skipped = 0;
     for segment in reader.segment_readers() {
-        match segment.vector_index(field)?.info() {
+        match segment.vector_index(field)?.info()? {
             Some(info) if info.quantized_layers.is_some() => quantized = true,
             Some(_) => skipped += 1,
             None => {}

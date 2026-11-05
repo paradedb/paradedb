@@ -419,7 +419,7 @@ fn vector_info(
         let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            let Some(info) = vector_index.info() else {
+            let Some(info) = vector_index.info()? else {
                 continue;
             };
             let quantized = info.quantized_layers.is_some();
@@ -440,7 +440,7 @@ fn vector_info(
                 .context("quantized bytes per row exceeds SQL integer range")?;
             let cluster_stats = info.cluster_stats.as_ref();
             let total_rows = vector_index
-                .cluster_sizes()
+                .cluster_sizes()?
                 .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
@@ -555,11 +555,11 @@ fn vector_clusters(
         let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            if vector_index.info().is_none() {
+            if vector_index.info()?.is_none() {
                 continue;
             }
             let sizes = vector_index
-                .cluster_sizes()
+                .cluster_sizes()?
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
             rows.push((segment_reader.segment_id().short_uuid_string(), sizes));
         }

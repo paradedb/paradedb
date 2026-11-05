@@ -774,31 +774,20 @@ mod tests {
             let ctid_box = ctid_box.clone().expect("every hot segment has a ctid box");
             // The rows the build routed there fall inside the box.
             let empirical = segment.empirical(ctid_field).unwrap().unwrap();
-            if let Bound::Included(lower) = &ctid_box.lower {
-                assert!(
-                    !below(&empirical.min, lower),
-                    "{empirical:?} vs {ctid_box:?}"
-                );
-            }
-            if let Bound::Excluded(upper) = &ctid_box.upper {
-                assert!(
-                    below(&empirical.max, upper),
-                    "{empirical:?} vs {ctid_box:?}"
-                );
-            }
-            hot_ctid_boxes.push(ctid_box);
+            assert!(
+                empirical.is_subset_of(&ctid_box.lower, &ctid_box.upper),
+                "{empirical:?} vs {ctid_box:?}"
+            );
+            hot_ctid_boxes.push((empirical.min, ctid_box));
         }
         assert_eq!(hot_ctid_boxes.len(), 7, "{ctid_boxes:?}");
 
-        // Ordered by their lower bound, the hot ctid boxes tile the whole ctid range with no
-        // gap or overlap: open at both ends, and each upper bound is the next one's lower.
-        hot_ctid_boxes.sort_by(|a, b| match (&a.lower, &b.lower) {
-            (Bound::Unbounded, Bound::Unbounded) => Ordering::Equal,
-            (Bound::Unbounded, _) => Ordering::Less,
-            (_, Bound::Unbounded) => Ordering::Greater,
-            (Bound::Included(x), Bound::Included(y)) => x.total_cmp(y),
-            _ => unreachable!("lower bounds are inclusive"),
-        });
+        // Ordered by their rows' smallest ctid, which orders the disjoint boxes that hold them,
+        // the hot ctid boxes tile the whole ctid range with no gap or overlap: open at both
+        // ends, and each upper bound is the next one's lower.
+        hot_ctid_boxes.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+        let hot_ctid_boxes: Vec<LogicalBounds> =
+            hot_ctid_boxes.into_iter().map(|(_, b)| b).collect();
         assert_eq!(
             hot_ctid_boxes[0].lower,
             Bound::Unbounded,

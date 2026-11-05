@@ -14,6 +14,7 @@ on:
       - ".github/scripts/**"
       - ".github/workflows/test-paradedb-docs.yml"
       - "docs/**"
+      - "scripts/docs-posthog.test.cjs"
       - "pg_search/**"
       - "Cargo.lock"
       - "Cargo.toml"
@@ -48,6 +49,9 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Test Analytics Consent
+        run: node --test scripts/docs-posthog.test.cjs
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching

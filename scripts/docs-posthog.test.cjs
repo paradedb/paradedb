@@ -9,6 +9,14 @@ const source = fs.readFileSync(
   "utf8",
 );
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+const sdkScripts = (b) =>
+  b.calls.filter(
+    (call) => call.type === "script" && call.script.src.includes("posthog.com"),
+  );
+const googleCommands = (b, type) =>
+  Array.from(b.globals.window.dataLayer ?? [], (entry) =>
+    Array.from(entry),
+  ).filter((entry) => entry[0] === "consent" && entry[1] === type);
 
 function browser(options = {}) {
   const calls = [];
@@ -48,7 +56,16 @@ function browser(options = {}) {
     cookie: options.cookie ?? "",
     readyState: "complete",
     createElement: element,
-    head: { appendChild: (script) => calls.push({ type: "script", script }) },
+    head: {
+      appendChild: (script) =>
+        calls.push({
+          type: "script",
+          script,
+          // Snapshot the queues at request time, before any tag can execute.
+          dataLayer: JSON.parse(JSON.stringify(window.dataLayer ?? [])),
+          hubspot: JSON.parse(JSON.stringify(window._hsq ?? [])),
+        }),
+    },
     body: { append() {} },
   };
   const sdk = {
@@ -95,7 +112,7 @@ function browser(options = {}) {
     runAgain: () => vm.runInNewContext(source, globals),
     loadSDK() {
       window.posthog = sdk;
-      calls.find((call) => call.type === "script").script.onload();
+      sdkScripts({ calls })[0].script.onload();
     },
     choose(allowed) {
       elements
@@ -105,7 +122,7 @@ function browser(options = {}) {
   };
 }
 
-test("DNT and GPC suppress the SDK download, lookup, storage writes and banner", async () => {
+test("DNT and GPC suppress GTM, the SDK, lookup, storage writes and banner", async () => {
   for (const options of [
     { navigator: { doNotTrack: "1" } },
     { navigator: { doNotTrack: "yes" } },
@@ -201,7 +218,7 @@ test("a banner choice wins over pending region and SDK requests", async () => {
       b.globals.document.cookie,
       /Path=\/; Max-Age=31536000; SameSite=Lax/,
     );
-    assert.equal(b.calls.filter((call) => call.type === "script").length, 1);
+    assert.equal(sdkScripts(b).length, 1);
     b.choose(!allowed);
     assert.equal(b.calls.at(-1).type, allowed ? "decline" : "accept");
     b.runAgain();
@@ -224,12 +241,23 @@ test("blocked storage prevents SDK loading; another tab's choice is honored on f
     storageBlocked: true,
     cookie: "paradedb_cookie_consent_v2=true",
   });
-  assert.deepEqual(blocked.calls, []);
+  assert.equal(sdkScripts(blocked).length, 0);
+  assert.equal(blocked.calls.length, 1);
+  assert.match(blocked.calls[0].script.src, /googletagmanager\.com/);
   const b = browser({ cookie: "paradedb_cookie_consent_v2=true" });
   b.loadSDK();
   b.globals.document.cookie = "paradedb_cookie_consent_v2=false";
   b.listeners.focus();
   assert.equal(b.calls.at(-1).type, "decline");
+  assert.equal(
+    googleCommands(b, "update").at(-1)[2].analytics_storage,
+    "denied",
+  );
+  assert.equal(b.globals.window._hsq.at(-1).length, 1);
+  b.globals.document.cookie = "paradedb_cookie_consent_v2=true";
+  b.listeners.focus();
+  assert.equal(googleCommands(b, "update").at(-1)[2].ad_storage, "granted");
+  assert.equal(b.globals.window._hsq.at(-1)[1].track, true);
   b.elements
     .find((node) => node.id === "paradedb-cookie-preferences")
     .listeners.click();
@@ -237,4 +265,122 @@ test("blocked storage prevents SDK loading; another tab's choice is honored on f
     b.elements.find((node) => node.id === "paradedb-cookie-banner").hidden,
     false,
   );
+});
+
+test("GTM receives saved choices and regional defaults before its first request", async () => {
+  const regions = [
+    "AT",
+    "BE",
+    "BG",
+    "HR",
+    "CY",
+    "CZ",
+    "DK",
+    "EE",
+    "FI",
+    "FR",
+    "DE",
+    "GR",
+    "HU",
+    "IE",
+    "IT",
+    "LV",
+    "LT",
+    "LU",
+    "MT",
+    "NL",
+    "PL",
+    "PT",
+    "RO",
+    "SK",
+    "SI",
+    "ES",
+    "SE",
+    "GB",
+    "IS",
+    "LI",
+    "NO",
+  ];
+  for (const [cookie, expected] of [
+    ["", undefined],
+    ["paradedb_cookie_consent=true", undefined],
+    ["paradedb_cookie_consent_v2=false", false],
+    ["paradedb_cookie_consent=false", false],
+    ["paradedb_cookie_consent_v2=true", true],
+    ["paradedb_cookie_consent=false; paradedb_cookie_consent_v2=true", true],
+  ]) {
+    const b = browser({ cookie });
+    const first = b.calls[0];
+    assert.equal(first.type, "script");
+    assert.equal(
+      first.script.src,
+      "https://www.googletagmanager.com/gtm.js?id=GTM-KMGRG564",
+    );
+    assert.equal(first.script.async, true);
+    const defaults = first.dataLayer.filter((entry) => entry[1] === "default");
+    assert.deepEqual(defaults[0][2], {
+      analytics_storage: expected === false ? "denied" : "granted",
+      ad_storage: expected === true ? "granted" : "denied",
+      ad_user_data: expected === true ? "granted" : "denied",
+      ad_personalization: expected === true ? "granted" : "denied",
+    });
+    assert.equal(defaults.length, expected === true ? 1 : 2);
+    if (expected !== true) {
+      assert.deepEqual(defaults[1][2], {
+        analytics_storage: "denied",
+        wait_for_update: 500,
+        region: regions,
+      });
+    }
+    if (expected === undefined) assert.deepEqual(first.hubspot, []);
+    else
+      assert.deepEqual(first.hubspot, [
+        expected ? ["doNotTrack", { track: true }] : ["doNotTrack"],
+      ]);
+    assert.equal(first.dataLayer.at(-1).event, "gtm.js");
+    assert.equal(typeof first.dataLayer.at(-1)["gtm.start"], "number");
+    await settle();
+    b.runAgain();
+    assert.equal(
+      b.calls.filter(
+        (call) =>
+          call.type === "script" &&
+          call.script.src.includes("googletagmanager.com"),
+      ).length,
+      1,
+    );
+  }
+});
+
+test("Accept and Decline update all Google consent flags and HubSpot in both directions", async () => {
+  const b = browser({ cookie: "paradedb_cookie_consent_v2=false" });
+  b.loadSDK();
+  for (const allowed of [true, false, true]) {
+    b.choose(allowed);
+    const update = googleCommands(b, "update").at(-1)[2];
+    for (const flag of [
+      "analytics_storage",
+      "ad_storage",
+      "ad_user_data",
+      "ad_personalization",
+    ]) {
+      assert.equal(update[flag], allowed ? "granted" : "denied");
+    }
+    assert.equal(b.globals.window._hsq.at(-1)[1]?.track === true, allowed);
+    assert.equal(b.calls.at(-1).type, allowed ? "accept" : "decline");
+  }
+  b.globals.navigator.globalPrivacyControl = true;
+  b.listeners.focus();
+  assert.equal(googleCommands(b, "update").at(-1)[2].ad_storage, "denied");
+  b.choose(true);
+  assert.equal(googleCommands(b, "update").at(-1)[2].ad_storage, "denied");
+});
+
+test("Mintlify cannot load a second analytics integration before consent checks", () => {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../docs/docs.json"), "utf8"),
+  );
+  assert.equal(config.integrations?.gtm, undefined);
+  assert.equal(config.integrations?.ga4, undefined);
+  assert.equal(config.integrations?.posthog, undefined);
 });

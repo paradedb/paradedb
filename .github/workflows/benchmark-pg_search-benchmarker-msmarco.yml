@@ -387,6 +387,38 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
+      - name: Collect pg_vectorsearch cluster size distribution
+        run: |
+          set -euo pipefail
+          profile="$(basename "$MSMARCO_CONFIG" .toml)"
+          index="$(jq -r '.data.index.name' benchmark-artifacts/search/"$profile"/*_build.json)"
+          psql "$PARADEDB_URL" -Xq -v ON_ERROR_STOP=1 -v index_name="$index" \
+            -v sizes_file=benchmark-artifacts/cluster-sizes.csv \
+            -v summary_file=benchmark-artifacts/cluster-distribution.json \
+            -f benchmarks/msmarco/cluster_sizes.sql
+          jq -e '.cluster_count > 0 and .live_entries == 113520750 and .dead_entries == 0' \
+            benchmark-artifacts/cluster-distribution.json
+          jq -r '
+            "### Cluster size distribution\n",
+            "Live posting entries per cluster, including replicas when present. Collected after timed measurements.\n",
+            "| Metric | Value |", "|---|---:|",
+            (["cluster_count", "empty_clusters", "min", "mean", "p50", "p95", "p99", "p999", "max", "stddev", "max_to_mean"][] as $key
+              | "| \($key) | \(.[$key]) |")
+          ' benchmark-artifacts/cluster-distribution.json \
+            | tee benchmark-artifacts/cluster-distribution.md
+          cat benchmark-artifacts/cluster-distribution.md >> "$GITHUB_STEP_SUMMARY"
+          printf '\n' >> benchmark-artifacts/result-context.md
+          cat benchmark-artifacts/cluster-distribution.md >> benchmark-artifacts/result-context.md
+          jq --slurpfile distribution benchmark-artifacts/cluster-distribution.json '
+            . + ($distribution[0] as $d | [
+              {name: ($d.index + " cluster count"), unit: "clusters", value: $d.cluster_count},
+              {name: ($d.index + " empty clusters"), unit: "clusters", value: $d.empty_clusters},
+              (["min", "mean", "p50", "p95", "p99", "p999", "max"][] as $key
+                | {name: ($d.index + " cluster entries " + $key), unit: "entries/cluster", value: $d[$key]})
+            ])
+          ' benchmark-artifacts/index-metrics.json > benchmark-artifacts/index-metrics-with-clusters.json
+          mv benchmark-artifacts/index-metrics-with-clusters.json benchmark-artifacts/index-metrics.json
+
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results
         with:

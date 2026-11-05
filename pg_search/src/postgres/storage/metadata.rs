@@ -241,6 +241,11 @@ impl MetaPage {
         MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
     }
 
+    pub(crate) unsafe fn try_acquire_merge_lock(&self) -> Option<MergeLock> {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        MergeLock::try_acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
+    }
+
     /// `acquire_merge_lock` for VACUUM: waits for admitted mergers to drop their merge-page pins first.
     ///
     /// Keep `ambulkdelete` the only production caller. `LockBufferForCleanup` raises an ERROR when

@@ -97,6 +97,8 @@ pub(crate) enum MergeStyle {
     },
     /// VACUUM finished; only a background merge may follow.
     Vacuum,
+    /// An idle sweep may launch background work but must not wait for merge admission.
+    Idle,
 }
 
 /// Who runs a merge, which decides what happens between candidates.
@@ -329,8 +331,22 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
 
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
-    let merge_pins = metadata.pin_merge();
-    let merge_lock = metadata.acquire_merge_lock();
+    let (merge_pins, merge_lock) = if matches!(style, MergeStyle::Idle) {
+        if !layer_sizes.user_configured_background_layers()
+            || VacuumSignal::new(index.oid()).wants_cancel()
+        {
+            return Ok(());
+        }
+        let Some(merge_pins) = metadata.try_pin_merge() else {
+            return Ok(());
+        };
+        let Some(merge_lock) = metadata.try_acquire_merge_lock() else {
+            return Ok(());
+        };
+        (merge_pins, merge_lock)
+    } else {
+        (metadata.pin_merge(), metadata.acquire_merge_lock())
+    };
     let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
     let mut merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
     #[cfg(feature = "pg_test")]

@@ -155,7 +155,6 @@ $$;
 RESET client_min_messages;
 DEALLOCATE warning_policy_explain;
 RESET plan_cache_mode;
-
 -- Runtime scan and spill warnings honor off, and are errors under error mode.
 SET paradedb.enable_custom_scan = off;
 SET enable_bitmapscan = off;

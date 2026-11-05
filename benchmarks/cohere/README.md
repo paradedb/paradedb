@@ -54,8 +54,11 @@ rounds up to whole candidates: for example, `1.25` retains up to four candidates
 for `router_k = 3`. A factor of `1.0` removes padding but still computes exact
 scores, which document pruning and quantized distance estimation require.
 
-The beam setting leaves full-precision routing unchanged.
-Quantized routing defaults to a 50% beam floor with `router_k` retained members.
+The beam setting leaves full-precision-only routing unchanged. Quantized routing
+defaults to a 50% beam floor with `router_k` retained members. Global routing
+shares this beam and the padded shortlist across segments, including mixed raw
+and quantized routers and coarse partition centroids. It reranks retained
+quantized members before the global `router_k` selection.
 Wider selection compensates for errors in quantized centroid ordering;
 retaining more members cannot recover members in unopened lists.
 

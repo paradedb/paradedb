@@ -34,12 +34,12 @@
 //!    the inverted index for maximum performance.
 //!
 //! 2. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
-//!    Top K threshold from `SortExec`) or filters that cannot be (or should not be, e.g.
-//!    high-density `InList`s that would fall back to Tantivy `LinearScan`) mapped to the
-//!    inverted index are applied as `PreFilter`s *after* the search but *before* heap
-//!    visibility (`fetch_ctids`) and Arrow column materialization. These evaluate directly
-//!    against Tantivy fast fields (using term-ordinal bounds/sets for strings or direct
-//!    numeric comparisons).
+//!    Top K threshold from `SortExec`) or filters that cannot be (or should not be on
+//!    standard unsorted scans, e.g. high-density `InList`s that would fall back to Tantivy
+//!    `LinearScan`; see [`InListLinearFallback`]) mapped to the inverted index are applied as
+//!    `PreFilter`s *after* the search but *before* heap visibility (`fetch_ctids`) and Arrow
+//!    column materialization. These evaluate directly against Tantivy fast fields (using
+//!    term-ordinal bounds/sets for strings or direct numeric comparisons).
 //!
 //! # Data Flow
 //!
@@ -1217,6 +1217,18 @@ fn extract_in_list_exprs<'a>(
     }
 }
 
+/// Policy for join-derived `InList` predicates whose density exceeds the `BitsetFromPostings`
+/// threshold and would fall back to Tantivy's `LinearScan`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InListLinearFallback {
+    /// Keep the `InListExpr` as a vectorized batch-level `PreFilter` (`build_standard_stream`).
+    KeepAsPreFilter,
+    /// Push the `TermSetQuery` into the Tantivy reader anyway (`build_lazy_sort_stream`), so
+    /// top-K collectors (`TopDocsByVectorSimilarity` / `TopDocs`) only collect join-matching
+    /// documents rather than running expanding unfiltered top-K windows.
+    PushToIndex,
+}
+
 /// Outcome of trying to convert one join-derived `InList` predicate.
 enum InListPushdown {
     /// AND the converted term-set query into the tantivy search.
@@ -1233,6 +1245,7 @@ fn try_convert_in_list_to_query(
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
     max_segment_docs: u32,
     sorted_by_field: Option<&str>,
+    linear_fallback: InListLinearFallback,
 ) -> InListPushdown {
     if in_list.negated() {
         return InListPushdown::Keep;
@@ -1270,25 +1283,27 @@ fn try_convert_in_list_to_query(
         return InListPushdown::Keep;
     }
 
-    // Integrating the term set into the Tantivy query only pays when the segments admit an
-    // index-driven strategy. Past its density gate tantivy's planner falls back to `LinearScan`,
-    // a per-candidate fast-field probe inside the scorer. Keeping the `InListExpr` as a
+    // On standard unsorted scans (`InListLinearFallback::KeepAsPreFilter`), integrating the
+    // term set into the Tantivy query only pays when the segments admit an index-driven
+    // strategy. Past its density gate tantivy's planner falls back to `LinearScan`, a
+    // per-candidate fast-field probe inside the scorer. Keeping the `InListExpr` as a
     // batch-level `PreFilter` instead evaluates its vectorized `static_filter` hash set over
     // the fast-field batch before heap visibility (`fetch_ctids`) and non-filter column
     // materialization. The gate only guards that fallback: a keyword column or one without a
     // fast representation routes to the FST automaton, and a column the segments are sorted by
     // routes to gallop, both index-driven at any density.
-    // Gate on the largest segment: the big segments carry the linear cost, and a small
-    // segment's linear scan is cheap even when it misses its own bitset gate. The looser
-    // multi-column threshold is used because the column's docs-per-term isn't known here; a
-    // unique-keyed column between the two thresholds still lands on `LinearScan`, an
-    // accepted residual since either path is inexpensive in that band.
-    let linear_fallback_possible = field.is_fast()
-        && !field.is_text()
-        && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));
-    let density = in_list.list().len() as f64 / max_segment_docs.max(1) as f64;
-    if linear_fallback_possible && density > crate::gucs::term_set_bitset_max_density_multi() {
-        return InListPushdown::Keep;
+    // On `lazy_sort` scans (`InListLinearFallback::PushToIndex`), leaving the `InList` out of
+    // the Tantivy query causes the top-K collector to fill its window with non-matching rows
+    // that `PreFilter` then discards, forcing expanding top-K re-queries; always push to the
+    // index so the top-K collector filters during collection.
+    if linear_fallback == InListLinearFallback::KeepAsPreFilter {
+        let linear_fallback_possible = field.is_fast()
+            && !field.is_text()
+            && !(crate::gucs::term_set_gallop_enabled() && sorted_by_field == Some(col.name()));
+        let density = in_list.list().len() as f64 / max_segment_docs.max(1) as f64;
+        if linear_fallback_possible && density > crate::gucs::term_set_bitset_max_density_multi() {
+            return InListPushdown::Keep;
+        }
     }
 
     let tantivy_schema = schema.tantivy_schema();
@@ -1354,7 +1369,11 @@ fn try_convert_in_list_to_query(
 ///
 /// By modifying the `SearchIndexReader` directly, this optimization allows Tantivy to filter
 /// documents via its inverted index *while* executing the search, rather than filtering them
-/// via fast fields after the search has returned.
+/// via fast fields after the search has returned. `linear_fallback` controls whether
+/// high-density `InList` predicates that exceed `term_set_bitset_max_density_multi` are kept
+/// as vectorized batch `PreFilter`s ([`InListLinearFallback::KeepAsPreFilter`] on standard
+/// unsorted scans) or still pushed into the index ([`InListLinearFallback::PushToIndex`] on
+/// `lazy_sort` top-K scans so top-K collectors filter during collection).
 ///
 /// If any expressions are successfully pushed down, this function:
 /// 1. Combines them into a `BooleanQuery` and `AND`s it into the `reader`'s query.
@@ -1365,6 +1384,7 @@ pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    linear_fallback: InListLinearFallback,
 ) -> bool {
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
@@ -1399,6 +1419,7 @@ pub fn try_dynamic_filter_pushdown(
                 strategy_sink.clone(),
                 max_segment_docs,
                 sorted_by_field.as_deref(),
+                linear_fallback,
             ) {
                 InListPushdown::Query(query) => {
                     pushed_down_queries.push(query);

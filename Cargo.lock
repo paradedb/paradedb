@@ -1887,7 +1887,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.3.2",
@@ -1931,7 +1931,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1955,7 +1955,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1978,7 +1978,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -2002,7 +2002,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "futures",
  "log",
@@ -2012,7 +2012,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2042,7 +2042,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -2066,7 +2066,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2089,7 +2089,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2144,12 +2144,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 
 [[package]]
 name = "datafusion-execution"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.3.2",
@@ -2174,7 +2174,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.3.2",
@@ -2197,7 +2197,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2208,7 +2208,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.3.2",
@@ -2235,7 +2235,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2255,7 +2255,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2266,7 +2266,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-nested"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ord 59.2.0",
@@ -2290,7 +2290,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2305,7 +2305,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2321,7 +2321,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -2330,7 +2330,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "datafusion-doc",
  "quote",
@@ -2340,7 +2340,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2358,7 +2358,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.3.2",
@@ -2380,7 +2380,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2394,7 +2394,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2411,7 +2411,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2429,7 +2429,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-data 59.3.2",
@@ -2465,7 +2465,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-catalog",
@@ -2490,7 +2490,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2500,7 +2500,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-models"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "datafusion-common",
  "datafusion-proto-common",
@@ -2510,7 +2510,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2525,7 +2525,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow-schema 59.3.2",
  "async-trait",
@@ -2539,7 +2539,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "bigdecimal",

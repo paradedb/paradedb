@@ -1121,6 +1121,11 @@ impl VisibilityFilterExec {
         &self.plan_pos_oids
     }
 
+    /// Table names corresponding 1:1 with [`Self::plan_pos_oids`].
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
+    }
+
     /// Sets the ctid resolver (FFHelper and its index relation OID) for
     /// the given plan_position. Called by `VisibilityCtidResolverRule`.
     pub fn set_ctid_resolver(&self, plan_pos: usize, resolver: CtidResolver) {

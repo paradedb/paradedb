@@ -142,6 +142,25 @@ impl KdTree {
         self.partitions
     }
 
+    /// The dimension of every split, root first then left before right (pre-order), so tests
+    /// can tell a declared dimension from the ctid fallback.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub(crate) fn split_dims(&self) -> Vec<DimHandle> {
+        fn walk(node: &KdNode, out: &mut Vec<DimHandle>) {
+            if let KdNode::Split {
+                dim, left, right, ..
+            } = node
+            {
+                out.push(*dim);
+                walk(left, out);
+                walk(right, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.root, &mut out);
+        out
+    }
+
     /// The partition a row belongs to. `values` must be laid out like [`Self::dims`].
     pub fn route(&self, values: &[PdbOwnedValue], ctid: u64) -> usize {
         debug_assert_eq!(values.len(), self.dims.len());
@@ -402,7 +421,6 @@ impl Builder<'_> {
         let Some(cut) = self.nearest_cut(idx, dim, target) else {
             return self.leaf();
         };
-        // Hand out leaves by the share of rows each side actually got, not by the share we aimed for.
         let k_left = {
             let rows = idx.len();
             let left_rows = cut;
@@ -753,6 +771,44 @@ mod tests {
             tenant_bounds
                 .iter()
                 .all(|b| b != &(Bound::Unbounded, Bound::Unbounded))
+        );
+    }
+
+    #[test]
+    fn declared_ctid_competes_as_an_equal_but_the_fallback_waits() {
+        // Two tenants over unique ctids, as in `skewed_dim_yields_to_the_wider_one`: ctid is the
+        // wider dimension, so when it is declared it takes the root cut.
+        let ctids: Vec<u64> = (0..1000u64).map(|i| (i << 16) | 1).collect();
+        let tenant = |i: usize| PdbOwnedValue::I64((i % 2) as i64);
+
+        // Declared: ctid is an ordinary dimension carried in each point, with no fallback.
+        // The root cuts ctid, and each half still holds both tenants, so it cuts tenant next.
+        let sample: Vec<Point> = (0..ctids.len())
+            .map(|i| vec![tenant(i), PdbOwnedValue::U64(ctids[i])])
+            .collect();
+        let tree = KdTree::from_sample(dims(&["tenant", "ctid"]), sample.clone(), 4, None);
+        assert_eq!(tree.partition_count(), 4, "{tree}");
+        check_invariants(&tree, &sample, None);
+        assert_eq!(
+            tree.split_dims(),
+            vec![
+                DimHandle::Index(1),
+                DimHandle::Index(0),
+                DimHandle::Index(0)
+            ],
+            "{tree}"
+        );
+
+        // Fallback: the same rows, but ctid only as the fallback. Tenant is cut first even
+        // though ctid is wider, and ctid only splits the halves once each holds one tenant.
+        let sample: Vec<Point> = (0..ctids.len()).map(|i| vec![tenant(i)]).collect();
+        let tree = KdTree::from_sample(dims(&["tenant"]), sample.clone(), 4, Some(ctids.clone()));
+        assert_eq!(tree.partition_count(), 4, "{tree}");
+        check_invariants(&tree, &sample, Some(&ctids));
+        assert_eq!(
+            tree.split_dims(),
+            vec![DimHandle::Index(0), DimHandle::Ctid, DimHandle::Ctid],
+            "{tree}"
         );
     }
 

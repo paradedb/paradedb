@@ -844,6 +844,7 @@ unsafe fn project_row<P: PartitionProjection + ?Sized>(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::index::kdtree::DimHandle;
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::open_index;
     use pgrx::datum::DatumWithOid;
@@ -1331,6 +1332,13 @@ mod tests {
             CREATE INDEX sample_multi_ctid_idx ON sample_multi_ctid
                 USING paradedb (id, tenant_id, name)
                 WITH (partition_by = 'tenant_id, ctid');
+
+            CREATE TABLE sample_fallback_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO sample_fallback_ctid (tenant_id, name)
+            SELECT i % 2, 'row ' || i FROM generate_series(1, 1000) i;
+            CREATE INDEX sample_fallback_ctid_idx ON sample_fallback_ctid
+                USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'tenant_id');
             "#,
         )
         .unwrap();
@@ -1345,6 +1353,11 @@ mod tests {
         };
         assert_eq!(tree.dims(), &[FieldName::from("ctid")]);
         assert_eq!(tree.partition_count(), 4, "{tree}");
+        // A declared ctid is an ordinary dimension: every split names it by index.
+        assert!(
+            tree.split_dims().iter().all(|d| *d == DimHandle::Index(0)),
+            "{tree}"
+        );
 
         let (heaprel, indexrel) = open_rels("sample_multi_ctid", "sample_multi_ctid_idx");
         let BuildPartitioning::Range(tree) =
@@ -1366,6 +1379,29 @@ mod tests {
             .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
             .count();
         assert!(bounded_dims > 4, "{tree}");
+
+        // With ctid declared there is no fallback, so ctid competes with `tenant_id` as an
+        // equal. Ctid is unique and so wider than ten tenants, and it takes the root cut.
+        let splits = tree.split_dims();
+        assert_eq!(splits[0], DimHandle::Index(1), "{tree}");
+        assert!(!splits.contains(&DimHandle::Ctid), "{tree}");
+
+        // Without ctid declared, the fallback only cuts once `tenant_id` cannot: the root
+        // separates the two tenants even though ctid is wider, and ctid splits each tenant.
+        let (heaprel, indexrel) = open_rels("sample_fallback_ctid", "sample_fallback_ctid_idx");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
+        assert_eq!(tree.partition_count(), 4, "{tree}");
+        assert_eq!(
+            tree.split_dims(),
+            vec![DimHandle::Index(0), DimHandle::Ctid, DimHandle::Ctid],
+            "{tree}"
+        );
     }
 
     /// A partition key where 99% of the rows share one value cannot be cut there on its own, so
@@ -1391,9 +1427,13 @@ mod tests {
         );
 
         let (heaprel, indexrel) = open_rels("sample_skewed", "sample_skewed_idx");
-        let tree = plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-            .unwrap()
-            .expect("index declares partition_by");
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected tree");
+        };
         assert_eq!(tree.dims(), &[FieldName::from("tenant_id")]);
         // Without the fallback, `tenant_id` alone offers one useful cut and the hot value lands
         // in a single partition.

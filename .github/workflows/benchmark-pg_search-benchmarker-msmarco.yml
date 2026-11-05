@@ -1,4 +1,4 @@
-name: Benchmark MS MARCO (quantized main)
+name: Benchmark MS MARCO (quantized main, one segment)
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (main-quantized)
+    name: MS MARCO 113m (main-quantized-1segment)
     if: github.event.label.name == 'benchmark-msmarco-pg_search'
     timeout-minutes: 720
     runs-on:
@@ -28,7 +28,7 @@ jobs:
     env:
       MSMARCO_SIZE: 113m
       pg_version: "18"
-      VARIANT: main-quantized
+      VARIANT: main-quantized-1segment
       PDBENCH_REF: e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c
       BENCHMARKER_REF: ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3
       BENCHMARK_REF: ${{ github.event.pull_request.head.sha }}
@@ -156,8 +156,15 @@ jobs:
             --force-rebuild \
             | tee benchmark-artifacts/index-build.log
           test "$(psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
-            -c "SELECT 'vector_router_quantization=true' = ANY(reloptions) FROM pg_class WHERE oid = 'msmarco_bm25_idx'::regclass")" = t
+            -c "SELECT 'vector_router_quantization=true' = ANY(reloptions)
+                       AND 'target_segment_count=1' = ANY(reloptions)
+                FROM pg_class WHERE oid = 'msmarco_bm25_idx'::regclass")" = t
           profile="$(basename "$MSMARCO_CONFIG" .toml)"
+          jq -e '.data.index
+            | {target_segment_count, segment_count, vector_count: ([.segments[].num_vectors] | add), segments}
+            | select(.target_segment_count == 1 and .segment_count == 1 and .vector_count == 113520750)
+          ' benchmark-artifacts/search/"$profile"/*_build.json \
+            | tee benchmark-artifacts/segment-verification.json
           jq '.data | [
             {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
             {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
@@ -276,7 +283,7 @@ jobs:
           {
             printf 'Variant: `%s`. Unfiltered MS MARCO 113m, top-10/top-100 at R90/R95/R99.\n\n' "$VARIANT"
             printf 'pg_search: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
-            printf 'Tantivy #357: `70d25cbf4f938eeb26f284bfa7ee5aa26996d810`; pg_search main: `f0f9ff86518af8bb66070b4056fcd52ad0b69f8a`. Router quantization is enabled via its persisted index option. Eight build/query workers are available with a 32-process worker pool.\n\n'
+            printf 'Tantivy #357: `70d25cbf4f938eeb26f284bfa7ee5aa26996d810`; pg_search main: `f0f9ff86518af8bb66070b4056fcd52ad0b69f8a`. Router quantization is enabled via its persisted index option. Target segment count is 1, verified after build. Build/query worker limits remain eight with a 32-process worker pool; pg_search disables parallel index-build workers for a one-segment target.\n\n'
             printf 'Build RSS is the sum across sampled processes and includes shared mappings. These runs do not update the rolling main baseline.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md

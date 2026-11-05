@@ -268,12 +268,13 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// scale and the smallest winning one.
 static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 
-/// Queue budget used to derive each SPSC ring's byte capacity (`1 MiB` per ring at the `8 MiB`
-/// default, floored at `16 KiB` and rounded down to a power of two). An MPP query with `W`
-/// producer workers lays out `2 * W^2` SPSC byte rings in DSM (`18 MiB` at `W = 3` / `N = 4`
-/// with the default `8 MiB` setting), keeping the per-query DSM allocation well within Docker's
-/// default `64 MiB` `/dev/shm`. Messages larger than a ring stream through it in chunks, so the
-/// size bounds backpressure granularity and launch cost, not what a query can carry.
+/// Per-query DSM ring budget divided across the `2 * W^2` SPSC byte rings in an MPP mesh with `W`
+/// producer workers (`mpp_queue_size / (2 * W^2)`, floored at `16 KiB` and rounded down to a power
+/// of two). With the default `8 MiB` setting, each ring is `1 MiB` at `W = 2`, `256 KiB` at
+/// `W = 3..=4`, `64 KiB` at `W = 8`, and `16 KiB` at `W = 16`, keeping the per-query DSM
+/// allocation bounded within Docker's default `64 MiB` `/dev/shm` across worker counts. Messages
+/// larger than a ring stream through it in chunks, so the size bounds backpressure granularity and
+/// launch cost, not what a query can carry.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
@@ -1060,13 +1061,14 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Queue size budget for MPP DSM SPSC byte rings",
-        c"Sets the queue size budget used to derive each DSM SPSC ring's capacity \
-          (`mpp_queue_size / 8`, rounded down to a power of two; 1MB per ring at the \
-          8MB default). Accepts standard Postgres byte units (e.g. '64MB', '1GB', '512kB'). \
-          An MPP query with W workers allocates 2 * W^2 SPSC rings (~18MB at W=3 with the \
-          default 8MB), within Docker's default 64MB /dev/shm. Payloads larger than a ring \
-          stream through it in chunks. Lower this on memory-constrained boxes; raise it when \
-          shuffle batches routinely back up the ring.",
+        c"Sets the per-query DSM ring budget divided across all 2 * W^2 SPSC rings in an MPP \
+          mesh (`mpp_queue_size / (2 * W^2)`, floored at 16kB and rounded down to a power of \
+          two). Accepts standard Postgres byte units (e.g. '64MB', '1GB', '512kB'). With the \
+          default 8MB setting, each ring is 1MB at W=2, 256kB at W=3..4, 64kB at W=8, and 16kB \
+          at W=16, keeping the per-query DSM allocation bounded within Docker's default 64MB \
+          /dev/shm across worker counts. Payloads larger than a ring stream through it in \
+          chunks. Lower this on memory-constrained boxes; raise it when shuffle batches \
+          routinely back up the ring.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,

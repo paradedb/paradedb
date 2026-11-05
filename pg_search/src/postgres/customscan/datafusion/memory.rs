@@ -30,6 +30,22 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Consumer names registered by `datafusion-distributed` for in-flight gRPC Flight batch buffers
+/// (`src/protocol/grpc/spawn_select_all.rs` and `src/protocol/grpc/worker_client.rs`).
+const NETWORK_BOUNDARY_CONSUMER: &str = "NetworkBoundary";
+const WORKER_CONNECTION_CONSUMER: &str = "WorkerConnection";
+
+/// Returns `true` if `reservation` belongs to a `datafusion-distributed` transport buffer that is
+/// bounded by `WorkerConnection`'s per-connection buffer budget and HTTP/2 flow-control windows
+/// rather than the operator `work_mem` pool.
+#[inline]
+fn is_excluded_transport_consumer(reservation: &MemoryReservation) -> bool {
+    matches!(
+        reservation.consumer().name(),
+        NETWORK_BOUNDARY_CONSUMER | WORKER_CONNECTION_CONSUMER
+    )
+}
+
 /// Caps DataFusion allocations at PostgreSQL's `work_mem` and reports an overflow as a
 /// query error. A panic here used to abort the backend: on the MPP path the pool runs in
 /// a parallel worker, so the panic took down the whole server instead of failing the one
@@ -62,7 +78,13 @@ impl WorkMemMemoryPool {
     ) {
         let limit = estimate_plan_memory(plan, work_mem, hash_mem_multiplier);
         self.limit.store(limit, Ordering::Relaxed);
-        *self.pool.write() = GreedyMemoryPool::new(limit);
+        let mut pool = self.pool.write();
+        debug_assert_eq!(
+            pool.reserved(),
+            0,
+            "WorkMemMemoryPool::resize_for_plan called after reservations were already taken"
+        );
+        *pool = GreedyMemoryPool::new(limit);
     }
 }
 
@@ -91,10 +113,7 @@ impl MemoryPool for WorkMemMemoryPool {
         // reservation before calling `pool.grow`, so `WorkerConnection`'s per-connection
         // backpressure check (`memory_reservation.size() >= worker_connection_buffer_budget_bytes`)
         // still enforces its own byte bound even when the pool ignores the call here.
-        if matches!(
-            reservation.consumer().name(),
-            "NetworkBoundary" | "WorkerConnection"
-        ) {
+        if is_excluded_transport_consumer(reservation) {
             return;
         }
         self.pool.read().grow(reservation, additional);
@@ -102,10 +121,7 @@ impl MemoryPool for WorkMemMemoryPool {
 
     fn shrink(&self, reservation: &MemoryReservation, returned: usize) {
         // Mirror `grow`: `NetworkBoundary` and `WorkerConnection` are not counted in `self.pool`.
-        if matches!(
-            reservation.consumer().name(),
-            "NetworkBoundary" | "WorkerConnection"
-        ) {
+        if is_excluded_transport_consumer(reservation) {
             return;
         }
         self.pool.read().shrink(reservation, returned);
@@ -116,6 +132,9 @@ impl MemoryPool for WorkMemMemoryPool {
         reservation: &MemoryReservation,
         additional: usize,
     ) -> Result<(), DataFusionError> {
+        if is_excluded_transport_consumer(reservation) {
+            return Ok(());
+        }
         let limit = self.limit.load(Ordering::Relaxed);
         self.pool.read().try_grow(reservation, additional).map_err(|_| {
             DataFusionError::ResourcesExhausted(format!(
@@ -222,5 +241,20 @@ mod tests {
         let res = MemoryConsumer::new("test").register(&pool);
         res.grow(8192);
         assert_eq!(pool.reserved(), 8192);
+
+        // Transport consumers are excluded across `grow`, `try_grow`, and `shrink`, while still
+        // tracking their own `MemoryReservation::size()` for per-connection backpressure.
+        for consumer_name in [NETWORK_BOUNDARY_CONSUMER, WORKER_CONNECTION_CONSUMER] {
+            let transport_res = MemoryConsumer::new(consumer_name).register(&pool);
+            transport_res.grow(4096);
+            transport_res
+                .try_grow(4096)
+                .expect("excluded transport consumer try_grow must succeed");
+            assert_eq!(transport_res.size(), 8192);
+            assert_eq!(pool.reserved(), 8192);
+            transport_res.shrink(8192);
+            assert_eq!(transport_res.size(), 0);
+            assert_eq!(pool.reserved(), 8192);
+        }
     }
 }

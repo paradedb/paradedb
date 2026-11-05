@@ -42,8 +42,9 @@
 //!
 //! - Ring topology ([`dsm_stream`]):
 //!   - Each directed connection between `(client_proc, server_proc)` is a pair of lock-free SPSC
-//!     byte rings (`client -> server` and `server -> client`, sized from `paradedb.mpp_queue_size`
-//!     via `glue::spsc_ring_capacity()`, `1 MiB` per ring by default) in the per-query DSM segment.
+//!     byte rings (`client -> server` and `server -> client`, sized by dividing
+//!     `paradedb.mpp_queue_size` across all `2 * W^2` rings via `glue::spsc_ring_capacity(n_procs)`)
+//!     in the per-query DSM segment.
 //!   - The leader (`ClientProc(0)`) acts only as a client to workers `1..=W` (`W` connections =
 //!     `2 * W` SPSC rings).
 //!   - Each worker `w` (`1..=W`) acts as a server for `W` connections (`1` from leader `0` and
@@ -51,15 +52,17 @@
 //!     connections). Same-worker stage reads short-circuit in memory via `datafusion-distributed`'s
 //!     `LocalWorkerContext` (`InProcessWorkerChannel`).
 //!   - Total across `1` leader and `W` workers: `W^2` duplex connections = `2 * W^2` SPSC byte
-//!     rings (`18 MiB` at `W = 3` with default `1 MiB` rings).
+//!     rings (bounded by `paradedb.mpp_queue_size`, `8 MiB` by default, floored at `16 KiB` per ring).
 //! - Wakeup pool ([`wakeup`]):
-//!   - `_PG_init` pre-allocates `MaxBackends` non-blocking `AF_UNIX` `socketpair`s indexed by
-//!     `MyProcNumber`.
-//!   - Each participating process runs a [`wakeup::WakeupDispatcher`] on its local Tokio runtime
-//!     watching `pool[MyProcNumber].read_fd` via `tokio::io::unix::AsyncFd`, draining wakeup bytes
-//!     and waking per-ring local `AtomicWaker`s.
+//!   - `_PG_init` pre-allocates a small pool of non-blocking wakeup descriptors (`eventfd` on
+//!     Linux, `AF_UNIX` `socketpair` on macOS) sized from `2 * max_worker_processes` (independent
+//!     of `MaxConnections` and `autovacuum_worker_slots`).
+//!   - At launch, the leader reserves `1 + launched` slots from the pool (`wakeup::reserve_wakeup_slots`)
+//!     and publishes them in the DSM wakeup slot table; each participating process runs a
+//!     [`wakeup::WakeupDispatcher`] on its local Tokio runtime watching its assigned `read_fd` via
+//!     `tokio::io::unix::AsyncFd` and fanning out to per-ring local `AtomicWaker`s.
 //!   - When a peer advances `write_pos` or `read_pos` and observes the peer's `sleeping` flag set
-//!     (`SeqCst` `swap(false)`), it writes 1 byte to `pool[peer_slot].write_fd`.
+//!     (`SeqCst` `swap(false)`), it writes a wakeup notification to `pool[peer_slot].write_fd`.
 //! - PostgreSQL reactor guards ([`interrupt`], [`wakeup`]):
 //!   - [`interrupt::HeldInterrupts`] holds `HOLD_INTERRUPTS` across `runtime.block_on(...)` on both
 //!     leader and workers so PostgreSQL signal handlers cannot `siglongjmp` across Tokio frames;
@@ -76,7 +79,7 @@
 //!   containing `ParallelScanState` and the `2 * W^2` SPSC byte rings, and launches PostgreSQL
 //!   parallel workers.
 //! - Startup & execution ([`glue`], [`worker`]): workers wait for the leader's `GO_RUN` flag,
-//!   publish their `MyProcNumber` wakeup slot, and run `serve_with_incoming_shutdown`. The leader
+//!   read their leader-assigned wakeup slot from the DSM mesh, and run `serve_with_incoming_shutdown`. The leader
 //!   executes
 //!   `DistributedExec`; `QueryCoordinator` dispatches stage plans over `coordinator_channel`, leader
 //!   and workers stream batches over `execute_task`, and `c2w_stream` EOF triggers
@@ -108,7 +111,7 @@ pub mod worker;
 
 pub(crate) use interrupt::{
     MainThread, MainThreadToken, catch_worker_panic, check_for_interrupts_or_cancel,
-    drop_on_main_thread, run_on_main_thread, try_run_on_main_thread,
+    drop_on_main_thread, interrupted, run_on_main_thread, try_run_on_main_thread,
 };
 pub use worker::panic_payload_message;
 
@@ -123,10 +126,4 @@ macro_rules! mpp_log {
             pgrx::warning!($($arg)*);
         }
     };
-}
-
-/// Fatal MPP-internal invariant breach. Same `!` return type as `pgrx::error!` / `panic!`, so it
-/// can sit in any `match` arm or expression position.
-pub fn fail_loud(msg: String) -> ! {
-    pgrx::error!("{}", msg);
 }

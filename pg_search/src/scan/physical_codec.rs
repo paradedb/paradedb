@@ -70,9 +70,19 @@ struct WorkerDecodeContext {
 /// [`PhysicalExtensionCodec`] for the `pg_search` custom execs, carrying the runtime context a
 /// worker needs to rebuild them. Encode is context-free (the leader serializes the recipe);
 /// decode injects the worker's own `ParallelScanState` and frozen per-source segment sets.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PgSearchPhysicalExtensionCodec {
     worker_ctx: Arc<crate::postgres::customscan::mpp::MainThread<WorkerDecodeContext>>,
+}
+
+impl Default for PgSearchPhysicalExtensionCodec {
+    fn default() -> Self {
+        Self {
+            worker_ctx: Arc::new(crate::postgres::customscan::mpp::MainThread::new(
+                WorkerDecodeContext::default(),
+            )),
+        }
+    }
 }
 
 impl PgSearchPhysicalExtensionCodec {

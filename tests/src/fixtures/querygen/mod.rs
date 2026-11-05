@@ -818,16 +818,26 @@ impl PgGucs {
         .unwrap();
         // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
         // (and MPP distributed execution) to be used on the small property-test tables.
-        // Raise `work_mem` so multi-partition MPP `RepartitionExec` stages (whose per-partition
-        // `BatchCoalescer` pre-allocates 8192-row `Utf8View` buffers) do not exhaust the 4MB
-        // default when `paradedb.spill_to_disk` is off.
         if *parallel_workers {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
             writeln!(gucs, "{verb} paradedb.mpp_min_rows TO 0;").unwrap();
-            writeln!(gucs, "{verb} work_mem TO '32MB';").unwrap();
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
             writeln!(gucs, "{verb} paradedb.mpp_min_rows TO DEFAULT;").unwrap();
+        }
+        // In MPP distributed execution (with `paradedb.spill_to_disk` off by default),
+        // `RepartitionExec` at the top of a shuffle producer stage creates `W * T` output partition
+        // channels (`max_parallel_workers_per_gather * consumer_tasks`, up to 16 in qgen). Each
+        // output partition's `8192`-row `LimitedBatchCoalescer` pre-allocates `16,384` slots per
+        // column and does not shrink `Buffer::capacity()` on residual batches at EOF (~600 KB per
+        // partition for multi-column grouping sets), which can exceed the 4MB default `work_mem`
+        // across 8-16 partitions. Single-table MPP queries use a 16MB bound, while join-eligible
+        // MPP queries use 32MB because DataFusion's `HashJoinExec` and `NestedLoopJoinExec` do not
+        // spill to disk.
+        if *parallel_workers {
+            let limit = if *join_custom_scan { "32MB" } else { "16MB" };
+            writeln!(gucs, "{verb} work_mem TO '{limit}';").unwrap();
+        } else {
             writeln!(gucs, "{verb} work_mem TO DEFAULT;").unwrap();
         }
         writeln!(

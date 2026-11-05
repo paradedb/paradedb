@@ -35,12 +35,12 @@
 //!    or `siglongjmp` across live Rust frames while `block_on` is on the stack.
 //! 4. When the main thread is idle inside [`PgTokioRuntime::block_on`], it calls
 //!    [`super::wakeup::PgReactorState::on_thread_park`] and [`super::wakeup::PgReactorState::on_thread_unpark`]
-//!    to maintain `MyLatch->maybe_sleeping`, arm a signal-safe wakeup descriptor
-//!    ([`super::wakeup`]), call `ResetLatch(MyLatch)` when set, and wake all registered
-//!    [`futures::task::AtomicWaker`]s whenever a signal or latch event occurs.
-//! 5. A background `AsyncFd` task on [`PgTokioRuntime`] watches the backend's wakeup `socketpair`
-//!    and `postmaster_alive_fds[POSTMASTER_FD_WATCH]`, synthesizing `ProcDiePending` and waking all
-//!    tasks immediately on `postmaster` death.
+//!    to arm a signal-safe wakeup descriptor ([`super::wakeup`]), call `ResetLatch(MyLatch)` when
+//!    set, and wake all registered [`futures::task::AtomicWaker`]s whenever a signal or latch
+//!    event occurs.
+//! 5. A background `AsyncFd` task on [`PgTokioRuntime`] watches the backend's process-local
+//!    wakeup descriptor and `postmaster_alive_fds[POSTMASTER_FD_WATCH]`, synthesizing
+//!    `ProcDiePending` and waking all tasks immediately on `postmaster` death.
 //! 6. [`PgTokioRuntime::block_on`] and [`block_on_next`] wake immediately when an interrupt arrives,
 //!    drop [`HeldInterrupts`], and call [`check_for_interrupts`] with `block_on` off the stack
 //!    (resuming the pinned future if the interrupt was a benign parallel worker notice).
@@ -81,7 +81,6 @@ use futures::task::AtomicWaker;
 
 use crate::postgres::customscan::mpp::wakeup::{
     PgReactorState, disarm_thread_park_state, ensure_signal_wakeup_hooks_installed,
-    register_reactor, self_wakeup_slot, unregister_reactor,
 };
 
 struct UnsafeSend<T>(T);
@@ -134,12 +133,19 @@ pub(crate) struct MainThreadExecutor {
     in_flight_jobs: AtomicUsize,
     captured_panic: parking_lot::Mutex<Option<Box<dyn std::any::Any + Send + 'static>>>,
     main_waker: AtomicWaker,
-    is_parallel_worker: bool,
+    in_mpp_worker: AtomicBool,
+    reactor_state: Arc<PgReactorState>,
 }
 
 thread_local! {
     static WORKER_MAIN_EXECUTOR: std::cell::RefCell<Option<Arc<MainThreadExecutor>>> =
         const { std::cell::RefCell::new(None) };
+    /// Number of active [`HeldInterrupts`] guards on the Postgres main thread.
+    ///
+    /// Tracked independently of `pg_sys::InterruptHoldoffCount` so [`HeldInterrupts::reassert`]
+    /// can restore the exact active guard depth after a caught Postgres `ERROR` (`errfinish`
+    /// unconditionally zeroes `InterruptHoldoffCount`).
+    static HELD_INTERRUPTS_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 /// Returns `true` when called on the Postgres main thread, or `false` when called on a background
@@ -149,25 +155,44 @@ pub(crate) fn is_main_thread() -> bool {
     WORKER_MAIN_EXECUTOR.with(|cell| cell.borrow().is_none())
 }
 
-/// Thread-safe check for whether execution is currently inside [`PgTokioRuntime`] on a
-/// Postgres parallel worker (either on a background Tokio worker thread or on the main thread
-/// inside [`PgTokioRuntime::block_on`]).
+/// Return the [`PgReactorState`] for `handle` if `handle` belongs to the current backend's active
+/// [`PgTokioRuntime`], or `None` when called with a standalone test runtime.
+pub(crate) fn current_reactor_state(
+    handle: &tokio::runtime::Handle,
+) -> Option<Arc<PgReactorState>> {
+    if let Some(state) = WORKER_MAIN_EXECUTOR
+        .with(|cell| cell.borrow().as_ref().map(|e| Arc::clone(&e.reactor_state)))
+    {
+        return Some(state);
+    }
+    BACKEND_RUNTIME.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .filter(|rt| rt.is_running() && rt.handle.id() == handle.id())
+            .map(|rt| Arc::clone(&rt.reactor_state))
+    })
+}
+
+/// Thread-safe check for whether execution is currently inside [`super::worker::run_mpp_worker`]
+/// on a Postgres MPP parallel worker (either on a background Tokio worker thread or on the main
+/// thread while the [`MppWorkerRuntimeGuard`] returned by [`PgTokioRuntime::enter_mpp_worker`] is
+/// held).
 ///
-/// Returns `false` when called outside [`PgTokioRuntime::block_on`] (for example, during
-/// parallel `CREATE INDEX`), where `pgrx` `CaughtError` panics must unwind natively to the
-/// parallel worker's `#[pg_guard]` boundary rather than being converted into
-/// `DataFusionError`.
+/// Returns `false` on the leader backend, in parallel `BaseScan` workers, and in parallel index
+/// builds (`CREATE INDEX`), where `pgrx` `CaughtError` panics must unwind natively with their
+/// original SQLSTATE rather than being converted into `DataFusionError::Execution` for gRPC
+/// transport.
 #[inline]
 pub(crate) fn is_parallel_worker() -> bool {
     if let Some(is_worker) =
-        WORKER_MAIN_EXECUTOR.with(|cell| cell.borrow().as_ref().map(|e| e.is_parallel_worker))
+        WORKER_MAIN_EXECUTOR.with(|cell| cell.borrow().as_ref().map(|e| e.in_mpp_worker()))
     {
         return is_worker;
     }
     BACKEND_RUNTIME.with(|cell| {
         cell.borrow()
             .as_ref()
-            .is_some_and(|rt| rt.is_running() && rt.main_executor.is_parallel_worker)
+            .is_some_and(|rt| rt.is_running() && rt.main_executor.in_mpp_worker())
     })
 }
 
@@ -241,25 +266,7 @@ pub(crate) fn try_run_on_main_thread<F, R>(f: F) -> datafusion::common::Result<R
 where
     F: FnOnce(MainThreadToken) -> datafusion::common::Result<R>,
 {
-    let is_worker = is_parallel_worker();
-    run_on_main_thread(|token| {
-        if is_worker {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(token))) {
-                Ok(res) => res,
-                Err(payload) => {
-                    HeldInterrupts::reassert();
-                    if payload.is::<MainThreadAbort>() {
-                        std::panic::resume_unwind(payload);
-                    }
-                    let msg =
-                        crate::postgres::customscan::mpp::panic_payload_message(payload.as_ref());
-                    Err(DataFusionError::Execution(msg))
-                }
-            }
-        } else {
-            f(token)
-        }
-    })
+    run_on_main_thread(|token| catch_worker_panic(|| f(token)))
 }
 
 /// Run `f`, catching any panic on a parallel worker and converting it into
@@ -350,12 +357,6 @@ impl<T: Clone + 'static> Clone for MainThread<T> {
     }
 }
 
-impl<T: Default + 'static> Default for MainThread<T> {
-    fn default() -> Self {
-        run_on_main_thread(|_| Self::new(T::default()))
-    }
-}
-
 impl<T: std::fmt::Debug + 'static> std::fmt::Debug for MainThread<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MainThread").finish_non_exhaustive()
@@ -373,7 +374,7 @@ impl<T: 'static> Drop for MainThread<T> {
 }
 
 impl MainThreadExecutor {
-    fn new(is_parallel_worker: bool) -> Arc<Self> {
+    fn new(reactor_state: Arc<PgReactorState>) -> Arc<Self> {
         Arc::new(Self {
             jobs: parking_lot::Mutex::new(VecDeque::new()),
             drops: parking_lot::Mutex::new(Vec::new()),
@@ -385,8 +386,14 @@ impl MainThreadExecutor {
             in_flight_jobs: AtomicUsize::new(0),
             captured_panic: parking_lot::Mutex::new(None),
             main_waker: AtomicWaker::new(),
-            is_parallel_worker,
+            in_mpp_worker: AtomicBool::new(false),
+            reactor_state,
         })
+    }
+
+    #[inline]
+    fn in_mpp_worker(&self) -> bool {
+        self.in_mpp_worker.load(Ordering::Acquire)
     }
 
     #[inline]
@@ -505,7 +512,8 @@ impl MainThreadExecutor {
     fn drain_jobs_slow(&self) -> bool {
         let mut did_work = false;
         loop {
-            if !self.is_parallel_worker && self.has_captured_panic() {
+            let is_worker = self.in_mpp_worker();
+            if !is_worker && self.has_captured_panic() {
                 self.abort_pending_jobs();
                 break;
             }
@@ -535,7 +543,7 @@ impl MainThreadExecutor {
             // frame alive and exclusively borrowed by the main thread.
             unsafe { (*task_ptr)() };
 
-            let panicked_on_leader = !self.is_parallel_worker && self.has_captured_panic();
+            let panicked_on_leader = !is_worker && self.has_captured_panic();
             {
                 let mut state = slot.state.lock();
                 *state = if panicked_on_leader {
@@ -561,12 +569,12 @@ impl MainThreadExecutor {
     ///   `JobSlotDropGuard` guarantees this frame cannot return or unwind while the slot is
     ///   `Pending` (cancelling it to `Aborted` under the mutex) or `Running` (waiting on `cvar`
     ///   until the main thread finishes calling `task_ptr`).
-    /// - Panic routing: on a parallel worker (`is_parallel_worker`), panics (including `pgrx`
+    /// - Panic routing: on an MPP parallel worker (`in_mpp_worker`), panics (including `pgrx`
     ///   `CaughtError` from `ereport(ERROR)`) are returned in `result` and resumed on the worker
     ///   task so `try_run_on_main_thread` / `catch_worker_panic` can surface them as a gRPC
-    ///   `DataFusionError`. On the leader, panics are stashed via `record_leader_panic` to unwind
-    ///   `PgTokioRuntime::block_on` on the main thread, while the worker task unwinds with
-    ///   `MainThreadAbort`.
+    ///   `DataFusionError`. Outside `run_mpp_worker`, panics are stashed via `record_leader_panic`
+    ///   to unwind `PgTokioRuntime::block_on` on the main thread, while the worker task unwinds
+    ///   with `MainThreadAbort`.
     /// - Scheduler handoff: uses `tokio::task::block_in_place` when called inside an async Tokio
     ///   task so another worker thread can take over this thread's run queue while blocked on
     ///   `slot.cvar`.
@@ -585,16 +593,16 @@ impl MainThreadExecutor {
         self.in_flight_jobs.fetch_add(1, Ordering::AcqRel);
         let _in_flight_guard = InFlightJobGuard(&self.in_flight_jobs);
 
+        let is_worker = self.in_mpp_worker();
         if self.shutting_down.load(Ordering::Acquire)
             || self.quiescing.load(Ordering::Acquire)
-            || (!self.is_parallel_worker && self.has_captured_panic())
+            || (!is_worker && self.has_captured_panic())
         {
             std::panic::resume_unwind(Box::new(MainThreadAbort));
         }
 
         let mut f_opt = Some(f);
         let mut result: Option<Result<R, Box<dyn std::any::Any + Send + 'static>>> = None;
-        let is_worker = self.is_parallel_worker;
 
         let mut task = || {
             let func = f_opt.take().expect("main-thread job closure called once");
@@ -653,7 +661,7 @@ impl MainThreadExecutor {
                 let mut jobs = self.jobs.lock();
                 if self.shutting_down.load(Ordering::Acquire)
                     || self.quiescing.load(Ordering::Acquire)
-                    || (!self.is_parallel_worker && self.has_captured_panic())
+                    || (!is_worker && self.has_captured_panic())
                 {
                     std::panic::resume_unwind(Box::new(MainThreadAbort));
                 }
@@ -768,6 +776,11 @@ pub(crate) struct HeldInterrupts {
 
 impl HeldInterrupts {
     pub(crate) fn hold() -> Self {
+        debug_assert!(
+            is_main_thread(),
+            "HeldInterrupts::hold must be called on the Postgres main thread"
+        );
+        HELD_INTERRUPTS_DEPTH.with(|d| d.set(d.get() + 1));
         // SAFETY: backend-thread-only increment of the holdoff counter, paired with the
         // decrement in `Drop`. Matches the `HOLD_INTERRUPTS()` macro.
         #[cfg(not(test))]
@@ -779,16 +792,19 @@ impl HeldInterrupts {
         }
     }
 
-    /// Re-establishes the hold after a caught Postgres ERROR. `errfinish` zeroes the
-    /// count, so a worker that turns a fragment's error into a `DataFusionError` and
-    /// keeps running would do so with interrupts live. Sets rather than increments, so
-    /// the live guard's single decrement still returns the count to zero.
+    /// Re-establishes the hold after a caught Postgres ERROR. `errfinish` zeroes
+    /// `InterruptHoldoffCount`, so a worker that turns a fragment's error into a
+    /// `DataFusionError` and keeps running would otherwise do so with interrupts live (or with a
+    /// reduced hold depth when nested [`HeldInterrupts`] guards are active). Restores the count
+    /// to [`HELD_INTERRUPTS_DEPTH`] so each active guard's `Drop` decrements back to zero.
     pub(crate) fn reassert() {
-        #[cfg(not(test))]
         if is_main_thread() {
+            let depth = HELD_INTERRUPTS_DEPTH.with(|d| d.get());
+            let _ = depth;
+            #[cfg(not(test))]
             unsafe {
-                if pgrx::pg_sys::InterruptHoldoffCount == 0 {
-                    pgrx::pg_sys::InterruptHoldoffCount = 1;
+                if pgrx::pg_sys::InterruptHoldoffCount < depth {
+                    pgrx::pg_sys::InterruptHoldoffCount = depth;
                 }
             }
         }
@@ -802,6 +818,7 @@ impl HeldInterrupts {
 impl Drop for HeldInterrupts {
     fn drop(&mut self) {
         disarm_thread_park_state();
+        HELD_INTERRUPTS_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
         // `errfinish` zeroes the count before a caught Postgres ERROR unwinds through
         // here, so a plain decrement would underflow. Skipping it matches PG's own
         // holdoff sections, which never resume after an ERROR either.
@@ -951,6 +968,20 @@ pub struct PgTokioRuntime {
     inner: Arc<PgTokioRuntimeInner>,
 }
 
+/// RAII scope guard returned by [`PgTokioRuntime::enter_mpp_worker`] while
+/// [`super::worker::run_mpp_worker`] is active on the current backend's runtime.
+pub(crate) struct MppWorkerRuntimeGuard<'a> {
+    executor: &'a MainThreadExecutor,
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this guard only clears an
+// `AtomicBool` flag when `run_mpp_worker` exits.
+impl Drop for MppWorkerRuntimeGuard<'_> {
+    fn drop(&mut self) {
+        self.executor.in_mpp_worker.store(false, Ordering::Release);
+    }
+}
+
 impl Clone for PgTokioRuntime {
     fn clone(&self) -> Self {
         self.inner.active_handles.fetch_add(1, Ordering::AcqRel);
@@ -962,21 +993,9 @@ impl Clone for PgTokioRuntime {
 
 impl PgTokioRuntimeInner {
     fn build() -> io::Result<Arc<Self>> {
-        let is_worker = {
-            #[cfg(not(test))]
-            unsafe {
-                pgrx::pg_sys::ParallelWorkerNumber >= 0
-            }
-            #[cfg(test)]
-            {
-                false
-            }
-        };
-        let main_executor = MainThreadExecutor::new(is_worker);
+        let reactor_state = PgReactorState::new()?;
+        let main_executor = MainThreadExecutor::new(Arc::clone(&reactor_state));
         let worker_exec = Arc::clone(&main_executor);
-
-        let slot = self_wakeup_slot()?;
-        let reactor_state = PgReactorState::new(slot)?;
 
         let runtime = {
             let _sig_guard = ScopedSignalMask::block_async_signals();
@@ -995,7 +1014,6 @@ impl PgTokioRuntimeInner {
         let handle = runtime.handle().clone();
         let reactor_tasks = reactor_state.spawn_reactor_tasks(&handle)?;
         let reactor_task_count = reactor_tasks.len();
-        register_reactor(handle.id(), &reactor_state);
 
         Ok(Arc::new(Self {
             runtime: parking_lot::Mutex::new(Some(runtime)),
@@ -1018,7 +1036,6 @@ impl PgTokioRuntimeInner {
 impl Drop for PgTokioRuntimeInner {
     fn drop(&mut self) {
         if let Some(runtime) = self.runtime.get_mut().take() {
-            unregister_reactor(self.handle.id());
             for task in std::mem::take(self.reactor_tasks.get_mut()) {
                 task.abort();
             }
@@ -1051,8 +1068,8 @@ impl PgTokioRuntime {
         BACKEND_RUNTIME.with(|cell| {
             if let Some(existing) = cell.borrow().as_ref()
                 && existing.is_running()
-                && (existing.active_handles.load(Ordering::Acquire) == 0
-                    || existing.handle.metrics().num_alive_tasks() <= existing.reactor_task_count)
+                && existing.active_handles.load(Ordering::Acquire) == 0
+                && existing.handle.metrics().num_alive_tasks() <= existing.reactor_task_count
             {
                 existing.active_handles.fetch_add(1, Ordering::AcqRel);
                 return Ok(Self {
@@ -1086,6 +1103,20 @@ impl PgTokioRuntime {
 
     pub(crate) fn is_running(&self) -> bool {
         self.inner.is_running()
+    }
+
+    /// Mark this runtime as actively executing [`super::worker::run_mpp_worker`] so
+    /// [`try_run_on_main_thread`] and [`catch_worker_panic`] convert main-thread panics into
+    /// gRPC `DataFusionError::Execution` responses rather than unwinding the worker's Tonic server
+    /// tasks. Cleared automatically when the returned guard drops.
+    pub(crate) fn enter_mpp_worker(&self) -> MppWorkerRuntimeGuard<'_> {
+        self.inner
+            .main_executor
+            .in_mpp_worker
+            .store(true, Ordering::Release);
+        MppWorkerRuntimeGuard {
+            executor: &self.inner.main_executor,
+        }
     }
 
     fn drain_drops(&self) {
@@ -1166,6 +1197,10 @@ impl PgTokioRuntime {
             .main_executor
             .quiescing
             .store(false, Ordering::SeqCst);
+        debug_assert!(
+            !self.inner.main_executor.has_pending_work(),
+            "MainThreadExecutor must have no pending jobs or drops after quiesce_tasks"
+        );
     }
 
     /// Shut down and join the background Tokio worker threads if still running.
@@ -1179,7 +1214,6 @@ impl PgTokioRuntime {
             return;
         };
         let _held = HeldInterrupts::hold();
-        unregister_reactor(self.inner.handle.id());
         let reactor_tasks: Vec<_> = std::mem::take(&mut *self.inner.reactor_tasks.lock());
         for task in reactor_tasks {
             task.abort();
@@ -1318,22 +1352,25 @@ impl PgTokioRuntime {
                     }
                 }))
             };
-            if let Step::LeaderPanic(payload) = step {
-                shutdown_and_resume_panic(&mut future, payload);
-            }
-            if let Some(payload) = inner.main_executor.take_captured_panic() {
-                shutdown_and_resume_panic(&mut future, payload);
-            }
-            check_interrupts_with_cleanup(&mut future);
             match step {
-                Step::Output(out) => return out,
                 Step::LeaderPanic(payload) => shutdown_and_resume_panic(&mut future, payload),
+                Step::Output(out) => {
+                    if let Some(payload) = inner.main_executor.take_captured_panic() {
+                        shutdown_and_resume_panic(&mut future, payload);
+                    }
+                    check_interrupts_with_cleanup(&mut future);
+                    return out;
+                }
                 Step::InterruptPending => {
-                    // `check_for_interrupts()` just ran `ProcessInterrupts()` with Tokio's
-                    // `block_on` off the stack. Fatal/error interrupts (`SIGINT`, `SIGTERM`,
-                    // postmaster death, or worker error/crash) already unwound or exited; benign
-                    // parallel worker notices were emitted and cleared `InterruptPending`, so loop
-                    // and continue polling `future`.
+                    if let Some(payload) = inner.main_executor.take_captured_panic() {
+                        shutdown_and_resume_panic(&mut future, payload);
+                    }
+                    // `check_for_interrupts()` runs `ProcessInterrupts()` with Tokio's `block_on`
+                    // off the stack. Fatal/error interrupts (`SIGINT`, `SIGTERM`, postmaster death,
+                    // or worker error/crash) unwind or exit here; benign parallel worker notices
+                    // are emitted and clear `InterruptPending`, so the outer loop continues polling
+                    // `future`.
+                    check_interrupts_with_cleanup(&mut future);
                 }
             }
         }
@@ -1430,7 +1467,41 @@ mod tests {
         assert_eq!(sum, (0..8usize).map(|i| i * 10 + 5).sum::<usize>());
         assert_eq!(dropped_on_main.load(Ordering::SeqCst), 8);
 
-        // 2. A background task aborted during `PgTokioRuntime::drop` still drops its deferred
+        // 2. While `enter_mpp_worker` is active, `is_parallel_worker()` is true on both the main
+        //    thread and background worker threads, and `try_run_on_main_thread` /
+        //    `catch_worker_panic` convert panics into `Err(DataFusionError::Execution(...))`
+        //    instead of unwinding `block_on`. Dropping the guard restores `is_parallel_worker() ==
+        //    false`. Nested `HeldInterrupts` guards track exact hold depth.
+        assert!(!is_parallel_worker());
+        assert_eq!(HELD_INTERRUPTS_DEPTH.with(|d| d.get()), 0);
+        {
+            let _h1 = HeldInterrupts::hold();
+            let _h2 = HeldInterrupts::hold();
+            assert_eq!(HELD_INTERRUPTS_DEPTH.with(|d| d.get()), 2);
+            let _mpp_guard = rt.enter_mpp_worker();
+            assert!(is_parallel_worker());
+            let worker_err = rt
+                .block_on(rt.spawn(async move {
+                    assert!(is_parallel_worker());
+                    try_run_on_main_thread(|_| -> datafusion::common::Result<()> {
+                        assert_eq!(HELD_INTERRUPTS_DEPTH.with(|d| d.get()), 3);
+                        panic!("mpp worker fragment panic");
+                    })
+                }))
+                .expect("worker task did not panic");
+            let err_msg = worker_err
+                .expect_err("panic converted to DataFusionError")
+                .to_string();
+            assert!(
+                err_msg.contains("mpp worker fragment panic"),
+                "unexpected error message: {err_msg}"
+            );
+            assert_eq!(HELD_INTERRUPTS_DEPTH.with(|d| d.get()), 2);
+        }
+        assert!(!is_parallel_worker());
+        assert_eq!(HELD_INTERRUPTS_DEPTH.with(|d| d.get()), 0);
+
+        // 3. A background task aborted during `PgTokioRuntime::drop` still drops its deferred
         //    main-thread resource on `main_tid`.
         let counter_for_shutdown = Arc::clone(&dropped_on_main);
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
@@ -1446,7 +1517,7 @@ mod tests {
             let _ = started_rx.await;
         });
 
-        // 3. A panic inside `run_on_main_thread` on the leader (`is_parallel_worker == false`)
+        // 4. A panic inside `run_on_main_thread` on the leader (`is_parallel_worker == false`)
         //    unwinds directly out of `rt.block_on` on the main thread.
         let panic_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let h = rt.spawn(async move {

@@ -442,6 +442,14 @@ mod tests {
         });
     }
 
+    /// End-to-end MPP spill regression test (3 deterministic segments across 3 parallel workers,
+    /// `work_mem = '1MB'`).
+    ///
+    /// Uses a single-table MPP `AggregateScan` rather than a `HashJoinExec` because DataFusion's
+    /// `HashJoinExec` does not spill to disk and `estimate_plan_memory` scales stage memory by
+    /// `work_mem * hash_mem_multiplier * partitions` when a `HashJoinExec` is present; tight
+    /// `work_mem` bounds that deterministically fail with `spill_to_disk = off` and spill with
+    /// `spill_to_disk = on` require a stage plan without `HashJoinExec`.
     #[pg_test]
     fn test_mpp_spilling_buffile() {
         Spi::run(

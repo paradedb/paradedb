@@ -2710,4 +2710,174 @@ mod tests {
         assert_eq!(rti_of(&j.right), 2);
         assert_eq!((j.equi_keys[0].outer_rti, j.equi_keys[0].inner_rti), (1, 2));
     }
+
+    #[pg_test]
+    fn generic_plan_rebakes_across_mpp_and_serial_mode_toggles() {
+        use pgrx::Spi;
+
+        Spi::run(
+            r#"
+            SET paradedb.enable_join_custom_scan TO on;
+            SET paradedb.mpp_min_rows TO 0;
+            SET enable_indexscan TO off;
+            SET plan_cache_mode = force_generic_plan;
+            SET max_parallel_workers TO 8;
+            SET min_parallel_table_scan_size TO 0;
+            SET parallel_setup_cost TO 0;
+            SET parallel_tuple_cost TO 0;
+
+            CREATE TABLE mpp_mode_files (
+                id INTEGER,
+                title TEXT,
+                content TEXT
+            );
+            CREATE INDEX mpp_mode_files_idx ON mpp_mode_files
+            USING bm25 (id, title, content)
+            WITH (
+                numeric_fields = '{"id": {"fast": true}}',
+                text_fields = '{"title": {"fast": true}, "content": {}}',
+                target_segment_count = 2,
+                layer_sizes = '0',
+                background_layer_sizes = '0'
+            );
+
+            CREATE TABLE mpp_mode_pages (
+                id INTEGER,
+                file_id INTEGER,
+                page_text TEXT
+            );
+            CREATE INDEX mpp_mode_pages_idx ON mpp_mode_pages
+            USING bm25 (id, file_id, page_text)
+            WITH (
+                numeric_fields = '{"id": {"fast": true}, "file_id": {"fast": true}}',
+                text_fields = '{"page_text": {}}',
+                target_segment_count = 2,
+                layer_sizes = '0',
+                background_layer_sizes = '0'
+            );
+
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO mpp_mode_files (id, title, content)
+            SELECT g, 'Doc ' || g, 'Section ' || g FROM generate_series(1, 50) AS g;
+            INSERT INTO mpp_mode_files (id, title, content)
+            SELECT g, 'Doc ' || g, 'Section ' || g FROM generate_series(51, 100) AS g;
+
+            INSERT INTO mpp_mode_pages (id, file_id, page_text)
+            SELECT g, g, 'Page ' || g FROM generate_series(1, 50) AS g;
+            INSERT INTO mpp_mode_pages (id, file_id, page_text)
+            SELECT g, g, 'Page ' || g FROM generate_series(51, 100) AS g;
+            RESET paradedb.global_mutable_segment_rows;
+
+            ANALYZE mpp_mode_files;
+            ANALYZE mpp_mode_pages;
+
+            CREATE OR REPLACE FUNCTION mpp_mode_explain_has_distributed(stmt_sql text)
+            RETURNS boolean LANGUAGE plpgsql AS $fn$
+            DECLARE
+                line text;
+            BEGIN
+                FOR line IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF) ' || stmt_sql LOOP
+                    IF line LIKE '%DistributedExec%' THEN
+                        RETURN true;
+                    END IF;
+                END LOOP;
+                RETURN false;
+            END;
+            $fn$;
+            "#,
+        )
+        .unwrap();
+
+        let run_stmt = |stmt_name: &str| -> (Vec<i32>, bool) {
+            let rows = Spi::connect(|client| {
+                let table = client
+                    .select(&format!("EXECUTE {stmt_name}"), None, &[])
+                    .unwrap();
+                table
+                    .map(|row| row.get::<i32>(1).unwrap().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            let is_distributed = Spi::get_one::<bool>(&format!(
+                "SELECT mpp_mode_explain_has_distributed('EXECUTE {stmt_name}')"
+            ))
+            .unwrap()
+            .unwrap();
+            (rows, is_distributed)
+        };
+
+        let expected = vec![1001, 2002, 3003, 4004, 5005];
+
+        // 1. Prepared with MPP active (`LogicalPlanMode::Mpp`), then toggled 2 -> 0 -> 2.
+        //    No parameters exist in the query, so `needs_solve` is false and only
+        //    `needs_mode_rebake` in `JoinScan::maybe_solve_and_rebake` triggers rebaking.
+        Spi::run(
+            r#"
+            SET max_parallel_workers_per_gather TO 2;
+            PREPARE q_mpp_first AS
+            SELECT f.id * 1000 + p.id
+            FROM mpp_mode_files f
+            JOIN mpp_mode_pages p ON f.id = p.file_id
+            WHERE f.content @@@ 'Section'
+              AND p.page_text @@@ 'Page'
+            ORDER BY f.id, p.id
+            LIMIT 5;
+            "#,
+        )
+        .unwrap();
+
+        let (rows, is_dist) = run_stmt("q_mpp_first");
+        assert_eq!(rows, expected);
+        assert!(is_dist, "expected DistributedExec at workers=2");
+
+        Spi::run("SET max_parallel_workers_per_gather TO 0;").unwrap();
+        let (rows, is_dist) = run_stmt("q_mpp_first");
+        assert_eq!(rows, expected);
+        assert!(!is_dist, "expected serial execution at workers=0");
+
+        Spi::run("SET max_parallel_workers_per_gather TO 2;").unwrap();
+        let (rows, is_dist) = run_stmt("q_mpp_first");
+        assert_eq!(rows, expected);
+        assert!(
+            is_dist,
+            "expected DistributedExec after toggling back to workers=2"
+        );
+
+        // 2. Prepared with `max_parallel_workers_per_gather = 1` (so Postgres sets
+        //    `glob->parallelModeOK = true` while `mpp_is_active()` is false -> baked as
+        //    `LogicalPlanMode::Serial`), then toggled 1 -> 2 -> 0.
+        Spi::run(
+            r#"
+            SET max_parallel_workers_per_gather TO 1;
+            PREPARE q_serial_first AS
+            SELECT f.id * 1000 + p.id
+            FROM mpp_mode_files f
+            JOIN mpp_mode_pages p ON f.id = p.file_id
+            WHERE f.content @@@ 'Section'
+              AND p.page_text @@@ 'Page'
+            ORDER BY f.id, p.id
+            LIMIT 5;
+            "#,
+        )
+        .unwrap();
+
+        let (rows, is_dist) = run_stmt("q_serial_first");
+        assert_eq!(rows, expected);
+        assert!(!is_dist, "expected serial execution at workers=1");
+
+        Spi::run("SET max_parallel_workers_per_gather TO 2;").unwrap();
+        let (rows, is_dist) = run_stmt("q_serial_first");
+        assert_eq!(rows, expected);
+        assert!(
+            is_dist,
+            "expected DistributedExec after toggling from Serial to workers=2"
+        );
+
+        Spi::run("SET max_parallel_workers_per_gather TO 0;").unwrap();
+        let (rows, is_dist) = run_stmt("q_serial_first");
+        assert_eq!(rows, expected);
+        assert!(
+            !is_dist,
+            "expected serial execution after toggling back to workers=0"
+        );
+    }
 }

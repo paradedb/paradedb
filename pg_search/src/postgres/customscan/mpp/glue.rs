@@ -33,17 +33,19 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use datafusion::physical_plan::ExecutionPlan;
+use arrow_array::RecordBatch;
+use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
 use datafusion_distributed::{DistributedExec, NetworkBoundaryExt};
 use pgrx::pg_sys;
 
 use crate::parallel_worker::builder::ParallelProcessFinish;
 use crate::postgres::customscan::mpp::dsm_stream::{
     DsmLeaderShutdownHandle, DsmWorkerDetachHandle, MIN_SPSC_RING_CAPACITY, ServerProc,
-    build_leader_streams, dsm_region_bytes, init_dsm_mesh,
+    assign_wakeup_slots, build_leader_streams, dsm_region_bytes, init_dsm_mesh, total_spsc_rings,
 };
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, cancel_pending};
-use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, self_wakeup_slot};
+use crate::postgres::customscan::mpp::launch::MppLifecycle;
+use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, WakeupSlotReservation};
 use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
 
 /// Minimum total procs for MPP: leader (consumer-only, proc 0) plus at least 2 producers.
@@ -80,20 +82,32 @@ pub fn query_allows_parallel_mode(root: &pg_sys::PlannerInfo) -> bool {
 // would be misaligned, which is UB.
 const _: () = assert!(pg_sys::MAXIMUM_ALIGNOF == 8);
 
-/// Per-SPSC-ring byte capacity derived from `paradedb.mpp_queue_size` (default `8 MiB` -> `1 MiB`
-/// per ring, giving `18 MiB` total at `n_procs = 4`).
-fn spsc_ring_capacity() -> usize {
-    let raw = (crate::gucs::mpp_queue_size() / 8).max(MIN_SPSC_RING_CAPACITY);
-    1usize << raw.ilog2()
+/// Per-SPSC-ring byte capacity derived by dividing `paradedb.mpp_queue_size` across all
+/// `2 * W^2` rings in the mesh (where `W = n_procs - 1`), floored at [`MIN_SPSC_RING_CAPACITY`]
+/// (`16 KiB`) and rounded down to a power of two. This bounds the per-query DSM ring allocation
+/// by `paradedb.mpp_queue_size` (`8 MiB` by default) as `W` grows (`1 MiB` per ring at `W = 2`,
+/// `256 KiB` at `W = 3..=4`, `64 KiB` at `W = 8`, `16 KiB` at `W = 16`).
+fn spsc_ring_capacity(n_procs: u32) -> Result<usize, String> {
+    let rings = total_spsc_rings(n_procs)?;
+    let raw = (crate::gucs::mpp_queue_size() / rings).max(MIN_SPSC_RING_CAPACITY);
+    Ok(1usize << raw.ilog2())
 }
 
 /// Total DSM bytes the leader will need for the DSM SPSC ring mesh (`2 * W^2` rings).
 /// `n_procs` is the total proc count (leader + launched producers) the plan-first launch computed
 /// from the physical plan: the mesh grows as `W^2`, so this is sized from the plan's needs, not
-/// the GUC ceiling (#5667). A short launch may initialize a narrower logical mesh in this
-/// allocation, but never a wider one.
+/// the GUC ceiling (#5667). A short launch may initialize a narrower logical mesh (`k <= n_procs`)
+/// in this allocation, but never a wider one. Because power-of-two rounding in
+/// [`spsc_ring_capacity`] can give a narrower mesh `k < n_procs` a larger total byte footprint
+/// than `n_procs` (e.g. `k = 3` uses `8 * 1 MiB = 8 MiB` while `k = 4` uses
+/// `18 * 256 KiB = 4.5 MiB`), we take the maximum across `MIN_TOTAL_WORKER_COUNT.min(n_procs)..=n_procs`.
 pub fn estimate_dsm_size(n_procs: u32) -> Result<usize, String> {
-    dsm_region_bytes(n_procs, spsc_ring_capacity())
+    let min_procs = MIN_TOTAL_WORKER_COUNT.min(n_procs);
+    let mut max_bytes = 0;
+    for k in min_procs..=n_procs {
+        max_bytes = max_bytes.max(dsm_region_bytes(k, spsc_ring_capacity(k)?)?);
+    }
+    Ok(max_bytes)
 }
 
 /// Maximum number of producer workers a launch may spawn:
@@ -148,10 +162,12 @@ impl MppLaunchTiming {
     }
 }
 
-/// Leader session handle holding the gRPC channel resolver and DSM shutdown handle.
+/// Leader session handle holding the gRPC channel resolver, DSM shutdown handle, and wakeup slot
+/// reservation.
 pub struct LeaderSession {
     pub resolver: Arc<DsmGrpcChannelResolver>,
     pub shutdown_handle: DsmLeaderShutdownHandle,
+    pub wakeup_reservation: Arc<WakeupSlotReservation>,
     shutdown_signaled: AtomicBool,
 }
 
@@ -201,8 +217,9 @@ pub struct MppLeaderState {
     pub timing: MppLaunchTiming,
 }
 
-/// Initialize the leader's DSM SPSC ring mesh and build its [`MppLeaderState`]. Called by the
-/// leader-driven [`crate::postgres::customscan::mpp::launch`] on a builder-allocated region.
+/// Initialize the leader's DSM SPSC ring mesh using a pre-reserved [`WakeupSlotReservation`] and
+/// build its [`MppLeaderState`]. Called by [`crate::postgres::customscan::mpp::launch`] on a
+/// builder-allocated region.
 ///
 /// # Safety
 /// - `coordinate` must point to a DSM byte region of at least `estimate_dsm_size(n_procs)` bytes.
@@ -213,16 +230,21 @@ pub struct MppLeaderState {
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     n_procs: u32,
+    wakeup_reservation: WakeupSlotReservation,
 ) -> Result<MppLeaderState, String> {
     // `mpp_trace` reads a pgrx GucSetting, which requires the backend thread. Safe here
     // because this runs synchronously on the leader backend from `launch_mpp`.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let base = coordinate as *mut u8;
+    let slots = wakeup_reservation.slots();
+    let Some(&leader_slot) = slots.first() else {
+        return Err("mpp: wakeup reservation is empty".into());
+    };
     unsafe {
-        init_dsm_mesh(base, n_procs, spsc_ring_capacity())?;
+        init_dsm_mesh(base, n_procs, spsc_ring_capacity(n_procs)?)?;
+        assign_wakeup_slots(base, &slots)?;
     }
-    let slot = self_wakeup_slot().map_err(|e| format!("mpp: {e}"))?;
-    let dispatcher = WakeupDispatcher::new(slot);
+    let dispatcher = WakeupDispatcher::new(leader_slot);
     let (streams, shutdown_handle) = unsafe { build_leader_streams(base, &dispatcher)? };
     let resolver = Arc::new(DsmGrpcChannelResolver::new(
         (n_procs - 1) as usize,
@@ -239,6 +261,7 @@ pub unsafe fn leader_setup(
         session: LeaderSession {
             resolver,
             shutdown_handle,
+            wakeup_reservation: Arc::new(wakeup_reservation),
             shutdown_signaled: AtomicBool::new(false),
         },
         finish: None,
@@ -246,28 +269,37 @@ pub unsafe fn leader_setup(
     })
 }
 
+struct LeaderDsmDetachArg {
+    dsm_detached: Arc<AtomicBool>,
+    wakeup_reservation: Arc<WakeupSlotReservation>,
+}
+
 #[pgrx::pg_guard]
 unsafe extern "C-unwind" fn mark_dsm_detached_on_dsm_detach(
     _seg: *mut pg_sys::dsm_segment,
     arg: pg_sys::Datum,
 ) {
-    let flag = unsafe { Arc::from_raw(arg.cast_mut_ptr::<AtomicBool>()) };
-    flag.store(true, Ordering::SeqCst);
+    let detach_arg = unsafe { Box::from_raw(arg.cast_mut_ptr::<LeaderDsmDetachArg>()) };
+    detach_arg.dsm_detached.store(true, Ordering::SeqCst);
+    detach_arg.wakeup_reservation.release();
 }
 
 impl MppLeaderState {
-    /// Register an `on_dsm_detach` callback that marks all leader DSM streams detached before
-    /// the DSM segment unmaps, so any delayed stream drop cannot dereference unmapped memory.
+    /// Register an `on_dsm_detach` callback that marks all leader DSM streams detached and
+    /// releases the query's reserved wakeup slots before the DSM segment unmaps.
     ///
     /// # Safety
     /// `seg` must be the live DSM segment that owns the ring memory.
     pub unsafe fn register_streams_on_dsm_detach(&self, seg: *mut pg_sys::dsm_segment) {
-        let flag_ptr = Arc::into_raw(Arc::clone(self.session.shutdown_handle.detached_flag()));
+        let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
+            dsm_detached: Arc::clone(self.session.shutdown_handle.detached_flag()),
+            wakeup_reservation: Arc::clone(&self.session.wakeup_reservation),
+        }));
         unsafe {
             pg_sys::on_dsm_detach(
                 seg,
                 Some(mark_dsm_detached_on_dsm_detach),
-                pg_sys::Datum::from(flag_ptr as *mut c_void),
+                pg_sys::Datum::from(detach_arg as *mut c_void),
             );
         }
     }
@@ -405,8 +437,24 @@ pub fn finish_leader_execution(
             rt.shutdown_workers();
         } else {
             rt.quiesce_tasks();
+            if leader.session.shutdown_handle.active_streams() > 0 {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                while leader.session.shutdown_handle.active_streams() > 0
+                    && std::time::Instant::now() < deadline
+                {
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                }
+                if leader.session.shutdown_handle.active_streams() > 0 {
+                    rt.shutdown_workers();
+                }
+            }
         }
     }
+    debug_assert_eq!(
+        leader.session.shutdown_handle.active_streams(),
+        0,
+        "all leader DsmAsyncStreams must be dropped before DSM detach"
+    );
 }
 
 /// Whether any backend (leader or a worker) spilled a DataFusion operator to disk this query.
@@ -435,7 +483,7 @@ fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
 /// Folds the workers' DSM spill flag into the leader's own flag. Call it before the
 /// leader finishes (and so destroys) a launch whose flag `warn_if_spilled` will not see,
 /// such as a relaunch on rescan.
-pub fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish) {
+fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish) {
     if mpp_did_spill(finish) {
         spilled.store(true, Ordering::Relaxed);
     }
@@ -446,13 +494,79 @@ pub fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish)
 /// `finish`, so this must run after the workers are joined. Before the join a worker can
 /// still be executing (an early-terminated `LIMIT` query, for one) and spill after the
 /// load, and the join is also what orders a worker's relaxed store before this load.
-pub fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
+fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
     if spilled_locally.load(Ordering::Relaxed) || finish.is_some_and(mpp_did_spill) {
         pgrx::warning!(
             "query exceeded work_mem and spilled to disk; consider raising work_mem \
              for better performance (paradedb.spill_to_disk allowed it to complete \
              instead of erroring)"
         );
+    }
+}
+
+/// Shared `ShutdownCustomScan` step for `JoinScan` and `AggregateScan`:
+/// drops `stream` (triggering `EndStreamNotifier` on `DistributedExec` so `c2w_stream` closes and
+/// workers flush their final `TaskMetrics`), shuts down the leader session or quiesces serial
+/// runtime tasks, joins the producer workers so their metrics land before `EXPLAIN ANALYZE`
+/// renders, and emits the spill warning if any operator spilled.
+pub fn shutdown_mpp_scan(
+    stream: &mut Option<SendableRecordBatchStream>,
+    runtime: Option<&PgTokioRuntime>,
+    physical_plan: Option<&Arc<dyn ExecutionPlan>>,
+    mpp: &mut MppLifecycle,
+    spilled: &AtomicBool,
+) {
+    *stream = None;
+    if let Some(leader) = mpp.leader() {
+        finish_leader_execution(runtime, physical_plan, leader);
+    } else if let Some(rt) = runtime {
+        rt.quiesce_tasks();
+    }
+    if let Some(leader) = mpp.leader_mut()
+        && let Some(finish) = leader.finish.as_mut()
+    {
+        let _ = finish.recv();
+    }
+    warn_if_spilled(
+        spilled,
+        mpp.leader().and_then(|leader| leader.finish.as_ref()),
+    );
+}
+
+/// Shared `EndCustomScan` and `ReScanCustomScan` teardown for `JoinScan` and `AggregateScan`:
+/// drops `stream`, shuts down the leader session (or quiesces serial tasks), takes the leader out
+/// of `mpp`, clears `current_batch`, `physical_plan`, and `runtime` before the DSM is destroyed,
+/// and joins and destroys the parallel worker context while folding any worker spill flag into
+/// `spilled`.
+pub fn teardown_mpp_scan(
+    stream: &mut Option<SendableRecordBatchStream>,
+    current_batch: &mut Option<RecordBatch>,
+    physical_plan: &mut Option<Arc<dyn ExecutionPlan>>,
+    runtime: &mut Option<PgTokioRuntime>,
+    mpp: &mut MppLifecycle,
+    spilled: &AtomicBool,
+) {
+    *stream = None;
+    if let Some(leader) = mpp.leader() {
+        finish_leader_execution(runtime.as_ref(), physical_plan.as_ref(), leader);
+    } else if let Some(rt) = runtime.as_ref() {
+        rt.quiesce_tasks();
+    }
+    let finish = mpp
+        .take_leader()
+        .and_then(|mut leader| leader.finish.take());
+    // Drop order: the physical plan and session hold DSM stream references, so both must go before
+    // the DSM is destroyed below, and the stream/plan must go before the runtime.
+    *current_batch = None;
+    *physical_plan = None;
+    *runtime = None;
+    if let Some(mut finish) = finish {
+        // Join first: a producer can still spill while it winds down, and the join is what orders
+        // its store before this load. `recv` is idempotent, so the one inside `wait_for_finish`
+        // returns at once.
+        let _ = finish.recv();
+        record_worker_spill(spilled, &finish);
+        finish.wait_for_finish();
     }
 }
 
@@ -480,35 +594,60 @@ pub fn merge_worker_metrics(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn Exe
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::postgres::customscan::mpp::wakeup::reserve_wakeup_slots;
     use pgrx::pg_test;
+
+    unsafe fn leader_setup_for_test(
+        coordinate: *mut c_void,
+        n_procs: u32,
+    ) -> Result<MppLeaderState, String> {
+        let reservation = reserve_wakeup_slots(n_procs as usize).ok_or_else(|| {
+            format!("mpp: failed to reserve {n_procs} wakeup slots from pre-allocated pool")
+        })?;
+        unsafe { leader_setup(coordinate, n_procs, reservation) }
+    }
 
     #[pg_test]
     fn mesh_can_use_fewer_processes_than_its_reserved_region() {
         // `launch_mpp` must allocate DSM before PostgreSQL tells it how many workers actually
         // attached. Pin the transport contract that lets a short launch initialize its smaller
-        // logical mesh in the region reserved for the requested width.
-        let requested_procs = 6;
-        let launched_procs = 4;
-        let region_bytes = estimate_dsm_size(requested_procs).unwrap();
-        let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+        // logical mesh in the region reserved for the requested width, including across
+        // power-of-two rounding boundaries (`(4, 3)` and `(6, 5)`).
+        for (requested_procs, launched_procs) in [(6, 4), (6, 5), (4, 3)] {
+            let region_bytes = estimate_dsm_size(requested_procs).unwrap();
+            assert!(
+                region_bytes
+                    >= dsm_region_bytes(
+                        launched_procs,
+                        spsc_ring_capacity(launched_procs).unwrap()
+                    )
+                    .unwrap()
+            );
+            let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
 
-        let state = unsafe { leader_setup(region.as_mut_ptr().cast(), launched_procs).unwrap() };
-        assert_eq!(
-            state.session.resolver.n_workers(),
-            (launched_procs - 1) as usize
-        );
+            let state = unsafe {
+                leader_setup_for_test(region.as_mut_ptr().cast(), launched_procs).unwrap()
+            };
+            assert_eq!(
+                state.session.resolver.n_workers(),
+                (launched_procs - 1) as usize
+            );
+        }
     }
 
     #[pg_test]
     fn dsm_detach_marks_handle_detached() {
         let region_bytes = estimate_dsm_size(3).unwrap();
         let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
-        let state = unsafe { leader_setup(region.as_mut_ptr().cast(), 3).unwrap() };
-        let flag_ptr = Arc::into_raw(Arc::clone(state.session.shutdown_handle.detached_flag()));
+        let state = unsafe { leader_setup_for_test(region.as_mut_ptr().cast(), 3).unwrap() };
+        let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
+            dsm_detached: Arc::clone(state.session.shutdown_handle.detached_flag()),
+            wakeup_reservation: Arc::clone(&state.session.wakeup_reservation),
+        }));
         unsafe {
             mark_dsm_detached_on_dsm_detach(
                 std::ptr::null_mut(),
-                pg_sys::Datum::from(flag_ptr as *mut c_void),
+                pg_sys::Datum::from(detach_arg as *mut c_void),
             );
         }
         assert!(
@@ -518,6 +657,7 @@ mod tests {
                 .detached_flag()
                 .load(Ordering::Acquire)
         );
+        assert!(state.session.wakeup_reservation.slots().is_empty());
     }
 
     #[test]

@@ -55,8 +55,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::DistributedTaskContext;
 
 use crate::postgres::customscan::mpp::glue::{
-    finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
-    warn_if_spilled,
+    mpp_plan_has_data_parallelism, query_allows_parallel_mode, shutdown_mpp_scan, teardown_mpp_scan,
 };
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
@@ -1227,38 +1226,13 @@ impl CustomScan for AggregateScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Drop the gather stream first (notifies `EndStreamNotifier` on `DistributedExec` so
-        // `c2w_stream` closes and workers flush their final `TaskMetrics`).
         if let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() {
-            df_state.stream = None;
-            // Wait briefly for `TaskMetrics` over `coordinator_channel`, then signal the workers'
-            // Tonic servers to shut down and close all leader DSM ring streams BEFORE joining the
-            // workers. PG destroys the parallel DSM right after this hook (the EXPLAIN hook runs
-            // after teardown and only reads `DistributedExec::metrics_store`).
-            if let Some(leader) = df_state.mpp.leader() {
-                finish_leader_execution(
-                    df_state.runtime.as_ref(),
-                    df_state.physical_plan.as_ref(),
-                    leader,
-                );
-            } else if let Some(rt) = df_state.runtime.as_ref() {
-                rt.quiesce_tasks();
-            }
-            // Join the producer workers so their metrics land before the EXPLAIN render (which runs
-            // before end_custom_scan, where the context is finally destroyed). A worker error is
-            // re-raised from inside `recv`.
-            if let Some(leader) = df_state.mpp.leader_mut()
-                && let Some(finish) = leader.finish.as_mut()
-            {
-                let _ = finish.recv();
-            }
-            // Must come after the join; see `warn_if_spilled`.
-            warn_if_spilled(
+            shutdown_mpp_scan(
+                &mut df_state.stream,
+                df_state.runtime.as_ref(),
+                df_state.physical_plan.as_ref(),
+                &mut df_state.mpp,
                 &df_state.spilled,
-                df_state
-                    .mpp
-                    .leader()
-                    .and_then(|leader| leader.finish.as_ref()),
             );
         }
     }
@@ -1356,41 +1330,15 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
-    /// Join the MPP producer workers and destroy the parallel context once nothing
-    /// references the DSM ring mesh. Shuts down the leader session first, takes the
-    /// leader out (its channel resolver drops with it), then drops the stream/plan/runtime
-    /// (all carry DSM stream references) before `wait_for_finish` destroys the DSM. Used at
-    /// `end_custom_scan` and before a rescan relaunches a fresh worker set.
     fn finish_mpp_execution(df_state: &mut scan_state::DataFusionAggState) {
-        df_state.stream = None;
-        if let Some(leader) = df_state.mpp.leader() {
-            finish_leader_execution(
-                df_state.runtime.as_ref(),
-                df_state.physical_plan.as_ref(),
-                leader,
-            );
-        } else if let Some(rt) = df_state.runtime.as_ref() {
-            rt.quiesce_tasks();
-        }
-        let finish = match df_state.mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            None => None,
-        };
-        // Drop order: the physical plan and session hold DSM stream references, so both
-        // must go before the DSM is destroyed below, and the stream must go before
-        // the runtime (tokio). `physical_plan` is cleared explicitly rather than left
-        // to `drop(df_state)` so the order doesn't depend on struct field order.
-        df_state.current_batch = None;
-        df_state.physical_plan = None;
-        df_state.runtime = None;
-        if let Some(mut finish) = finish {
-            // Join first: a producer can still spill while it winds down, and the join
-            // is what orders its store before this load. `recv` is idempotent, so the
-            // one inside `wait_for_finish` returns at once.
-            let _ = finish.recv();
-            crate::postgres::customscan::mpp::glue::record_worker_spill(&df_state.spilled, &finish);
-            finish.wait_for_finish();
-        }
+        teardown_mpp_scan(
+            &mut df_state.stream,
+            &mut df_state.current_batch,
+            &mut df_state.physical_plan,
+            &mut df_state.runtime,
+            &mut df_state.mpp,
+            &df_state.spilled,
+        );
     }
 
     /// Capture per-source `SearchIndexManifest`s for every PgSearchScan
@@ -1478,7 +1426,7 @@ impl AggregateScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_aggregate(physical, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp(physical, args)
     }
 
     /// Build the aggregate's DataFusion physical plan under `ctx`. `mpp_manifests` marks that

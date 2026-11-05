@@ -31,7 +31,7 @@
 //! The launch is plan-first (`#5667`), mirroring core PG's parallel-query order (plan ->
 //! size-by-walking-the-plan -> create DSM -> bind pointers -> launch): the caller builds the
 //! distributed physical plan with `producer_worker_cap()` (PG's parallelism GUCs) as the
-//! planner's ceiling, then [`launch_mpp_join`] / [`launch_mpp_aggregate`] walk the finished plan
+//! planner's ceiling, then [`launch_mpp`] walks the finished plan
 //! to learn the largest producer-stage task count, size the mesh and spawn exactly
 //! `clamp(max_tasks, 2, cap)` producers, and stamp the shared scan state into the plan
 //! ([`crate::scan::execution_plan::stamp_parallel_state`]). A plan with no producer stages spawns
@@ -58,6 +58,7 @@ use crate::postgres::customscan::mpp::glue::{
     worker_setup,
 };
 use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
+use crate::postgres::customscan::mpp::wakeup::{has_available_wakeup_slots, reserve_wakeup_slots};
 use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::info::{RowEstimate, ScanInfo};
@@ -80,7 +81,7 @@ const MPP_MQ_SIZE: usize = 1024;
 
 /// The builder process carrying the MPP DSM entries. The mesh region is reserve-only:
 /// `glue::leader_setup` (`dsm_stream::init_dsm_mesh`) initializes the header, wakeup slots, and
-/// `2 * W^2` SPSC ring headers (`1 MiB` per ring by default, derived from `paradedb.mpp_queue_size`)
+/// `2 * W^2` SPSC ring headers (sized from `paradedb.mpp_queue_size` across all rings)
 /// in place inside DSM, so materializing (zeroing, copying) a host-side buffer of that size per
 /// query would buy nothing. The scan state is a small zeroed blob populated in place.
 struct MppParallelProcess {
@@ -133,12 +134,11 @@ unsafe fn go_flag(sm: &ParallelStateManager) -> &'static AtomicU32 {
     &*(ptr as *const AtomicU32)
 }
 
-/// AggregateScan worker entry point. PG resolves this symbol by name (passed to
-/// `ParallelProcessBuilder::build`), so the name must match the string in
-/// [`launch_mpp_aggregate`].
+/// MPP parallel worker entry point. PG resolves this symbol by name (passed to
+/// `ParallelProcessBuilder::build`), so the name must match the string in [`launch_mpp`].
 #[unsafe(no_mangle)]
 #[pgrx::pg_guard]
-pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
+pub unsafe extern "C-unwind" fn mpp_launched_worker(
     seg: *mut pg_sys::dsm_segment,
     toc: *mut pg_sys::shm_toc,
 ) {
@@ -146,18 +146,6 @@ pub unsafe extern "C-unwind" fn mpp_launched_worker_agg(
     run_launched_worker(seg, state_manager);
     // `_mq_sender` drops here, detaching the completion queue so the leader's `wait_for_finish`
     // recv loop terminates.
-}
-
-/// JoinScan worker entry point. PG resolves this symbol by name; it must match the string in
-/// [`launch_mpp_join`].
-#[unsafe(no_mangle)]
-#[pgrx::pg_guard]
-pub unsafe extern "C-unwind" fn mpp_launched_worker_join(
-    seg: *mut pg_sys::dsm_segment,
-    toc: *mut pg_sys::shm_toc,
-) {
-    let (state_manager, _mq_sender) = generic_parallel_worker_entry_point(seg, toc, MPP_MQ_SIZE);
-    run_launched_worker(seg, state_manager);
 }
 
 /// Shared worker body: wait for the leader's go signal, attach to the SPSC ring mesh, reconstruct
@@ -340,10 +328,9 @@ fn gated_by_min_rows(
 /// Nothing is forked on the nothing-to-distribute path. `None` covers only environmental
 /// shortfalls; a `pgrx::error!` means an invariant breach or a failure past mesh commitment,
 /// where a silent serial fallback would hide a real bug.
-fn launch_mpp(
+pub fn launch_mpp(
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
-    worker_entrypoint: &'static str,
 ) -> Option<MppLeaderState> {
     let mut timing = crate::postgres::customscan::mpp::glue::MppLaunchTiming::default();
 
@@ -362,6 +349,11 @@ fn launch_mpp(
     let max_tasks = max_producer_task_count(&stages);
     let cap = producer_worker_cap();
     let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
+
+    if !has_available_wakeup_slots(MIN_TOTAL_WORKER_COUNT as usize) {
+        pgrx::warning!("mpp: wakeup slot pool exhausted; running serially");
+        return None;
+    }
 
     let t_prepare = std::time::Instant::now();
     let region_bytes = match estimate_dsm_size(producer_count + 1) {
@@ -386,7 +378,7 @@ fn launch_mpp(
 
     let launcher = ParallelProcessBuilder::build(
         process,
-        worker_entrypoint,
+        "mpp_launched_worker",
         WorkerStyle::Query,
         producer_count as usize,
         MPP_MQ_SIZE,
@@ -432,6 +424,16 @@ fn launch_mpp(
         Err(e) => pgrx::error!("{e}"),
     }
 
+    let Some(wakeup_reservation) = reserve_wakeup_slots((launched + 1) as usize) else {
+        go.store(GO_ABORT, Ordering::Release);
+        finish.wait_for_finish();
+        pgrx::warning!(
+            "mpp: failed to reserve {} wakeup slots; running serially",
+            launched + 1
+        );
+        return None;
+    };
+
     // PostgreSQL may attach fewer workers than requested. The plan and its task counts stand:
     // `MppWorkerResolver(launched)` assigns tasks across the attached workers, and same-worker
     // stage reads short-circuit in memory via `LocalWorkerContext`.
@@ -458,7 +460,7 @@ fn launch_mpp(
     // and `wait_for_attach` reports a worker that dies before attaching. Each worker maps
     // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
-    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1) } {
+    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1, wakeup_reservation) } {
         Ok(l) => l,
         Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
     };
@@ -474,22 +476,6 @@ fn launch_mpp(
 
     leader.finish = Some(finish);
     Some(leader)
-}
-
-/// AggregateScan launch entry: aggregate worker symbol.
-pub fn launch_mpp_aggregate(
-    physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    args: ParallelScanArgs,
-) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, "mpp_launched_worker_agg")
-}
-
-/// JoinScan launch entry: join worker symbol.
-pub fn launch_mpp_join(
-    physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    args: ParallelScanArgs,
-) -> Option<MppLeaderState> {
-    launch_mpp(physical, args, "mpp_launched_worker_join")
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -638,9 +624,19 @@ mod tests {
         plan_ctx.register_table("t", Arc::new(provider)).unwrap();
 
         let physical_plan = runtime.block_on(async {
+            use datafusion::functions_aggregate::expr_fn::{count, sum};
+            use datafusion::prelude::{col, lit};
+
             let df = plan_ctx
-                .sql("SELECT category, COUNT(*) AS cnt, SUM(val) AS total FROM t GROUP BY category ORDER BY category")
+                .table("t")
                 .await
+                .unwrap()
+                .aggregate(
+                    vec![col("category")],
+                    vec![count(lit(1)).alias("cnt"), sum(col("val")).alias("total")],
+                )
+                .unwrap()
+                .sort(vec![col("category").sort(true, true)])
                 .unwrap();
             df.create_physical_plan().await.unwrap()
         });
@@ -657,9 +653,9 @@ mod tests {
                     with_aggregates: false,
                     with_segment_info: false,
                 };
-                launch_mpp_aggregate(&physical_plan, args)
+                launch_mpp(&physical_plan, args)
             })
-            .expect("expected launch_mpp_aggregate to spawn parallel workers");
+            .expect("expected launch_mpp to spawn parallel workers");
         assert_eq!(leader.timing.workers, 2);
 
         let exec_ctx = build_mpp_session_context(

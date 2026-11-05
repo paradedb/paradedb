@@ -661,10 +661,10 @@ impl PgSearchScanPlan {
                 })
             }
             ExecutionState::Consumed | ExecutionState::Uninitialized => {
-                crate::postgres::customscan::mpp::fail_loud(format!(
+                pgrx::error!(
                     "PgSearchScan source_idx: scan {} has no execution state to read a pool from",
                     self.table_alias
-                ))
+                )
             }
         }
     }
@@ -2072,7 +2072,7 @@ fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<Re
     } = ctx;
 
     let mut scanner: crate::postgres::customscan::mpp::MainThread<Option<Scanner>> =
-        Default::default();
+        crate::postgres::customscan::mpp::MainThread::new(None);
     let mut score_column_schema_idx: Option<usize> = None;
 
     async_stream::try_stream! {
@@ -2213,7 +2213,7 @@ fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<Re
                         &ss.ffhelper,
                         &mut ss.visibility,
                         pre_filters_wrapper.as_ref(),
-                    );
+                    )?;
                     timer.done();
                     check_for_cancel()?;
 

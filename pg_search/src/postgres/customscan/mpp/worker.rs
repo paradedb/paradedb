@@ -45,7 +45,7 @@ use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::datafusion::memory::{WorkMemMemoryPool, build_runtime_env};
 use crate::postgres::customscan::datafusion::{all_pg_search_udafs, all_pg_search_udfs};
 use crate::postgres::customscan::mpp::dsm_stream::{
-    DsmAsyncStream, ServerProc, build_worker_streams,
+    DsmAsyncStream, ServerProc, build_worker_streams, proc_wakeup_slot,
 };
 use crate::postgres::customscan::mpp::glue::{
     WorkerSession, producer_worker_cap, register_worker_streams_on_dsm_detach,
@@ -53,7 +53,7 @@ use crate::postgres::customscan::mpp::glue::{
 use crate::postgres::customscan::mpp::interrupt::{
     HeldInterrupts, PgTokioRuntime, check_for_interrupts,
 };
-use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, self_wakeup_slot};
+use crate::postgres::customscan::mpp::wakeup::WakeupDispatcher;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
     pg_search_scan_desired_task_count, pg_search_scan_scale_up_leaf_node,
@@ -103,15 +103,19 @@ impl WorkerResolver for MppWorkerResolver {
     }
 }
 
+struct ResolverState {
+    dispatcher: WakeupDispatcher,
+    stream_slots: HashMap<ServerProc, Arc<Mutex<Option<DsmAsyncStream>>>>,
+    channels: HashMap<ServerProc, BoxCloneSyncChannel>,
+}
+
 /// `ChannelResolver` backed by pre-allocated DSM [`DsmAsyncStream`]s.
 ///
 /// Each outbound `(client, server)` stream is consumed once by `Endpoint::connect_with_connector_lazy`
 /// and cached as a multiplexed HTTP/2 [`BoxCloneSyncChannel`] for the duration of the query.
 pub struct DsmGrpcChannelResolver {
     n_workers: usize,
-    dispatcher: Mutex<WakeupDispatcher>,
-    pending_streams: Mutex<HashMap<ServerProc, DsmAsyncStream>>,
-    channels: tokio::sync::Mutex<HashMap<ServerProc, BoxCloneSyncChannel>>,
+    state: Mutex<ResolverState>,
 }
 
 impl DsmGrpcChannelResolver {
@@ -120,15 +124,17 @@ impl DsmGrpcChannelResolver {
         dispatcher: WakeupDispatcher,
         streams: Vec<(ServerProc, DsmAsyncStream)>,
     ) -> Self {
-        let mut map = HashMap::with_capacity(streams.len());
-        for (server, stream) in streams {
-            map.insert(server, stream);
-        }
+        let stream_slots = streams
+            .into_iter()
+            .map(|(server, stream)| (server, Arc::new(Mutex::new(Some(stream)))))
+            .collect();
         Self {
             n_workers,
-            dispatcher: Mutex::new(dispatcher),
-            pending_streams: Mutex::new(map),
-            channels: tokio::sync::Mutex::new(HashMap::new()),
+            state: Mutex::new(ResolverState {
+                dispatcher,
+                stream_slots,
+                channels: HashMap::new(),
+            }),
         }
     }
 
@@ -138,39 +144,25 @@ impl DsmGrpcChannelResolver {
 
     /// Close all DSM streams and abort the `AsyncFd` wakeup reader task before DSM unmaps.
     pub fn close_all(&self) {
-        if let Ok(mut channels) = self.channels.try_lock() {
-            channels.clear();
+        let mut state = self.state.lock();
+        state.channels.clear();
+        for (_, slot) in state.stream_slots.drain() {
+            if let Some(stream) = slot.lock().take() {
+                stream.close_rings();
+            }
         }
-        for (_, stream) in self.pending_streams.lock().drain() {
-            stream.close_rings();
-        }
-        self.dispatcher.lock().stop();
-    }
-
-    fn ensure_dispatcher_started(&self) -> Result<()> {
-        let mut disp = self.dispatcher.lock();
-        if !disp.is_started() {
-            let handle = tokio::runtime::Handle::try_current().map_err(|e| {
-                DataFusionError::Internal(format!(
-                    "mpp: DsmGrpcChannelResolver requires an active Tokio runtime: {e}"
-                ))
-            })?;
-            disp.start(&handle).map_err(|e| {
-                DataFusionError::Internal(format!(
-                    "mpp: failed to start AsyncFd wakeup dispatcher: {e}"
-                ))
-            })?;
-        }
-        Ok(())
+        state.dispatcher.stop();
     }
 }
 
-/// HTTP/2 per-stream flow-control window (`16 MiB`) so large shuffle batches never stall on
-/// `65,535`-byte `WINDOW_UPDATE` round-trips over the DSM rings.
-const HTTP2_STREAM_WINDOW_SIZE: u32 = 16 * 1024 * 1024;
+/// HTTP/2 per-stream flow-control window (`4 MiB`, matching `HTTP2_MAX_FRAME_SIZE`) so shuffle
+/// batches do not stall on `65,535`-byte `WINDOW_UPDATE` round-trips over the DSM rings while
+/// keeping per-connection transport buffering bounded.
+const HTTP2_STREAM_WINDOW_SIZE: u32 = 4 * 1024 * 1024;
 
-/// HTTP/2 connection-level flow-control window (`32 MiB`).
-const HTTP2_CONNECTION_WINDOW_SIZE: u32 = 32 * 1024 * 1024;
+/// HTTP/2 connection-level flow-control window (`8 MiB`, matching `DistributedConfig`'s default
+/// `worker_connection_buffer_budget_bytes`).
+const HTTP2_CONNECTION_WINDOW_SIZE: u32 = 8 * 1024 * 1024;
 
 /// HTTP/2 maximum frame payload size (`4 MiB`, up from the `16 KiB` spec default) so `FlightData`
 /// messages are sent and received in a single `DATA` frame without `16 KiB` chunking/reassembly.
@@ -187,17 +179,28 @@ fn mpp_grpc_server_builder() -> Server {
 impl ChannelResolver for DsmGrpcChannelResolver {
     async fn get_worker_client_for_url(&self, url: &Url) -> Result<Box<dyn WorkerChannel>> {
         let server_proc = MppWorkerResolver::parse_worker_proc(url)?;
-        let mut channels = self.channels.lock().await;
-        if let Some(ch) = channels.get(&server_proc) {
+        let mut state = self.state.lock();
+        if let Some(ch) = state.channels.get(&server_proc) {
             return Ok(create_worker_client(ch.clone()));
         }
 
-        self.ensure_dispatcher_started()?;
+        if !state.dispatcher.is_started() {
+            let handle = tokio::runtime::Handle::try_current().map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "mpp: DsmGrpcChannelResolver requires an active Tokio runtime: {e}"
+                ))
+            })?;
+            state.dispatcher.start(&handle).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "mpp: failed to start AsyncFd wakeup dispatcher: {e}"
+                ))
+            })?;
+        }
 
-        let stream = self
-            .pending_streams
-            .lock()
-            .remove(&server_proc)
+        let stream_slot = state
+            .stream_slots
+            .get(&server_proc)
+            .cloned()
             .ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "mpp: no pending DSM stream for worker {} ({url})",
@@ -205,7 +208,6 @@ impl ChannelResolver for DsmGrpcChannelResolver {
                 ))
             })?;
 
-        let stream_slot = Arc::new(Mutex::new(Some(stream)));
         let endpoint = Endpoint::from_shared(url.as_str().to_owned())
             .map_err(|e| DataFusionError::Internal(format!("mpp: invalid endpoint '{url}': {e}")))?
             .initial_stream_window_size(HTTP2_STREAM_WINDOW_SIZE)
@@ -224,7 +226,7 @@ impl ChannelResolver for DsmGrpcChannelResolver {
             }
         }));
         let boxed = BoxCloneSyncChannel::new(tonic_channel);
-        channels.insert(server_proc, boxed.clone());
+        state.channels.insert(server_proc, boxed.clone());
         Ok(create_worker_client(boxed))
     }
 }
@@ -416,7 +418,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
 
-    let slot = match self_wakeup_slot() {
+    let slot = match unsafe { proc_wakeup_slot(worker_session.dsm_base, this_proc) } {
         Ok(s) => s,
         Err(e) => pgrx::error!("mpp worker (proc={this_proc}): {e}"),
     };
@@ -493,6 +495,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
     let shutdown_watcher = streams.shutdown_watcher;
 
     let held = HeldInterrupts::hold();
+    let mpp_worker_guard = runtime.enter_mpp_worker();
     let server_task = runtime.spawn(async move {
         mpp_grpc_server_builder()
             .add_service(worker.into_worker_server())
@@ -503,6 +506,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
     detach_handle.close_worker_rings();
     peer_resolver.close_all();
     runtime.shutdown_workers();
+    drop(mpp_worker_guard);
     drop(held);
     check_for_interrupts();
 
@@ -629,9 +633,16 @@ mod tests {
         let table = MemTable::try_new(schema, vec![vec![b1], vec![b2]]).unwrap();
         ctx.register_table("t", Arc::new(table)).unwrap();
 
+        use datafusion::functions_aggregate::expr_fn::sum;
+        use datafusion::prelude::col;
+
         let df = ctx
-            .sql("SELECT k, SUM(v) AS s FROM t GROUP BY k ORDER BY k")
+            .table("t")
             .await
+            .unwrap()
+            .aggregate(vec![col("k")], vec![sum(col("v")).alias("s")])
+            .unwrap()
+            .sort(vec![col("k").sort(true, true)])
             .unwrap();
         let plan = df.create_physical_plan().await.unwrap();
         let batches = collect(plan, ctx.task_ctx()).await.unwrap();

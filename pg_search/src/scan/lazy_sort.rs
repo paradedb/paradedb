@@ -817,18 +817,21 @@ impl LazySortStreamState {
                 effective_ra_threshold,
                 &mut self.emitted_docs,
             );
+            check_for_cancel()?;
             self.queries.add(1);
             MetricBuilder::new(&self.plan_metrics)
                 .counter("ra_queries", self.target_partition)
                 .add(1);
             if !ra_results.is_empty() {
-                self.scanner.materialize_topk_window(
+                let batch = self.scanner.materialize_topk_window(
                     &ra_results,
                     &self.ffhelper,
                     &mut self.visibility,
                     pre_filters_wrapper.as_ref(),
                     &self.schema,
-                )
+                )?;
+                check_for_cancel()?;
+                batch
             } else {
                 None
             }
@@ -908,13 +911,15 @@ impl LazySortStreamState {
             .results
             .retain(|(_, doc_addr)| self.emitted_docs.insert(*doc_addr));
         let next_batch = if !top_k_search.results.is_empty() {
-            self.scanner.materialize_topk_window(
+            let batch = self.scanner.materialize_topk_window(
                 &top_k_search.results,
                 &self.ffhelper,
                 &mut self.visibility,
                 pre_filters_wrapper.as_ref(),
                 &self.schema,
-            )
+            )?;
+            check_for_cancel()?;
+            batch
         } else {
             None
         };

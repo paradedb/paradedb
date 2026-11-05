@@ -30,7 +30,7 @@ use std::io;
 use std::pin::Pin;
 use std::ptr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering, fence};
 use std::task::{Context, Poll};
 
 use futures::task::AtomicWaker;
@@ -279,6 +279,50 @@ unsafe fn wakeup_slot_ptr(base: *const u8, proc_idx: u32) -> *const AtomicU32 {
     unsafe { slots_ptr.add(proc_idx as usize) }
 }
 
+/// Pre-populate the DSM wakeup slot table for all `0..n_procs` participants before workers attach.
+///
+/// # Safety
+/// `base` must point to a DSM mesh initialized via [`init_dsm_mesh`], and `slots.len()` must equal
+/// `n_procs`.
+pub unsafe fn assign_wakeup_slots(base: *mut u8, slots: &[WakeupSlot]) -> Result<(), String> {
+    let hdr = unsafe { validate_mesh_header(base)? };
+    if slots.len() != hdr.n_procs as usize {
+        return Err(format!(
+            "mpp: expected {} wakeup slots, got {}",
+            hdr.n_procs,
+            slots.len()
+        ));
+    }
+    for (i, slot) in slots.iter().enumerate() {
+        let slot_ptr = unsafe { wakeup_slot_ptr(base, i as u32) };
+        unsafe {
+            (*slot_ptr).store(slot.0, Ordering::SeqCst);
+        }
+    }
+    Ok(())
+}
+
+/// Read the [`WakeupSlot`] assigned to `proc_idx` in the DSM wakeup slot table.
+///
+/// # Safety
+/// `base` must point to a DSM mesh initialized via [`init_dsm_mesh`].
+pub unsafe fn proc_wakeup_slot(base: *const u8, proc_idx: u32) -> Result<WakeupSlot, String> {
+    let hdr = unsafe { validate_mesh_header(base)? };
+    if proc_idx >= hdr.n_procs {
+        return Err(format!(
+            "mpp: proc_idx {proc_idx} out of range 0..{}",
+            hdr.n_procs
+        ));
+    }
+    let slot_ptr = unsafe { wakeup_slot_ptr(base, proc_idx) };
+    let raw = unsafe { (*slot_ptr).load(Ordering::SeqCst) };
+    let slot = WakeupSlot(raw);
+    if slot == WakeupSlot::UNSET {
+        return Err(format!("mpp: wakeup slot for proc {proc_idx} is unset"));
+    }
+    Ok(slot)
+}
+
 /// Full-duplex `AsyncRead + AsyncWrite` stream backed by a pair of DSM SPSC byte rings.
 pub struct DsmAsyncStream {
     tx_hdr: *const DsmRingHeader,
@@ -289,6 +333,7 @@ pub struct DsmAsyncStream {
     read_waker: Arc<AtomicWaker>,
     write_waker: Arc<AtomicWaker>,
     dsm_detached: Arc<AtomicBool>,
+    active_streams: Option<Arc<AtomicUsize>>,
 }
 
 // SAFETY: `DsmAsyncStream` accesses shared memory exclusively through atomic operations and
@@ -348,38 +393,38 @@ impl DsmAsyncStream {
             return;
         }
         // SAFETY: `tx_hdr` and `rx_hdr` are valid while `dsm_detached` is false.
-        unsafe {
-            (*self.tx_hdr)
-                .producer
-                .closed
-                .store(true, Ordering::Release);
-            (*self.rx_hdr)
-                .consumer
-                .closed
-                .store(true, Ordering::Release);
-            fence(Ordering::SeqCst);
-            let wake_rx = (*self.tx_hdr)
-                .consumer
-                .sleeping
-                .swap(false, Ordering::SeqCst);
-            let wake_tx = (*self.rx_hdr)
-                .producer
-                .sleeping
-                .swap(false, Ordering::SeqCst);
-            if wake_rx || wake_tx {
-                self.wake_peer();
-            }
+        if unsafe { close_ring_pair(self.tx_hdr, self.rx_hdr) } {
+            self.wake_peer();
         }
     }
 }
 
+/// Mark the local producer on `tx_hdr` and local consumer on `rx_hdr` as closed, and return
+/// `true` if the peer had its `sleeping` flag set on either ring (clearing it under `SeqCst`).
+///
+/// # Safety
+/// `tx_hdr` and `rx_hdr` must point to valid `DsmRingHeader`s in the mapped DSM region.
+unsafe fn close_ring_pair(tx_hdr: *const DsmRingHeader, rx_hdr: *const DsmRingHeader) -> bool {
+    unsafe {
+        (*tx_hdr).producer.closed.store(true, Ordering::Release);
+        (*rx_hdr).consumer.closed.store(true, Ordering::Release);
+        fence(Ordering::SeqCst);
+        let wake_rx = (*tx_hdr).consumer.sleeping.swap(false, Ordering::SeqCst);
+        let wake_tx = (*rx_hdr).producer.sleeping.swap(false, Ordering::SeqCst);
+        wake_rx || wake_tx
+    }
+}
+
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `close_rings` only flips
-// atomic booleans in the DSM ring headers (guarded by `dsm_detached`) and writes a wakeup byte to
-// a non-blocking `socketpair` without touching Postgres FFI, and `DsmAsyncStream` is exercised in
-// standalone `#[test]` binaries that do not link Postgres globals.
+// atomic booleans in the DSM ring headers (guarded by `dsm_detached`) and writes a wakeup
+// notification to a non-blocking wakeup descriptor without touching Postgres FFI, and
+// `DsmAsyncStream` is exercised in standalone `#[test]` binaries that do not link Postgres globals.
 impl Drop for DsmAsyncStream {
     fn drop(&mut self) {
         self.close_rings();
+        if let Some(active) = self.active_streams.take() {
+            active.fetch_sub(1, Ordering::AcqRel);
+        }
     }
 }
 
@@ -585,6 +630,7 @@ pub struct DsmLeaderShutdownHandle {
     n_procs: u32,
     ring_capacity: usize,
     dsm_detached: Arc<AtomicBool>,
+    active_streams: Arc<AtomicUsize>,
 }
 
 // SAFETY: Only touches atomic fields in the DSM header and ring headers.
@@ -594,6 +640,11 @@ unsafe impl Sync for DsmLeaderShutdownHandle {}
 impl DsmLeaderShutdownHandle {
     pub fn detached_flag(&self) -> &Arc<AtomicBool> {
         &self.dsm_detached
+    }
+
+    /// Number of leader [`DsmAsyncStream`]s created for this mesh that have not yet been dropped.
+    pub fn active_streams(&self) -> usize {
+        self.active_streams.load(Ordering::Acquire)
     }
 
     /// Set `shutdown_flag = true`, mark all `2 * W^2` rings in the mesh closed so every worker's
@@ -674,13 +725,15 @@ pub unsafe fn build_leader_streams(
     let n_procs = hdr.n_procs;
     let ring_capacity = hdr.ring_capacity as usize;
     let dsm_detached = Arc::new(AtomicBool::new(false));
+    let n_streams = (n_procs - 1) as usize;
+    let active_streams = Arc::new(AtomicUsize::new(n_streams));
 
     let leader_slot_ptr = unsafe { wakeup_slot_ptr(base, 0) };
     unsafe {
         (*leader_slot_ptr).store(dispatcher.slot().0, Ordering::SeqCst);
     }
 
-    let mut client_streams = Vec::with_capacity((n_procs - 1) as usize);
+    let mut client_streams = Vec::with_capacity(n_streams);
     for s in 1..n_procs {
         let server = ServerProc(s);
         let conn_idx = connection_index(n_procs, ClientProc(0), server)?;
@@ -697,6 +750,7 @@ pub unsafe fn build_leader_streams(
             read_waker: dispatcher.register_waker(),
             write_waker: dispatcher.register_waker(),
             dsm_detached: Arc::clone(&dsm_detached),
+            active_streams: Some(Arc::clone(&active_streams)),
         };
         client_streams.push((server, stream));
     }
@@ -706,6 +760,7 @@ pub unsafe fn build_leader_streams(
         n_procs,
         ring_capacity,
         dsm_detached,
+        active_streams,
     };
     Ok((client_streams, shutdown))
 }
@@ -743,15 +798,10 @@ impl DsmWorkerDetachHandle {
         }
         let w = self.worker_proc.0;
         unsafe {
-            let mut wake_peers = Vec::new();
-
             // 1. Outbound client connections `ClientProc(w) -> ServerProc(s)` (`s in 1..n_procs, s != w`):
             //    - `2 * conn_idx` is `tx` (w is producer, s is consumer)
             //    - `2 * conn_idx + 1` is `rx` (s is producer, w is consumer)
-            for s in 1..self.n_procs {
-                if s == w {
-                    continue;
-                }
+            for s in (1..self.n_procs).filter(|&s| s != w) {
                 if let Ok(conn_idx) = connection_index(self.n_procs, ClientProc(w), ServerProc(s)) {
                     let (tx_hdr, _) =
                         ring_ptrs(self.base, self.n_procs, self.ring_capacity, 2 * conn_idx);
@@ -761,19 +811,17 @@ impl DsmWorkerDetachHandle {
                         self.ring_capacity,
                         2 * conn_idx + 1,
                     );
-                    (*tx_hdr).producer.closed.store(true, Ordering::Release);
-                    (*rx_hdr).consumer.closed.store(true, Ordering::Release);
-                    wake_peers.push((s, tx_hdr, rx_hdr));
+                    if close_ring_pair(tx_hdr, rx_hdr) {
+                        let raw_slot = (*wakeup_slot_ptr(self.base, s)).load(Ordering::SeqCst);
+                        wake_slot(WakeupSlot(raw_slot));
+                    }
                 }
             }
 
             // 2. Inbound server connections `ClientProc(c) -> ServerProc(w)` (`c in 0..n_procs, c != w`):
             //    - `2 * conn_idx` is `rx` (c is producer, w is consumer)
             //    - `2 * conn_idx + 1` is `tx` (w is producer, c is consumer)
-            for c in 0..self.n_procs {
-                if c == w {
-                    continue;
-                }
+            for c in (0..self.n_procs).filter(|&c| c != w) {
                 if let Ok(conn_idx) =
                     connection_index(self.n_procs, ClientProc(c), self.worker_proc)
                 {
@@ -785,21 +833,10 @@ impl DsmWorkerDetachHandle {
                         self.ring_capacity,
                         2 * conn_idx + 1,
                     );
-                    (*tx_hdr).producer.closed.store(true, Ordering::Release);
-                    (*rx_hdr).consumer.closed.store(true, Ordering::Release);
-                    wake_peers.push((c, tx_hdr, rx_hdr));
-                }
-            }
-
-            fence(Ordering::SeqCst);
-
-            for (peer_proc, tx_hdr, rx_hdr) in wake_peers {
-                let wake_rx = (*tx_hdr).consumer.sleeping.swap(false, Ordering::SeqCst);
-                let wake_tx = (*rx_hdr).producer.sleeping.swap(false, Ordering::SeqCst);
-                if wake_rx || wake_tx {
-                    let slot_ptr = wakeup_slot_ptr(self.base, peer_proc);
-                    let raw_slot = (*slot_ptr).load(Ordering::SeqCst);
-                    wake_slot(WakeupSlot(raw_slot));
+                    if close_ring_pair(tx_hdr, rx_hdr) {
+                        let raw_slot = (*wakeup_slot_ptr(self.base, c)).load(Ordering::SeqCst);
+                        wake_slot(WakeupSlot(raw_slot));
+                    }
                 }
             }
         }
@@ -872,6 +909,7 @@ pub unsafe fn build_worker_streams(
                 read_waker: dispatcher.register_waker(),
                 write_waker: dispatcher.register_waker(),
                 dsm_detached: Arc::clone(&dsm_detached),
+                active_streams: None,
             },
         ));
     }
@@ -898,6 +936,7 @@ pub unsafe fn build_worker_streams(
             read_waker: dispatcher.register_waker(),
             write_waker: dispatcher.register_waker(),
             dsm_detached: Arc::clone(&dsm_detached),
+            active_streams: None,
         });
     }
 

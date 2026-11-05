@@ -183,8 +183,7 @@ use crate::postgres::customscan::joinscan::planning::{
 };
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    finish_leader_execution, mpp_plan_has_data_parallelism, query_allows_parallel_mode,
-    record_worker_spill, warn_if_spilled,
+    mpp_plan_has_data_parallelism, query_allows_parallel_mode, shutdown_mpp_scan, teardown_mpp_scan,
 };
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
@@ -1140,7 +1139,7 @@ impl JoinScan {
             with_aggregates: false,
             with_segment_info: false,
         };
-        crate::postgres::customscan::mpp::launch::launch_mpp_join(physical, args)
+        crate::postgres::customscan::mpp::launch::launch_mpp(physical, args)
     }
 
     /// Re-bake the DataFusion logical plan in `mode` from the current `join_clause` and
@@ -1173,40 +1172,16 @@ impl JoinScan {
             .to_vec()
     }
 
-    /// Join the MPP producer workers and destroy the parallel context once nothing
-    /// references the DSM ring mesh. Shuts down the leader session first, takes the
-    /// leader out (its channel resolver drops with it), then drops the stream/plan/runtime
-    /// (all carry DSM stream references) before `wait_for_finish` destroys the DSM. Used at
-    /// EndCustomScan and before a correlated rescan relaunches a fresh worker set.
     fn finish_mpp_execution(state: &mut CustomScanStateWrapper<Self>) {
-        state.custom_state_mut().datafusion_stream = None;
-        if let Some(leader) = state.custom_state().mpp.leader() {
-            finish_leader_execution(
-                state.custom_state().runtime.as_ref(),
-                state.custom_state().physical_plan.as_ref(),
-                leader,
-            );
-        } else if let Some(rt) = state.custom_state().runtime.as_ref() {
-            rt.quiesce_tasks();
-        }
-        let finish = match state.custom_state_mut().mpp.take_leader() {
-            Some(mut leader) => leader.finish.take(),
-            None => None,
-        };
-        {
-            let cs = state.custom_state_mut();
-            cs.current_batch = None;
-            cs.physical_plan = None;
-            cs.runtime = None;
-        }
-        if let Some(mut finish) = finish {
-            // Join first: a producer can still spill while it winds down, and the join
-            // is what orders its store before this load. `recv` is idempotent, so the
-            // one inside `wait_for_finish` returns at once.
-            let _ = finish.recv();
-            record_worker_spill(&state.custom_state().spilled, &finish);
-            finish.wait_for_finish();
-        }
+        let cs = state.custom_state_mut();
+        teardown_mpp_scan(
+            &mut cs.datafusion_stream,
+            &mut cs.current_batch,
+            &mut cs.physical_plan,
+            &mut cs.runtime,
+            &mut cs.mpp,
+            &cs.spilled,
+        );
     }
 }
 impl CustomScan for JoinScan {
@@ -2093,35 +2068,13 @@ impl CustomScan for JoinScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Drop the gather stream first (notifies `EndStreamNotifier` on `DistributedExec` so
-        // `c2w_stream` closes and workers flush their final `TaskMetrics`).
-        state.custom_state_mut().datafusion_stream = None;
-
-        // Wait briefly for `TaskMetrics` over `coordinator_channel`, then signal the workers'
-        // Tonic servers to shut down and close all leader DSM ring streams BEFORE joining the
-        // workers.
-        if let Some(leader) = state.custom_state().mpp.leader() {
-            finish_leader_execution(
-                state.custom_state().runtime.as_ref(),
-                state.custom_state().physical_plan.as_ref(),
-                leader,
-            );
-        } else if let Some(rt) = state.custom_state().runtime.as_ref() {
-            rt.quiesce_tasks();
-        }
-        // Join the producer workers so their metrics land before the EXPLAIN render (which runs
-        // before end_custom_scan, where the context is finally destroyed). A worker error is
-        // re-raised from inside `recv`.
-        if let Some(leader) = state.custom_state_mut().mpp.leader_mut()
-            && let Some(finish) = leader.finish.as_mut()
-        {
-            let _ = finish.recv();
-        }
-        // Must come after the join; see `warn_if_spilled`.
-        let cs = state.custom_state();
-        warn_if_spilled(
+        let cs = state.custom_state_mut();
+        shutdown_mpp_scan(
+            &mut cs.datafusion_stream,
+            cs.runtime.as_ref(),
+            cs.physical_plan.as_ref(),
+            &mut cs.mpp,
             &cs.spilled,
-            cs.mpp.leader().and_then(|leader| leader.finish.as_ref()),
         );
     }
 

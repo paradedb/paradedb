@@ -1,0 +1,82 @@
+#paradedb-cookie-banner,
+#paradedb-cookie-preferences {
+  position: fixed;
+  bottom: 0;
+  z-index: 9999;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+#paradedb-cookie-banner {
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+}
+
+#paradedb-cookie-banner p {
+  margin: 0;
+}
+
+#paradedb-cookie-banner a {
+  text-decoration: underline;
+}
+
+#paradedb-cookie-banner > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#paradedb-cookie-banner button,
+#paradedb-cookie-preferences {
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border: 1px solid #cbd5e1;
+  min-height: 2.5rem;
+  white-space: nowrap;
+}
+
+#paradedb-cookie-preferences {
+  left: 1rem;
+}
+
+#paradedb-cookie-banner button:focus-visible,
+#paradedb-cookie-banner a:focus-visible,
+#paradedb-cookie-preferences:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+#paradedb-cookie-banner [data-consent="true"] {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+
+.dark #paradedb-cookie-banner,
+.dark #paradedb-cookie-preferences {
+  color: #cbd5e1;
+  background: #020617;
+  border-color: #334155;
+}
+
+#paradedb-cookie-banner[hidden],
+#paradedb-cookie-preferences[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  #paradedb-cookie-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #paradedb-cookie-banner button {
+    flex: 1;
+  }
+}

@@ -59,7 +59,7 @@ use super::window_func::{
 };
 use crate::api::{NullTestKind, OrderByFeature};
 use crate::gucs;
-use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::postgres::customscan::aggregatescan::datafusion_exec::FilterExprExecContext;
 use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
@@ -183,18 +183,11 @@ fn numeric_fast_field_type(
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<SearchFieldType> {
-    join_clause.plan.output_sources().iter().find_map(|source| {
-        let mapped = source.map_var(rti, attno)?;
-        let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
-        match &field_info.field {
-            WhichFastField::Named {
-                field_type: ft,
-                cardinality: FieldCardinality::Scalar,
-                ..
-            } if ft.is_numeric() => Some(*ft),
-            _ => None,
-        }
-    })
+    join_clause
+        .plan
+        .output_sources()
+        .iter()
+        .find_map(|source| source.numeric_field_type(source.map_var(rti, attno)?))
 }
 
 /// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.

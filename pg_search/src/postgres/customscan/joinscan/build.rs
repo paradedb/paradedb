@@ -26,6 +26,7 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::score_funcoids;
@@ -33,6 +34,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
+use crate::schema::SearchFieldType;
 use anyhow::anyhow;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
@@ -629,6 +631,19 @@ impl JoinSource {
                     Some(f.field.name())
                 }
             })
+    }
+
+    /// Resolve an attribute number to its field type if it is a scalar NUMERIC fast field.
+    pub fn numeric_field_type(&self, attno: pg_sys::AttrNumber) -> Option<SearchFieldType> {
+        let field_info = self.scan_info.fields.iter().find(|f| f.attno == attno)?;
+        match &field_info.field {
+            WhichFastField::Named {
+                field_type,
+                cardinality: FieldCardinality::Scalar,
+                ..
+            } if field_type.is_numeric() => Some(*field_type),
+            _ => None,
+        }
     }
 
     /// Recursively collect all base relations in this source.

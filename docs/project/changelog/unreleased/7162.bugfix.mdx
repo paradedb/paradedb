@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed join filters over `NUMERIC` columns in the aggregate scan and JoinScan, which read the stored scaled values and could return wrong results or fail. For example, comparing `numeric(10,2)` with `numeric(10,3)`, or `floor(a.amt) <> b.amt`, now matches PostgreSQL.

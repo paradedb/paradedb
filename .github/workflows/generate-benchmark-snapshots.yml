@@ -112,7 +112,7 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - ami=ami-0a2a2634ec0e33c35 # Pin the working runner image to avoid the AppArmor/gosu startup regression.
+      - image=ubuntu26-full-arm64
       - extras=s3-cache
     strategy:
       fail-fast: false

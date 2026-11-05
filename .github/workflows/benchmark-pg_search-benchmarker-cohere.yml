@@ -52,7 +52,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
-      - extras=s3-cache+git-cache+apt-cache
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       COHERE_SIZE: ${{ matrix.size }}
       pg_version: "18"

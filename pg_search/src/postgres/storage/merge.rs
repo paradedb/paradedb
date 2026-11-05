@@ -54,15 +54,6 @@ impl MergeLock {
         Self::from_buffer(bman, buffer)
     }
 
-    pub(crate) unsafe fn try_acquire(
-        indexrel: &PgSearchRelation,
-        block_number: pg_sys::BlockNumber,
-    ) -> Option<Self> {
-        let mut bman = BufferManager::new(indexrel);
-        let buffer = bman.get_buffer_conditional(block_number)?;
-        Some(Self::from_buffer(bman, buffer))
-    }
-
     /// Like `acquire`, but first waits for every other pin on the merge page (`LockBufferForCleanup`).
     pub unsafe fn acquire_for_cleanup(
         indexrel: &PgSearchRelation,

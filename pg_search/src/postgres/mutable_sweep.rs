@@ -51,7 +51,7 @@ const DATABASE_CHECK_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.mutable_sweep_interval",
-        c"Time between idle-segment merge sweeps, in milliseconds.",
+        c"Time between mutable-segment sweeps, in milliseconds.",
         c"Zero disables periodic sweeps. Write-triggered merging is unaffected.",
         &INTERVAL_MS,
         0,
@@ -292,7 +292,14 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             return;
                         };
                         if (*index.rd_rel).relam.is_paradedb_am() && index.is_valid() {
-                            if idle_index {
+                            if VacuumSignal::new(index.oid()).wants_cancel() {
+                                return;
+                            }
+                            if idle_index
+                                && [MergeSlotVariant::Small, MergeSlotVariant::Large]
+                                    .into_iter()
+                                    .all(|variant| MergeSlot::new(index.oid(), variant).is_available())
+                            {
                                 let mut segment_counts = HashMap::default();
                                 MetaPage::open(&index).segment_metas().for_each(|_, entry| {
                                     if entry.visible() {
@@ -300,14 +307,11 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     }
                                 });
                                 if current_counts.get(&index.oid()) == Some(&segment_counts) {
-                                    do_merge(&index, MergeStyle::Idle)
+                                    do_merge(&index, MergeStyle::Background)
                                         .expect("should be able to schedule an idle background merge");
                                 }
                             }
                             if idle_segments.is_empty() {
-                                return;
-                            }
-                            if VacuumSignal::new(index.oid()).wants_cancel() {
                                 return;
                             }
                             let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
@@ -318,9 +322,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             let Some(merge_pins) = metadata.try_pin_merge() else {
                                 return;
                             };
-                            let Some(merge_lock) = metadata.try_acquire_merge_lock() else {
-                                return;
-                            };
+                            let merge_lock = metadata.acquire_merge_lock();
                             PgTryBuilder::new(AssertUnwindSafe(|| {
                                 let frozen = metadata.freeze_mutable_segments_matching(|entry| {
                                     idle_segments.get(&entry.segment_id()) == Some(&entry.num_docs())

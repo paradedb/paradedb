@@ -844,9 +844,15 @@ fn periodic_sweep_cancellation_releases_vacuum_barriers() {
 }
 
 #[test]
-fn periodic_sweep_waits_for_unchanged_document_counts() {
+fn periodic_sweep_waits_for_unchanged_segments() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut fixture = Fixture::new("sweep_growing", true);
+    let mut immutable = Fixture::new("sweep_immutable", false);
+    immutable.segments();
+    immutable
+        .controller
+        .batch_execute("ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='1mb')")
+        .unwrap();
     fixture.controller.batch_execute(
         "INSERT INTO sweep_growing VALUES(1,'alpha beta');
          DROP TABLE IF EXISTS sweep_unchanged;
@@ -869,7 +875,12 @@ fn periodic_sweep_waits_for_unchanged_document_counts() {
     assert!(fixture.value::<bool>("SELECT EXISTS(SELECT FROM paradedb.index_info('sweep_unchanged_idx') WHERE visible AND mutable)"));
     fixture
         .controller
-        .batch_execute("INSERT INTO sweep_growing VALUES(2,'alpha beta')")
+        .batch_execute(
+            "INSERT INTO sweep_growing VALUES(2,'alpha beta');
+             ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='0');
+             INSERT INTO sweep_immutable SELECT id, 'alpha beta ' || md5(id::text) FROM generate_series(1001,1250) id;
+             ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='1mb')"
+        )
         .unwrap();
     wait_until(
         "unchanged segment flushing on the second observation",
@@ -878,6 +889,18 @@ fn periodic_sweep_waits_for_unchanged_document_counts() {
         },
     );
     assert_eq!(fixture.value::<String>("SELECT segno FROM paradedb.index_info('sweep_growing_idx') WHERE visible AND mutable AND num_docs=2"), segment);
+    assert_eq!(
+        immutable.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible"
+        ),
+        5
+    );
+    wait_until("idle immutable background merge", || {
+        immutable.value::<i64>(
+            "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible",
+        ) == 1
+    });
+    immutable.assert_rows(750);
     wait_until(
         "growing segment flushing after its count stabilizes",
         || {
@@ -891,86 +914,6 @@ fn periodic_sweep_waits_for_unchanged_document_counts() {
     fixture
         .controller
         .batch_execute("DROP TABLE sweep_unchanged")
-        .unwrap();
-}
-
-#[test]
-fn periodic_sweep_waits_for_unchanged_immutable_segments() {
-    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
-    let mut disabled = Fixture::new("sweep_disabled", false);
-    disabled.segments();
-    let mut at_target = Fixture::new("sweep_at_target", false);
-    at_target.segments();
-    at_target.controller.batch_execute(
-        "ALTER INDEX sweep_at_target_idx SET (target_segment_count=4, background_layer_sizes='1mb')"
-    ).unwrap();
-    let mut fixture = Fixture::new("sweep_immutable", false);
-    fixture.controller.batch_execute(
-        "DROP TABLE IF EXISTS sweep_immutable_control;
-         CREATE TABLE sweep_immutable_control (id bigint,body text);
-         CREATE INDEX sweep_immutable_control_idx ON sweep_immutable_control USING paradedb(id,body) WITH(mutable_segment_rows=10000);
-         INSERT INTO sweep_immutable_control VALUES(1,'alpha beta')"
-    ).unwrap();
-    fixture.segments();
-    fixture
-        .controller
-        .batch_execute("ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='1mb')")
-        .unwrap();
-    fixture
-        .controller
-        .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 1000")
-        .unwrap();
-    fixture
-        .controller
-        .simple_query("SELECT pg_reload_conf()")
-        .unwrap();
-    wait_until("first immutable sweep observation", || {
-        fixture.value::<bool>("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE backend_type='pg_search mutable sweep' AND datname=current_database() AND state='idle' AND wait_event_type='Extension')")
-    });
-    assert_eq!(
-        fixture.value::<i64>(
-            "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible"
-        ),
-        4
-    );
-    fixture.controller.batch_execute(
-        "ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='0');
-         INSERT INTO sweep_immutable SELECT id, 'alpha beta ' || md5(id::text) FROM generate_series(1001,1250) id;
-         ALTER INDEX sweep_immutable_idx SET (background_layer_sizes='1mb')"
-    ).unwrap();
-    wait_until("second sweep observation", || {
-        fixture.value::<bool>("SELECT NOT EXISTS(SELECT FROM paradedb.index_info('sweep_immutable_control_idx') WHERE visible AND mutable)")
-    });
-    assert_eq!(
-        fixture.value::<i64>(
-            "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible"
-        ),
-        5
-    );
-    wait_until("idle immutable background merge", || {
-        fixture.value::<i64>(
-            "SELECT count(*) FROM paradedb.index_info('sweep_immutable_idx') WHERE visible",
-        ) == 1
-    });
-    for index in ["sweep_disabled_idx", "sweep_at_target_idx"] {
-        assert_eq!(
-            fixture.value::<i64>(&format!(
-                "SELECT count(*) FROM paradedb.index_info('{index}') WHERE visible"
-            )),
-            4
-        );
-    }
-    fixture.assert_rows(750);
-    fixture
-        .controller
-        .batch_execute("VACUUM sweep_immutable")
-        .unwrap();
-    assert!(fixture.value::<bool>(
-        "SELECT bool_and(passed) FROM pdb.verify_index('sweep_immutable_idx',heapallindexed=>true)"
-    ));
-    fixture
-        .controller
-        .batch_execute("DROP TABLE sweep_immutable_control")
         .unwrap();
 }
 
@@ -1017,12 +960,11 @@ fn periodic_sweep_retries_after_a_busy_background_merger() {
             batch * 250 + 1, (batch + 1) * 250
         )).unwrap();
     }
-    fixture.controller.batch_execute(
-        "DROP TABLE IF EXISTS sweep_busy_worker_control;
-         CREATE TABLE sweep_busy_worker_control (id bigint,body text);
-         CREATE INDEX sweep_busy_worker_control_idx ON sweep_busy_worker_control USING paradedb(id,body) WITH(mutable_segment_rows=10000);
-         INSERT INTO sweep_busy_worker_control VALUES(1,'alpha beta')"
-    ).unwrap();
+    let mut control = Fixture::new("sweep_busy_worker_control", true);
+    control
+        .controller
+        .batch_execute("INSERT INTO sweep_busy_worker_control VALUES(1,'alpha beta')")
+        .unwrap();
     fixture
         .controller
         .batch_execute("ALTER SYSTEM SET paradedb.mutable_sweep_interval = 1000")
@@ -1057,10 +999,6 @@ fn periodic_sweep_retries_after_a_busy_background_merger() {
     assert!(fixture.value::<bool>(
         "SELECT bool_and(passed) FROM pdb.verify_index('sweep_busy_worker_idx',heapallindexed=>true)"
     ));
-    fixture
-        .controller
-        .batch_execute("DROP TABLE sweep_busy_worker_control")
-        .unwrap();
 }
 
 #[test]
@@ -1072,10 +1010,6 @@ fn periodic_sweep_skips_immutable_indexes_with_a_busy_merge_lock() {
         "SELECT NOT EXISTS(SELECT FROM paradedb.index_info('{}') WHERE visible AND mutable)",
         fixture.index
     )));
-    fixture
-        .controller
-        .batch_execute("ALTER INDEX sweep_idle_merge_idx SET (background_layer_sizes='1mb')")
-        .unwrap();
     let holder = fixture.actor(
         "selection",
         format!("SELECT paradedb.test_merge_index('{}')", fixture.index),

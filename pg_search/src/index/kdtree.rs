@@ -813,6 +813,77 @@ mod tests {
     }
 
     #[test]
+    fn ctid_fallback_is_unused_while_declared_dims_can_still_cut() {
+        // Ctids scattered across the heap, unique and uncorrelated with the declared values
+        // (7919 is prime, so it permutes 0..n), and always wider than any declared dimension.
+        let scattered_ctids =
+            |n: u64| -> Vec<u64> { (0..n).map(|i| (((i * 7919) % n) << 16) | 1).collect() };
+        let check = |names: &[&str], sample: Vec<Point>, target: usize| {
+            let ctids = scattered_ctids(sample.len() as u64);
+            let tree =
+                KdTree::from_sample(dims(names), sample.clone(), target, Some(ctids.clone()));
+            assert_eq!(tree.partition_count(), target, "{tree}");
+            check_invariants(&tree, &sample, Some(&ctids));
+            let splits = tree.split_dims();
+            assert_eq!(splits.len(), target - 1, "{tree}");
+            assert!(
+                !splits.contains(&DimHandle::Ctid),
+                "the fallback cut while a declared dimension could: {splits:?}\n{tree}"
+            );
+        };
+
+        // A unique key.
+        check(&["id"], i64s(0..1000), 8);
+        // Many duplicates, but every leaf still holds several distinct values.
+        check(&["tenant"], i64s((0..1000).map(|i| i % 100)), 8);
+        // Two declared dimensions: they share the cuts between them, and ctid takes none.
+        let grid: Vec<Point> = (0..40)
+            .flat_map(|x| (0..40).map(move |y| vec![PdbOwnedValue::I64(x), PdbOwnedValue::I64(y)]))
+            .collect();
+        check(&["x", "y"], grid, 4);
+    }
+
+    #[test]
+    fn ctid_fallback_partitions_share_their_declared_box() {
+        // 990 rows on tenant 0 and ten cold tenants 1..=10. Tenant only cuts at 1, so the ctid
+        // fallback splits the hot rows across the remaining partitions.
+        let mut sample = i64s(std::iter::repeat_n(0, 990));
+        sample.extend(i64s(1..=10));
+        let ctids: Vec<u64> = (0..sample.len() as u64).map(|i| (i << 16) | 1).collect();
+        let tree = KdTree::from_sample(dims(&["tenant"]), sample.clone(), 8, Some(ctids.clone()));
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+        check_invariants(&tree, &sample, Some(&ctids));
+
+        // On the declared dimension, every hot partition has the same box: a segment's box
+        // can't tell them apart, so pruning on `tenant` must keep all of them together.
+        let hot_box = (Bound::Unbounded, Bound::Excluded(PdbOwnedValue::I64(1)));
+        let cold_box = (Bound::Included(PdbOwnedValue::I64(1)), Bound::Unbounded);
+        for p in 0..7 {
+            let bounds = tree.partition_bounds(p).unwrap();
+            assert_eq!(bounds[0], hot_box, "partition {p}\n{tree}");
+            // The fallback's cut shows up as one extra range, after the declared dimensions.
+            assert_eq!(bounds.len(), 2, "partition {p}: {bounds:?}\n{tree}");
+        }
+        assert_eq!(tree.partition_bounds(7).unwrap(), vec![cold_box], "{tree}");
+
+        // `check_invariants` only checks the declared dimensions, so check the ctid ranges
+        // here: every row's ctid falls in the extra range of the partition it routes to.
+        for (point, &ctid) in sample.iter().zip(&ctids) {
+            let p = tree.route(point, ctid);
+            let bounds = tree.partition_bounds(p).unwrap();
+            if let Some(ctid_range) = bounds.get(1) {
+                assert!(
+                    contains(
+                        std::slice::from_ref(ctid_range),
+                        &[PdbOwnedValue::U64(ctid)]
+                    ),
+                    "ctid {ctid} not in partition {p}: {ctid_range:?}\n{tree}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn mixed_types_and_serde_round_trip() {
         let sample: Vec<Point> = (0..300)
             .map(|i| {

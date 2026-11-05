@@ -37,6 +37,7 @@ use tantivy::directory::{CompositeFile, FileSlice};
 use tantivy::index::{Segment, SegmentReader};
 use tantivy::schema::{Field, FieldType};
 
+use crate::api::CTID_FIELD_NAME;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
 use crate::postgres::storage::block::STATS_EXT;
@@ -90,13 +91,19 @@ pub(crate) fn partition_box(
     partition: usize,
 ) -> Option<std::sync::Arc<LogicalBoundsByField>> {
     let bounds = tree.partition_bounds(partition)?;
-    Some(std::sync::Arc::new(
-        tree.dims()
-            .iter()
-            .zip(bounds)
-            .map(|(dim, (lower, upper))| (dim.as_ref().to_string(), LogicalBounds { lower, upper }))
-            .collect(),
-    ))
+    let dim_names = tree
+        .dims()
+        .iter()
+        .map(|f| f.to_string())
+        // add the CTID name to the end. If the ctid fallback was used, this there will be an extra
+        // bound that pairs with this. If not, then the zip will return None at this entry.
+        .chain([CTID_FIELD_NAME.to_string()]);
+    let bounds_by_field = dim_names
+        .zip(bounds)
+        .map(|(dim, (lower, upper))| (dim, LogicalBounds { lower, upper }))
+        .collect();
+
+    Some(std::sync::Arc::new(bounds_by_field))
 }
 
 /// The default `PdbOwnedValue` serde is lossy (a non-negative `I64` comes back as `U64`), so the

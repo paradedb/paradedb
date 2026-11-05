@@ -2043,19 +2043,7 @@ EXECUTE window_join_param_limit(3);
    Limit: $1
    Order By: r.score desc
    DataFusion Physical Plan: 
-<<<<<<< HEAD
      : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, get_field(__topk@0, c1) + window_agg_1@1 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
-     :   UnnestExec
-     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, $1, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, sum(r_1.score) as window_agg_2]
-     :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, ctid_0@0, ctid_1@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(16 rows)
-=======
-     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, pdb_eval_expr_opexpr_6fc85b7a(get_field(__topk@0, c1), window_agg_1@1) as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=3
      :     UnnestExec
      :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, sum(r_1.score) as window_agg_2]
@@ -2066,7 +2054,6 @@ EXECUTE window_join_param_limit(3);
      :             CooperativeExec
      :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
 (17 rows)
->>>>>>> 1c2daec (feat: Add support for joins ordered by vector distance (#7137))
 
 EXECUTE window_join_param_limit(3);
  id | score | total_count | total_score | score_plus_count 

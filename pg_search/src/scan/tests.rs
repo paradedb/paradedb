@@ -56,6 +56,484 @@ mod tests {
         (heap_oid, index_oid)
     }
 
+    fn scan_statistics_fixture() -> (SearchIndexReader, PgSearchRelation, Vec<WhichFastField>) {
+        Spi::run(
+            "CREATE TABLE scan_stats (id bigint PRIMARY KEY, label text, price double precision,
+                                      missing bigint, flag boolean, amount numeric, missing_text text);
+             CREATE INDEX scan_stats_idx ON scan_stats USING paradedb
+                 (id, (label::pdb.literal), price, missing, flag, amount, (missing_text::pdb.literal))
+                 WITH (target_segment_count = 8, background_layer_sizes = '0');
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO scan_stats VALUES (1, 'shared', -2.5, NULL, true, 1.25, NULL),
+                                          (2, 'first', 1.5, NULL, false, 2.5, NULL);
+             INSERT INTO scan_stats VALUES (3, 'shared', 4.5, NULL, true, 1.25, NULL),
+                                          (4, 'last', NULL, NULL, false, 3.75, NULL);
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        push_active_snapshot();
+        let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'scan_stats_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let heap_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'scan_stats'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let index = PgSearchRelation::open(index_oid);
+        let reader = SearchIndexReader::open(
+            &index,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::eager("label", SearchFieldType::Text(pg_sys::TEXTOID)),
+            WhichFastField::eager("id", SearchFieldType::I64(pg_sys::INT8OID)),
+            WhichFastField::eager("price", SearchFieldType::F64(pg_sys::FLOAT8OID)),
+            WhichFastField::eager("missing", SearchFieldType::I64(pg_sys::INT8OID)),
+            WhichFastField::eager("flag", SearchFieldType::Bool(pg_sys::BOOLOID)),
+            WhichFastField::eager(
+                "amount",
+                SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None),
+            ),
+            WhichFastField::eager("missing_text", SearchFieldType::Text(pg_sys::TEXTOID)),
+        ];
+        (reader, PgSearchRelation::open(heap_oid), fields)
+    }
+
+    #[pg_test]
+    fn scan_statistics_reuse_readers_and_persisted_bounds() {
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::ScalarValue;
+
+        let (reader, _heap, fields) = scan_statistics_fixture();
+        let helper = FFHelper::with_fields(&reader, &fields);
+        let id = column_statistics(&helper, 2, &DataType::Int64, Some(4));
+        assert_eq!(
+            id.min_value,
+            Precision::Inexact(ScalarValue::Int64(Some(1)))
+        );
+        assert_eq!(
+            id.max_value,
+            Precision::Inexact(ScalarValue::Int64(Some(4)))
+        );
+        for ord in 0..helper.num_segments() as u32 {
+            assert!(
+                helper.cached_column(ord, 2).is_none(),
+                "persisted bounds must not open a value column"
+            );
+        }
+        let empirical_reads = crate::index::segment_pruning::EMPIRICAL_READS
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(column_statistics(&helper, 2, &DataType::Int64, Some(4)), id);
+        assert_eq!(
+            crate::index::segment_pruning::EMPIRICAL_READS
+                .load(std::sync::atomic::Ordering::Relaxed),
+            empirical_reads
+        );
+
+        for (field, data_type) in [
+            (1, DataType::Utf8View),
+            (3, DataType::Float64),
+            (4, DataType::Int64),
+            (6, DataType::BinaryView),
+        ] {
+            column_statistics(&helper, field, &data_type, Some(4));
+        }
+        let mut nullable_segments = 0;
+        for ord in 0..helper.num_segments() as u32 {
+            for field in [1, 6] {
+                let cached = helper.cached_column(ord, field).unwrap().unwrap();
+                assert!(
+                    std::ptr::eq(cached, helper.column(ord, field)),
+                    "execution must reuse statistics' dictionary reader"
+                );
+            }
+            let price = helper.persisted_statistics(ord, 3).unwrap();
+            if price.nullable {
+                nullable_segments += 1;
+                let cached = helper.cached_column(ord, 3).unwrap().unwrap();
+                assert!(std::ptr::eq(cached, helper.column(ord, 3)));
+            } else {
+                assert!(helper.cached_column(ord, 3).is_none());
+            }
+            assert!(
+                helper.cached_column(ord, 4).is_some(),
+                "all-null columns require the reader fallback"
+            );
+        }
+        assert_eq!(nullable_segments, 1);
+
+        // Reading values first avoids a redundant persisted metadata lookup.
+        let helper = FFHelper::with_fields(&reader, &fields);
+        for ord in 0..helper.num_segments() as u32 {
+            helper.column(ord, 2);
+        }
+        let empirical_reads = crate::index::segment_pruning::EMPIRICAL_READS
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(column_statistics(&helper, 2, &DataType::Int64, Some(4)), id);
+        assert_eq!(
+            crate::index::segment_pruning::EMPIRICAL_READS
+                .load(std::sync::atomic::Ordering::Relaxed),
+            empirical_reads
+        );
+    }
+
+    #[pg_test]
+    fn scan_statistics_missing_persisted_bounds_share_fallback() {
+        use crate::index::segment_pruning::{InjectedStatsFailure, inject_stats_failure};
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::ScalarValue;
+        let (reader, _heap, fields) = scan_statistics_fixture();
+        let guards: Vec<_> = reader
+            .segment_ids()
+            .into_iter()
+            .map(|id| inject_stats_failure(id, InjectedStatsFailure::Missing))
+            .collect();
+        let helper = FFHelper::with_fields(&reader, &fields);
+        let stats = column_statistics(&helper, 2, &DataType::Int64, Some(4));
+        assert_eq!(
+            stats.min_value,
+            Precision::Inexact(ScalarValue::Int64(Some(1)))
+        );
+        assert_eq!(
+            stats.max_value,
+            Precision::Inexact(ScalarValue::Int64(Some(4)))
+        );
+        assert!(guards.iter().all(|guard| guard.hits() == 1));
+        for ord in 0..helper.num_segments() as u32 {
+            let cached = helper.cached_column(ord, 2).unwrap().unwrap();
+            assert!(std::ptr::eq(cached, helper.column(ord, 2)));
+        }
+        assert_eq!(
+            column_statistics(&helper, 2, &DataType::Int64, Some(4)),
+            stats
+        );
+        assert!(guards.iter().all(|guard| guard.hits() == 1));
+    }
+
+    #[pg_test]
+    fn scan_statistics_unreadable_persisted_bounds_raise() {
+        use crate::index::segment_pruning::{InjectedStatsFailure, inject_stats_failure};
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+
+        let (_reader, _heap, fields) = scan_statistics_fixture();
+        for operation in [InjectedStatsFailure::Open, InjectedStatsFailure::Empirical] {
+            // Each error probe needs an uncached snapshot.
+            let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'scan_stats_idx'::regclass::oid")
+                .unwrap()
+                .unwrap();
+            let index = PgSearchRelation::open(index_oid);
+            let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot).unwrap();
+            let guard = inject_stats_failure(reader.segment_ids()[0], operation);
+            let helper = FFHelper::with_fields(&reader, &fields);
+            let error = pgrx::PgTryBuilder::new(std::panic::AssertUnwindSafe(|| {
+                column_statistics(&helper, 2, &DataType::Int64, Some(4));
+                None
+            }))
+            .catch_others(|caught| match caught {
+                pgrx::pg_sys::panic::CaughtError::ErrorReport(report) => {
+                    Some(report.message().to_string())
+                }
+                other => other.rethrow(),
+            })
+            .execute()
+            .expect("unreadable metadata must raise");
+            assert!(
+                error.contains(&format!("injected {operation:?} statistics failure")),
+                "{error}"
+            );
+            assert_eq!(guard.hits(), 1);
+            assert!(
+                helper.statistics(2).get().is_none(),
+                "errors must not cache absence"
+            );
+            drop(guard);
+            assert!(
+                column_statistics(&helper, 2, &DataType::Int64, Some(4))
+                    .min_value
+                    .get_value()
+                    .is_some()
+            );
+        }
+    }
+
+    fn scan_statistics_plan(
+        reader: SearchIndexReader,
+        heap: &PgSearchRelation,
+        fields: Vec<WhichFastField>,
+        estimated_rows: u64,
+    ) -> PgSearchScanPlan {
+        let helper = Arc::new(FFHelper::with_fields(&reader, &fields));
+        let visibility =
+            HeapVisibilityChecker::with_rel_and_snap(heap, unsafe { pg_sys::GetActiveSnapshot() })
+                .with_ffhelper(Arc::clone(&helper));
+        let state = crate::scan::execution_plan::ScanState {
+            source_idx: None,
+            planner_estimated_rows: estimated_rows,
+            scanner_config: crate::scan::execution_plan::ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap.oid().into(),
+                batch_size_hint: None,
+                score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
+            },
+            ffhelper: helper,
+            visibility: Box::new(visibility),
+            reader,
+        };
+        PgSearchScanPlan::new(
+            Some(state),
+            build_arrow_schema(&fields),
+            SearchQueryInput::All,
+            None,
+            vec![],
+            None,
+            0,
+            None,
+            1,
+            None,
+            None,
+        )
+    }
+
+    #[pg_test]
+    #[allow(deprecated)]
+    fn scan_statistics_scalar_metadata_and_execution() {
+        use datafusion::common::{ScalarValue, stats::ColumnStatistics};
+        use datafusion::physical_plan::statistics::{StatisticsArgs, StatisticsContext};
+        let (reader, heap, fields) = scan_statistics_fixture();
+        assert_eq!(
+            reader.segment_readers().len(),
+            2,
+            "dictionary overlap needs separate segments"
+        );
+        let plan = scan_statistics_plan(reader, &heap, fields, 4);
+        let before = StatisticsContext::new()
+            .compute(&plan, &StatisticsArgs::new())
+            .unwrap();
+        assert_eq!(before.num_rows, Precision::Inexact(4));
+        assert_eq!(before.column_statistics.len(), plan.schema().fields().len());
+        assert_eq!(
+            before.column_statistics[1].distinct_count,
+            Precision::Inexact(4),
+            "sum dictionaries, retaining the shared term's overlap as an estimate"
+        );
+        assert_eq!(
+            before.column_statistics[2].min_value,
+            Precision::Inexact(ScalarValue::Int64(Some(1)))
+        );
+        assert_eq!(
+            before.column_statistics[2].max_value,
+            Precision::Inexact(ScalarValue::Int64(Some(4)))
+        );
+        assert_eq!(
+            before.column_statistics[3].min_value,
+            Precision::Inexact(ScalarValue::Float64(Some(-2.5)))
+        );
+        assert_eq!(
+            before.column_statistics[3].max_value,
+            Precision::Inexact(ScalarValue::Float64(Some(4.5)))
+        );
+        for index in [0, 4, 5] {
+            assert_eq!(before.column_statistics[index], ColumnStatistics::default());
+        }
+        assert_eq!(
+            before.column_statistics[6].distinct_count,
+            Precision::Inexact(4)
+        );
+        assert_eq!(
+            before.column_statistics[7].distinct_count,
+            Precision::Inexact(0)
+        );
+        assert!(
+            before
+                .column_statistics
+                .iter()
+                .all(|s| s.null_count == Precision::Absent && s.sum_value == Precision::Absent)
+        );
+        let cloned = plan.clone();
+        assert_eq!(cloned.partition_statistics(None).unwrap(), before);
+        let mut stream = plan.execute(0, Arc::new(TaskContext::default())).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let rows = runtime.block_on(async {
+            let mut rows = 0;
+            while let Some(batch) = stream.next().await {
+                rows += batch.unwrap().num_rows();
+            }
+            rows
+        });
+        assert_eq!(rows, 4);
+        assert_eq!(
+            plan.partition_statistics(None).unwrap(),
+            before,
+            "execute must retain statistics"
+        );
+        assert_eq!(plan.partition_statistics(Some(0)).unwrap(), before);
+        assert!(plan.partition_statistics(Some(1)).is_err());
+    }
+
+    #[pg_test]
+    #[allow(deprecated)]
+    fn scan_statistics_capping_deferred_and_partition_variants() {
+        use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery};
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::stats::ColumnStatistics;
+        use datafusion::physical_plan::statistics::{StatisticsArgs, StatisticsContext};
+        let (reader, heap, fields) = scan_statistics_fixture();
+        let helper = FFHelper::with_fields(&reader, &fields);
+        assert!(helper.statistics(1).get().is_none());
+        assert_eq!(
+            column_statistics(&helper, 1, &DataType::Utf8View, Some(1)).distinct_count,
+            Precision::Inexact(1),
+            "filtered row estimate caps dictionary NDV"
+        );
+        assert_eq!(
+            column_statistics(&helper, 1, &DataType::Utf8View, Some(0)).distinct_count,
+            Precision::Inexact(0)
+        );
+        assert_eq!(
+            helper.statistics(1).get().unwrap().distinct_count,
+            Precision::Inexact(4),
+            "cache the raw metadata once, applying row caps independently per request"
+        );
+        assert_eq!(
+            column_statistics(&helper, 1, &DataType::UInt64, Some(4)),
+            ColumnStatistics::default()
+        );
+        let mut deferred = fields.clone();
+        deferred[1] = WhichFastField::named(
+            "label",
+            SearchFieldType::Text(pg_sys::TEXTOID),
+            FieldCardinality::Scalar,
+            FieldDelivery::Deferred,
+        );
+        let plan = scan_statistics_plan(reader.clone(), &heap, deferred, 4);
+        assert_eq!(
+            plan.partition_statistics(None).unwrap().column_statistics[1],
+            ColumnStatistics::default()
+        );
+        let projected = datafusion::physical_plan::projection::ProjectionExec::try_new(
+            [("label", 1), ("id", 2)]
+                .into_iter()
+                .map(|(name, index)| {
+                    (
+                        Arc::new(datafusion::physical_plan::expressions::Column::new(
+                            name, index,
+                        ))
+                            as Arc<dyn datafusion::physical_expr::PhysicalExpr>,
+                        name.to_string(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            Arc::new(plan),
+        )
+        .unwrap();
+        let decode = crate::scan::tantivy_decode_exec::TantivyDecodeExec::new(
+            Arc::new(projected),
+            vec![crate::scan::deferred_lookup::PhysicalDeferredField {
+                col_idx: 0,
+                display_name: "label".into(),
+                is_bytes: false,
+                cardinality: FieldCardinality::Scalar,
+                canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                    indexrelid: 0,
+                    ff_index: 1,
+                },
+                heap_rti: 1,
+                rebuild: None,
+            }],
+            [(0, Arc::new(FFHelper::with_fields(&reader, &fields)))]
+                .into_iter()
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(
+            StatisticsContext::new()
+                .compute(&decode, &StatisticsArgs::new())
+                .unwrap()
+                .column_statistics[0]
+                .distinct_count,
+            Precision::Inexact(4),
+            "decoding restores logical dictionary statistics"
+        );
+        let mut lists = fields.clone();
+        lists[1] = WhichFastField::named(
+            "label",
+            SearchFieldType::Text(pg_sys::TEXTOID),
+            FieldCardinality::List,
+            FieldDelivery::Eager,
+        );
+        let list_helper = FFHelper::with_fields(&reader, &lists);
+        assert_eq!(
+            column_statistics(&list_helper, 1, &DataType::Utf8View, Some(4)),
+            ColumnStatistics::default()
+        );
+
+        let plan = scan_statistics_plan(reader, &heap, fields, 4)
+            .repartition(2)
+            .unwrap();
+        let plan = plan.downcast_ref::<PgSearchScanPlan>().unwrap();
+        for partition in 0..2 {
+            let statistics = plan.partition_statistics(Some(partition)).unwrap();
+            assert_eq!(statistics.num_rows, Precision::Inexact(2));
+            assert_eq!(
+                statistics.column_statistics[1].distinct_count,
+                Precision::Inexact(2)
+            );
+            let assigned = plan.with_assigned_partition(partition);
+            assert_eq!(assigned.partition_statistics(None).unwrap(), statistics);
+            assert_eq!(assigned.partition_statistics(Some(0)).unwrap(), statistics);
+            assert!(assigned.partition_statistics(Some(1)).is_err());
+        }
+    }
+
+    #[pg_test]
+    fn scan_statistics_empty_and_mutable_readers() {
+        use crate::index::reader::index::test_support::segmented_index_fixture;
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::stats::ColumnStatistics;
+        for (name, batches, mutable) in [
+            ("scan_statistics_empty", 0, false),
+            ("scan_statistics_mutable", 1, true),
+        ] {
+            let (index, _) = segmented_index_fixture(name, batches, mutable);
+            let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot).unwrap();
+            let helper = FFHelper::with_fields(
+                &reader,
+                &[
+                    WhichFastField::eager("id", SearchFieldType::I64(pg_sys::INT8OID)),
+                    WhichFastField::eager("title", SearchFieldType::Text(pg_sys::TEXTOID)),
+                ],
+            );
+            assert_eq!(
+                column_statistics(&helper, 0, &DataType::Int64, None),
+                ColumnStatistics::default()
+            );
+            let text = column_statistics(&helper, 1, &DataType::Utf8View, None);
+            assert_eq!(
+                text.distinct_count,
+                if mutable {
+                    Precision::Absent
+                } else {
+                    Precision::Inexact(0)
+                }
+            );
+            assert_eq!(
+                column_statistics(&helper, 1, &DataType::Utf8View, None),
+                text
+            );
+        }
+    }
+
     #[pg_test]
     fn test_datafusion_scan() {
         let (heap_oid, index_oid) = get_relation_oids();

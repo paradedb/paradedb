@@ -56,8 +56,9 @@ use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::and;
 use datafusion::catalog::Session;
 use datafusion::common::project_schema;
+use datafusion::common::stats::Precision;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{DFSchemaRef, DataFusionError, Result};
+use datafusion::common::{ColumnStatistics, DFSchemaRef, DataFusionError, Result, Statistics};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
@@ -75,6 +76,7 @@ use datafusion::physical_plan::metrics::{
 use datafusion::physical_plan::projection::{
     EmbeddedProjection, ProjectionExec, try_embed_projection,
 };
+use datafusion::physical_plan::statistics::{ChildStats, StatisticsArgs, StatisticsContext};
 use datafusion::physical_plan::{
     ChildrenPropertiesMode, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
     ReplaceChildrenOptions,
@@ -1252,6 +1254,35 @@ impl ExecutionPlan for VisibilityFilterExec {
         &self.properties
     }
 
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
+        StatisticsContext::new().compute(self, &StatisticsArgs::new().with_partition(partition))
+    }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        vec![ChildStats::At(partition)]
+    }
+
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        _args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        // Visibility can remove rows, so even exact input metadata becomes an estimate.
+        let mut statistics = input_stats[0].as_ref().clone().to_inexact();
+        let schema = self.input.schema();
+        for &(plan_pos, _) in &self.plan_pos_oids {
+            let name = CtidColumn::new(plan_pos).to_string();
+            if let Some((index, _)) = schema.column_with_name(&name) {
+                // Resolving packed addresses and HOT redirects changes the ctid values.
+                statistics.column_statistics[index] = ColumnStatistics::default();
+            }
+        }
+        if self.projection.is_some() {
+            statistics.total_byte_size = Precision::Absent;
+        }
+        Ok(Arc::new(statistics.project(self.projection.as_ref())))
+    }
+
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
     }
@@ -2380,6 +2411,84 @@ mod tests {
             ]
         );
 
+        Ok(())
+    }
+
+    #[pg_test]
+    #[allow(deprecated)] // Exercise the partition-aware statistics exposed to optimizers.
+    fn scan_statistics_visibility_projects_after_clearing_ctids() -> Result<()> {
+        use super::VisibilityFilterExec;
+        use arrow_array::{RecordBatch, UInt64Array};
+        use arrow_schema::{DataType, Field, Schema};
+        use datafusion::common::ColumnStatistics;
+        use datafusion::common::stats::Precision;
+        use datafusion::datasource::memory::MemorySourceConfig;
+        use datafusion::physical_expr::PhysicalExpr;
+        use datafusion::physical_expr::expressions::Column;
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion::physical_plan::projection::ProjectionExec;
+        use datafusion::physical_plan::statistics::{StatisticsArgs, StatisticsContext};
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("value", DataType::UInt64, true),
+            Field::new("ctid_0", DataType::UInt64, true),
+            Field::new("other", DataType::UInt64, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(UInt64Array::from(vec![None, None])),
+                Arc::new(UInt64Array::from(vec![Some(1), Some(2)])),
+                Arc::new(UInt64Array::from(vec![Some(1), None])),
+            ],
+        )?;
+        let input: Arc<dyn ExecutionPlan> =
+            MemorySourceConfig::try_new_exec(&[vec![batch.clone()], vec![batch]], schema, None)?;
+        let expressions = ["value", "ctid_0", "other"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                (
+                    Arc::new(Column::new(name, index)) as Arc<dyn PhysicalExpr>,
+                    name.to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let input: Arc<dyn ExecutionPlan> = Arc::new(ProjectionExec::try_new(expressions, input)?);
+        let visibility = VisibilityFilterExec::new(
+            input.clone(),
+            vec![(0, pg_sys::Oid::from(100))],
+            vec!["t".into()],
+        )?;
+        let projected = visibility.with_projection(Some(vec![2, 1, 0, 2]))?;
+        let context = StatisticsContext::new();
+        for partition in [None, Some(0), Some(1)] {
+            let args = StatisticsArgs::new().with_partition(partition);
+            let original = context.compute(input.as_ref(), &args)?;
+            let filtered = context.compute(&visibility, &args)?;
+            assert_eq!(filtered.num_rows, original.num_rows.to_inexact());
+            assert_eq!(
+                filtered.total_byte_size,
+                original.total_byte_size.to_inexact()
+            );
+            assert_eq!(filtered.column_statistics[1], ColumnStatistics::default());
+            let statistics = context.compute(&projected, &args)?;
+            assert_eq!(
+                projected.partition_statistics(partition)?.as_ref(),
+                statistics.as_ref()
+            );
+            assert_eq!(statistics.num_rows, filtered.num_rows);
+            assert_eq!(statistics.total_byte_size, Precision::Absent);
+            assert_eq!(
+                statistics.column_statistics,
+                vec![
+                    original.column_statistics[2].clone().to_inexact(),
+                    ColumnStatistics::default(),
+                    original.column_statistics[0].clone().to_inexact(),
+                    original.column_statistics[2].clone().to_inexact(),
+                ]
+            );
+        }
         Ok(())
     }
 

@@ -5188,6 +5188,46 @@ mod tests {
         Spi::run("RESET paradedb.enable_segment_pruning;").unwrap();
     }
 
+    #[pg_test]
+    fn scan_statistics_do_not_materialize_mutable_segments() {
+        use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+        use crate::scan::statistics::column_statistics;
+        use arrow_schema::DataType;
+        use datafusion::common::stats::ColumnStatistics;
+
+        let (index, _) = segmented_index_fixture("scan_stats_mutable_lazy", 1, true);
+        let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot).unwrap();
+        let mutable_id = reader
+            .segment_ids()
+            .into_iter()
+            .find(|id| reader.directory.is_mutable(id))
+            .expect("fixture includes a mutable segment");
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[
+                WhichFastField::eager("id", SearchFieldType::I64(pg_sys::INT8OID)),
+                WhichFastField::eager("title", SearchFieldType::Text(pg_sys::TEXTOID)),
+            ],
+        );
+        assert_eq!(
+            reader.directory.mutable_segment_materialized(&mutable_id),
+            Some(false)
+        );
+        for _ in 0..2 {
+            for (field, data_type) in [(0, DataType::Int64), (1, DataType::Utf8View)] {
+                assert_eq!(
+                    column_statistics(&helper, field, &data_type, Some(15)),
+                    ColumnStatistics::default()
+                );
+            }
+            assert_eq!(
+                reader.directory.mutable_segment_materialized(&mutable_id),
+                Some(false),
+                "planning statistics must not materialize mutable heap rows"
+            );
+        }
+    }
+
     /// Missing statistics retain mutable segments without materializing their in-memory index.
     #[pg_test]
     fn mutable_segments_remain_eligible_without_statistics() {

@@ -23,6 +23,7 @@ use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentInclusion, S
 use crate::scan::range_partitioning::PartitionRange;
 use crate::schema::SearchField;
 use tantivy::index::SegmentId;
+use tantivy::schema::Field;
 use tantivy::{Searcher, SegmentOrdinal};
 
 /// One segment in the snapshot, at the same ordinal as its reader in the searcher.
@@ -89,6 +90,30 @@ impl SegmentStatsSnapshot {
     /// The searcher [`SegmentOrdinal`] of `id`, or `None` when the segment is not in this snapshot.
     pub(crate) fn segment_ordinal(&self, id: SegmentId) -> Option<SegmentOrdinal> {
         self.segment_index(id).map(|ord| ord as SegmentOrdinal)
+    }
+
+    /// Read only persisted, physical bounds. Unlike `empirical`, this never opens a column
+    /// when `.stats` is missing. Callers must check type and non-empty-value eligibility.
+    pub(crate) fn persisted_empirical(&self, ord: usize, field: Field) -> Option<EmpiricalStats> {
+        if self.segments[ord].is_mutable {
+            return None;
+        }
+        let stats = self.stats(ord)?;
+        #[cfg(any(test, feature = "pg_test"))]
+        test_support::EMPIRICAL_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let empirical = stats.empirical(field);
+        #[cfg(any(test, feature = "pg_test"))]
+        let empirical = test_support::maybe_fail(
+            self.segments[ord].id,
+            test_support::InjectedStatsFailure::Empirical,
+            empirical,
+        );
+        empirical.unwrap_or_else(|error| {
+            pgrx::error!(
+                "could not read empirical statistics for field {field:?} in segment {:?}: {error}",
+                self.segments[ord].id
+            )
+        })
     }
 
     /// Decode one field for one segment. When a persisted segment has no `.stats` component,

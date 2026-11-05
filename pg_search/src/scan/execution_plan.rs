@@ -174,6 +174,8 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the state has been consumed.
     planner_estimated_rows: u64,
+    /// Pins the original field layout and reader after execute consumes `state`.
+    statistics_helper: Option<Arc<FFHelper>>,
     /// Candidate and pruned segment counts from this plan's static execution-time proof.
     /// Seeded from the reader when already cached and computed on demand for EXPLAIN.
     /// The reader still retains the full manifest/DSM view; this is an estimate and never
@@ -227,6 +229,7 @@ impl Clone for PgSearchScanPlan {
         Self {
             state: Mutex::new(new_state),
             planner_estimated_rows: self.planner_estimated_rows,
+            statistics_helper: self.statistics_helper.clone(),
             segment_pruning: self.segment_pruning.clone(),
             global_partition_count: self.global_partition_count,
             properties: Arc::clone(&self.properties),
@@ -314,6 +317,7 @@ impl PgSearchScanPlan {
         let segment_pruning = state
             .as_ref()
             .and_then(|s| s.reader.cached_segment_pruning_estimate());
+        let statistics_helper = state.as_ref().map(|s| Arc::clone(&s.ffhelper));
 
         if range_split_points.is_none()
             && let Some(pruning) = segment_pruning
@@ -354,6 +358,7 @@ impl PgSearchScanPlan {
         Self {
             state: Mutex::new(exec_state),
             planner_estimated_rows,
+            statistics_helper,
             segment_pruning: segment_pruning.map(OnceLock::from).unwrap_or_default(),
             global_partition_count: partition_count,
             properties,
@@ -539,6 +544,7 @@ impl PgSearchScanPlan {
         Arc::new(Self {
             state: Mutex::new(state),
             planner_estimated_rows: self.planner_estimated_rows,
+            statistics_helper: self.statistics_helper.clone(),
             segment_pruning: self.segment_pruning.clone(),
             global_partition_count,
             properties,
@@ -1600,7 +1606,31 @@ impl ExecutionPlan for PgSearchScanPlan {
             .schema()
             .fields
             .iter()
-            .map(|_| ColumnStatistics::default())
+            .map(|field| {
+                if crate::scan::deferred_encode::is_deferred_field(field) {
+                    return ColumnStatistics::default();
+                }
+                let Some(helper) = &self.statistics_helper else {
+                    return ColumnStatistics::default();
+                };
+                // A schema rewrite may remove tag columns or make a deferred column eager.
+                // Resolve by the retained named identity rather than the new output position.
+                let mut matches = helper.fields().iter().enumerate().filter(|(_, wff)| {
+                    matches!(wff, WhichFastField::Named { name, .. } if name == field.name())
+                });
+                let Some((ff_index, _)) = matches.next() else {
+                    return ColumnStatistics::default();
+                };
+                if matches.next().is_some() {
+                    return ColumnStatistics::default();
+                }
+                crate::scan::statistics::column_statistics(
+                    helper,
+                    ff_index,
+                    field.data_type(),
+                    num_rows.get_value().copied(),
+                )
+            })
             .collect();
 
         Ok(Arc::new(Statistics {

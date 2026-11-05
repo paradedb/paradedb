@@ -21,6 +21,8 @@ use std::sync::{Arc, OnceLock};
 use crate::api::CTID_FIELD_NAME;
 use crate::index::mvcc::{SegmentView, SegmentViewDocs};
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::segment_pruning::SegmentStatsSnapshot;
+use crate::index::stats::EmpiricalStats;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::storage::metadata::CleanupAdmission;
@@ -35,6 +37,7 @@ use arrow_array::builder::{
 use arrow_array::{Array, ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
 use datafusion::common::Result;
+use datafusion::common::stats::ColumnStatistics;
 use datafusion::error::DataFusionError;
 use serde::{Deserialize, Serialize};
 use tantivy::SegmentOrdinal;
@@ -57,7 +60,7 @@ pub struct CanonicalColumn {
 }
 
 struct SegmentCache {
-    columns: Vec<OnceLock<FFType>>,
+    columns: Vec<OnceLock<Option<FFType>>>,
     ctid: OnceLock<FFType>,
 }
 
@@ -81,6 +84,8 @@ struct FFInner {
     segment_view: SegmentView,
     _cleanup_admission: Arc<CleanupAdmission>,
     columns: Vec<WhichFastField>,
+    statistics: Vec<OnceLock<ColumnStatistics>>,
+    segment_statistics: Arc<SegmentStatsSnapshot>,
     segment_caches: Vec<SegmentCache>,
 }
 
@@ -111,6 +116,8 @@ impl FFHelper {
             _cleanup_admission: reader.cleanup_admission(),
             segment_caches: Self::segment_caches(reader.segment_readers().len(), fields.len()),
             columns: fields.to_vec(),
+            statistics: (0..fields.len()).map(|_| OnceLock::new()).collect(),
+            segment_statistics: Arc::clone(reader.segment_stats_snapshot()),
         }))
     }
 
@@ -164,22 +171,25 @@ impl FFHelper {
             .get_or_init(|| FFType::new_ctid(self.fast_fields(segment_ord)))
     }
 
-    pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
-        self.caches()[segment_ord as usize].columns[field].get_or_init(|| {
-            match &self.inner().columns[field] {
+    /// A cached lookup also used by planning. Cache absence separately from a synthetic NULL
+    /// column so execution can still reject a missing required field.
+    pub(crate) fn optional_column(
+        &self,
+        segment_ord: SegmentOrdinal,
+        field: FFIndex,
+    ) -> Option<&FFType> {
+        self.caches()[segment_ord as usize].columns[field]
+            .get_or_init(|| match &self.inner().columns[field] {
                 WhichFastField::Named { name, .. } => {
                     let ffr = self.fast_fields(segment_ord);
-                    FFType::try_new(ffr, name).unwrap_or_else(|| {
-                        // A JSON path that no document in this segment carries reads as NULL,
-                        // like the missing key does in Postgres. Any other absence is a bug.
+                    FFType::try_new(ffr, name).or_else(|| {
+                        // Resolve a missing JSON path once, so repeated execution lookups
+                        // do not repeat schema and column-directory probes.
                         let has_no_column = ffr
                             .dynamic_column_handles(name)
                             .is_ok_and(|handles| handles.is_empty());
-                        if has_no_column && is_columnar_json_path(self.searcher().schema(), name) {
-                            FFType::Junk
-                        } else {
-                            missing_columnar_field(name)
-                        }
+                        (has_no_column && is_columnar_json_path(self.searcher().schema(), name))
+                            .then_some(FFType::Junk)
                     })
                 }
                 WhichFastField::Ctid
@@ -188,9 +198,43 @@ impl FFHelper {
                 | WhichFastField::VectorScore(_)
                 | WhichFastField::Junk(_)
                 | WhichFastField::DeferredCtid(_)
-                | WhichFastField::MatchTag(_) => FFType::Junk,
-            }
-        })
+                | WhichFastField::MatchTag(_) => Some(FFType::Junk),
+            })
+            .as_ref()
+    }
+
+    /// `None` means unopened; `Some(None)` means the field was probed and is absent.
+    pub(crate) fn cached_column(
+        &self,
+        segment_ord: SegmentOrdinal,
+        field: FFIndex,
+    ) -> Option<Option<&FFType>> {
+        self.caches()[segment_ord as usize].columns[field]
+            .get()
+            .map(Option::as_ref)
+    }
+
+    pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
+        if let Some(column) = self.optional_column(segment_ord, field) {
+            return column;
+        }
+        missing_columnar_field(&self.inner().columns[field].name())
+    }
+
+    /// Only exact schema fields have entries in `.stats`; a JSON path must not inherit its
+    /// root field's bounds. This lookup never falls back to opening a fast-field column.
+    pub(crate) fn persisted_statistics(
+        &self,
+        segment_ord: SegmentOrdinal,
+        field: FFIndex,
+    ) -> Option<EmpiricalStats> {
+        let WhichFastField::Named { name, .. } = &self.inner().columns[field] else {
+            return None;
+        };
+        let schema_field = self.searcher().schema().get_field(name).ok()?;
+        self.inner()
+            .segment_statistics
+            .persisted_empirical(segment_ord as usize, schema_field)
     }
 
     #[track_caller]
@@ -234,6 +278,15 @@ impl FFHelper {
             .map_or(0, |inner| inner.segment_caches.len())
     }
 
+    /// The original field layout, retained independently of scan execution state.
+    pub(crate) fn fields(&self) -> &[WhichFastField] {
+        self.0.as_ref().map_or(&[], |inner| &inner.columns)
+    }
+
+    pub(crate) fn statistics(&self, field: FFIndex) -> &OnceLock<ColumnStatistics> {
+        &self.inner().statistics[field]
+    }
+
     /// Whether this helper reads a named column at `field`. A helper rebuilt for one lookup
     /// lays out only the columns that lookup reads, with `Junk` in the gaps.
     pub(crate) fn lays_out(&self, field: FFIndex) -> bool {
@@ -259,6 +312,8 @@ impl FFHelper {
             segment_view: inner.segment_view.clone(),
             _cleanup_admission: Arc::clone(&inner._cleanup_admission),
             segment_caches: Self::segment_caches(inner.segment_caches.len(), columns.len()),
+            statistics: (0..columns.len()).map(|_| OnceLock::new()).collect(),
+            segment_statistics: Arc::clone(&inner.segment_statistics),
             columns,
         }))
     }
@@ -1276,6 +1331,76 @@ mod tests {
         assert!(!crate::scan::deferred_encode::is_deferred_field(
             schema.field(1)
         ));
+    }
+
+    #[pg_test]
+    fn scan_statistics_cached_missing_json_path_is_null() {
+        Spi::run(
+            "CREATE TABLE stats_json_cache (id bigint PRIMARY KEY, data jsonb);
+             INSERT INTO stats_json_cache VALUES (1, '{\"present\": 9, \"label\": \"hello\"}');
+             CREATE INDEX stats_json_cache_idx ON stats_json_cache USING paradedb
+                 (id, (data::pdb.unicode_words('columnar=true')));
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO stats_json_cache VALUES (2, '{}');
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+        let index = crate::index::reader::index::test_support::open_index("stats_json_cache_idx");
+        let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot).unwrap();
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[
+                WhichFastField::eager("data.absent", SearchFieldType::I64(pg_sys::INT8OID)),
+                WhichFastField::eager("data.present", SearchFieldType::I64(pg_sys::INT8OID)),
+                WhichFastField::eager("data.label", SearchFieldType::Text(pg_sys::TEXTOID)),
+            ],
+        );
+        assert_eq!(helper.num_segments(), 2);
+        for ord in 0..helper.num_segments() as u32 {
+            assert!(matches!(helper.optional_column(ord, 0), Some(FFType::Junk)));
+            assert!(matches!(
+                helper.cached_column(ord, 0),
+                Some(Some(FFType::Junk))
+            ));
+            assert!(matches!(helper.column(ord, 0), FFType::Junk));
+            assert!(
+                helper.persisted_statistics(ord, 1).is_none(),
+                "a JSON path must not use root-field bounds"
+            );
+        }
+        let stats = crate::scan::statistics::column_statistics(
+            &helper,
+            2,
+            &arrow_schema::DataType::Utf8View,
+            Some(2),
+        );
+        assert_eq!(
+            stats.distinct_count,
+            datafusion::common::stats::Precision::Inexact(1),
+            "a missing JSON path in one segment must not discard the other segment's dictionary"
+        );
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "`not_in_schema` is missing or is not configured as columnar")]
+    fn scan_statistics_cached_absence_keeps_required_field_error() {
+        let (index, _) = crate::index::reader::index::test_support::segmented_index_fixture(
+            "ffhelper_cached_absence",
+            1,
+            false,
+        );
+        let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot).unwrap();
+        let helper = FFHelper::with_fields(
+            &reader,
+            &[WhichFastField::eager(
+                "not_in_schema",
+                SearchFieldType::I64(pg_sys::INT8OID),
+            )],
+        );
+        assert!(helper.optional_column(0, 0).is_none());
+        assert!(matches!(helper.cached_column(0, 0), Some(None)));
+        assert!(helper.optional_column(0, 0).is_none());
+        helper.column(0, 0);
     }
 
     /// The helper opens a segment's fast fields only when a value is actually read from that

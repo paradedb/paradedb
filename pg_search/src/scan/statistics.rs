@@ -1,0 +1,267 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+//! Metadata-only estimates for logical scalar fast fields.
+
+use arrow_schema::DataType;
+use datafusion::common::ScalarValue;
+use datafusion::common::stats::{ColumnStatistics, Precision};
+
+use crate::index::fast_fields_helper::{FFHelper, FFType, FieldCardinality, WhichFastField};
+use crate::index::stats::EmpiricalStats;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::schema::SearchFieldType;
+
+/// These estimates describe the unfiltered reader. Dictionaries can overlap between segments,
+/// deleted rows can remain in metadata, and predicates can narrow the output, so every value is
+/// inexact. Never open a mutable segment: opening its fast fields materializes heap rows.
+/// Callers decoding deferred columns may request their logical type; packed values themselves
+/// must never inherit these statistics.
+pub(crate) fn column_statistics(
+    ffhelper: &FFHelper,
+    ff_index: usize,
+    data_type: &DataType,
+    estimated_rows: Option<usize>,
+) -> ColumnStatistics {
+    let Some(WhichFastField::Named {
+        field_type,
+        cardinality: FieldCardinality::Scalar,
+        ..
+    }) = ffhelper.fields().get(ff_index)
+    else {
+        return ColumnStatistics::default();
+    };
+    if matches!(field_type, SearchFieldType::Vector(..))
+        || &field_type.arrow_data_type() != data_type
+        || !matches!(
+            data_type,
+            DataType::Int64
+                | DataType::UInt64
+                | DataType::Float64
+                | DataType::Utf8View
+                | DataType::BinaryView
+        )
+    {
+        return ColumnStatistics::default();
+    }
+
+    let mut statistics = ffhelper
+        .statistics(ff_index)
+        .get_or_init(|| metadata_statistics(ffhelper, ff_index, data_type))
+        .clone();
+    if let (Precision::Inexact(distinct_count), Some(rows)) =
+        (&mut statistics.distinct_count, estimated_rows)
+    {
+        *distinct_count = (*distinct_count).min(rows);
+    }
+    statistics
+}
+
+fn metadata_statistics(
+    ffhelper: &FFHelper,
+    ff_index: usize,
+    data_type: &DataType,
+) -> ColumnStatistics {
+    // One mutable segment makes the whole-column estimate unknown. Check every identity
+    // before opening even the immutable segments' columns.
+    if (0..ffhelper.num_segments())
+        .any(|ord| ffhelper.immutable_segment_reader(ord as u32).is_none())
+    {
+        return ColumnStatistics::default();
+    }
+    let dictionary = matches!(data_type, DataType::Utf8View | DataType::BinaryView);
+    let mut distinct_count = 0usize;
+    let mut min_value: Option<ScalarValue> = None;
+    let mut max_value: Option<ScalarValue> = None;
+    for segment_ord in 0..ffhelper.num_segments() {
+        let Some(segment) = ffhelper.immutable_segment_reader(segment_ord as u32) else {
+            return ColumnStatistics::default();
+        };
+        if segment.num_docs() == 0 {
+            continue;
+        }
+        let segment_ord = segment_ord as u32;
+        // Reuse an execution reader when one is already open. Otherwise prefer persisted
+        // numeric bounds, which avoid initializing the column index and value codec.
+        let cached = ffhelper.cached_column(segment_ord, ff_index);
+        let persisted = if cached.is_none() && !dictionary {
+            ffhelper
+                .persisted_statistics(segment_ord, ff_index)
+                .and_then(|stats| numeric_bounds(stats, data_type))
+        } else {
+            None
+        };
+        macro_rules! bounds {
+            ($column:expr, $variant:ident) => {{
+                let column = $column;
+                if column.values.num_vals() == 0 {
+                    continue;
+                }
+                (
+                    ScalarValue::$variant(Some(column.min_value())),
+                    ScalarValue::$variant(Some(column.max_value())),
+                )
+            }};
+        }
+        let (min, max) = if let Some(bounds) = persisted {
+            bounds
+        } else {
+            // Cache both present and missing columns; execution shares this lookup. In
+            // particular, nullable metadata cannot tell an all-null column from real bounds.
+            let Some(column) =
+                cached.unwrap_or_else(|| ffhelper.optional_column(segment_ord, ff_index))
+            else {
+                continue;
+            };
+            match (column, data_type) {
+                // An absent JSON path is cached as an execution NULL column.
+                (FFType::Junk, _) => continue,
+                (FFType::Text(column), DataType::Utf8View) => {
+                    distinct_count = distinct_count.saturating_add(column.num_terms());
+                    continue;
+                }
+                (FFType::Bytes(column), DataType::BinaryView) => {
+                    distinct_count = distinct_count.saturating_add(column.num_terms());
+                    continue;
+                }
+                (FFType::I64(column), DataType::Int64) => bounds!(column, Int64),
+                (FFType::U64(column), DataType::UInt64) => bounds!(column, UInt64),
+                (FFType::F64(column), DataType::Float64) => {
+                    if column.values.num_vals() == 0 {
+                        continue;
+                    }
+                    let (min, max) = (column.min_value(), column.max_value());
+                    if !min.is_finite() || !max.is_finite() {
+                        return ColumnStatistics::default();
+                    }
+                    (
+                        ScalarValue::Float64(Some(min)),
+                        ScalarValue::Float64(Some(max)),
+                    )
+                }
+                _ => return ColumnStatistics::default(),
+            }
+        };
+        if min_value.as_ref().is_none_or(|current| min < *current) {
+            min_value = Some(min);
+        }
+        if max_value.as_ref().is_none_or(|current| max > *current) {
+            max_value = Some(max);
+        }
+    }
+
+    ColumnStatistics {
+        distinct_count: if dictionary {
+            Precision::Inexact(distinct_count)
+        } else {
+            Precision::Absent
+        },
+        min_value: min_value.map_or(Precision::Absent, Precision::Inexact),
+        max_value: max_value.map_or(Precision::Absent, Precision::Inexact),
+        ..ColumnStatistics::default()
+    }
+}
+
+fn numeric_bounds(
+    stats: EmpiricalStats,
+    data_type: &DataType,
+) -> Option<(ScalarValue, ScalarValue)> {
+    // A nullable entry has no non-null count, so even finite bounds may describe an empty
+    // value column. Use the cached-reader fallback to retain the existing all-null behavior.
+    if stats.nullable {
+        return None;
+    }
+    let bounds = match (stats.min, stats.max, data_type) {
+        (PdbOwnedValue::I64(min), PdbOwnedValue::I64(max), DataType::Int64) if min <= max => {
+            (ScalarValue::Int64(Some(min)), ScalarValue::Int64(Some(max)))
+        }
+        (PdbOwnedValue::U64(min), PdbOwnedValue::U64(max), DataType::UInt64) if min <= max => (
+            ScalarValue::UInt64(Some(min)),
+            ScalarValue::UInt64(Some(max)),
+        ),
+        (PdbOwnedValue::F64(min), PdbOwnedValue::F64(max), DataType::Float64)
+            if min.is_finite() && max.is_finite() && min <= max =>
+        {
+            (
+                ScalarValue::Float64(Some(min)),
+                ScalarValue::Float64(Some(max)),
+            )
+        }
+        _ => return None,
+    };
+    Some(bounds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_statistics_persisted_bounds_eligibility() {
+        let stats = |min, max, nullable| EmpiricalStats { min, max, nullable };
+        assert!(
+            numeric_bounds(
+                stats(PdbOwnedValue::I64(0), PdbOwnedValue::I64(0), true),
+                &DataType::Int64
+            )
+            .is_none()
+        );
+        assert!(
+            numeric_bounds(
+                stats(PdbOwnedValue::U64(1), PdbOwnedValue::U64(2), false),
+                &DataType::Int64
+            )
+            .is_none()
+        );
+        assert!(
+            numeric_bounds(
+                stats(PdbOwnedValue::I64(2), PdbOwnedValue::I64(1), false),
+                &DataType::Int64
+            )
+            .is_none()
+        );
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(
+                numeric_bounds(
+                    stats(PdbOwnedValue::F64(value), PdbOwnedValue::F64(value), false),
+                    &DataType::Float64
+                )
+                .is_none()
+            );
+        }
+        assert_eq!(
+            numeric_bounds(
+                stats(PdbOwnedValue::U64(1), PdbOwnedValue::U64(u64::MAX), false),
+                &DataType::UInt64
+            ),
+            Some((
+                ScalarValue::UInt64(Some(1)),
+                ScalarValue::UInt64(Some(u64::MAX))
+            ))
+        );
+        assert_eq!(
+            numeric_bounds(
+                stats(PdbOwnedValue::F64(-2.5), PdbOwnedValue::F64(4.5), false),
+                &DataType::Float64
+            ),
+            Some((
+                ScalarValue::Float64(Some(-2.5)),
+                ScalarValue::Float64(Some(4.5))
+            ))
+        );
+    }
+}

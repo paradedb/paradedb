@@ -40,7 +40,7 @@ use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::filter_pushdown::schema_preserving_child_filter_description;
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::DataType;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{ColumnStatistics, DataFusionError, Result, Statistics};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -50,6 +50,7 @@ use datafusion::physical_plan::filter_pushdown::{
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
 };
+use datafusion::physical_plan::statistics::{ChildStats, StatisticsArgs, StatisticsContext};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, SegmentOrdinal};
@@ -201,6 +202,32 @@ impl ExecutionPlan for TantivyFetchExec {
 
     fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
+    }
+
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Arc<Statistics>> {
+        StatisticsContext::new().compute(self, &StatisticsArgs::new().with_partition(partition))
+    }
+
+    fn child_stats_requests(&self, partition: Option<usize>) -> Vec<ChildStats> {
+        vec![ChildStats::At(partition)]
+    }
+
+    fn statistics_from_inputs(
+        &self,
+        input_stats: &[Arc<Statistics>],
+        _args: &StatisticsArgs,
+    ) -> Result<Arc<Statistics>> {
+        let mut statistics = input_stats[0].as_ref().clone();
+        // Packed addresses and packed term ordinals describe different values, even though
+        // both use UInt64. Their counts and bounds cannot describe the decoded column.
+        for field in &self.fetch_fields {
+            statistics.column_statistics[field.col_idx] = ColumnStatistics::default();
+        }
+        if !self.fetch_fields.is_empty() {
+            // A missing fast-field value can introduce a NULL and change bitmap storage.
+            statistics.total_byte_size = datafusion::common::stats::Precision::Absent;
+        }
+        Ok(Arc::new(statistics))
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
@@ -373,9 +400,97 @@ mod tests {
     use super::*;
     use crate::index::fast_fields_helper::CanonicalColumn;
     use crate::scan::deferred_encode::deferred_field;
-    use arrow_schema::Schema;
+    use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
+    use crate::scan::tantivy_decode_exec::TantivyDecodeExec;
+    use arrow_array::UInt64Array;
+    use arrow_schema::{Field, Schema};
+    use datafusion::common::stats::Precision;
+    use datafusion::datasource::memory::MemorySourceConfig;
+    use datafusion::physical_expr::expressions::Column;
     use datafusion::physical_plan::empty::EmptyExec;
+    use datafusion::physical_plan::projection::ProjectionExec;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    #[allow(deprecated)] // Exercise the partition-aware statistics exposed to optimizers.
+    fn scan_statistics_deferred_wrappers_preserve_untouched_columns() -> Result<()> {
+        // Duplicate names are intentional: lookup nodes identify columns by position.
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("value", DataType::UInt64, true),
+            deferred_field("value"),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(UInt64Array::from(vec![Some(1), Some(2)])),
+                Arc::new(UInt64Array::from(vec![Some(3), None])),
+            ],
+        )?;
+        let input: Arc<dyn ExecutionPlan> =
+            MemorySourceConfig::try_new_exec(&[vec![batch.clone()], vec![batch]], schema, None)?;
+        let identity = || {
+            (0..2)
+                .map(|index| {
+                    (
+                        Arc::new(Column::new("value", index)) as Arc<dyn PhysicalExpr>,
+                        "value".to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let input: Arc<dyn ExecutionPlan> = Arc::new(ProjectionExec::try_new(identity(), input)?);
+        let wrapped: Arc<dyn ExecutionPlan> = Arc::new(FilterPassthroughExec::new(input.clone()));
+        let field = PhysicalDeferredField {
+            col_idx: 1,
+            display_name: "value".into(),
+            is_bytes: false,
+            cardinality: FieldCardinality::Scalar,
+            canonical: CanonicalColumn {
+                indexrelid: 1,
+                ff_index: 0,
+            },
+            heap_rti: 1,
+            rebuild: None,
+        };
+        let fetch: Arc<dyn ExecutionPlan> = Arc::new(TantivyFetchExec::new(
+            wrapped.clone(),
+            vec![field.clone()],
+            HashMap::default(),
+        )?);
+        let fetch_projection = Arc::new(ProjectionExec::try_new(identity(), fetch.clone())?);
+        let decode = TantivyDecodeExec::new(fetch_projection, vec![field], HashMap::default())?;
+        let context = StatisticsContext::new();
+        for partition in [None, Some(0), Some(1)] {
+            let args = StatisticsArgs::new().with_partition(partition);
+            let original = context.compute(input.as_ref(), &args)?;
+            assert_eq!(
+                context.compute(wrapped.as_ref(), &args)?.as_ref(),
+                original.as_ref()
+            );
+            let fetched = context.compute(fetch.as_ref(), &args)?;
+            let decoded = context.compute(&decode, &args)?;
+            assert_eq!(
+                decode.partition_statistics(partition)?.as_ref(),
+                decoded.as_ref()
+            );
+            assert_eq!(fetched.num_rows, original.num_rows);
+            assert_eq!(fetched.total_byte_size, Precision::Absent);
+            assert_eq!(decoded.num_rows, original.num_rows);
+            assert_eq!(
+                original.column_statistics[1].null_count,
+                Precision::Exact(if partition.is_none() { 2 } else { 1 })
+            );
+            for statistics in [fetched, decoded.clone()] {
+                assert_eq!(
+                    statistics.column_statistics[0],
+                    original.column_statistics[0]
+                );
+                assert_eq!(statistics.column_statistics[1], ColumnStatistics::default());
+            }
+            assert_eq!(decoded.total_byte_size, Precision::Absent);
+        }
+        Ok(())
+    }
 
     /// A fetch resolves one term per row, so a list must be refused rather than cut down to
     /// the first of its values. Runs in the server because the node owns fast-field readers,

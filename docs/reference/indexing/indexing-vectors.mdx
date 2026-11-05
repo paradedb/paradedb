@@ -258,6 +258,12 @@ modelBuilder.Entity<MockItem>()
   of `training_sample_ratio` and does not cap the number of indexed vectors
   assigned to a cluster.
 </ParamField>
+<ParamField body="spill" default={false}>
+  Assign each vector to a second IVF cluster chosen to cover queries its first
+  cluster misses. Doubles the quantized rows scanned per cluster and adds about
+  one quantized row per vector to the index. Applies to quantized vector fields
+  of segments clustered after the option is set.
+</ParamField>
 
 <Note>
   These options replace `centroid_ratio` and `training_samples_per_centroid`.

@@ -307,7 +307,7 @@ fn resolve_vector_expr(
 /// a mismatch (e.g. `<=>` against an L2-metric field) bails so
 /// Postgres can pick a non-index plan instead of silently returning
 /// results ranked by the wrong distance.
-unsafe fn extract_vector_distance(
+pub(crate) unsafe fn extract_vector_distance(
     node: *mut pg_sys::Node,
     context: VarContext,
     source: &SourceContext,
@@ -466,7 +466,7 @@ unsafe fn find_target_entry_by_ref(
 /// [`crate::index::reader::sort_by_range`]). A range in a later position makes the whole
 /// ORDER BY unpushable: Top K can't run on a prefix of the pathkeys, so Postgres sorts the
 /// unsorted scan itself.
-fn sortable_at_position(field_type: &SearchFieldType, position: usize) -> bool {
+pub(crate) fn sortable_at_position(field_type: &SearchFieldType, position: usize) -> bool {
     position == 0 || !matches!(*field_type, SearchFieldType::Range(_))
 }
 

@@ -464,7 +464,6 @@ mod tests {
                 deferred_field("category"),
             ])),
             SearchQueryInput::All,
-            None,
             vec![DeferredField {
                 name: "category".into(),
                 is_bytes: false,

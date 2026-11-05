@@ -556,7 +556,7 @@ mod tests {
     fn check_invariants(tree: &KdTree, sample: &[Point], ctids: Option<&[u64]>) {
         let mut seen = vec![0usize; tree.partition_count()];
         for (i, point) in sample.iter().enumerate() {
-            let ctid = ctids.map(|x| x[i]).unwrap_or(0);
+            let ctid = ctids.map(|x| x[i]).unwrap_or(i as u64);
             let p = tree.route(point, ctid);
             let bounds = tree.partition_bounds(p).expect("partition in range");
             assert!(

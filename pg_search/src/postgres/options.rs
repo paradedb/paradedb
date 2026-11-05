@@ -433,7 +433,7 @@ impl BM25IndexOptions {
     pub fn target_segment_count(&self) -> usize {
         self.explicit_target_segment_count().unwrap_or_else(|| {
             if self.is_vector_partitioned() {
-                DEFAULT_VECTOR_PARTITIONS * DEFAULT_VECTOR_PARTITION_SHARDS
+                DEFAULT_VECTOR_PARTITIONS
             } else {
                 default_target_segment_count(WorkerStyle::Query.max(), self.partition_by().len())
             }
@@ -1331,8 +1331,7 @@ fn parse_sort_key(input: &str) -> SortByField {
     SortByField::new(field_name, direction)
 }
 
-pub(crate) const DEFAULT_VECTOR_PARTITIONS: usize = 8;
-pub(crate) const DEFAULT_VECTOR_PARTITION_SHARDS: usize = 8;
+const DEFAULT_VECTOR_PARTITIONS: usize = 64;
 
 fn default_target_segment_count(query_workers: usize, partition_columns: usize) -> usize {
     query_workers.max(MIN_TARGET_SEGMENT_COUNT) * partition_columns.max(1)

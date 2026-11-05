@@ -25,6 +25,7 @@ jobs:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - extras=git-cache+apt-cache
       - spot=false # Disable spot instances for publish jobs to make sure they don't fail
       - family=m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
       - cpu=8

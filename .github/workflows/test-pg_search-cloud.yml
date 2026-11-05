@@ -34,7 +34,7 @@ jobs:
       - cpu=16
       - ram=64
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache
     if: github.ref == 'refs/heads/main'
 
     steps:

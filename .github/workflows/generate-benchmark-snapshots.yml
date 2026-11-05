@@ -113,7 +113,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache
     strategy:
       fail-fast: false
       matrix:
@@ -254,7 +254,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache
     env:
       BACKREST_REPO_BUCKET: paradedb-benchmark
       SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst

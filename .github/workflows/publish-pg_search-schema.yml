@@ -33,6 +33,7 @@ jobs:
       # Compute-optimized c-family — Rust schema generation is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - extras=git-cache+apt-cache
       - spot=false # Disable spot instances for publish jobs to make sure they don't fail
       - family=c8a+c8i
       - cpu=8

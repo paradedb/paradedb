@@ -56,7 +56,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache+git-cache+apt-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'schedule' ||
@@ -200,7 +200,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache+git-cache+apt-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'schedule' ||

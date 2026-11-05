@@ -74,6 +74,7 @@ jobs:
         include:
           - arch: amd64
             runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
+<<<<<<< HEAD
             # Pin until Ubuntu fixes the AppArmor/gosu startup regression:
             # https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
             runner_image_label: ami=ami-0da7b0202c738ef15
@@ -83,6 +84,13 @@ jobs:
             # Pin until Ubuntu fixes the AppArmor/gosu startup regression:
             # https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
             runner_image_label: ami=ami-0a2a2634ec0e33c35
+=======
+            runner_image_label: image=ubuntu26-full-x64
+            platform: linux/amd64
+          - arch: arm64
+            runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
+            runner_image_label: image=ubuntu26-full-arm64
+>>>>>>> 041b7c6 (ci: Restore rolling RunsOn image (#7269))
             platform: linux/arm64
 
     steps:
@@ -467,14 +475,22 @@ jobs:
         include:
           - arch: amd64
             runner_family: m8a+m8i # M instances provide 4 GiB RAM per vCPU for these workloads.
+<<<<<<< HEAD
             # Match the working AMIs used by the Docker runtime tests above.
             # https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
             runner_image_label: ami=ami-0da7b0202c738ef15
+=======
+            runner_image_label: image=ubuntu26-full-x64
+>>>>>>> 041b7c6 (ci: Restore rolling RunsOn image (#7269))
             platform: linux/amd64
             deb_sha_arg: PG_SEARCH_DEB_AMD64_SHA256
           - arch: arm64
             runner_family: m7g+m8g # M instances provide 4 GiB RAM per vCPU for these workloads.
+<<<<<<< HEAD
             runner_image_label: ami=ami-0a2a2634ec0e33c35
+=======
+            runner_image_label: image=ubuntu26-full-arm64
+>>>>>>> 041b7c6 (ci: Restore rolling RunsOn image (#7269))
             platform: linux/arm64
             deb_sha_arg: PG_SEARCH_DEB_ARM64_SHA256
 

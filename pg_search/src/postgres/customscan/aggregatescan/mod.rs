@@ -133,6 +133,7 @@ use std::ffi::CStr;
 
 use super::joinscan::build::FunctionRti;
 use super::pullup::SourceContext;
+use crate::postgres::customscan::joinscan::planning::validate_join_keys;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -1940,6 +1941,13 @@ impl AggregateScan {
         {
             return Err(AggregatePathDecline::Quiet);
         }
+
+        if !plan.rewrite_pruned_join_keys(root) {
+            return Err(warn(AggregateDeclineReason::Other(
+                "a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found".into(),
+            )));
+        }
+        validate_join_keys(&plan).map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
         let extracted_target = unsafe {

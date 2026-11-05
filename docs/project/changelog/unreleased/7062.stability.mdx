@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Aggregates over joins on `NUMERIC` columns now return correct results when the join keys use different scales or storage layouts, such as `numeric(10,2) = numeric(10,3)` or a bounded `NUMERIC` joined to an unbounded one. Before, these joins could quietly drop matching rows, match rows that weren't equal, or fail with `Cannot infer common argument type for comparison operation Int64 = BinaryView`. Such joins are now handed back to Postgres, which also applies to join keys inside `IN` and `NOT IN` subqueries. Matching numeric join keys are still pushed down (#6834).

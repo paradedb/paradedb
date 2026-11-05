@@ -94,10 +94,8 @@ ANALYZE jsm_prices;
 -- =====================================================================
 -- Test 1 — Postgres ground truth (all custom scans off, including
 -- AggregateScan: a bare `COUNT(*)` over this join is otherwise
--- intercepted by AggregateScan, which has the same unfixed
--- unscaled-Int64 comparison bug this test is not exercising here).
--- NUMERIC equality is scale-agnostic, so every item matches exactly
--- one price row: expect 5.
+-- intercepted by AggregateScan). NUMERIC equality is scale-agnostic, so
+-- every item matches exactly one price row: expect 5.
 -- =====================================================================
 SET paradedb.enable_custom_scan           TO off;
 SET paradedb.enable_join_custom_scan      TO off;

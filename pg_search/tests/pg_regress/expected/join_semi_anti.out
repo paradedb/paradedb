@@ -149,40 +149,27 @@ AND id NOT IN (
 AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: table_a, table_b)
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
- Limit
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
    Output: table_a.id, table_a.category
-   ->  Sort
-         Output: table_a.id, table_a.category
-         Sort Key: table_a.id
-         ->  Hash Semi Join
-               Output: table_a.id, table_a.category
-               Hash Cond: (table_a.id = table_b.a_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.table_a
-                     Output: table_a.id, table_a.category
-                     Filter: (NOT (ANY (table_a.id = (hashed SubPlan 1).col1)))
-                     Table: table_a
-                     Index: table_a_idx
-                     Worker Selection: Cost model
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
-                     SubPlan 1
-                       ->  Bitmap Heap Scan on public.table_b table_b_1
-                             Output: table_b_1.a_id
-                             Recheck Cond: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
-                             ->  Bitmap Index Scan on table_b_group_id_a_id_idx
-                                   Index Cond: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
-               ->  Hash
-                     Output: table_b.a_id
-                     ->  Bitmap Heap Scan on public.table_b
-                           Output: table_b.a_id
-                           Recheck Cond: ((table_b.group_id)::text = 'group_1'::text)
-                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx
-                                 Index Cond: ((table_b.group_id)::text = 'group_1'::text)
-(30 rows)
+   Relation Tree: (table_a ANTI table_b) SEMI table_b
+   Join Cond: table_a.id = table_b.a_id, table_a.id = table_b.a_id
+   Limit: 10
+   Order By: table_a.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[table_a]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=table_b, segments=1, visibility=eager, query={"term":{"field":"group_id","value":"group_1"}}
+     :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, a_id@0)], null_aware
+     :           CooperativeExec
+     :             PgSearchScan: table=table_a, segments=1, dynamic_filters=2, query={"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=table_b, segments={included=0, pruned=1}, visibility=eager, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
+(18 rows)
 
 SELECT id, category
 FROM table_a
@@ -199,7 +186,6 @@ AND id NOT IN (
 AND category ### 'target_category'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: join conditions must reference columnar indexed fields (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category
@@ -377,7 +363,230 @@ LIMIT 10;
   1 | other_category
 (1 row)
 
+-- =====================================================================
+-- 7. Window aggregates over a non-columnar column, with a NOT IN subquery
+-- =====================================================================
+-- table_a.extra is not indexed. It is attno 3, the same attno as the
+-- indexed table_b.a_id, and table_b is rti 1 inside the lifted NOT IN
+-- subquery, just like table_a in the outer query. Resolving a window
+-- aggregate's column by (rti, attno) across every join source, including
+-- the pruned subquery side, used to find table_b's fast field: JoinScan
+-- accepted these queries, then returned COUNT 0 / SUM NULL for 7a and
+-- panicked for 7b. JoinScan must decline, and results must match Postgres.
+ALTER TABLE table_a ADD COLUMN extra int DEFAULT 3;
+DROP TABLE IF EXISTS table_c CASCADE;
+CREATE TABLE table_c (
+    id bigint NOT NULL PRIMARY KEY,
+    a_id bigint
+);
+INSERT INTO table_c (id, a_id) SELECT i, i FROM generate_series(1, 2000) AS i;
+CREATE INDEX table_c_idx ON table_c USING paradedb (id, a_id);
+ANALYZE table_c;
+-- Ground truth from Postgres.
+SET paradedb.enable_join_custom_scan TO off;
+SELECT a.id, COUNT(a.extra) OVER () AS cnt, SUM(a.extra) OVER () AS total
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+ id | cnt  | total 
+----+------+-------
+  2 | 1000 |  3000
+  4 | 1000 |  3000
+  6 | 1000 |  3000
+  8 | 1000 |  3000
+ 10 | 1000 |  3000
+ 12 | 1000 |  3000
+ 14 | 1000 |  3000
+ 16 | 1000 |  3000
+ 18 | 1000 |  3000
+ 20 | 1000 |  3000
+(10 rows)
+
+SELECT a.id, COUNT(*) FILTER (WHERE a.extra > 2) OVER () AS cnt
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+ id | cnt  
+----+------
+  2 | 1000
+  4 | 1000
+  6 | 1000
+  8 | 1000
+ 10 | 1000
+ 12 | 1000
+ 14 | 1000
+ 16 | 1000
+ 18 | 1000
+ 20 | 1000
+(10 rows)
+
+SET paradedb.enable_join_custom_scan TO on;
+-- 7a. Window aggregate argument.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, COUNT(a.extra) OVER () AS cnt, SUM(a.extra) OVER () AS total
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: arguments to window aggregate must be fast fields (tables: a, c)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, (count(a.extra) OVER w1), (sum(a.extra) OVER w1)
+   ->  Sort
+         Output: a.id, (count(a.extra) OVER w1), (sum(a.extra) OVER w1)
+         Sort Key: a.id
+         ->  WindowAgg
+               Output: a.id, count(a.extra) OVER w1, sum(a.extra) OVER w1
+               Window: w1 AS ()
+               ->  Hash Join
+                     Output: a.id, a.extra
+                     Inner Unique: true
+                     Hash Cond: (c.a_id = a.id)
+                     ->  Seq Scan on public.table_c c
+                           Output: c.id, c.a_id
+                     ->  Hash
+                           Output: a.id, a.extra
+                           ->  Custom Scan (ParadeDB Base Scan) on public.table_a a
+                                 Output: a.id, a.extra
+                                 Filter: (NOT (ANY (a.id = (hashed SubPlan 1).col1)))
+                                 Table: table_a
+                                 Index: table_a_idx
+                                 Worker Selection: Cost model
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+                                 SubPlan 1
+                                   ->  Bitmap Heap Scan on public.table_b
+                                         Output: table_b.a_id
+                                         Recheck Cond: ((table_b.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+                                         ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                               Index Cond: ((table_b.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+(31 rows)
+
+SELECT a.id, COUNT(a.extra) OVER () AS cnt, SUM(a.extra) OVER () AS total
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: arguments to window aggregate must be fast fields (tables: a, c)
+ id | cnt  | total 
+----+------+-------
+  2 | 1000 |  3000
+  4 | 1000 |  3000
+  6 | 1000 |  3000
+  8 | 1000 |  3000
+ 10 | 1000 |  3000
+ 12 | 1000 |  3000
+ 14 | 1000 |  3000
+ 16 | 1000 |  3000
+ 18 | 1000 |  3000
+ 20 | 1000 |  3000
+(10 rows)
+
+-- 7b. Window aggregate FILTER column.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, COUNT(*) FILTER (WHERE a.extra > 2) OVER () AS cnt
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: window function FILTER clause depends on non-columnar field (tables: a, c)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: a.id, (count(*) FILTER (WHERE (a.extra > 2)) OVER w1)
+   ->  Sort
+         Output: a.id, (count(*) FILTER (WHERE (a.extra > 2)) OVER w1)
+         Sort Key: a.id
+         ->  WindowAgg
+               Output: a.id, count(*) FILTER (WHERE (a.extra > 2)) OVER w1
+               Window: w1 AS ()
+               ->  Hash Join
+                     Output: a.id, a.extra
+                     Inner Unique: true
+                     Hash Cond: (c.a_id = a.id)
+                     ->  Seq Scan on public.table_c c
+                           Output: c.id, c.a_id
+                     ->  Hash
+                           Output: a.id, a.extra
+                           ->  Custom Scan (ParadeDB Base Scan) on public.table_a a
+                                 Output: a.id, a.extra
+                                 Filter: (NOT (ANY (a.id = (hashed SubPlan 1).col1)))
+                                 Table: table_a
+                                 Index: table_a_idx
+                                 Worker Selection: Cost model
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"category","phrase":"target_category","slop":null}}}}
+                                 SubPlan 1
+                                   ->  Bitmap Heap Scan on public.table_b
+                                         Output: table_b.a_id
+                                         Recheck Cond: ((table_b.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+                                         ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                               Index Cond: ((table_b.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+(31 rows)
+
+SELECT a.id, COUNT(*) FILTER (WHERE a.extra > 2) OVER () AS cnt
+FROM table_a a
+JOIN table_c c ON a.id = c.a_id
+WHERE a.id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND a.category ### 'target_category'
+ORDER BY a.id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: window function FILTER clause depends on non-columnar field (tables: a, c)
+ id | cnt  
+----+------
+  2 | 1000
+  4 | 1000
+  6 | 1000
+  8 | 1000
+ 10 | 1000
+ 12 | 1000
+ 14 | 1000
+ 16 | 1000
+ 18 | 1000
+ 20 | 1000
+(10 rows)
+
 -- Cleanup
 DROP TABLE table_a CASCADE;
 DROP TABLE table_b CASCADE;
+DROP TABLE table_c CASCADE;
 RESET paradedb.enable_join_custom_scan;

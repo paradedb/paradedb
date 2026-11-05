@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793782299754,
+  "lastUpdate": 1793866247214,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -490175,6 +490175,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13305664163-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866243241,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.36422094853159,
+            "unit": "median tps",
+            "extra": "avg tps: 56.847985013191554, max tps: 522.3281771147692, count: 58758"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.175323842323213,
+            "unit": "median tps",
+            "extra": "avg tps: 31.519356909239157, max tps: 349.73756973983564, count: 58758"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 71.99457400691894,
+            "unit": "median tps",
+            "extra": "avg tps: 129.16147628123485, max tps: 1118.123814457416, count: 58758"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.389299000550377,
+            "unit": "median tps",
+            "extra": "avg tps: 30.78969005688811, max tps: 271.884661498188, count: 58758"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.54228684773304,
+            "unit": "median tps",
+            "extra": "avg tps: 59.57850819718315, max tps: 544.4670740378951, count: 58758"
+          }
+        ],
+        "publication_id": "13398502796-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -503124,6 +503177,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13305664163-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866247102,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 21.03125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 21.08902883437149, max partition_index_size:MB: 27.09375, count: 58758"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.231351887217464, max cpu: 41.96212, count: 58758"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.550375254752545, max mem: 58.0546875, count: 58758"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.966507,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.895964304971418, max cpu: 41.96212, count: 58758"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.18181088107151, max mem: 64.9140625, count: 58758"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.694721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.216936764201149, max cpu: 23.154848, count: 58758"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 41.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.93308497619473, max mem: 43.9921875, count: 58758"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.966507,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.87394577385089, max cpu: 46.624577, count: 58758"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 55.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.3664255026975, max mem: 63.9140625, count: 58758"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.1941769047372, max cpu: 37.29966, count: 58758"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.58305139034259, max mem: 62.98046875, count: 58758"
+          }
+        ],
+        "publication_id": "13398502796-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

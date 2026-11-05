@@ -38,7 +38,7 @@ jobs:
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
-      - image=${{ matrix.runner_image }}
+      - ami=${{ matrix.runner_ami }}
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
     container:
       image: ${{ matrix.image }}
@@ -54,7 +54,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:12-slim
             pg_version: 15
             arch: amd64
@@ -62,7 +62,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:12-slim
             pg_version: 15
             arch: arm64
@@ -70,7 +70,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:12-slim
             pg_version: 16
             arch: amd64
@@ -78,7 +78,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:12-slim
             pg_version: 16
             arch: arm64
@@ -86,7 +86,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:12-slim
             pg_version: 17
             arch: amd64
@@ -94,7 +94,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:12-slim
             pg_version: 17
             arch: arm64
@@ -102,7 +102,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:12-slim
             pg_version: 18
             arch: amd64
@@ -110,7 +110,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:12-slim
             pg_version: 18
             arch: arm64
@@ -119,7 +119,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:13-slim
             pg_version: 15
             arch: amd64
@@ -127,7 +127,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:13-slim
             pg_version: 15
             arch: arm64
@@ -135,7 +135,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:13-slim
             pg_version: 16
             arch: amd64
@@ -143,7 +143,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:13-slim
             pg_version: 16
             arch: arm64
@@ -151,7 +151,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:13-slim
             pg_version: 17
             arch: amd64
@@ -159,7 +159,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:13-slim
             pg_version: 17
             arch: arm64
@@ -167,7 +167,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c8a+c8i
-            runner_image: ubuntu26-full-x64
+            runner_ami: ami-0da7b0202c738ef15
             image: debian:13-slim
             pg_version: 18
             arch: amd64
@@ -175,7 +175,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7g+c8g
-            runner_image: ubuntu26-full-arm64
+            runner_ami: ami-0a2a2634ec0e33c35
             image: debian:13-slim
             pg_version: 18
             arch: arm64

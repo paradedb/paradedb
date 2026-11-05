@@ -51,7 +51,8 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl
-      - image=ubuntu26-full-arm64
+      # Pin the working runner image to avoid the AppArmor/gosu startup regression.
+      - ami=ami-0a2a2634ec0e33c35
       - extras=s3-cache
     env:
       COHERE_SIZE: ${{ matrix.size }}

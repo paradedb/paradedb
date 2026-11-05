@@ -203,9 +203,8 @@ impl KdTree {
                 } => {
                     let bounds_idx = match dim {
                         DimHandle::Index(i) => *i,
+                        // add the ctid bound at the end if it doesn't exist and return that index
                         DimHandle::Ctid => {
-                            // add the ctid bound at the end if it doesn't exist and return that
-                            // index
                             if bounds.len() == self.dims.len() {
                                 bounds.push((Bound::Unbounded, Bound::Unbounded));
                             }
@@ -506,8 +505,8 @@ impl Builder<'_> {
 
         match dim {
             DimHandle::Index(i) => r.find(|pos| changes(*pos, i)),
-            DimHandle::Ctid => r.next(), // ctids are guaranteed to change, so always the first
-                                         // item
+            // ctids are guaranteed to change, so always the first item
+            DimHandle::Ctid => r.next(),
         }
     }
 }

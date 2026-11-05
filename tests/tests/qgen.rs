@@ -1900,6 +1900,13 @@ async fn generated_rank_join(database: Db) {
             )
         )?;
 
+        // TODO: Loosen this guard once `RankJoinRule` lifts its constant-score restriction
+        // (currently negated predicates lower to `ConstScore(Exists, 0.0) + must_not` with
+        // `is_constant_score() == true`, which Gate 1 in `SubtreeScoreStats::from_leaf_queries`
+        // rejects for score sorts). Requiring a bare indexed `Atom` per table is a conservative
+        // sufficient condition that guarantees Gate 1 (non-constant positive BM25 score) and
+        // Gate 2 (balanced score bounds) without duplicating `RankJoinRule`'s analysis in
+        // `wheregen`, while the result oracle above runs on all `arb_wheres` shapes.
         if !join.has_keyless_step()
             && !join_clause.contains(" AND ")
             && !join_clause.contains(".name =")

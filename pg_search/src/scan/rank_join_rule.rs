@@ -311,6 +311,11 @@ impl SubtreeScoreStats {
         disjunct_queries: &[SearchQueryInput],
         estimated_rows: u64,
     ) -> Option<Self> {
+        // TODO: Remove this constant-score restriction once `RankJoinExec` and `LazySortExec`
+        // can handle constant-score inputs (e.g. `pdb.all()` or negated predicates lowered to
+        // `ConstScore(Exists, 0.0) + must_not`) without degenerate upper-bound pruning or
+        // `CursorMode::ScoredDisjunctive` mistaking a `0.0`-score disjunct match for an
+        // unmatched `RA` row (`from_sa = score > 0.0`).
         let base_has_score = !base_query.is_constant_score();
         let disjuncts_have_score =
             !disjunct_queries.is_empty() && disjunct_queries.iter().all(|q| !q.is_constant_score());

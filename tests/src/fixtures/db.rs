@@ -33,6 +33,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 thread_local! {
     // The `conn` fixture drops its `Db` before the test body runs, so drop test
     // databases when the test thread exits.
+    // Create databases on the test thread, not in spawned async tasks: executor
+    // worker threads can outlive the test and delay this cleanup.
     static TEST_DATABASES: TestDatabases = const { TestDatabases(RefCell::new(Vec::new())) };
 }
 

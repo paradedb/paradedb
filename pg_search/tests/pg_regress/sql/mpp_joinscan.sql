@@ -8,6 +8,7 @@
 -- match across the two passes; the EXPLAIN trees differ.
 -- =====================================================================
 
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -35,7 +36,8 @@ CREATE TABLE mpp_join_pages (
     id SERIAL PRIMARY KEY,
     file_id INTEGER,
     page_text TEXT,
-    size_bytes INTEGER
+    size_bytes INTEGER,
+    embedding vector(3)
 );
 
 SET paradedb.global_mutable_segment_rows = 0;
@@ -48,16 +50,22 @@ INSERT INTO mpp_join_files (title, content)
 SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
 FROM generate_series(101, 200) AS g;
 
-INSERT INTO mpp_join_pages (file_id, page_text, size_bytes)
+INSERT INTO mpp_join_pages (file_id, page_text, size_bytes, embedding)
 SELECT (g % 200) + 1,
        'Page text for page ' || g,
-       (g * 17) % 4096
+       (g * 17) % 4096,
+       ARRAY[((g * 7) % 100)::real / 100.0 + 0.01,
+             ((g * 13) % 100)::real / 100.0 + 0.01,
+             ((g * 19) % 100)::real / 100.0 + 0.01]::vector(3)
 FROM generate_series(1, 500) AS g;
 
-INSERT INTO mpp_join_pages (file_id, page_text, size_bytes)
+INSERT INTO mpp_join_pages (file_id, page_text, size_bytes, embedding)
 SELECT (g % 200) + 1,
        'Page text for page ' || g,
-       (g * 17) % 4096
+       (g * 17) % 4096,
+       ARRAY[((g * 7) % 100)::real / 100.0 + 0.01,
+             ((g * 13) % 100)::real / 100.0 + 0.01,
+             ((g * 19) % 100)::real / 100.0 + 0.01]::vector(3)
 FROM generate_series(501, 1000) AS g;
 
 RESET paradedb.global_mutable_segment_rows;
@@ -71,7 +79,7 @@ SET max_parallel_maintenance_workers TO 0;
 CREATE INDEX mpp_join_files_idx ON mpp_join_files
 USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content) WITH (target_segment_count=3, partition_by='id');
 CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
-USING paradedb (id, file_id, page_text, size_bytes) WITH (target_segment_count=3, partition_by='file_id');
+USING paradedb (id, file_id, page_text, size_bytes, embedding vector_cosine_ops) WITH (target_segment_count=3, partition_by='file_id');
 
 -- =====================================================================
 -- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
@@ -579,6 +587,106 @@ WHERE line LIKE '%NetworkCoalesceExec%'
    OR line LIKE '%NetworkBroadcastExec%';
 
 RESET paradedb.mpp_min_rows;
+
+-- =====================================================================
+-- Pass 14: Multi-partition probe-side lazy_sort (fast-field and vector ORDER BY)
+--
+-- Exercises both range-co-partitioned (`mode=Partitioned`) and non-co-partitioned
+-- (`mode=CollectLeft` with `WorkerPool` segment claiming across 3 workers)
+-- probe-side lazy_sort plans under `SortPreservingMergeExec(fetch=K)` +
+-- per-partition `HashJoinExec(fetch=K)`.
+-- =====================================================================
+
+SET paradedb.vector_cluster_max_probe TO 1.0;
+SET paradedb.rank_join_min_rows TO 100;
+
+-- 14a. Non-co-partitioned (`CollectLeft` + `WorkerPool` probe lazy_sort): fast-field and vector ORDER BY
+SET paradedb.enable_range_partitioned_join TO off;
+SET max_parallel_workers_per_gather TO 3;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id AS file_id, p.id AS page_id, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.size_bytes, p.id
+LIMIT 10;
+
+SELECT f.id AS file_id, p.id AS page_id, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.size_bytes, p.id
+LIMIT 10;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.embedding <=> '[1, 0, 0]'::vector, p.id
+LIMIT 10;
+
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.embedding <=> '[1, 0, 0]'::vector, p.id
+LIMIT 10;
+
+-- Serial baseline for 14a
+SET max_parallel_workers_per_gather TO 0;
+
+SELECT f.id AS file_id, p.id AS page_id, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.size_bytes, p.id
+LIMIT 10;
+
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.embedding <=> '[1, 0, 0]'::vector, p.id
+LIMIT 10;
+
+-- 14b. Range co-partitioned (`Partitioned` probe lazy_sort): fast-field and vector ORDER BY
+SET paradedb.enable_range_partitioned_join TO on;
+SET max_parallel_workers_per_gather TO 3;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id AS file_id, p.id AS page_id, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.size_bytes, p.id
+LIMIT 10;
+
+SELECT f.id AS file_id, p.id AS page_id, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.size_bytes, p.id
+LIMIT 10;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.embedding <=> '[1, 0, 0]'::vector, p.id
+LIMIT 10;
+
+SELECT f.id AS file_id, p.id AS page_id
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+  AND f.id <= 10
+ORDER BY p.embedding <=> '[1, 0, 0]'::vector, p.id
+LIMIT 10;
+
+RESET paradedb.rank_join_min_rows;
+RESET paradedb.vector_cluster_max_probe;
 DROP FUNCTION mpp_explain_analyze_lines(text);
 
 -- =====================================================================

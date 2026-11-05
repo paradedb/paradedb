@@ -58,6 +58,7 @@ pub enum IndexExpression {
     Multiply {
         factor: i64,
     },
+    VectorCosine,
 }
 
 impl IndexExpression {
@@ -73,6 +74,7 @@ impl IndexExpression {
             Self::Multiply { factor } => {
                 format!("(({column_name} * {factor})::pdb.alias('{column_name}_x{factor}'))")
             }
+            Self::VectorCosine => format!("{column_name} vector_cosine_ops"),
         }
     }
 
@@ -429,7 +431,9 @@ ANALYZE {tname};
 "#,
             b_tree_indexes = columns_def
                 .iter()
-                .filter(|c| c.is_indexed)
+                .filter(|c| {
+                    c.is_indexed && c.index_expression != Some(IndexExpression::VectorCosine)
+                })
                 .map(|c| format!(
                     "CREATE INDEX idx{tname}_{name} ON {tname} ({name});",
                     name = c.name

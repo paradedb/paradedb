@@ -45,6 +45,9 @@ SET enable_mergejoin = OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 SET paradedb.enable_join_custom_scan = ON;
+-- Cover the standard BatchScanner path first; lazy_sort probe joins (which
+-- rotate all build sides onto t1) are covered after Q3.
+SET paradedb.enable_rank_join = OFF;
 
 -- ===========================================================================
 -- Fixture
@@ -299,6 +302,50 @@ DROP TABLE result_q3_linear;
 DROP TABLE result_q3_gallop;
 
 -- ===========================================================================
+-- Q4: lazy_sort probe joins (enable_rank_join = ON)
+-- ===========================================================================
+-- With enable_rank_join = ON, try_rewrite_lazy_sort_probe_join rotates t1 to
+-- the probe side of all HashJoinExecs and configures lazy_sort on t1
+-- (InListLinearFallback::PushToIndex), pushing 1 (Q1) or all 3 (Q3) InList
+-- dynamic filters into t1 simultaneously.
+
+SET paradedb.enable_rank_join = ON;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id
+FROM t1
+JOIN t2_a ON t1.fk_a = t2_a.fk
+WHERE t1.body ||| 'doc'
+ORDER BY t1.id
+LIMIT 10;
+
+SELECT t1.id
+FROM t1
+JOIN t2_a ON t1.fk_a = t2_a.fk
+WHERE t1.body ||| 'doc'
+ORDER BY t1.id
+LIMIT 10;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id
+FROM t1
+JOIN t2_a ON t1.fk_a = t2_a.fk
+JOIN t2_b ON t1.fk_b = t2_b.fk
+JOIN t2_c ON t1.fk_c = t2_c.fk
+WHERE t1.body ||| 'doc'
+ORDER BY t1.id
+LIMIT 10;
+
+SELECT t1.id
+FROM t1
+JOIN t2_a ON t1.fk_a = t2_a.fk
+JOIN t2_b ON t1.fk_b = t2_b.fk
+JOIN t2_c ON t1.fk_c = t2_c.fk
+WHERE t1.body ||| 'doc'
+ORDER BY t1.id
+LIMIT 10;
+
+-- ===========================================================================
 -- Cleanup
 -- ===========================================================================
 
@@ -308,6 +355,7 @@ DROP TABLE IF EXISTS t2_b CASCADE;
 DROP TABLE IF EXISTS t2_c CASCADE;
 
 RESET paradedb.term_set_gallop_enabled;
+RESET paradedb.enable_rank_join;
 RESET paradedb.enable_join_custom_scan;
 RESET enable_nestloop;
 RESET enable_mergejoin;

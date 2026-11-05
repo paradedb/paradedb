@@ -20,6 +20,7 @@ max_worker_processes = 32
 [index]
 training_sample_ratio = 0.32
 target_segment_count = 8
+vector_router_quantization = true
 
 [search]
 runs = 1

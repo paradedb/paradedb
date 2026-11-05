@@ -43,6 +43,9 @@ SET enable_mergejoin = OFF;
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan = ON;
+-- Test the standard BatchScanner dynamic-filter pushdown path (KeepAsPreFilter)
+-- first; lazy_sort probe joins (PushToIndex) are covered in TEST L / TEST M.
+SET paradedb.enable_rank_join = OFF;
 
 -- ============================================================================
 -- Fixtures
@@ -275,6 +278,47 @@ LIMIT 10;
 RESET paradedb.term_set_gallop_enabled;
 
 -- ============================================================================
+-- TEST L: lazy_sort probe join (enable_rank_join = ON) pushes dense multi-column
+-- InList to the index (InListLinearFallback::PushToIndex → linear)
+-- ============================================================================
+-- Same shape as TEST E (K=60 on ts_multi, K/N = 0.006 > 0.005). On a standard
+-- scan (TEST E), KeepAsPreFilter leaves the InList as a batch PreFilter. On a
+-- lazy_sort probe scan, PushToIndex pushes it into Tantivy so TopDocs filters
+-- during collection, routing to dynamic_filter_pushdown_linear.
+
+SET paradedb.enable_rank_join = ON;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT ts_outer.id, ts_multi.id
+FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 60
+ORDER BY ts_multi.id ASC
+LIMIT 10;
+
+SELECT ts_outer.id, ts_multi.id
+FROM ts_outer JOIN ts_multi ON ts_outer.id = ts_multi.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 60
+ORDER BY ts_multi.id ASC
+LIMIT 10;
+
+-- ============================================================================
+-- TEST M: lazy_sort probe join (enable_rank_join = ON) with gallop on sorted segment
+-- ============================================================================
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT ts_outer.id, ts_sorted.id
+FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
+ORDER BY ts_sorted.id ASC
+LIMIT 10;
+
+SELECT ts_outer.id, ts_sorted.id
+FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk
+WHERE ts_outer.val ||| 'doc' AND ts_outer.id <= 100
+ORDER BY ts_sorted.id ASC
+LIMIT 10;
+
+-- ============================================================================
 -- Cleanup
 -- ============================================================================
 
@@ -287,4 +331,5 @@ RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET enable_nestloop;
 RESET enable_mergejoin;
+RESET paradedb.enable_rank_join;
 RESET paradedb.enable_join_custom_scan;

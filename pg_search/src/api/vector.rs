@@ -1356,7 +1356,7 @@ mod tests {
     fn unsupported_vector_storage_names_index_and_reindex() {
         let indexrel = vector_metadata_fixture();
         Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
-        for version in [4, 3, 99] {
+        for version in [5, 3, 99] {
             replace_vector_version(&indexrel, version);
             let before = crate::index::reader::io_stats::vector_buffer_reads();
             let plan = Spi::get_one::<pgrx::Json>(
@@ -1378,7 +1378,7 @@ mod tests {
                 Some(2048)
             );
             Spi::run("SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')").unwrap();
-            if version != 4 {
+            if version != 5 {
                 expect_reindex(&vector_query());
                 expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
             }

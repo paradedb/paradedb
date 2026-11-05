@@ -1,0 +1,96 @@
+name: Test Vector Storage Compatibility
+description: Read real older indexes across binary upgrades and rollbacks, then rebuild them
+
+inputs:
+  pg_version:
+    description: PostgreSQL major version
+    required: true
+
+  baseline_ref:
+    description: Revision containing the older writer and reader
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The pinned baseline keeps testing the format boundary after the new writer merges.
+    - name: Checkout the baseline writer and reader
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: ${{ inputs.baseline_ref }}
+        path: vector-storage-baseline
+        persist-credentials: false
+
+    - name: Install the baseline binary
+      shell: bash
+      working-directory: vector-storage-baseline/pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      run: |
+        set -euo pipefail
+        cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
+        cp "$(/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config --pkglibdir)/pg_search.so" \
+          "$RUNNER_TEMP/vector-storage-baseline.so"
+
+    - name: Create and query baseline indexes
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        FIXTURES: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        echo "shared_preload_libraries = 'pg_search'" >> "$HOME/.pgrx/data-${PG_MAJOR}/postgresql.conf"
+        echo "max_worker_processes = 32" >> "$HOME/.pgrx/data-${PG_MAJOR}/postgresql.conf"
+        cargo pgrx start "pg${PG_MAJOR}"
+        createdb -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/setup.sql"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/verify.sql"
+        cargo pgrx stop "pg${PG_MAJOR}"
+
+    - name: Install the current binary
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+      run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
+
+    - name: Reject old storage and rebuild with the current binary
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        FIXTURES: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        cargo pgrx start "pg${PG_MAJOR}"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -v legacy_writer=false -f "$FIXTURES/rebuild.sql"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/verify.sql"
+        cargo pgrx stop "pg${PG_MAJOR}"
+
+    # Keep the SQL catalog unchanged throughout. Existing ALTER EXTENSION tests cover
+    # catalog migrations; this test exercises the storage reader/writer in each binary.
+    - name: Restore the baseline binary and rebuild newer storage
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+        FIXTURES: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        sudo install -m 755 "$RUNNER_TEMP/vector-storage-baseline.so" \
+          "$(/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config --pkglibdir)/pg_search.so"
+        cargo pgrx start "pg${PG_MAJOR}"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -v legacy_writer=true -f "$FIXTURES/rebuild.sql"
+        psql -X -v ON_ERROR_STOP=1 -h localhost -p "288${PG_MAJOR}" vector_storage_compatibility -f "$FIXTURES/verify.sql"
+
+    - name: Stop Postgres and print logs
+      if: always()
+      shell: bash
+      working-directory: pg_search
+      env:
+        PG_MAJOR: ${{ inputs.pg_version }}
+      run: |
+        cargo pgrx stop "pg${PG_MAJOR}"
+        cat "$HOME/.pgrx/${PG_MAJOR}.log"

@@ -1207,6 +1207,7 @@ mod unit_tests {
 #[cfg(any(test, feature = "pg_test"))]
 pub(crate) mod test_support {
     use super::*;
+    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntryImmutable};
     use crate::postgres::storage::buffer::BufferManager;
     use crate::postgres::storage::metadata::MetaPage;
     pub(crate) fn vector_metadata_fixture() -> PgSearchRelation {
@@ -1271,16 +1272,28 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn replace_vector_version(indexrel: &PgSearchRelation, version: u32) {
+        replace_storage_version(indexrel, version, |content| content.vec);
+    }
+
+    pub(crate) fn replace_centroid_version(indexrel: &PgSearchRelation, version: u32) {
+        replace_storage_version(indexrel, version, |content| content.centroids);
+    }
+
+    fn replace_storage_version(
+        indexrel: &PgSearchRelation,
+        version: u32,
+        component: impl Fn(SegmentMetaEntryImmutable) -> Option<FileEntry>,
+    ) {
         use crate::postgres::storage::block::{LinkedListData, SegmentMetaEntryContent};
         let entries = unsafe { MetaPage::open(indexrel).segment_metas().list(None) };
         let file = entries
             .iter()
             .filter(|entry| !entry.is_deleted())
             .find_map(|entry| match entry.content {
-                SegmentMetaEntryContent::Immutable(content) => content.vec,
+                SegmentMetaEntryContent::Immutable(content) => component(content),
                 _ => None,
             })
-            .expect("fixture has a vector file");
+            .expect("fixture has the requested vector storage component");
         let mut bman = BufferManager::new(indexrel);
         let block = bman
             .get_buffer(file.starting_block)
@@ -1356,7 +1369,7 @@ mod tests {
     fn unsupported_vector_storage_names_index_and_reindex() {
         let indexrel = vector_metadata_fixture();
         Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
-        for version in [4, 3, 99] {
+        for version in [5, 4, 3, 6, 99] {
             replace_vector_version(&indexrel, version);
             let before = crate::index::reader::io_stats::vector_buffer_reads();
             let plan = Spi::get_one::<pgrx::Json>(
@@ -1378,10 +1391,35 @@ mod tests {
                 Some(2048)
             );
             Spi::run("SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')").unwrap();
-            if version != 4 {
+            if version != 5 {
                 expect_reindex(&vector_query());
                 expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
             }
         }
+    }
+
+    #[pg_test]
+    fn unsupported_centroid_storage_names_index_and_reindex() {
+        let indexrel = vector_metadata_fixture();
+        Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
+        for version in [1, 2, 3, 4, 6, 99] {
+            replace_centroid_version(&indexrel, version);
+            let before = crate::index::reader::io_stats::vector_buffer_reads();
+            assert_eq!(
+                Spi::get_one::<i64>("SELECT count(*) FROM metadata_vectors WHERE id @@@ pdb.all()")
+                    .unwrap(),
+                Some(2048)
+            );
+            assert_eq!(
+                crate::index::reader::io_stats::vector_buffer_reads(),
+                before
+            );
+            expect_reindex(&vector_query());
+            expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
+        }
+        drop(indexrel);
+        Spi::run("REINDEX INDEX metadata_vectors_idx").unwrap();
+        Spi::run(&vector_query()).unwrap();
+        Spi::run("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')").unwrap();
     }
 }

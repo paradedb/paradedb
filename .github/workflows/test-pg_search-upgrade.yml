@@ -11,6 +11,7 @@ on:
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/actions/test-pg_search-upgrade/**"
+      - ".github/actions/test-vector-storage-compatibility/**"
       - ".github/scripts/release.py"
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
@@ -29,6 +30,45 @@ permissions:
   contents: read
 
 jobs:
+  test-vector-storage-compatibility:
+    name: Test vector storage upgrade and rollback (V4/V5)
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu26-full-arm64
+      - volume=80gb
+      - extras=s3-cache
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Configure RunsOn Caching
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
+
+      - name: Set Up pg_search Toolchain
+        uses: ./.github/actions/setup-pg-search-toolchain
+        with:
+          pg_version: 18
+
+      - name: Install required system tools
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: libopenblas-dev lld
+
+      - name: Install PostgreSQL
+        uses: ./.github/actions/setup-postgres
+        with:
+          pg_version: 18
+
+      - name: Test both storage directions
+        uses: ./.github/actions/test-vector-storage-compatibility
+        with:
+          pg_version: 18
+          baseline_ref: 499fb26f9d4d977704348534475762a6ca5d2e3b
+
   # Test the newest release in this checkout's SQL chain and the pinned legacy release.
   discover-upgrade-starting-points:
     name: Discover upgrade starting points

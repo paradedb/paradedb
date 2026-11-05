@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793866247214,
+  "lastUpdate": 1793866275233,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -181801,6 +181801,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13305226785-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866272926,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 136.4268080448597,
+            "unit": "median tps",
+            "extra": "avg tps: 134.40298652230265, max tps: 141.74989587354858, count: 59049"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 547.8245141183438,
+            "unit": "median tps",
+            "extra": "avg tps: 561.7977225619737, max tps: 4685.832165245688, count: 59049"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2983.675532117491,
+            "unit": "median tps",
+            "extra": "avg tps: 2978.151104343975, max tps: 3047.7371722048397, count: 59049"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 164.12775233127812,
+            "unit": "median tps",
+            "extra": "avg tps: 162.14547800663362, max tps: 174.70266202303398, count: 59049"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 274.1916698785276,
+            "unit": "median tps",
+            "extra": "avg tps: 378.0534815582412, max tps: 2754.641114952723, count: 118098"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 27.538217978253503,
+            "unit": "median tps",
+            "extra": "avg tps: 26.985601571519947, max tps: 47.61081094875348, count: 59049"
+          }
+        ],
+        "publication_id": "13397184931-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -230734,6 +230793,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13305226785-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f0f9ff86518af8bb66070b4056fcd52ad0b69f8a",
+          "message": "ci: Pin Docker benchmark runner AMIs (#7257)\n\n## What\n\nPin the Docker-based benchmark jobs to the working ARM64 runner AMI\n(`ami-0a2a2634ec0e33c35`) already used by the Docker smoke tests:\n\n- Hacker News Benchmarker\n- Wikipedia and Stack Exchange Benchmarker\n- Docker heap snapshot generation\n\n## Why\n\nThe Enterprise [Wikipedia\nbenchmark](https://github.com/paradedb/paradedb-enterprise/actions/runs/41792926352/job/126450243460)\nrestored its heap but PostgreSQL never started on the moving ARM64\nimage. The container remained in `health: starting` for five minutes\nbefore psql failed with a missing socket. Stack Exchange also failed at\ncontainer startup; Hacker News passed.\n\nUse the existing working Docker runner pin for these jobs. The ParadeDB\nDocker runtime tests already pin both architectures. The Stressgres\nDocker test runs `sleep infinity` as `app`, without gosu or PostgreSQL\nstartup, so it retains its existing runner along with host PostgreSQL\nbenchmarks and build/publish-only jobs.\n\n## Tests\n\nActionlint passes for both changed workflows, and `git diff --check`\npasses. Runtime validation awaits CI; Enterprise needs to receive the\nshared workflow changes.",
+          "timestamp": "2026-11-05T02:04:59Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f0f9ff86518af8bb66070b4056fcd52ad0b69f8a"
+        },
+        "date": 1793866275169,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.701237,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.389149878755642, max cpu: 38.554214, count: 59049"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 49.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.823484521329746, max mem: 51.7890625, count: 59049"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.34331789663863, max cpu: 37.335926, count: 59049"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 34.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.57737535775373, max mem: 34.578125, count: 59049"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.98612599324163, max cpu: 18.399616, count: 59049"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 52.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.4620525035352, max mem: 52.49609375, count: 59049"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2576,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2551.3297600298056, max block_count: 2576.0, count: 59049"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 59049"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.421788869201848, max mem: 29.44921875, count: 59049"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.728801503835797, max segment_count: 37.0, count: 59049"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.306834,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.596659257244102, max cpu: 33.718014, count: 59049"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 52.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.701732353638505, max mem: 52.703125, count: 59049"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6309695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.425850301528522, max cpu: 37.335926, count: 118098"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 50.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.74221687179292, max mem: 58.81640625, count: 118098"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.147213,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.410376354909966, max cpu: 18.479307, count: 59049"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 52.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.13249152716388, max mem: 54.796875, count: 59049"
+          }
+        ],
+        "publication_id": "13397184931-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

@@ -2043,6 +2043,7 @@ EXECUTE window_join_param_limit(3);
    Limit: $1
    Order By: r.score desc
    DataFusion Physical Plan: 
+<<<<<<< HEAD
      : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, get_field(__topk@0, c1) + window_agg_1@1 as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
      :   UnnestExec
      :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, $1, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, sum(r_1.score) as window_agg_2]
@@ -2053,6 +2054,19 @@ EXECUTE window_join_param_limit(3);
      :           CooperativeExec
      :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
 (16 rows)
+=======
+     : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, window_agg_2@2 as col_4, pdb_eval_expr_opexpr_6fc85b7a(get_field(__topk@0, c1), window_agg_1@1) as col_5, get_field(__topk@0, c2) as ctid_0, get_field(__topk@0, c3) as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=3
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, p_0.ctid_0, r_1.ctid_1, 3, [2, 3]) ORDER BY [r_1.score DESC NULLS FIRST] as __topk, count(1) as window_agg_1, sum(r_1.score) as window_agg_2]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, ctid_0@0, ctid_1@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(17 rows)
+>>>>>>> 1c2daec (feat: Add support for joins ordered by vector distance (#7137))
 
 EXECUTE window_join_param_limit(3);
  id | score | total_count | total_score | score_plus_count 
@@ -2078,8 +2092,8 @@ ORDER BY r.score DESC, r.id
 LIMIT $1 OFFSET $2;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE pdb_agg_join_param_fetch(2, 1);
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text)), r.id
    Relation Tree: p INNER r
@@ -2089,15 +2103,16 @@ EXECUTE pdb_agg_join_param_fetch(2, 1);
    Order By: r.score desc, r.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
-     :   UnnestExec
-     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, $1 + $2, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
-     :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(17 rows)
+     :   GlobalLimitExec: skip=1, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, 3, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 EXECUTE pdb_agg_join_param_fetch(2, 1);
  id | score |    avg_score     
@@ -2144,8 +2159,8 @@ ORDER BY r.score DESC, r.id
 LIMIT 2 OFFSET $1;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 EXECUTE pdb_agg_join_param_offset(1);
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, r.score, (pdb.window_agg('pdb.agg(''{"avg":{"field":"score"}}'') OVER ()'::text)), r.id
    Relation Tree: p INNER r
@@ -2155,15 +2170,16 @@ EXECUTE pdb_agg_join_param_offset(1);
    Order By: r.score desc, r.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[get_field(__topk@0, c0) as col_1, get_field(__topk@0, c1) as col_2, window_agg_1@1 as col_3, get_field(__topk@0, c2) as col_4, get_field(__topk@0, c3) as ctid_0, get_field(__topk@0, c4) as ctid_1]
-     :   UnnestExec
-     :     AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, 2 + $1, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
-     :       VisibilityFilterExec: tables=[p, r]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
-     :           CooperativeExec
-     :             PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
-(17 rows)
+     :   GlobalLimitExec: skip=1, fetch=2
+     :     UnnestExec
+     :       AggregateExec: mode=Single, gby=[], aggr=[topk_as_agg(p_0.id, r_1.score, r_1.id, p_0.ctid_0, r_1.ctid_1, 3, [3, 4]) ORDER BY [r_1.score DESC NULLS FIRST, r_1.id ASC NULLS LAST] as __topk, pdb_agg({"avg":{"field":"score"}}) as window_agg_1]
+     :         VisibilityFilterExec: tables=[p, r]
+     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[id@1, score@4, id@5, ctid_0@0, ctid_1@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 EXECUTE pdb_agg_join_param_offset(1);
  id | score |    avg_score     
@@ -2458,7 +2474,7 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY p.id DESC, score_plus_count
 LIMIT 3;
-WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, r)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must be fast-field columns, indexed expressions, pdb.score() / sums of pdb.score(), or vector distance expressions (<->, <=>, <#>) (tables: p, r)
                                                                                                                QUERY PLAN                                                                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -2485,7 +2501,7 @@ JOIN product_reviews r ON p.id = r.product_id
 WHERE p.description ||| 'laptop'
 ORDER BY p.id DESC, score_plus_count
 LIMIT 3;
-WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must match an indexed expression or be a sum of pdb.score() calls (tables: p, r)
+WARNING:  JoinScan not used: unsupported ORDER BY expression shape; expressions must be fast-field columns, indexed expressions, pdb.score() / sums of pdb.score(), or vector distance expressions (<->, <=>, <#>) (tables: p, r)
  id | score_plus_count 
 ----+------------------
   5 |               69

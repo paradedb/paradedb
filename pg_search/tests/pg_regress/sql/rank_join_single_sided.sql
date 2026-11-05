@@ -306,16 +306,39 @@ WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) DESC
 LIMIT 5;
 
--- 6f: Gate 3 unscored RA selectivity (< 0.08 rejected vs >= 0.08 accepted when rank_join_min_rows > 0)
+-- 6f: Gate 3 unscored RA selectivity (< 0.08 uses HashJoinExec(fetch=K) over lazy_sort probe vs >= 0.08 uses RankJoinExec when rank_join_min_rows > 0)
 SET paradedb.rank_join_min_rows = 1;
 
--- Selective RA side (u.id = 2 matches 1/50 = 0.02 < 0.08) -> rejected (HashJoinExec)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.08) with fast-field sort -> HashJoinExec(fetch=5) + lazy_sort probe
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
 JOIN rj_posts p ON u.id = p.user_id
-WHERE u.id = 2 AND p.title @@@ 'bm25'
-ORDER BY p.views DESC NULLS LAST
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY p.views DESC NULLS LAST, p.id ASC
+LIMIT 5;
+
+-- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.08) with BM25 score sort -> HashJoinExec(fetch=5) + lazy_sort probe
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
+LIMIT 5;
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.id <= 1 AND p.title @@@ 'bm25'
+ORDER BY paradedb.score(p.id) DESC, p.id ASC
 LIMIT 5;
 
 -- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.08) -> RankJoinExec

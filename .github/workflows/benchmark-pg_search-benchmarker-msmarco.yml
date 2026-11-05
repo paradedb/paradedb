@@ -1,4 +1,4 @@
-name: Benchmark MS MARCO (pg_search and pg_vectorsearch)
+name: Benchmark MS MARCO (pg_vectorsearch without replication)
 
 on:
   pull_request:
@@ -8,8 +8,8 @@ on:
       variant:
         description: "Benchmark variant"
         type: choice
-        options: [all, main, pr7160, pg_vectorsearch]
-        default: all
+        options: [pg_vectorsearch]
+        default: pg_vectorsearch
       commit:
         description: "Candidate pg_search commit"
         default: "e3c06a5c611003c5c9d55b4cea4d636f37163e51"
@@ -35,14 +35,12 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (${{ matrix.name }})
+    name: MS MARCO 113m (pg_vectorsearch without replication)
     strategy:
       fail-fast: false
       matrix:
-        name: ${{ fromJSON(github.event.label.name == 'benchmark-msmarco-main' && '["main"]' || github.event.label.name == 'benchmark-msmarco-pr7160' && '["pr7160"]' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch' && '["pg_vectorsearch"]' || (inputs.variant != '' && inputs.variant != 'all' && format('["{0}"]', inputs.variant)) || '["main","pr7160","pg_vectorsearch"]') }}
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-main", "benchmark-msmarco-pr7160", "benchmark-msmarco-pg_vectorsearch"]'), github.event.label.name)
+        name: [pg_vectorsearch]
+    if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch'
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -242,6 +240,31 @@ jobs:
             -c 'VACUUM (ANALYZE) msmarco;' \
             | tee benchmark-artifacts/index-vacuum.log
 
+      - name: Verify replication is disabled
+        run: |
+          set -euo pipefail
+          profile="$(basename "$MSMARCO_CONFIG" .toml)"
+          index="$(jq -r '.data.index.name' benchmark-artifacts/search/"$profile"/*_build.json)"
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -v index_name="$index" <<'SQL' \
+            > benchmark-artifacts/replication-verification.json
+          WITH options AS (
+            SELECT count(*) = 2 AND bool_and(option_value::float8 = 0) AS disabled
+            FROM pg_class c CROSS JOIN LATERAL pg_options_to_table(c.reloptions)
+            WHERE c.oid = :'index_name'::regclass
+              AND option_name IN ('boundary_epsilon', 'soar_lambda')
+          ), postings AS (
+            SELECT sum(entry_count)::bigint AS entries, sum(dead_count)::bigint AS dead
+            FROM prism_posting_pages(:'index_name'::regclass)
+          )
+          SELECT json_build_object('options_disabled', options.disabled,
+            'posting_entries', postings.entries, 'dead_entries', postings.dead,
+            'expected_rows', 113520750)
+          FROM options CROSS JOIN postings;
+          SQL
+          cat benchmark-artifacts/replication-verification.json
+          jq -e '.options_disabled and .posting_entries == .expected_rows and .dead_entries == 0' \
+            benchmark-artifacts/replication-verification.json
+
       - name: Verify pg_vectorsearch used parallel workers
         if: matrix.name == 'pg_vectorsearch'
         run: |
@@ -321,10 +344,10 @@ jobs:
             git -C benchmarker rev-parse HEAD
           } > benchmark-artifacts/tool-commits.txt
           {
-            printf 'Variant: `%s`. Unfiltered MS MARCO 113m, top-10/top-100 at R90/R95/R99.\n\n' "$VARIANT"
+            printf 'Variant: `%s-no-replication`. Unfiltered MS MARCO 113m, top-10/top-100 at R90/R95/R99.\n\n' "$VARIANT"
             printf 'pg_search: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
             if [[ "$VARIANT" == pg_vectorsearch ]]; then
-              printf 'pg_vectorsearch memory fix: `%s`.\n\n' "$PG_VECTORSEARCH_REF"
+              printf 'pg_vectorsearch memory fix: `%s`. Boundary and SOAR replication are disabled (boundary_epsilon=0, soar_lambda=0); physical posting count must equal 113,520,750.\n\n' "$PG_VECTORSEARCH_REF"
             fi
             printf 'Build RSS is the sum across sampled processes and includes shared mappings. These runs do not update the rolling main baseline.\n\n'
             cat benchmark-artifacts/operating_points.md
@@ -341,7 +364,7 @@ jobs:
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.name == 'pg_vectorsearch' && 'pg_vectorsearch' || 'pg_search' }}","variant":"${{ matrix.name }}","pg_vectorsearch":"${{ matrix.name == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.name == 'pg_vectorsearch' && 'pg_vectorsearch' || 'pg_search' }}","variant":"${{ matrix.name }}-no-replication","pg_vectorsearch":"${{ matrix.name == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -369,7 +392,7 @@ jobs:
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"msmarco-113m-${{ matrix.name }}",
+            {"dataset":"msmarco-113m-${{ matrix.name }}-no-replication",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"false",
              "context_file":"benchmark-artifacts/result-context.md",
@@ -386,7 +409,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: msmarco-113m-${{ matrix.name }}-diagnostics
+          name: msmarco-113m-${{ matrix.name }}-no-replication-diagnostics
           path: |
             benchmark-artifacts/
             benchmarker/results/

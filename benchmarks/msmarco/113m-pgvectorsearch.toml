@@ -21,6 +21,8 @@ max_worker_processes = 8
 
 [index]
 nlist = 0
+boundary_epsilon = 0.0
+soar_lambda = 0.0
 
 [search]
 queries = 100

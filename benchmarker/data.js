@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793841612274,
+  "lastUpdate": 1793841636607,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -65669,6 +65669,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13369528075-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b30d19ceaa27087c5cb057e82c6489bc1b93eeff",
+          "message": "test: pin the segment layout under the `order_by_range` parallel check (#7246)\n\n## Ticket(s) Closed\n\n- Closes #7245\n\n## What\n\nThis PR pins the segment layout of `range_segments` in the\n`order_by_range` regress test.\n\n## Why\n\nThe test asserts a `Gather` over `range_segments`, and the planner hands\nworkers to a scan only when the index has more than one segment. The\nbatched inserts leave mutable segments behind, and the background merger\nlaunched from `aminsertcleanup` folds them a moment later, as does the\nperiodic sweep where it is on. When the merge reaches one segment before\nthe `EXPLAIN`, `parallel_plan` reads `f`.\n\n## How\n\n`paradedb.global_mutable_segment_rows = 0` around the inserts makes each\ninsert its own immutable segment, and `background_layer_sizes = '0'` on\nthe index keeps the background merger off it. With both, the six\nsegments stayed for the whole time I watched them, with two workers\nplanned. With only the first, the merger still folded two segments\nwithin five seconds.\n\n## Tests\n\nTest-only change.",
+          "timestamp": "2026-11-05T00:38:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b30d19ceaa27087c5cb057e82c6489bc1b93eeff"
+        },
+        "date": 1793841633645,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 13.09,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.793,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 14.12,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 16.77,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 17.67,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 18.013,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 25.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 27.72,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 28.689,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 13.122,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 13.852,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 14.179,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.167,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.393,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 17.863,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 30.148,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 31.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 31.987,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.939,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.354,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.519,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.718,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 23.181,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 27.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 28.826,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13379925428-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -68787,6 +68945,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13369528075-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b30d19ceaa27087c5cb057e82c6489bc1b93eeff",
+          "message": "test: pin the segment layout under the `order_by_range` parallel check (#7246)\n\n## Ticket(s) Closed\n\n- Closes #7245\n\n## What\n\nThis PR pins the segment layout of `range_segments` in the\n`order_by_range` regress test.\n\n## Why\n\nThe test asserts a `Gather` over `range_segments`, and the planner hands\nworkers to a scan only when the index has more than one segment. The\nbatched inserts leave mutable segments behind, and the background merger\nlaunched from `aminsertcleanup` folds them a moment later, as does the\nperiodic sweep where it is on. When the merge reaches one segment before\nthe `EXPLAIN`, `parallel_plan` reads `f`.\n\n## How\n\n`paradedb.global_mutable_segment_rows = 0` around the inserts makes each\ninsert its own immutable segment, and `background_layer_sizes = '0'` on\nthe index keeps the background merger off it. With both, the six\nsegments stayed for the whole time I watched them, with two workers\nplanned. With only the first, the merger still folded two segments\nwithin five seconds.\n\n## Tests\n\nTest-only change.",
+          "timestamp": "2026-11-05T00:38:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b30d19ceaa27087c5cb057e82c6489bc1b93eeff"
+        },
+        "date": 1793841634779,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 76.08261207686398,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 59.449233321757376,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 38.303947767486235,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 76.2811857477774,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 61.59863903894393,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 33.308123080929164,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 167.1522150273669,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 115.55728741038851,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 42.57359952593827,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13379925428-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -70175,6 +70401,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13369528075-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b30d19ceaa27087c5cb057e82c6489bc1b93eeff",
+          "message": "test: pin the segment layout under the `order_by_range` parallel check (#7246)\n\n## Ticket(s) Closed\n\n- Closes #7245\n\n## What\n\nThis PR pins the segment layout of `range_segments` in the\n`order_by_range` regress test.\n\n## Why\n\nThe test asserts a `Gather` over `range_segments`, and the planner hands\nworkers to a scan only when the index has more than one segment. The\nbatched inserts leave mutable segments behind, and the background merger\nlaunched from `aminsertcleanup` folds them a moment later, as does the\nperiodic sweep where it is on. When the merge reaches one segment before\nthe `EXPLAIN`, `parallel_plan` reads `f`.\n\n## How\n\n`paradedb.global_mutable_segment_rows = 0` around the inserts makes each\ninsert its own immutable segment, and `background_layer_sizes = '0'` on\nthe index keeps the background merger off it. With both, the six\nsegments stayed for the whole time I watched them, with two workers\nplanned. With only the first, the merger still folded two segments\nwithin five seconds.\n\n## Tests\n\nTest-only change.",
+          "timestamp": "2026-11-05T00:38:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b30d19ceaa27087c5cb057e82c6489bc1b93eeff"
+        },
+        "date": 1793841636597,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 4.3954683588000005,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43199.96875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13379925428-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -72708,6 +72967,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13369528075-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b30d19ceaa27087c5cb057e82c6489bc1b93eeff",
+          "message": "test: pin the segment layout under the `order_by_range` parallel check (#7246)\n\n## Ticket(s) Closed\n\n- Closes #7245\n\n## What\n\nThis PR pins the segment layout of `range_segments` in the\n`order_by_range` regress test.\n\n## Why\n\nThe test asserts a `Gather` over `range_segments`, and the planner hands\nworkers to a scan only when the index has more than one segment. The\nbatched inserts leave mutable segments behind, and the background merger\nlaunched from `aminsertcleanup` folds them a moment later, as does the\nperiodic sweep where it is on. When the merge reaches one segment before\nthe `EXPLAIN`, `parallel_plan` reads `f`.\n\n## How\n\n`paradedb.global_mutable_segment_rows = 0` around the inserts makes each\ninsert its own immutable segment, and `background_layer_sizes = '0'` on\nthe index keeps the background merger off it. With both, the six\nsegments stayed for the whole time I watched them, with two workers\nplanned. With only the first, the merger still folded two segments\nwithin five seconds.\n\n## Tests\n\nTest-only change.",
+          "timestamp": "2026-11-05T00:38:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b30d19ceaa27087c5cb057e82c6489bc1b93eeff"
+        },
+        "date": 1793841635584,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 16116.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 27532.88,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 54541.78,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 17055.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 25536.97,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 50012.98,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 2388.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3616.57,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 9916.26,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13379925428-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

@@ -1,0 +1,175 @@
+-- A search on the parent of an inheritance tree returns the rows of every table
+-- in the tree, as PostgreSQL does (#6640). The parent's index holds only the
+-- parent's rows, so Base Scan declines the parent and scans each table on its own.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CREATE TABLE inh_parent (id SERIAL PRIMARY KEY, kind TEXT);
+CREATE TABLE inh_child () INHERITS (inh_parent);
+INSERT INTO inh_parent (kind) VALUES ('a'), ('b');
+INSERT INTO inh_child (kind) VALUES ('c'), ('d');
+CREATE INDEX inh_parent_idx ON inh_parent USING paradedb (id, kind);
+CREATE INDEX inh_child_idx ON inh_child USING paradedb (id, kind);
+ANALYZE inh_parent;
+ANALYZE inh_child;
+-- The query from the issue: one Base Scan per table, 4 rows.
+EXPLAIN (COSTS OFF)
+SELECT id, kind FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Sort
+   Sort Key: inh_parent.id
+   ->  Append
+         ->  Custom Scan (ParadeDB Base Scan) on inh_parent inh_parent_1
+               Table: inh_parent
+               Index: inh_parent_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+         ->  Custom Scan (ParadeDB Base Scan) on inh_child inh_parent_2
+               Table: inh_child
+               Index: inh_child_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(17 rows)
+
+SELECT id, kind FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
+ id | kind 
+----+------
+  1 | a
+  2 | b
+  3 | c
+  4 | d
+(4 rows)
+
+-- The same rows without the custom scan.
+SET paradedb.enable_custom_scan = off;
+SELECT id, kind FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
+WARNING:  the table is being sequentially scanned for this query, so performance may be slow
+if you are not sure why, please file an issue: https://github.com/paradedb/paradedb/issues/new/choose
+ id | kind 
+----+------
+  1 | a
+  2 | b
+  3 | c
+  4 | d
+(4 rows)
+
+RESET paradedb.enable_custom_scan;
+-- The highest ids are in the child.
+SELECT id, kind FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id DESC LIMIT 2;
+ id | kind 
+----+------
+  4 | d
+  3 | c
+(2 rows)
+
+-- A DELETE on the parent removes the matching rows of the child too.
+BEGIN;
+EXPLAIN (COSTS OFF)
+DELETE FROM inh_parent WHERE id @@@ paradedb.all();
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Delete on inh_parent
+   Delete on inh_parent inh_parent_1
+   Delete on inh_child inh_parent_2
+   ->  Append
+         ->  Custom Scan (ParadeDB Base Scan) on inh_parent inh_parent_1
+               Table: inh_parent
+               Index: inh_parent_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+         ->  Custom Scan (ParadeDB Base Scan) on inh_child inh_parent_2
+               Table: inh_child
+               Index: inh_child_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(18 rows)
+
+WITH deleted AS (
+    DELETE FROM inh_parent WHERE id @@@ paradedb.all() RETURNING id, kind
+)
+SELECT id, kind FROM deleted ORDER BY id;
+ id | kind 
+----+------
+  1 | a
+  2 | b
+  3 | c
+  4 | d
+(4 rows)
+
+ROLLBACK;
+-- `FROM ONLY` names just the parent, so Base Scan still scans its index.
+EXPLAIN (COSTS OFF)
+SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on inh_parent
+         Table: inh_parent
+         Index: inh_parent_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(9 rows)
+
+SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
+ id | kind 
+----+------
+  1 | a
+  2 | b
+(2 rows)
+
+-- Control: a partitioned table already gets one Base Scan per partition.
+CREATE TABLE part_parent (id INT, kind TEXT) PARTITION BY RANGE (id);
+CREATE TABLE part_low PARTITION OF part_parent FOR VALUES FROM (1) TO (3);
+CREATE TABLE part_high PARTITION OF part_parent FOR VALUES FROM (3) TO (5);
+INSERT INTO part_parent VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd');
+CREATE INDEX part_parent_idx ON part_parent USING paradedb (id, kind);
+ANALYZE part_parent;
+EXPLAIN (COSTS OFF)
+SELECT id, kind FROM part_parent WHERE id @@@ paradedb.all() ORDER BY id;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Sort
+   Sort Key: part_parent.id
+   ->  Append
+         ->  Custom Scan (ParadeDB Base Scan) on part_low part_parent_1
+               Table: part_low
+               Index: part_low_id_kind_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+         ->  Custom Scan (ParadeDB Base Scan) on part_high part_parent_2
+               Table: part_high
+               Index: part_high_id_kind_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(17 rows)
+
+SELECT id, kind FROM part_parent WHERE id @@@ paradedb.all() ORDER BY id;
+ id | kind 
+----+------
+  1 | a
+  2 | b
+  3 | c
+  4 | d
+(4 rows)
+
+DROP TABLE part_parent;
+DROP TABLE inh_child, inh_parent;

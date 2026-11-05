@@ -140,14 +140,18 @@ impl PostgresDateTime {
         Ok(Self(ts))
     }
 
-    /// Parses the string written by `From<PostgresDateTime> for String`, including `infinity` and
-    /// `-infinity`. User-supplied strings go through `TryFrom<&str>` instead, which accepts only
-    /// RFC 3339, so that the word "infinity" in a query is never promoted to a date.
+    /// Parses the string written by `From<PostgresDateTime> for String`, including `infinity`,
+    /// `-infinity`, and years after 9999 or BC. User-supplied strings go through `TryFrom<&str>`
+    /// instead, which accepts only RFC 3339, so that the word "infinity" in a query is never
+    /// promoted to a date.
     pub fn try_from_serialized(s: &str) -> Result<Self, DateTimeConversionError> {
         match s {
             "infinity" => Ok(Self(pgrx::datum::Timestamp::positive_infinity())),
             "-infinity" => Ok(Self(pgrx::datum::Timestamp::negative_infinity())),
-            _ => Self::try_from(s),
+            _ => Self::try_from(s).or_else(|err| match pg_json_timestamp_to_pg_micros(s) {
+                Some(pg_micros) => Self::try_from_raw(pg_micros),
+                None => Err(err),
+            }),
         }
     }
 
@@ -247,6 +251,85 @@ fn can_be_rfc3339_date_time(text: &str) -> bool {
     }
 
     false
+}
+
+/// Parses the `JsonEncodeDateTime` text of a `timestamp` plus the `Z` we append, for the years
+/// RFC 3339 cannot hold: more than four digits (`10000-01-01T00:00:00Z`) or a ` BC` suffix
+/// (`0044-03-15T12:34:56.789 BCZ`). Returns microseconds from the Postgres epoch.
+fn pg_json_timestamp_to_pg_micros(text: &str) -> Option<i64> {
+    fn digits<T: FromStr>(s: &str) -> Option<T> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    }
+
+    let text = text.strip_suffix('Z')?;
+    let (text, bc) = match text.strip_suffix(" BC") {
+        Some(text) => (text, true),
+        None => (text, false),
+    };
+    let (date, time) = text.split_once('T')?;
+
+    let mut date_parts = date.split('-');
+    let (year, month, day) = (date_parts.next()?, date_parts.next()?, date_parts.next()?);
+    if date_parts.next().is_some() || year.len() < 4 || month.len() != 2 || day.len() != 2 {
+        return None;
+    }
+    let year: i64 = digits(year)?;
+    let (month, day): (i64, i64) = (digits(month)?, digits(day)?);
+    if bc && year == 0 {
+        return None;
+    }
+    // Astronomical numbering: 1 BC is year 0.
+    let year = if bc { 1 - year } else { year };
+    let is_leap =
+        year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=days_in_month).contains(&day) {
+        return None;
+    }
+
+    let (hms, fraction) = match time.split_once('.') {
+        Some((hms, fraction)) if fraction.len() <= 6 => (hms, fraction),
+        Some(_) => return None,
+        None => (time, ""),
+    };
+    let mut hms_parts = hms.split(':');
+    let (hour, minute, second) = (hms_parts.next()?, hms_parts.next()?, hms_parts.next()?);
+    if hms_parts.next().is_some() || hour.len() != 2 || minute.len() != 2 || second.len() != 2 {
+        return None;
+    }
+    let (hour, minute, second): (i64, i64, i64) = (digits(hour)?, digits(minute)?, digits(second)?);
+    if hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let micros: i64 = if fraction.is_empty() {
+        0
+    } else {
+        digits::<i64>(fraction)? * 10_i64.pow(6 - fraction.len() as u32)
+    };
+
+    // Days from 1970-01-01 to the civil date (Howard Hinnant's `days_from_civil`).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let year_of_era = y.rem_euclid(400);
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let unix_days = era
+        .checked_mul(146_097)?
+        .checked_add(day_of_era - 719_468)?;
+    let pg_days = unix_days.checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS as i64)?;
+
+    pg_days
+        .checked_mul(ONE_DAY_MICROS)?
+        .checked_add(hour * HOUR_MICROS + minute * MINUTE_MICROS + second * SECOND_MICROS + micros)
 }
 
 impl From<PostgresDateTime> for String {
@@ -641,6 +724,65 @@ mod tests {
             let value = PdbOwnedValue::Date(PostgresDateTime::try_from_raw(raw).unwrap());
             let json = serde_json::to_string(&value).unwrap();
             assert_eq!(serde_json::from_str::<PdbOwnedValue>(&json).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn serialized_years_outside_rfc3339_parse() {
+        let parse = |s: &str| PostgresDateTime::try_from_serialized(s).map(|dt| dt.into_inner());
+        let unix_to_pg = |y, m, d| {
+            let unix = chrono::NaiveDate::from_ymd_opt(y, m, d)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp_micros();
+            unix_micros_to_pg_micros(unix)
+        };
+
+        assert_eq!(parse("10000-01-01T00:00:00Z"), Ok(unix_to_pg(10000, 1, 1)));
+        assert_eq!(parse("0001-01-01T00:00:00 BCZ"), Ok(unix_to_pg(0, 1, 1)));
+        assert_eq!(parse("0005-02-29T00:00:00 BCZ"), Ok(unix_to_pg(-4, 2, 29)));
+        assert_eq!(
+            parse("0044-03-15T12:34:56.789 BCZ"),
+            Ok(unix_to_pg(-43, 3, 15) + 45_296_789_000)
+        );
+        assert_eq!(parse("4714-11-24T00:00:00 BCZ"), Ok(MIN_PG_MICROS));
+        assert_eq!(parse("294276-12-31T23:59:59.999999Z"), Ok(MAX_PG_MICROS));
+
+        for bad in [
+            "294277-01-01T00:00:00Z",
+            "9223372036854775807-01-01T00:00:00 BCZ",
+            "4714-11-23T23:59:59 BCZ",
+            "0000-01-01T00:00:00 BCZ",
+            "0004-02-29T00:00:00 BCZ",
+            "10000-02-30T00:00:00Z",
+            "10000-01-01T24:00:00Z",
+            "+10000-01-01T00:00:00Z",
+            "10000-01-01T00:00:00",
+            "10000-01-01T00:00:00.1234567Z",
+            "infinity BCZ",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[pg_test]
+    fn serialized_years_outside_rfc3339_round_trip() {
+        let bc_44 = PostgresDateTime::try_from_timestamp_str("0044-03-15 12:34:56.789 BC").unwrap();
+        let year_10000 = PostgresDateTime::try_from_date_str("10000-01-01").unwrap();
+        for raw in [
+            MIN_PG_MICROS,
+            MAX_PG_MICROS,
+            bc_44.into_inner(),
+            year_10000.into_inner(),
+        ] {
+            let value = PostgresDateTime::try_from_raw(raw).unwrap();
+            let serialized = String::from(value);
+            assert_eq!(
+                PostgresDateTime::try_from_serialized(&serialized),
+                Ok(value)
+            );
         }
     }
 

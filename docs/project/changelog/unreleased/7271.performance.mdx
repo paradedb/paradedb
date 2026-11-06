@@ -3,3 +3,5 @@ header: performance
 ---
 
 - `CREATE INDEX` with `partition_by` now keeps segments balanced when a partition column is skewed or has few distinct values. Partitions that can't be cut further on the declared columns are split by heap position (`ctid`), and each side of a cut gets partitions in proportion to its share of the rows. A column where 99% of rows share one value used to put almost every row in a single segment; those rows are now spread (roughly) evenly across segments (#7271).
+
+  Existing indexes will need to `REINDEX` to take advantage of this. Indexes with `ctid` specified as one of the `partition_by` columns will not get the fallback behavior, and will continue to have `ctid` compete equally with the other columns for cut points.

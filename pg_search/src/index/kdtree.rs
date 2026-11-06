@@ -90,11 +90,6 @@ impl PartitionBounds {
             ctid_fallback: None,
         }
     }
-
-    pub fn with_ctid_fallback(mut self, ctid_fallback: DimBounds) -> Self {
-        self.ctid_fallback = Some(ctid_fallback);
-        self
-    }
 }
 
 impl KdTree {
@@ -122,8 +117,8 @@ impl KdTree {
     /// stays a leaf, so the tree can end up with fewer partitions than requested when the sample
     /// has too few distinct values.
     ///
-    /// If `ctid_fallback` is `Some(_)`, then any box that should be cut but has dimensions to cut
-    /// on will fall back to cutting on `ctid`, which will result in roughly balanced leaves
+    /// If `ctid_fallback` is `Some(_)`, a box that has no declared dimension left to cut on is
+    /// cut on `ctid` instead, so the leaves come out roughly balanced.
     ///
     /// Split values are never NULL, so every leaf's box is expressible as plain range bounds.
     pub fn from_sample(
@@ -208,7 +203,8 @@ impl KdTree {
         }
     }
 
-    /// The bounding box of `partition`, one half-open range per dimension of [`Self::dims`].
+    /// The bounding box of `partition`, one half-open range per dimension of [`Self::dims`],
+    /// plus one if `ctid_fallback` was used.
     ///
     /// Returns `None` when `partition` is out of range.
     pub fn partition_bounds(&self, partition: usize) -> Option<PartitionBounds> {
@@ -228,13 +224,9 @@ impl KdTree {
                 } => {
                     let bound_handle = match dim {
                         DimHandle::Index(i) => &mut bounds.dims[*i],
-                        DimHandle::Ctid => {
-                            if bounds.ctid_fallback.is_none() {
-                                bounds =
-                                    bounds.with_ctid_fallback((Bound::Unbounded, Bound::Unbounded));
-                            }
-                            bounds.ctid_fallback.as_mut().expect("just added it")
-                        }
+                        DimHandle::Ctid => bounds
+                            .ctid_fallback
+                            .get_or_insert((Bound::Unbounded, Bound::Unbounded)),
                     };
 
                     // Leaves are numbered in-order, so the highest partition in the left
@@ -265,7 +257,7 @@ impl KdTree {
             return None;
         }
         let mut split_points = Vec::with_capacity(self.partitions.saturating_sub(1));
-        collect_split_values(&self.root, &mut split_points);
+        collect_split_values(&self.root, &mut split_points)?;
         Some(RangePartitioning {
             partition_by: self.dims[0].clone(),
             split_points,
@@ -315,8 +307,10 @@ impl fmt::Display for BoundsListing<'_> {
             let bounds = tree
                 .partition_bounds(partition)
                 .expect("partitions are numbered contiguously");
+            let ctid = FieldName::from(CTID_FIELD_NAME);
+            let dims = tree.dims.iter().chain([&ctid]);
             let bounds = bounds.dims.iter().chain(bounds.ctid_fallback.iter());
-            for (dim, (lower, upper)) in tree.dims.iter().zip(bounds) {
+            for (dim, (lower, upper)) in dims.zip(bounds) {
                 match lower {
                     Bound::Included(v) => {
                         write!(f, " {dim}=[{}", DimValueDisplay { dim, value: v })?
@@ -370,15 +364,22 @@ fn first_partition(mut node: &KdNode) -> usize {
 }
 
 #[allow(dead_code)] // reached through `to_range_partitioning`
-fn collect_split_values(node: &KdNode, out: &mut Vec<PdbOwnedValue>) {
+fn collect_split_values(node: &KdNode, out: &mut Vec<PdbOwnedValue>) -> Option<()> {
     if let KdNode::Split {
-        value, left, right, ..
+        dim,
+        value,
+        left,
+        right,
     } = node
     {
         collect_split_values(left, out);
-        out.push(value.clone());
+        match dim {
+            DimHandle::Index(_) => out.push(value.clone()),
+            DimHandle::Ctid => return None,
+        }
         collect_split_values(right, out);
     }
+    Some(())
 }
 
 /// `ranks[dim][i]` is the position of point `i` in the ascending order of dimension `dim`,
@@ -1260,6 +1261,30 @@ mod tests {
             "partition_by=[ctid], partitions=2\n\
              ctid < (50,1) -> 0\n\
              ctid >= (50,1) -> 1"
+        );
+
+        // A ctid fallback split shows its range as a trailing `ctid` entry, only on the
+        // partitions it cut. Rows 0..50 share tenant 0, so the fallback splits them by ctid;
+        // rows 50..100 have distinct tenants, so `tenant` alone splits them.
+        let sample = i64s((0..100).map(|i| if i < 50 { 0 } else { i }));
+        let ctids: Vec<u64> = (0..100u64).map(|block| (block << 16) | 1).collect();
+        let tree = KdTree::from_sample(dims(&["tenant"]), sample, 4, Some(ctids));
+        assert_eq!(
+            tree.bounds_listing().to_string(),
+            "partition 0: tenant=[.., 50) ctid=[.., (25,1))\n\
+             partition 1: tenant=[.., 50) ctid=[(25,1), ..)\n\
+             partition 2: tenant=[50, 75)\n\
+             partition 3: tenant=[75, ..)"
+        );
+        assert_eq!(
+            tree.to_string(),
+            "partition_by=[tenant], partitions=4\n\
+             tenant < 50\n  \
+               ctid < (25,1) -> 0\n  \
+               ctid >= (25,1) -> 1\n\
+             tenant >= 50\n  \
+               tenant < 75 -> 2\n  \
+               tenant >= 75 -> 3"
         );
     }
 }

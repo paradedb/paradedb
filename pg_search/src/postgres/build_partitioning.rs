@@ -318,7 +318,7 @@ impl VectorPartitioning {
 ///
 /// `snapshot` is the one the build scan itself uses: `SnapshotAny` for a plain build, or the
 /// registered MVCC snapshot of a `CONCURRENTLY` build. The sample then covers the same rows the
-/// workers are about to index. `target_partitions` is the number of leaves to aim for; see
+/// workers are about to index. `target_partitions` is the number of leaves to aim for (see
 /// [`KdTree::from_sample`]).
 pub(super) fn plan_partition_boundaries(
     heaprel: &PgSearchRelation,

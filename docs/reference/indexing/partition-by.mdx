@@ -141,6 +141,8 @@ Choosing the right column(s) for `partition_by` depends on your query patterns a
 | Multi-Tenant with Joins                              | Shared tenant key on both tables (e.g. `orders.tenant_id` and `items.tenant_id`) | Dual Benefit: Segment pruning for single-tenant searches and worker-local joins within a tenant.                                              |
 | Multiple Query Filters                               | Multiple columns (e.g. `tenant_id, created_at`)                                  | Multi-Dimensional Pruning: Enables pruning on tenant equality, timestamp ranges, or both, with segment granularity divided among the columns. |
 
+You don't need to add `ctid` to reach target_segment_count. When the listed columns can't split a partition any further, `CREATE INDEX` splits it by heap position. If you list `ctid`, it competes with the other columns as an equal, and the fallback doesn't apply.
+
 ### Requirements for Index Partitioning
 
 Columns specified in `partition_by` must meet the following constraints:

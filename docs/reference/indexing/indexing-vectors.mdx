@@ -264,6 +264,13 @@ modelBuilder.Entity<MockItem>()
   one quantized row per vector to the index. Applies to quantized vector fields
   of segments clustered after the option is set.
 </ParamField>
+<ParamField body="vector_router_quantization" default={true}>
+  Route each query through one-bit codes of the IVF centroids, then rerank the
+  shortlisted centroids exactly, instead of scoring every centroid in full
+  precision. Set it to `false` to keep full-precision routing. Applies to
+  segments clustered after the option is set; existing segments keep their
+  router until the index is rebuilt.
+</ParamField>
 
 <Note>
   These options replace `centroid_ratio` and `training_samples_per_centroid`.

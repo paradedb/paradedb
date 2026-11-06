@@ -865,7 +865,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
-    vector_router_quantization: false,
+    vector_router_quantization: true,
     spill: false,
 };
 
@@ -1119,7 +1119,7 @@ pub unsafe fn init() {
         "vector_router_quantization".as_pg_cstr(),
         "Use one-bit centroid routing with exact reranking when creating or rebuilding the index"
             .as_pg_cstr(),
-        false,
+        true,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_bool_reloption(

@@ -418,6 +418,37 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         }
     }
 
+    /// Removes every item after the first `keep` items, returning how many were removed.
+    ///
+    /// Only a suffix is removed, so the offsets of the items that remain don't move. The caller
+    /// must prevent concurrent appends to this list.
+    pub unsafe fn truncate(&mut self, keep: usize) -> usize {
+        let (_header_lock, mut blockno) = self.get_header_and_start_blockno();
+        let mut seen = 0;
+        let mut removed = 0;
+
+        while blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let max_offset = page.max_offset_number();
+            let next_blockno = page.next_blockno();
+            drop(buffer);
+
+            if seen + max_offset as usize > keep {
+                let first_stale = keep.saturating_sub(seen) as pg_sys::OffsetNumber + 1;
+                let mut stale = (first_stale..=max_offset).collect::<Vec<_>>();
+                let mut buffer = self.bman.get_buffer_mut(blockno);
+                buffer.page_mut().delete_items(&mut stale);
+                removed += stale.len();
+            }
+
+            seen += max_offset as usize;
+            blockno = next_blockno;
+        }
+
+        removed
+    }
+
     /// Removes the first item which matches the given comparison function.
     pub unsafe fn remove_item<Cmp: Fn(&T) -> bool>(&mut self, cmp: Cmp) -> Result<T> {
         // Acquire and hold a shared lock on the header for the entire operation, preventing the
@@ -750,7 +781,9 @@ mod tests {
     use tantivy::index::SegmentId;
 
     use crate::postgres::rel::PgSearchRelation;
-    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry, SegmentMetaEntryImmutable};
+    use crate::postgres::storage::block::{
+        FileEntry, MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryImmutable,
+    };
 
     fn random_segment_id() -> SegmentId {
         SegmentId::generate_random()
@@ -770,6 +803,41 @@ mod tests {
         }
 
         block_numbers
+    }
+
+    #[pg_test]
+    unsafe fn test_linked_items_truncate_across_pages() {
+        let relation_oid = init_bm25_index();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        let ctids =
+            |range: std::ops::Range<u64>| range.map(MutableSegmentEntry::Add).collect::<Vec<_>>();
+        let listed = |list: &LinkedItemList<MutableSegmentEntry>| {
+            list.list(None)
+                .into_iter()
+                .map(|entry| match entry {
+                    MutableSegmentEntry::Add(ctid) => ctid,
+                    MutableSegmentEntry::Remove(_) => panic!("expected only adds"),
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Enough items to need several pages, cut in the middle of one of them.
+        let mut list = LinkedItemList::<MutableSegmentEntry>::create_with_fsm(&indexrel);
+        list.add_items(&ctids(0..5000), None);
+        assert_eq!(list.truncate(5000), 0);
+        assert_eq!(list.truncate(1234), 3766);
+        assert_eq!(listed(&list), (0..1234).collect::<Vec<_>>());
+        assert_eq!(list.truncate(1234), 0);
+
+        // New items must follow the items that were kept, so the log order holds.
+        list.add_items(&ctids(9000..9003), None);
+        let expected = (0..1234).chain(9000..9003).collect::<Vec<_>>();
+        assert_eq!(listed(&list), expected);
+
+        // Nothing kept.
+        assert_eq!(list.truncate(0), expected.len());
+        assert!(listed(&list).is_empty());
     }
 
     #[pg_test]

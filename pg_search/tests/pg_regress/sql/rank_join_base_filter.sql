@@ -254,8 +254,8 @@ LIMIT 10
 $$);
 
 -- ============================================================
--- Test 10: with MPP enabled, a filtered join still plans and runs the single-task
--- RankJoinExec (it needs one task for its in-memory dynamic filters).
+-- Test 10: with MPP enabled but inputs that are not range co-partitioned, a filtered join
+-- still plans and runs the single-task RankJoinExec (mode=CollectLeft).
 -- ============================================================
 SET paradedb.mpp_min_rows = 0;
 SET max_parallel_workers_per_gather = 3;
@@ -280,6 +280,66 @@ ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
 
 RESET ROLE;
+RESET paradedb.mpp_min_rows;
+RESET max_parallel_workers_per_gather;
+RESET max_parallel_workers;
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+
+-- ============================================================
+-- Test 11: range co-partitioned inputs keep RankJoinExec (mode=Partitioned) under
+-- DistributedExec, with the policy applied on every task's leaf. Extra rows let the join
+-- key split into two partitions; the indexes are rebuilt with partition keys.
+-- ============================================================
+INSERT INTO rjf_clients
+SELECT g, 1 + g % 2, CASE WHEN g % 7 = 0 THEN 'zebra client' ELSE 'corp' END
+FROM generate_series(100, 160) g;
+INSERT INTO rjf_jobs
+SELECT g, 1 + g % 2, 100 + g % 61, CASE WHEN g % 5 = 0 THEN 'zebra job' ELSE 'noise' END, 'a'
+FROM generate_series(200, 320) g;
+DROP INDEX rjf_clients_bm25, rjf_jobs_bm25;
+SET max_parallel_maintenance_workers = 0;
+CREATE INDEX rjf_clients_bm25 ON rjf_clients USING bm25 (id, division, name)
+WITH (target_segment_count = 3, partition_by = 'id');
+CREATE INDEX rjf_jobs_bm25 ON rjf_jobs USING bm25 (id, division, client_id, body)
+WITH (target_segment_count = 3, partition_by = 'client_id,id');
+ANALYZE rjf_clients, rjf_jobs;
+
+SET paradedb.enable_range_partitioned_join = on;
+SET paradedb.mpp_min_rows = 0;
+SET max_parallel_workers_per_gather = 3;
+SET max_parallel_workers = 8;
+SET min_parallel_table_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET ROLE rjf_const_user;
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+-- The distributed hash join returns the same rows.
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
+
+RESET ROLE;
+RESET paradedb.enable_range_partitioned_join;
 RESET paradedb.mpp_min_rows;
 RESET max_parallel_workers_per_gather;
 RESET max_parallel_workers;

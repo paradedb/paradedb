@@ -74,14 +74,18 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::{
     AggregateType, ParsedAggregateField,
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
+use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
 use crate::postgres::node::NodeExt;
+use crate::postgres::search_operator_relations::top_parent;
 use crate::postgres::var::VarContext;
 use crate::postgres::{PgSearchRelation, rel_get_bm25_index};
 use crate::query::{PostgresExpression, SearchQueryInput};
-use pgrx::{PgList, pg_sys};
+use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// Feature flags for window functions.
@@ -579,4 +583,103 @@ pub fn deserialize_window_agg_placeholders(tlist: *mut pg_sys::List) -> Vec<Wind
         });
     }
     window_aggs
+}
+
+/// The planner's id for the partitioned table that `rti` is a partition of, shared by the scans
+/// of all its partitions: the address of the table's `RelOptInfo`, which no other relation in the
+/// plan has. `None` when `rti` is not a partition.
+pub unsafe fn window_agg_group(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> Option<u64> {
+    let (table, _) = top_parent(root, rti)?;
+    (table != rti).then(|| *(*root).simple_rel_array.add(table as usize) as u64)
+}
+
+/// The scans of one partitioned table in one execution.
+///
+/// The planner gives every partition its own scan, but a window aggregate covers every row of the
+/// query, so each of those scans has to project the aggregate over all the partitions (#6783).
+/// The scans join one group when the executor starts them, and the first one to need the
+/// aggregates computes them for the whole group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct WindowAggGroupKey {
+    table: u64,
+    estate: usize,
+}
+
+struct WindowAggGroup {
+    /// Each scan with the range table index of its partition.
+    members: Vec<(pg_sys::Index, *mut CustomScanStateWrapper<BaseScan>)>,
+    results: Option<crate::api::HashMap<usize, pg_sys::Datum>>,
+}
+
+thread_local! {
+    static WINDOW_AGG_GROUPS: RefCell<HashMap<WindowAggGroupKey, WindowAggGroup>> =
+        RefCell::default();
+}
+
+impl WindowAggGroupKey {
+    /// The key of the table [`window_agg_group`] names, until the executor starts the scan.
+    pub fn planned(table: u64) -> Self {
+        Self { table, estate: 0 }
+    }
+
+    /// Add the scan of partition `rti` to the group of its execution.
+    ///
+    /// # Safety
+    /// `member` must be the scan being started in `estate`, which outlives the group.
+    pub unsafe fn join(
+        &mut self,
+        estate: *mut pg_sys::EState,
+        rti: pg_sys::Index,
+        member: *mut CustomScanStateWrapper<BaseScan>,
+    ) {
+        self.estate = estate as usize;
+        let first_of_execution = WINDOW_AGG_GROUPS.with_borrow_mut(|groups| {
+            let first = !groups.keys().any(|key| key.estate == self.estate);
+            groups
+                .entry(*self)
+                .or_insert_with(|| WindowAggGroup {
+                    members: Vec::new(),
+                    results: None,
+                })
+                .members
+                .push((rti, member));
+            first
+        });
+        if first_of_execution {
+            // The members end with the execution, whose query context goes at its end.
+            let query_cxt = (*estate).es_query_cxt;
+            let callback =
+                PgMemoryContexts::For(query_cxt).palloc_struct::<pg_sys::MemoryContextCallback>();
+            (*callback).func = Some(forget_window_agg_groups);
+            (*callback).arg = estate.cast();
+            pg_sys::MemoryContextRegisterResetCallback(query_cxt, callback);
+        }
+    }
+
+    pub fn members(self) -> Vec<(pg_sys::Index, *mut CustomScanStateWrapper<BaseScan>)> {
+        WINDOW_AGG_GROUPS.with_borrow(|groups| {
+            groups
+                .get(&self)
+                .map(|group| group.members.clone())
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn results(self) -> Option<crate::api::HashMap<usize, pg_sys::Datum>> {
+        WINDOW_AGG_GROUPS.with_borrow(|groups| groups.get(&self)?.results.clone())
+    }
+
+    pub fn set_results(self, results: Option<crate::api::HashMap<usize, pg_sys::Datum>>) {
+        WINDOW_AGG_GROUPS.with_borrow_mut(|groups| {
+            if let Some(group) = groups.get_mut(&self) {
+                group.results = results;
+            }
+        });
+    }
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn forget_window_agg_groups(estate: *mut std::ffi::c_void) {
+    WINDOW_AGG_GROUPS
+        .with_borrow_mut(|groups| groups.retain(|key, _| key.estate != estate as usize));
 }

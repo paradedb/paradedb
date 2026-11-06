@@ -28,7 +28,9 @@ use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
-use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::{
+    WindowAggGroupKey, WindowAggregateInfo,
+};
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -133,6 +135,8 @@ pub struct BaseScanState {
     // Window aggregate support
     pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
+    /// For a partition's scan, the scans of the other partitions it aggregates with.
+    pub window_agg_group: Option<WindowAggGroupKey>,
 
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
@@ -464,6 +468,10 @@ impl BaseScanState {
             self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
         }
         self.window_aggregate_results = None;
+        // A ReScan can bring new parameters for every partition's query.
+        if let Some(group) = self.window_agg_group {
+            group.set_results(None);
+        }
         self.exec_method_mut().reset(self);
     }
 

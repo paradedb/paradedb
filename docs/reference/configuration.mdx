@@ -142,6 +142,7 @@ Set these options in the index's `WITH` clause. The linked guides explain when c
 | `target_leaf_size`           | `200`                     | Target sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                           | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `quantization`               | `[1,1]`                   | Quantization layer widths shared by all vector fields. Set to `0` to disable quantization.                                     | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `vector_router_quantization` | `true`                    | Route through one-bit centroid codes with an exact rerank of the shortlisted centroids; `false` keeps full-precision routing.  | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `spill`                      | `false`                   | Also assign each vector to a second IVF cluster chosen to cover queries its first cluster misses, doubling the rows scanned.   | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 
 ## Per-Index Write Options
 

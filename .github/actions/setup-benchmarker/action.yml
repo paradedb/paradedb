@@ -10,6 +10,10 @@ inputs:
     description: "Ref to checkout"
     required: false
     default: "main"
+  verbose:
+    description: "Show xk6 dependency-resolution diagnostics"
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -31,4 +35,13 @@ runs:
       working-directory: benchmarker
       env:
         GOTOOLCHAIN: auto
-      run: make
+        VERBOSE_BUILD: ${{ inputs.verbose }}
+      run: |
+        if [[ "$VERBOSE_BUILD" == "true" ]]; then
+          xk6="$(go env GOPATH)/bin/xk6"
+          make "$xk6"
+          "$xk6" build --verbose --with github.com/paradedb/benchmarker=.
+          make loader viewer
+        else
+          make
+        fi

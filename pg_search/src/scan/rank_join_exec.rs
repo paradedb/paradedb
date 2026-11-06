@@ -607,15 +607,13 @@ impl RankJoinExec {
 
     pub(crate) fn encode_for_dispatch(
         &self,
+        codec: &dyn datafusion_proto::physical_plan::PhysicalExtensionCodec,
         proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Vec<u8>> {
-        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
-        let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
-
         let mut on_bytes = Vec::with_capacity(self.on.len());
         for (l, r) in &self.on {
-            let l_node = proto_converter.physical_expr_to_proto(l, &codec)?;
-            let r_node = proto_converter.physical_expr_to_proto(r, &codec)?;
+            let l_node = proto_converter.physical_expr_to_proto(l, codec)?;
+            let r_node = proto_converter.physical_expr_to_proto(r, codec)?;
             on_bytes.push((
                 prost::Message::encode_to_vec(&l_node),
                 prost::Message::encode_to_vec(&r_node),
@@ -623,7 +621,7 @@ impl RankJoinExec {
         }
 
         let filter_bytes = if let Some(filter) = &self.filter {
-            let expr_node = proto_converter.physical_expr_to_proto(filter.expression(), &codec)?;
+            let expr_node = proto_converter.physical_expr_to_proto(filter.expression(), codec)?;
             let indices: Vec<(bool, usize)> = filter
                 .column_indices()
                 .iter()
@@ -653,20 +651,20 @@ impl RankJoinExec {
         let left_sort_proto =
             datafusion_proto::physical_plan::to_proto::serialize_physical_sort_expr(
                 self.sort_exprs.left.clone(),
-                &codec,
-                &proto_conv,
+                codec,
+                proto_converter,
             )?;
         let right_sort_proto =
             datafusion_proto::physical_plan::to_proto::serialize_physical_sort_expr(
                 self.sort_exprs.right.clone(),
-                &codec,
-                &proto_conv,
+                codec,
+                proto_converter,
             )?;
         let output_sort_proto =
             datafusion_proto::physical_plan::to_proto::serialize_physical_sort_exprs(
                 self.sort_exprs.output.iter().cloned(),
-                &codec,
-                &proto_conv,
+                codec,
+                proto_converter,
             )?;
 
         let left_sort_bytes = prost::Message::encode_to_vec(&left_sort_proto);
@@ -677,15 +675,15 @@ impl RankJoinExec {
             .collect();
 
         let left_lookup_node =
-            proto_converter.physical_expr_to_proto(&self.left_lookup_filter, &codec)?;
+            proto_converter.physical_expr_to_proto(&self.left_lookup_filter, codec)?;
         let right_lookup_node =
-            proto_converter.physical_expr_to_proto(&self.right_lookup_filter, &codec)?;
+            proto_converter.physical_expr_to_proto(&self.right_lookup_filter, codec)?;
         let left_lookup_bytes = prost::Message::encode_to_vec(&left_lookup_node);
         let right_lookup_bytes = prost::Message::encode_to_vec(&right_lookup_node);
 
         let mut parent_lookup_bytes = Vec::with_capacity(self.parent_lookup_filters.len());
         for (side, df) in &self.parent_lookup_filters {
-            let node = proto_converter.physical_expr_to_proto(df, &codec)?;
+            let node = proto_converter.physical_expr_to_proto(df, codec)?;
             parent_lookup_bytes.push((
                 matches!(side, JoinSide::Left),
                 prost::Message::encode_to_vec(&node),
@@ -721,6 +719,7 @@ impl RankJoinExec {
         buf: &[u8],
         raw_inputs: &[Arc<dyn ExecutionPlan>],
         ctx: &TaskContext,
+        codec: &dyn datafusion_proto::physical_plan::PhysicalExtensionCodec,
         proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let [left, right] = raw_inputs else {
@@ -767,10 +766,8 @@ impl RankJoinExec {
             DataFusionError::Internal(format!("RankJoinExec dispatch: deserialize: {e}"))
         })?;
 
-        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
-        let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
         let decode_ctx =
-            datafusion_proto::physical_plan::PhysicalPlanDecodeContext::new(ctx, &codec);
+            datafusion_proto::physical_plan::PhysicalPlanDecodeContext::new(ctx, codec);
 
         let left_schema = inputs.left.schema();
         let right_schema = inputs.right.schema();
@@ -880,13 +877,13 @@ impl RankJoinExec {
             &left_sort_node,
             &decode_ctx,
             left_schema.as_ref(),
-            &proto_conv,
+            proto_converter,
         )?;
         let right_sort = datafusion_proto::physical_plan::from_proto::parse_physical_sort_expr(
             &right_sort_node,
             &decode_ctx,
             right_schema.as_ref(),
-            &proto_conv,
+            proto_converter,
         )?;
 
         let join_type = match join_type_tag {
@@ -901,7 +898,7 @@ impl RankJoinExec {
             &output_sort_nodes,
             &decode_ctx,
             output_schema.as_ref(),
-            &proto_conv,
+            proto_converter,
         )?;
         let output_ordering = LexOrdering::new(output_exprs).ok_or_else(|| {
             DataFusionError::Internal("RankJoinExec dispatch: empty output sort order".into())
@@ -3338,11 +3335,17 @@ mod tests {
             ),
         )?;
 
+        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
         let converter = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
-        let bytes = exec.encode_for_dispatch(&converter)?;
+        let bytes = exec.encode_for_dispatch(&codec, &converter)?;
         let ctx = TaskContext::default();
-        let decoded =
-            RankJoinExec::decode_for_dispatch(&bytes, &[left_plan, right_plan], &ctx, &converter)?;
+        let decoded = RankJoinExec::decode_for_dispatch(
+            &bytes,
+            &[left_plan, right_plan],
+            &ctx,
+            &codec,
+            &converter,
+        )?;
         assert_eq!(
             decoded.properties().output_ordering(),
             Some(&output_ordering)

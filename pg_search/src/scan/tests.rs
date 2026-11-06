@@ -1272,8 +1272,9 @@ mod tests {
 
         // Dispatch must preserve the four global ranges even though this task-specialized
         // variant advertises one local partition to DataFusion.
+        let codec = crate::scan::physical_codec::PgSearchPhysicalExtensionCodec::default();
         let proto_converter = DefaultPhysicalProtoConverter {};
-        let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        let encoded = plan.encode_for_dispatch(&codec, &proto_converter).unwrap();
         let task_context = TaskContext::default();
         let decode = |bytes: &[u8], parallel_state| {
             PgSearchScanPlan::decode_for_dispatch(
@@ -1281,6 +1282,7 @@ mod tests {
                 parallel_state,
                 None,
                 &task_context,
+                &codec,
                 &proto_converter,
             )
         };
@@ -1324,7 +1326,9 @@ mod tests {
             crate::postgres::test_support::parallel_state_for_view(reader.segment_view());
         let mut stale_plan = (*plan).clone();
         stale_plan.partition_segments = Some(stale);
-        let stale_encoded = stale_plan.encode_for_dispatch(&proto_converter).unwrap();
+        let stale_encoded = stale_plan
+            .encode_for_dispatch(&codec, &proto_converter)
+            .unwrap();
         assert!(decode(&stale_encoded, Some(parallel_state)).is_err());
         let plan = decode(&encoded, Some(parallel_state)).unwrap();
         assert_eq!(
@@ -1379,7 +1383,9 @@ mod tests {
         // statistics and decides each searched segment against the predicate.
         let (filtered, _) = make_plan(range_query("id", 30, 40));
         let filtered = filtered.with_assigned_partition(1);
-        let filtered_encoded = filtered.encode_for_dispatch(&proto_converter).unwrap();
+        let filtered_encoded = filtered
+            .encode_for_dispatch(&codec, &proto_converter)
+            .unwrap();
         let opens_before_decode = STATS_OPENS.load(Relaxed);
         let worker = decode(&filtered_encoded, Some(parallel_state)).unwrap();
         assert_eq!(

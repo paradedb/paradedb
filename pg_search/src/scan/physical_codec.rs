@@ -127,6 +127,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                     wctx.parallel_state,
                     wctx.expr_context,
                     ctx,
+                    self,
                     proto_converter,
                 ),
                 // The deferred execs (visibility ctid resolvers, tantivy fetch/decode, segmented
@@ -173,11 +174,12 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                         ffhelpers,
                         ctx,
                         wctx.parallel_state,
+                        self,
                         proto_converter,
                     )
                 }
                 TAG_RANK_JOIN => {
-                    RankJoinExec::decode_for_dispatch(payload, inputs, ctx, proto_converter)
+                    RankJoinExec::decode_for_dispatch(payload, inputs, ctx, self, proto_converter)
                 }
                 other => Err(DataFusionError::NotImplemented(format!(
                     "PgSearchPhysicalExtensionCodec: unknown physical node tag {other}"
@@ -195,7 +197,7 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
         crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
             if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
                 buf.push(TAG_PG_SEARCH_SCAN);
-                buf.extend_from_slice(&scan.encode_for_dispatch(proto_converter)?);
+                buf.extend_from_slice(&scan.encode_for_dispatch(self, proto_converter)?);
                 return Ok(());
             }
             if let Some(vis) = node.downcast_ref::<VisibilityFilterExec>() {
@@ -215,12 +217,12 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
             }
             if let Some(topk) = node.downcast_ref::<SegmentedTopKExec>() {
                 buf.push(TAG_SEGMENTED_TOPK);
-                buf.extend_from_slice(&topk.encode_for_dispatch(proto_converter)?);
+                buf.extend_from_slice(&topk.encode_for_dispatch(self, proto_converter)?);
                 return Ok(());
             }
             if let Some(rank_join) = node.downcast_ref::<RankJoinExec>() {
                 buf.push(TAG_RANK_JOIN);
-                buf.extend_from_slice(&rank_join.encode_for_dispatch(proto_converter)?);
+                buf.extend_from_slice(&rank_join.encode_for_dispatch(self, proto_converter)?);
                 return Ok(());
             }
             Err(DataFusionError::NotImplemented(format!(

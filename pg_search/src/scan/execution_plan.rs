@@ -55,8 +55,7 @@ use datafusion_distributed::{
     ScaleUpLeafNodeEventResponse,
 };
 use datafusion_proto::physical_plan::{
-    DefaultPhysicalExtensionCodec, DefaultPhysicalProtoConverter, PhysicalPlanDecodeContext,
-    PhysicalProtoConverterExtension,
+    PhysicalExtensionCodec, PhysicalPlanDecodeContext, PhysicalProtoConverterExtension,
 };
 use futures::Stream;
 use pgrx::pg_sys;
@@ -1045,6 +1044,7 @@ impl PgSearchScanPlan {
     /// [`crate::scan::physical_codec::PgSearchPhysicalExtensionCodec::new_worker`]).
     pub(crate) fn encode_for_dispatch(
         &self,
+        codec: &dyn PhysicalExtensionCodec,
         proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Vec<u8>> {
         let state_guard = self
@@ -1077,14 +1077,11 @@ impl PgSearchScanPlan {
                 DataFusionError::Internal(format!("PgSearchScan dispatch: schema encode: {e}"))
             })?;
 
-        // Dynamic filters self-serialize (columns/literals/comparisons only — no pg_search
-        // extension exprs), so the default codec suffices.
-        let codec = DefaultPhysicalExtensionCodec {};
         let dynamic_filters = self
             .dynamic_filters
             .iter()
             .map(|f| {
-                let node = proto_converter.physical_expr_to_proto(f, &codec)?;
+                let node = proto_converter.physical_expr_to_proto(f, codec)?;
                 Ok(prost::Message::encode_to_vec(&node))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -1093,11 +1090,10 @@ impl PgSearchScanPlan {
             Some(ls) => {
                 let ordering_proto = match &ls.ordering {
                     Some(ordering) => {
-                        let proto_conv = DefaultPhysicalProtoConverter {};
                         let sort_proto = datafusion_proto::physical_plan::to_proto::serialize_physical_sort_exprs(
                             ordering.iter().cloned(),
-                            &codec,
-                            &proto_conv,
+                            codec,
+                            proto_converter,
                         )?;
                         Some(
                             sort_proto
@@ -1158,6 +1154,7 @@ impl PgSearchScanPlan {
         parallel_state: Option<*mut ParallelScanState>,
         expr_context: Option<*mut pg_sys::ExprContext>,
         ctx: &TaskContext,
+        codec: &dyn PhysicalExtensionCodec,
         proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
@@ -1174,8 +1171,7 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: schema parse: {e}"))
         })?);
 
-        let codec = DefaultPhysicalExtensionCodec {};
-        let decode_ctx = PhysicalPlanDecodeContext::new(ctx, &codec);
+        let decode_ctx = PhysicalPlanDecodeContext::new(ctx, codec);
         let dynamic_filters = descriptor
             .dynamic_filters
             .iter()
@@ -1312,13 +1308,12 @@ impl PgSearchScanPlan {
                                     "PgSearchScan dispatch: lazy_sort ordering decode: {e}"
                                 ))
                             })?;
-                        let proto_conv = DefaultPhysicalProtoConverter {};
                         let exprs =
                             datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
                                 &sort_proto,
                                 &decode_ctx,
                                 schema.as_ref(),
-                                &proto_conv,
+                                proto_converter,
                             )?;
                         LexOrdering::new(exprs)
                     }

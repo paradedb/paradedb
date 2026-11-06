@@ -247,14 +247,13 @@ impl SegmentedTopKExec {
     /// scan's `PreFilter`. `decoders`/`properties` are derived.
     pub(crate) fn encode_for_dispatch(
         &self,
+        codec: &dyn datafusion_proto::physical_plan::PhysicalExtensionCodec,
         proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Vec<u8>> {
-        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
-        let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
         let sort_proto = datafusion_proto::physical_plan::to_proto::serialize_physical_sort_exprs(
             self.sort_exprs.iter().cloned(),
-            &codec,
-            &proto_conv,
+            codec,
+            proto_converter,
         )?;
         let sort_bytes: Vec<Vec<u8>> = sort_proto
             .iter()
@@ -263,7 +262,7 @@ impl SegmentedTopKExec {
         // Ship the dynamic filter as a proto expression. The deduplicating converter
         // re-shares it on decode with the scans below via `expr_id` (see #5766).
         let dynamic_filter_bytes = {
-            let node = proto_converter.physical_expr_to_proto(&self.dynamic_filter, &codec)?;
+            let node = proto_converter.physical_expr_to_proto(&self.dynamic_filter, codec)?;
             prost::Message::encode_to_vec(&node)
         };
         let payload = (
@@ -283,6 +282,7 @@ impl SegmentedTopKExec {
         ffhelpers: HashMap<u32, Arc<FFHelper>>,
         ctx: &TaskContext,
         parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+        codec: &dyn datafusion_proto::physical_plan::PhysicalExtensionCodec,
         proto_converter: &dyn datafusion_proto::physical_plan::PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (sort_bytes, deferred_columns, k, dynamic_filter_bytes): (
@@ -334,16 +334,14 @@ impl SegmentedTopKExec {
             .map_err(|e| {
                 DataFusionError::Internal(format!("SegmentedTopKExec dispatch: sort decode: {e}"))
             })?;
-        let codec = datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec {};
-        let proto_conv = datafusion_proto::physical_plan::DefaultPhysicalProtoConverter {};
         let decode_ctx =
-            datafusion_proto::physical_plan::PhysicalPlanDecodeContext::new(ctx, &codec);
+            datafusion_proto::physical_plan::PhysicalPlanDecodeContext::new(ctx, codec);
         let input_schema = input.schema();
         let exprs = datafusion_proto::physical_plan::from_proto::parse_physical_sort_exprs(
             &sort_proto,
             &decode_ctx,
             input_schema.as_ref(),
-            &proto_conv,
+            proto_converter,
         )?;
         let sort_exprs = LexOrdering::new(exprs).ok_or_else(|| {
             DataFusionError::Internal("SegmentedTopKExec dispatch: empty sort order".into())

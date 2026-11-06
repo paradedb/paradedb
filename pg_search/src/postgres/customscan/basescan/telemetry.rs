@@ -123,6 +123,7 @@ impl ScanTelemetry {
                         | "non_vector_search_ns"
                         | "query_prep_ns"
                         | "routing_ns"
+                        | "routing_exact_ns"
                         | "exact_scan_ns"
                         | "result_assembly_ns"
                         | "exact_fetch_ns"
@@ -307,11 +308,12 @@ mod tests {
                 "scan_init_ns": 10,
                 "non_vector_search_ns": 20,
                 "routing_ns": 30,
+                "routing_exact_ns": 5,
                 "layer0_scored": 100
             }),
         ));
 
-        assert_eq!(telemetry.stage_elapsed_ns(), 60);
+        assert_eq!(telemetry.stage_elapsed_ns(), 65);
     }
 
     #[test]

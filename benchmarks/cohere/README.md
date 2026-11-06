@@ -34,6 +34,9 @@ With `paradedb.vector_stats` enabled, per-segment
   shortlist, before any raw vector is read for reranking.
 - `routing_exact_scored`, `routing_exact_pruned`, and `routing_candidate_count`
   count reranked members, members rejected by reranking, and returned candidates.
+- `routing_ns`, `routing_reads`, and `routing_bytes_read` cover ranking and gating;
+  `routing_exact_ns`, `routing_exact_reads`, and `routing_exact_bytes_read` cover
+  the exact rerank.
 
 For finite queries, approximate members scored equals approximate members
 pruned plus exact scores; exact scores equals exact pruned plus candidates.

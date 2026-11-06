@@ -2218,7 +2218,7 @@ mod tests {
 
     use pgrx::prelude::*;
 
-    #[test]
+    #[pg_test]
     fn pushdown_filter_admits_sql_restrictions_only() {
         let filter = |_: &crate::api::FieldName| true;
         let no_filter = |_: &crate::api::FieldName| false;

@@ -932,10 +932,7 @@ mod tests {
             (0..400)
                 .map(|i| {
                     Some(PgVector(if i < 300 {
-                        vec![
-                            if i % 2 == 0 { -10.0 } else { -8.0 },
-                            (i % 13) as f32 * 0.1,
-                        ]
+                        vec![if i % 2 == 0 { -10.0 } else { -8.0 }, (i % 13) as f32 * 0.1]
                     } else {
                         vec![10.0, (i % 7) as f32 * 0.1]
                     }))

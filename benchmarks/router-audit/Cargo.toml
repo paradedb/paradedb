@@ -1,0 +1,29 @@
+[package]
+name = "router-audit"
+description = "Offline IVF router quality audit over a pg_search router export"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+tantivy = { workspace = true, features = ["unstable"] }
+
+# Selects the BLAS backend tantivy's SuperKMeans clusterer runs on, as pg_search does: Accelerate on
+# macOS, OpenBLAS elsewhere.
+[target.'cfg(target_os = "macos")'.dependencies]
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "5c08820cec092cf577601fbce0e06decc3576abb", features = [
+  "accelerate",
+] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "5c08820cec092cf577601fbce0e06decc3576abb", features = [
+  "openblas",
+] }

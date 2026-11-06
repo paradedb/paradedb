@@ -1,0 +1,223 @@
+name: Benchmark Router Audit
+
+# Audits IVF router quality on Cohere: flat baseline, router probes, posting-shaped levels. See
+# benchmarks/router-audit/README.md. Nothing runs by default; the label or a dispatch starts it.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      size:
+        description: "Cohere corpus size"
+        type: choice
+        options: [1m, 10m]
+        default: 10m
+      pdbench_ref:
+        description: "pdbench ref"
+        default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  audit:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      id-token: write
+    name: Router audit ${{ inputs.size || '10m' }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'benchmark-router-audit'
+    timeout-minutes: 360
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache
+    env:
+      COHERE_SIZE: ${{ inputs.size || '10m' }}
+      pg_version: "18"
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
+
+    steps:
+      - name: Remove benchmark label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BENCHMARK_LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$BENCHMARK_LABEL" || true
+
+      - name: Checkout extension to benchmark
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Record connection
+        run: echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
+
+      - name: Configure RunsOn caching
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
+
+      - name: Set up benchmark cluster
+        uses: ./.github/actions/setup-benchmark-cluster
+        with:
+          pg_version: ${{ env.pg_version }}
+          extra_features: vector_audit
+
+      - name: Build router-audit
+        run: |
+          cargo build --release -p router-audit
+          echo "ROUTER_AUDIT=$PWD/target/release/router-audit" >> "$GITHUB_ENV"
+
+      - name: Create pdbench checkout token
+        id: pdbench_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pdbench
+          permission-contents: read
+
+      - name: Checkout pdbench
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: paradedb/pdbench
+          ref: ${{ env.PDBENCH_REF }}
+          path: pdbench
+          token: ${{ steps.pdbench_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Install pdbench toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Cache pdbench build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: pdbench -> target
+
+      - name: Build pdbench
+        working-directory: pdbench
+        run: |
+          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
+          aws-region: us-east-1
+
+      - name: Restore Cohere heap snapshot
+        run: |
+          set -euo pipefail
+          (cd pg_search && cargo pgrx stop pg18)
+          (cd benchmarks && cargo run --release -- restore-heap \
+            --dataset cohere --size "$COHERE_SIZE" \
+            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
+            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
+            --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
+            --repo-s3-key-type shared)
+          echo "max_worker_processes = 32" >> /home/runner/.pgrx/data-18/postgresql.auto.conf
+          (cd pg_search && cargo pgrx start pg18)
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+
+      - name: Install fixture reader
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: python3-venv
+
+      - name: Import published queries and ground truth
+        env:
+          FIXTURE_SOURCE: s3://paradedb-benchmark/datasets/cohere/v1/queries
+        run: |
+          set -euo pipefail
+          python3 -m venv .cohere-fixtures
+          .cohere-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '
+            CREATE TABLE IF NOT EXISTS pdbench_ground_truth (
+              corpus text, query_stem text, query_id int, gt_ids text[],
+              PRIMARY KEY (corpus, query_stem, query_id)
+            );' -c '
+            DROP TABLE IF EXISTS pdbench_queries;
+            CREATE TABLE pdbench_queries (id int, emb vector(1024));'
+          .cohere-fixtures/bin/python - <<'PYTHON'
+          import os
+          import duckdb
+
+          db = duckdb.connect()
+          db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
+          url = os.environ["PARADEDB_URL"].replace("'", "''")
+          db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
+          source = os.environ["FIXTURE_SOURCE"]
+          query = "knn_top10_unfiltered"
+          truth = f"{source}/ground_truth_{query}_{os.environ['COHERE_SIZE']}.parquet"
+          count = db.execute("SELECT count(*) FROM read_parquet(?)", [truth]).fetchone()[0]
+          if count != 100:
+              raise ValueError(f"{query}: expected 100 ground-truth rows, found {count}")
+          db.execute("DELETE FROM pg.public.pdbench_ground_truth WHERE corpus = 'cohere_wiki' AND query_stem = ?", [query])
+          db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, truth])
+          PYTHON
+          .cohere-fixtures/bin/python - <<'PYTHON'
+          import os
+          import subprocess
+          import duckdb
+
+          db = duckdb.connect()
+          db.execute("INSTALL httpfs; LOAD httpfs;")
+          rows = db.execute(
+              "SELECT id, emb::VARCHAR FROM read_parquet(?)",
+              [f"{os.environ['FIXTURE_SOURCE']}/cohere_queries.parquet"],
+          ).fetchall()
+          lines = "".join(f"{query_id}\t{emb}\n" for query_id, emb in rows)
+          subprocess.run(
+              ["psql", os.environ["PARADEDB_URL"], "-X", "-q", "-v", "ON_ERROR_STOP=1",
+               "-c", "COPY pdbench_queries FROM STDIN"],
+              input=lines, text=True, check=True,
+          )
+          PYTHON
+
+      - name: Run the audit
+        run: |
+          benchmarks/router-audit/run.sh --size "$COHERE_SIZE" --url "$PARADEDB_URL" \
+            --pg-log "$HOME/.pgrx/18.log" --out benchmarks/router-audit/out/"$COHERE_SIZE"
+
+      - name: Write the job summary
+        if: always()
+        run: |
+          report="benchmarks/router-audit/out/$COHERE_SIZE/REPORT.md"
+          if [ -f "$report" ]; then
+            head -c 1000000 "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the audit
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: router-audit-${{ env.COHERE_SIZE }}
+          path: |
+            benchmarks/router-audit/out/${{ env.COHERE_SIZE }}/
+            !benchmarks/router-audit/out/${{ env.COHERE_SIZE }}/ids.tsv
+            !benchmarks/router-audit/out/${{ env.COHERE_SIZE }}/assets/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Database logs
+        if: failure() || cancelled()
+        run: tail -200 ~/.pgrx/18.log
+
+      - name: Stop database
+        if: always()
+        working-directory: pg_search
+        run: cargo pgrx stop pg18

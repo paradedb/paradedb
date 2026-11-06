@@ -22,6 +22,10 @@ inputs:
       stackoverflow bm25 indexes, which set no per-index count) pass their own.
     required: false
     default: "0"
+  extra_features:
+    description: "Cargo features to build pg_search with, beyond the PostgreSQL version's."
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -45,10 +49,11 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        INPUTS_EXTRA_FEATURES: ${{ inputs.extra_features }}
       run: >-
         cargo pgrx install -p pg_search --sudo --release
         --pg-config "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"
-        "--features=pg${INPUTS_PG_VERSION}" --no-default-features
+        "--features=pg${INPUTS_PG_VERSION} ${INPUTS_EXTRA_FEATURES}" --no-default-features
 
     - name: Start PostgreSQL
       shell: bash

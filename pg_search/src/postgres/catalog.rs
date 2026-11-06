@@ -70,6 +70,14 @@ crate::impl_safe_drop!(SysCacheEntry, |self| {
     }
 });
 
+pub(crate) fn is_sql_function(function: pg_sys::Oid) -> bool {
+    unsafe {
+        SysCacheEntry::search1(pg_sys::SysCacheIdentifier::PROCOID, function.into())
+            .and_then(|entry| entry.attr::<pg_sys::Oid>(pg_sys::Anum_pg_proc_prolang))
+            == Some(pg_sys::SQLlanguageId.into())
+    }
+}
+
 /// Helper function to lookup a namespace's [`pg_sys::Oid`] (SQL schema) by name
 pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
     unsafe {

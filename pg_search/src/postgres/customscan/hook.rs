@@ -480,7 +480,7 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     // Clear any existing warnings for this planning cycle
     clear_planner_warnings();
 
-    if !pg_search_extension_installed() {
+    if pg_sys::creating_extension || !pg_search_extension_installed() {
         let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
             prev_hook(parse, query_string, cursor_options, bound_params)
         } else {
@@ -488,6 +488,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         };
         return result;
     }
+
+    let depends_on_role = crate::postgres::query_access::annotate(parse);
 
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level
@@ -521,6 +523,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
             pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
         }
     });
+
+    // Inlined-body analysis can discover role-sensitive RLS dependencies.
+    (*result).dependsOnRole |= depends_on_role;
 
     // Emit collected warnings
     emit_planner_warnings();

@@ -143,6 +143,17 @@ impl ReturnedNodePointer {
         // Retain the field binding while EXISTS conversion or subquery pushdown can
         // change the original LHS's relation context.
         let derived = find_node_relation(lhs, (*request).root).2.is_some();
+        // PG17 can ask for simplification while inspecting a copied EXISTS
+        // expression using the outer PlannerInfo. Do not invent system-column
+        // Vars for a relation whose tuple layout does not match this Var.
+        if !derived && (*base_var).varattno > 0 {
+            let (heap, attno, _) = find_var_relation(base_var, (*request).root);
+            if heap == pg_sys::Oid::INVALID
+                || pg_sys::get_atttype(heap, attno) != (*base_var).vartype
+            {
+                return Self::unsupported();
+            }
+        }
         let keep_original_lhs = ((*(*(*request).root).parse).hasSubLinks || derived)
             && (original_lhs.is_some()
                 || matches!(rhs_rewrite, SimplifyRhs::Rewrite(_))
@@ -870,9 +881,9 @@ unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
     typoid
 }
 
-/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
-///
-/// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
+/// Resolve a planner expression to its index and optional field.
+/// Return `None` for unindexed sources: support functions can inspect expressions
+/// that PostgreSQL later discards.
 pub unsafe fn tantivy_field_name_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
@@ -881,12 +892,7 @@ pub unsafe fn tantivy_field_name_from_node(
     if heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
-    let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
-        panic!(
-            "`{}` does not contain a `USING paradedb` index",
-            PgSearchRelation::open(heaprelid).name()
-        )
-    });
+    let (heaprel, indexrel) = rel_get_bm25_index(heaprelid)?;
 
     let (field_node, context) = if targetlist.is_some() {
         let node = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Node>();
@@ -1452,6 +1458,40 @@ unsafe fn rewrite_rhs_to_search_query_input(
         operator.rewrite_exec(field, lhs, rhs).cast()
     };
     rhs
+}
+
+/// The permission walker uses the same constant classification as execution.
+/// Runtime expressions return `None`; the planner-only permission pass leaves
+/// those inputs unchanged.
+pub(crate) unsafe fn query_for_permissions(
+    opno: pg_sys::Oid,
+    lhs: *mut pg_sys::Node,
+    field: Option<FieldName>,
+    rhs: *mut pg_sys::Node,
+) -> Option<SearchQueryInput> {
+    let constant = nodecast!(Const, T_Const, rhs)?;
+    if (*constant).constisnull {
+        return Some(SearchQueryInput::Empty);
+    }
+    if (*constant).consttype == searchqueryinput_typoid() {
+        return SearchQueryInput::from_datum((*constant).constvalue, false);
+    }
+    let operator = match operator_name_from_oid(opno).as_str() {
+        "@@@" => SearchOperator::Parse,
+        "|||" => SearchOperator::Disjunction,
+        "&&&" => SearchOperator::Conjunction,
+        "===" => SearchOperator::Term,
+        "###" => SearchOperator::Phrase,
+        _ => return None,
+    };
+    // Leave unresolved fields to the normal operator validation path.
+    if field.is_none() && operator != SearchOperator::Parse {
+        return None;
+    }
+    let rewritten =
+        rewrite_rhs_to_search_query_input(operator, searchqueryinput_typoid(), lhs, rhs, field);
+    let constant = nodecast!(Const, T_Const, rewritten)?;
+    SearchQueryInput::from_datum((*constant).constvalue, (*constant).constisnull)
 }
 
 /// Returns `true` if the given OID is a text-like scalar type (text, varchar, or citext).

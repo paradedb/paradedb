@@ -113,7 +113,7 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     strategy:
       fail-fast: false
       matrix:
@@ -253,8 +253,8 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl
-      - ami=ami-0a2a2634ec0e33c35 # PostgreSQL in Docker hits an AppArmor/gosu bug on Ubuntu 26.04. Unpin once fixed: https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
-      - extras=s3-cache
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       BACKREST_REPO_BUCKET: paradedb-benchmark
       SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst

@@ -26,6 +26,7 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::score_funcoids;
@@ -33,6 +34,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
+use crate::schema::SearchFieldType;
 use anyhow::anyhow;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
@@ -167,6 +169,31 @@ impl ScoreColumn {
 impl fmt::Display for ScoreColumn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "pdb.score({})", self.0)
+    }
+}
+
+/// DataFusion-facing synthetic vector score column name helper.
+///
+/// JoinScan formats vector similarity score column names as `pdb.vector_score({table})`
+/// to distinguish them from Tantivy BM25 `pdb.score({table})` columns.
+#[derive(Debug, Clone)]
+pub struct VectorScoreColumn(String);
+
+impl VectorScoreColumn {
+    pub const PREFIX: &'static str = "pdb.vector_score(";
+
+    pub fn new(table: impl Into<String>) -> Self {
+        Self(table.into())
+    }
+
+    pub fn is_vector_score_column(name: &str) -> bool {
+        name.starts_with(Self::PREFIX) && name.ends_with(')')
+    }
+}
+
+impl fmt::Display for VectorScoreColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "pdb.vector_score({})", self.0)
     }
 }
 
@@ -623,12 +650,25 @@ impl JoinSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| {
-                if f.field.is_score() {
+                if f.field.is_score() || f.field.is_vector_score() {
                     None
                 } else {
                     Some(f.field.name())
                 }
             })
+    }
+
+    /// Resolve an attribute number to its field type if it is a scalar NUMERIC fast field.
+    pub fn numeric_field_type(&self, attno: pg_sys::AttrNumber) -> Option<SearchFieldType> {
+        let field_info = self.scan_info.fields.iter().find(|f| f.attno == attno)?;
+        match &field_info.field {
+            WhichFastField::Named {
+                field_type,
+                cardinality: FieldCardinality::Scalar,
+                ..
+            } if field_type.is_numeric() => Some(*field_type),
+            _ => None,
+        }
     }
 
     /// Recursively collect all base relations in this source.
@@ -688,6 +728,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                vector_order_by: None,
             },
         })
     }
@@ -1715,6 +1756,42 @@ impl RelNode {
         }
     }
 
+    /// Returns true if `target_rti` is reachable through a branch of `Inner`, `Semi` (when in
+    /// `left`), and `RightSemi` (when in `right`) equi-joins (plus optional `Filter` nodes), with
+    /// no `Unnest`, outer, anti, mark, or keyless joins along that branch.
+    pub fn supports_vector_order_by(&self, target_rti: pg_sys::Index) -> bool {
+        match self {
+            RelNode::Scan(s) => s.contains_rti(target_rti),
+            RelNode::Filter(f) => f.input.supports_vector_order_by(target_rti),
+            RelNode::Unnest(_) => false,
+            RelNode::Join(j) => {
+                if j.equi_keys.is_empty() {
+                    return false;
+                }
+                match j.join_type {
+                    JoinType::Inner => {
+                        if j.left.contains_rti(target_rti) {
+                            j.left.supports_vector_order_by(target_rti)
+                        } else if j.right.contains_rti(target_rti) {
+                            j.right.supports_vector_order_by(target_rti)
+                        } else {
+                            false
+                        }
+                    }
+                    JoinType::Semi => {
+                        j.left.contains_rti(target_rti)
+                            && j.left.supports_vector_order_by(target_rti)
+                    }
+                    JoinType::RightSemi => {
+                        j.right.contains_rti(target_rti)
+                            && j.right.supports_vector_order_by(target_rti)
+                    }
+                    _ => false,
+                }
+            }
+        }
+    }
+
     /// Recursively renders a human-readable representation of the join tree.
     pub fn explain(&self) -> String {
         self.explain_internal(true)
@@ -2056,22 +2133,42 @@ impl JoinCSClause {
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.has_postgres_expressions() {
-                found = true;
-            }
+        let mut found = self.order_by.iter().any(|ob| {
+            matches!(
+                ob.feature,
+                crate::api::OrderByFeature::VectorDistance {
+                    query_vector: crate::api::QueryVector::Expr(_),
+                    ..
+                }
+            )
         });
+        if !found {
+            self.visit_queries(&mut |q| {
+                if q.has_postgres_expressions() {
+                    found = true;
+                }
+            });
+        }
         found
     }
 
     pub fn has_parameters(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.has_parameters() {
-                found = true;
-            }
+        let mut found = self.order_by.iter().any(|ob| {
+            matches!(
+                ob.feature,
+                crate::api::OrderByFeature::VectorDistance {
+                    query_vector: crate::api::QueryVector::Param(_),
+                    ..
+                }
+            )
         });
+        if !found {
+            self.visit_queries(&mut |q| {
+                if q.has_parameters() {
+                    found = true;
+                }
+            });
+        }
         found
     }
 

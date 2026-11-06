@@ -2399,6 +2399,9 @@ impl SearchIndexReader {
                     .with_probe_params(ProbeParams {
                         max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
                         fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
+                        router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
+                        router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
+                        router_aps: crate::gucs::vector_router_aps(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);

@@ -224,6 +224,11 @@ static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// the row-count floor.
 static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
+/// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0`.
+static RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD: GucSetting<f64> =
+    GucSetting::<f64>::new(crate::scan::rank_join_rule::UNSCORED_SELECTIVITY_THRESHOLD);
+
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
 /// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
 /// a window query with a LIMIT takes that path regardless.
@@ -343,6 +348,22 @@ static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
 /// Returns the maximum IVF probe fraction.
 pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
+}
+
+static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
+static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_router_rerank_factor() -> f32 {
+    VECTOR_ROUTER_RERANK_FACTOR.get() as f32
+}
+
+pub fn vector_router_min_beam_fraction() -> f32 {
+    VECTOR_ROUTER_MIN_BEAM_FRACTION.get() as f32
+}
+
+pub fn vector_router_aps() -> bool {
+    VECTOR_ROUTER_APS.get()
 }
 
 /// Fixed IVF cluster-open cost measured in fully scored rows.
@@ -704,6 +725,34 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_rerank_factor",
+        c"Approximate candidates retained per requested centroid by quantized routing",
+        c"Retain ceil(factor * router_k) candidates before exact reranking. A factor of 1 removes padding but still reranks exactly. Does not widen list selection or change document probing budgets.",
+        &VECTOR_ROUTER_RERANK_FACTOR,
+        1.0,
+        16.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_min_beam_fraction",
+        c"Minimum fraction of each quantized router level's lists to open",
+        c"Query-time shortlist breadth. Full-precision routing retains its existing beam.",
+        &VECTOR_ROUTER_MIN_BEAM_FRACTION,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_router_aps",
+        c"Allow stacked routing to stop after quiet lists",
+        c"Applies to full-precision and quantized hierarchical routing.",
+        &VECTOR_ROUTER_APS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Registered so SHOW and pg_settings stay stable. Nothing reads these.
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
@@ -858,6 +907,18 @@ pub fn init() {
         &RANK_JOIN_MIN_ROWS,
         0,
         i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.rank_join_unscored_selectivity_threshold",
+        c"Minimum estimated selectivity on unscored (RA) join inputs for RankJoinExec",
+        c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
+          inputs of a single-sided (NRJN) join when paradedb.rank_join_min_rows > 0.",
+        &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1281,6 +1342,12 @@ pub fn enable_rank_join() -> bool {
 
 pub fn rank_join_min_rows() -> usize {
     RANK_JOIN_MIN_ROWS.get().max(0) as usize
+}
+
+pub fn rank_join_unscored_selectivity_threshold() -> f64 {
+    RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD
+        .get()
+        .clamp(0.0, 1.0)
 }
 
 pub fn joinscan_force_topk_as_agg() -> bool {

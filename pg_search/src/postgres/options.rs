@@ -41,13 +41,13 @@ use tokenizers::SearchTokenizer;
  * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
  * Note that for string options, postgres will give you the offset of the string, and you have to read the string
  * yourself (see get_tokenizer)
-*/
+ */
 
 /* READING OPTIONS
  * options are placed in relation.rd_options
  * As in ambuild(), cast relation.rd_options into SearchIndexOptionsData using PgBox
  * (because SearchIndexOptionsData is a postgres-allocated object) and use getters and setters
-*/
+ */
 
 const MIN_TARGET_SEGMENT_COUNT: usize = 4;
 /// A partitioned build keeps one spill file buffer per partition open outside the worker budget,
@@ -234,7 +234,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 18;
+const NUM_REL_OPTS: usize = 19;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -308,6 +308,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: std::mem::offset_of!(BM25IndexOptionsData, layer_sizes_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "vector_router_quantization".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, vector_router_quantization) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -428,6 +435,12 @@ impl BM25IndexOptions {
         }
 
         self.options_data().background_layer_sizes()
+    }
+
+    /// Whether new vector segments use one-bit router codes and exact reranking.
+    /// Captured in stored index settings during creation or rebuilding.
+    pub fn vector_router_quantization(&self) -> bool {
+        self.options_data().vector_router_quantization
     }
 
     pub fn target_segment_count(&self) -> usize {
@@ -815,6 +828,7 @@ struct BM25IndexOptionsData {
     max_leaf_size: i32,
     training_sample_ratio: f64,
     partition_by_offset: i32,
+    vector_router_quantization: bool,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -837,6 +851,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
+    vector_router_quantization: true,
 };
 
 impl BM25IndexOptionsData {
@@ -1082,6 +1097,14 @@ pub unsafe fn init() {
         "The sizes of each layer to merge in the foreground".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_layer_sizes),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_bool_reloption(
+        RELOPT_KIND_PDB,
+        "vector_router_quantization".as_pg_cstr(),
+        "Use one-bit centroid routing with exact reranking when creating or rebuilding the index"
+            .as_pg_cstr(),
+        true,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

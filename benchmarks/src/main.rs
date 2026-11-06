@@ -448,6 +448,12 @@ async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<Inde
     let mut conn = PgConnection::connect(&args.url)
         .await
         .with_context(|| "Failed to connect to database")?;
+    // `VACUUM FULL` rebuilds every index of a table, so it runs before the indexes exist.
+    // It also sets `reltuples`, and the `pg_search` build sizes its segments from it.
+    if args.vacuum {
+        vacuum(&mut conn, "VACUUM FULL ANALYZE").await?;
+    }
+
     let index_sql = format!("datasets/{}/indexes/{}.sql", args.dataset, args.index);
     let statements = queries(Path::new(&index_sql));
     let params =
@@ -659,23 +665,30 @@ async fn execute_benchmark_query(
     }
 }
 
+async fn vacuum(conn: &mut PgConnection, statement: &'static str) -> anyhow::Result<()> {
+    println!("{statement}");
+    let start = Instant::now();
+    sqlx::query(statement)
+        .execute(&mut *conn)
+        .await
+        .with_context(|| "Failed to vacuum")?;
+    println!("{statement} took {:.2?}", start.elapsed());
+    Ok(())
+}
+
 async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
         .with_context(|| "Failed to connect to database")?;
 
-    println!("vacuuming...");
     if args.vacuum {
-        sqlx::query("VACUUM FULL ANALYZE")
-            .execute(&mut utility_conn)
-            .await
-            .with_context(|| "Failed to vacuum")?;
+        // Without `--skip-index`, `VACUUM FULL` ran before the index build.
+        if args.skip_index {
+            vacuum(&mut utility_conn, "VACUUM FULL ANALYZE").await?;
+        }
         // VACUUM FULL does not update the visibility map. Run both types so that our heap file
         // contains no wasted space and we get an updated vm
-        sqlx::query("VACUUM ANALYZE")
-            .execute(&mut utility_conn)
-            .await
-            .with_context(|| "Failed to vacuum")?;
+        vacuum(&mut utility_conn, "VACUUM ANALYZE").await?;
     }
 
     if args.prewarm {

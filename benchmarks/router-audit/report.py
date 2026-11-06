@@ -364,9 +364,21 @@ def phase_b_section(report):
 
 
 def rebuild_section(report):
-    lines = ["## Rebuild check: stored K3 inside K3r's range", ""]
+    lines = ["## Rebuild check: stored K3 among K3r's builds", ""]
     lines += table(
-        ["factor", "aps", "set", "target", "stored", "K3r median", "min", "max", "inside"],
+        [
+            "factor",
+            "aps",
+            "set",
+            "target",
+            "stored",
+            "K3r median",
+            "p95",
+            "min",
+            "max",
+            "percentile",
+            "above p95",
+        ],
         [
             [
                 check["rerank_factor"],
@@ -375,9 +387,11 @@ def rebuild_section(report):
                 TARGET_NAMES[check["target"]],
                 check["stored"],
                 check["median"],
+                check["p95"],
                 check["min"],
                 check["max"],
-                check["within"],
+                f"{check['percentile']:.3f}",
+                check["above_p95"],
             ]
             for check in report["rebuild_check"]
         ],

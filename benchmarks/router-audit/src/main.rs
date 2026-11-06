@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use tantivy::schema::Metric;
 use tantivy::vector::clustering::SuperKMeansClusterer;
 use tantivy::vector::router_audit::{
-    AuditInput, OnlinePoint, Phases, default_ks, offline_recall, run_audit,
+    AuditInput, OnlinePoint, Phases, default_ks, offline_recall, rebuild_check_stops, run_audit,
 };
 
 #[derive(Parser)]
@@ -254,17 +254,12 @@ fn run(args: &RunArgs) -> Result<()> {
     fs::write(&args.output, serde_json::to_vec_pretty(&document)?)?;
 
     let mut failures = Vec::new();
-    for check in report.rebuild_check.iter().filter(|check| !check.within) {
-        failures.push(format!(
-            "stored router m_r {:?} outside its rebuilds' [{:?}, {:?}] (factor {}, aps {}, {}, r{})",
-            check.stored,
-            check.min,
-            check.max,
-            check.rerank_factor,
-            check.aps,
-            check.query_set,
-            check.target
-        ));
+    if rebuild_check_stops(&report.rebuild_check) {
+        failures.push(
+            "stored router above its rebuilds' 95th percentile at every held-out, factor 2, APS on \
+             target"
+                .to_string(),
+        );
     }
     if report
         .phase_b

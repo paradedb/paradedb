@@ -10,14 +10,14 @@ flat ranking of the same clusters, and what routing costs per vector against pos
 - **FLAT**: exact scores over every stored centroid.
 - **K3-2, K3-4**: the stored quantized router at `rerank_factor` 2 and 4, patience on and off.
 - **K1**: a full-precision stacked router rebuilt from the exported centroids.
-- **K3r**: a quantized router rebuilt the same way. The stored K3's `m_r` must lie inside K3r's
-  range at every target, which validates the other rebuilt routers.
+- **K3r**: a quantized router rebuilt the same way, 40 times. Each stored K3 row gets its percentile
+  among those builds, which validates the other rebuilt routers.
 - **S, L**: today's structure, and one whose levels come from the segment's own clusterer, under
   each list-open rule: `c` members of beam per requested member, list floor `f`, patience.
 
-K1, K3r and L are each built 5 times over input rows shuffled with seeds 0-4, with output ids mapped
-back to exported clusters, and reported as median and `[min, max]` `m_r`: input order alone moves
-`m_r` by far more than the comparisons here need to resolve.
+K1 and L are built 5 times and K3r 40 times, over input rows shuffled with seeds from 0, with output
+ids mapped back to exported clusters, and reported as median and `[min, max]` `m_r`: input order
+alone moves `m_r` by far more than the comparisons here need to resolve.
 
 The index is built with one segment. Nothing here changes a product default: the export function
 exists only in a `pg_search` built with the `vector_audit` feature.
@@ -45,7 +45,7 @@ resumes at the first unfinished step. It stops on any of these:
 - the index is not exactly one IVF segment;
 - exported cluster sizes differ from `paradedb.vector_clusters`, or the document map from the row
   count;
-- the stored K3's `m_r` falls outside K3r's `[min, max]` at any target;
+- the stored K3 is above K3r's 95th percentile on every held-out, APS on, factor 2 row;
 - S(2, 0.25, on) does not reproduce K1 on every build;
 - online recall differs from the stored router's offline coverage recall by more than 0.01.
 

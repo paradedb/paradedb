@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793953364639,
+  "lastUpdate": 1793953394110,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -372852,6 +372852,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13397791099-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953391444,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 14.279854558028592,
+            "unit": "median tps",
+            "extra": "avg tps: 12.76747916362584, max tps: 16.536370240028315, count: 59013"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.919968687885939,
+            "unit": "median tps",
+            "extra": "avg tps: 3.2694707200060242, max tps: 12.200095755027109, count: 59013"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 172.2446155207428,
+            "unit": "median tps",
+            "extra": "avg tps: 186.95006468255187, max tps: 373.3242972870087, count: 59013"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 160.9790061444104,
+            "unit": "median tps",
+            "extra": "avg tps: 177.31003467427797, max tps: 394.7655268049629, count: 59013"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 172.7555004627003,
+            "unit": "median tps",
+            "extra": "avg tps: 186.1985837434964, max tps: 334.670099297764, count: 59013"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 181.24137612947084,
+            "unit": "median tps",
+            "extra": "avg tps: 192.07629906295898, max tps: 318.8965456845211, count: 59013"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 157.83480200028225,
+            "unit": "median tps",
+            "extra": "avg tps: 172.5475065038142, max tps: 512.8324075667255, count: 59013"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 184.72924186151172,
+            "unit": "median tps",
+            "extra": "avg tps: 194.52162485308546, max tps: 412.6143077249012, count: 59013"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 160.06022981289885,
+            "unit": "median tps",
+            "extra": "avg tps: 173.3085400315053, max tps: 317.07474981295644, count: 59013"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 176.33955716005346,
+            "unit": "median tps",
+            "extra": "avg tps: 185.64837680130583, max tps: 407.92148655428775, count: 59013"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 172.2088463665398,
+            "unit": "median tps",
+            "extra": "avg tps: 179.3290559833679, max tps: 311.4986536666809, count: 59013"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 175.31939015585138,
+            "unit": "median tps",
+            "extra": "avg tps: 184.98229050680516, max tps: 518.2872483647343, count: 59013"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 170.4331606205247,
+            "unit": "median tps",
+            "extra": "avg tps: 182.81102743591748, max tps: 461.82007225488, count: 59013"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 175.3014364126285,
+            "unit": "median tps",
+            "extra": "avg tps: 185.6213515554867, max tps: 324.5744614648161, count: 59013"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 150.386927274077,
+            "unit": "median tps",
+            "extra": "avg tps: 167.62844497800816, max tps: 542.9997148852232, count: 59013"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 166.3314040538781,
+            "unit": "median tps",
+            "extra": "avg tps: 182.70923072625288, max tps: 439.2368735454918, count: 59013"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 173.03163617679962,
+            "unit": "median tps",
+            "extra": "avg tps: 187.27284688899883, max tps: 473.13742685094235, count: 59013"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 170.65482329574374,
+            "unit": "median tps",
+            "extra": "avg tps: 183.6977409717459, max tps: 285.7423217057231, count: 59013"
+          }
+        ],
+        "publication_id": "13486064365-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [
@@ -384690,6 +384821,275 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13397791099-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953394021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.559322,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.538325446674492, max cpu: 31.893688, count: 59013"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.767936858192265, max mem: 50.77734375, count: 59013"
+          },
+          {
+            "name": "Background Merging - Primary - cpu",
+            "value": 4.477612,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.8840679424301183, max cpu: 4.5605702, count: 59013"
+          },
+          {
+            "name": "Background Merging - Primary - mem",
+            "value": 33.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.37200641966601, max mem: 33.94140625, count: 59013"
+          },
+          {
+            "name": "Background Merging - Primary - merged_away",
+            "value": 1548,
+            "unit": "median merged_away",
+            "extra": "avg merged_away: 1641.4455797875044, max merged_away: 2474.0, count: 59013"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.716518,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.770807122226664, max cpu: 32.030506, count: 59013"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 118.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 117.67561881227441, max mem: 118.41796875, count: 59013"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 14456,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14570.793079490959, max block_count: 15213.0, count: 59013"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 15,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.314049446732076, max segment_count: 33.0, count: 59013"
+          },
+          {
+            "name": "Upsert 1 - Primary - cpu",
+            "value": 13.649289,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.15837684388606, max cpu: 31.954351, count: 59013"
+          },
+          {
+            "name": "Upsert 1 - Primary - mem",
+            "value": 64.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 66.07880374345483, max mem: 119.6484375, count: 59013"
+          },
+          {
+            "name": "Upsert 10 - Primary - cpu",
+            "value": 17.704012,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.405902037715226, max cpu: 31.833252, count: 59013"
+          },
+          {
+            "name": "Upsert 10 - Primary - mem",
+            "value": 64.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.910693472730586, max mem: 128.66796875, count: 59013"
+          },
+          {
+            "name": "Upsert 11 - Primary - cpu",
+            "value": 13.655761,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.168202494075448, max cpu: 31.66824, count: 59013"
+          },
+          {
+            "name": "Upsert 11 - Primary - mem",
+            "value": 102.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.41566748269449, max mem: 126.16015625, count: 59013"
+          },
+          {
+            "name": "Upsert 12 - Primary - cpu",
+            "value": 13.636364,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.965761973596857, max cpu: 31.893688, count: 59013"
+          },
+          {
+            "name": "Upsert 12 - Primary - mem",
+            "value": 64.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.2726272309703, max mem: 105.765625, count: 59013"
+          },
+          {
+            "name": "Upsert 13 - Primary - cpu",
+            "value": 13.655761,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.353250084067746, max cpu: 31.893688, count: 59013"
+          },
+          {
+            "name": "Upsert 13 - Primary - mem",
+            "value": 64.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 69.23048476871621, max mem: 136.32421875, count: 59013"
+          },
+          {
+            "name": "Upsert 14 - Primary - cpu",
+            "value": 13.636364,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.958400845648056, max cpu: 31.818182, count: 59013"
+          },
+          {
+            "name": "Upsert 14 - Primary - mem",
+            "value": 56.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.996091102278314, max mem: 66.10546875, count: 59013"
+          },
+          {
+            "name": "Upsert 15 - Primary - cpu",
+            "value": 13.688212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.423332611966735, max cpu: 31.90883, count: 59013"
+          },
+          {
+            "name": "Upsert 15 - Primary - mem",
+            "value": 86.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 81.78888245492519, max mem: 164.70703125, count: 59013"
+          },
+          {
+            "name": "Upsert 16 - Primary - cpu",
+            "value": 13.642822,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.052506227437345, max cpu: 32.0, count: 59013"
+          },
+          {
+            "name": "Upsert 16 - Primary - mem",
+            "value": 56.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.83754188695711, max mem: 64.66796875, count: 59013"
+          },
+          {
+            "name": "Upsert 2 - Primary - cpu",
+            "value": 13.655761,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.182740578005625, max cpu: 31.939163, count: 59013"
+          },
+          {
+            "name": "Upsert 2 - Primary - mem",
+            "value": 64.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.68534932186552, max mem: 95.65234375, count: 59013"
+          },
+          {
+            "name": "Upsert 3 - Primary - cpu",
+            "value": 13.649289,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.0709157125676, max cpu: 31.818182, count: 59013"
+          },
+          {
+            "name": "Upsert 3 - Primary - mem",
+            "value": 60.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 58.926109699875454, max mem: 64.66015625, count: 59013"
+          },
+          {
+            "name": "Upsert 4 - Primary - cpu",
+            "value": 13.636364,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.070828243953077, max cpu: 31.848341, count: 59013"
+          },
+          {
+            "name": "Upsert 4 - Primary - mem",
+            "value": 82.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 78.51814695490825, max mem: 161.55078125, count: 59013"
+          },
+          {
+            "name": "Upsert 5 - Primary - cpu",
+            "value": 13.655761,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.055676167758794, max cpu: 31.939163, count: 59013"
+          },
+          {
+            "name": "Upsert 5 - Primary - mem",
+            "value": 56.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.885077427325335, max mem: 64.66015625, count: 59013"
+          },
+          {
+            "name": "Upsert 6 - Primary - cpu",
+            "value": 17.75312,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.554085031373397, max cpu: 31.954351, count: 59013"
+          },
+          {
+            "name": "Upsert 6 - Primary - mem",
+            "value": 66.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 70.09557884756325, max mem: 136.66015625, count: 59013"
+          },
+          {
+            "name": "Upsert 7 - Primary - cpu",
+            "value": 13.681709,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.3075697679052, max cpu: 31.863441, count: 59013"
+          },
+          {
+            "name": "Upsert 7 - Primary - mem",
+            "value": 80.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 74.74162340289428, max mem: 147.8515625, count: 59013"
+          },
+          {
+            "name": "Upsert 8 - Primary - cpu",
+            "value": 13.649289,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.147357994708536, max cpu: 31.969553, count: 59013"
+          },
+          {
+            "name": "Upsert 8 - Primary - mem",
+            "value": 96.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 90.28830386154321, max mem: 140.83984375, count: 59013"
+          },
+          {
+            "name": "Upsert 9 - Primary - cpu",
+            "value": 13.655761,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.174466362556558, max cpu: 31.893688, count: 59013"
+          },
+          {
+            "name": "Upsert 9 - Primary - mem",
+            "value": 64.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.54850851189569, max mem: 125.421875, count: 59013"
+          }
+        ],
+        "publication_id": "13486064365-other"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - TPS": [

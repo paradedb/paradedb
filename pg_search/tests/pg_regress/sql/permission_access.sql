@@ -39,6 +39,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT paradedb.fsm_size(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.index_info(''permission_access.docs_idx'')',
   'SELECT * FROM pdb.index_segments(''permission_access.docs_idx'')',
+  'SELECT * FROM pdb.synonym_expansion(''permission_access.docs_idx'', ''sofa'')',
   'SELECT * FROM paradedb.vector_info(''permission_access.docs_idx'', ''missing'')',
   'SELECT * FROM paradedb.vector_config(''permission_access.docs_idx'', ''missing'')',
   'SELECT * FROM paradedb.vector_clusters(''permission_access.docs_idx'', ''missing'')',

@@ -19,6 +19,7 @@ use crate::api::version::VersionInfo;
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::synonym_index::rule_field_options;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::build_partitioning::{
     check_fast_dims, normalized_dims, partition_vector_field,
@@ -63,7 +64,9 @@ pub extern "C-unwind" fn ambuild(
     let is_reindex = !index_tuple.indisvalid;
     let is_concurrent = unsafe { (*index_info).ii_Concurrent };
 
-    if !is_reindex {
+    // A synonym index serves no query on its table, so a table can hold several of them, such as
+    // a partial index per set or one per tokenizer.
+    if !is_reindex && !index_relation.options().is_synonym_index() {
         for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
             if existing_index.oid() == index_relation.oid() {
                 // the index we're about to build already exists on the table.
@@ -71,7 +74,10 @@ pub extern "C-unwind" fn ambuild(
             }
 
             let rd_rel = unsafe { &*existing_index.rd_rel };
-            if rd_rel.relam.is_paradedb_am() && !is_concurrent {
+            if rd_rel.relam.is_paradedb_am()
+                && !is_concurrent
+                && !existing_index.options().is_synonym_index()
+            {
                 panic!("a relation may only have one ParadeDB index");
             }
         }
@@ -231,6 +237,16 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    if let Some(rule_field) = options.synonym_rule_field() {
+        if options.attributes().len() != 1 {
+            panic!("a synonym index has one column, the `pdb.synonym_rule` column `{rule_field}`");
+        }
+        // A partitioned build indexes its rows after the scan, where the rule check does not run.
+        if !options.partition_by().is_empty() {
+            panic!("a synonym index cannot use `partition_by`");
+        }
+    }
+
     // Validate that `sort_by` and `partition_by` fields are single-valued
     let check_single_valued = |field_name: &FieldName, context: &str| {
         if options.get_field_type(field_name).is_none() {
@@ -351,6 +367,12 @@ fn planned_schema(index_relation: &PgSearchRelation) -> Schema {
     {
         let mut config = options.field_config_or_default(&name);
         config.set_normalizer(normalizer);
+
+        if options.synonym_rule_field().as_ref() == Some(&name) {
+            config.set_synonym_rule_options();
+            builder.add_text_field(name.as_ref(), rule_field_options(config));
+            continue;
+        }
 
         match tantivy_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),

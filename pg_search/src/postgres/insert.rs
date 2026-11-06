@@ -20,6 +20,7 @@ use std::panic::{catch_unwind, resume_unwind};
 use crate::api::version::Version;
 use crate::gucs::WorkMem;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::synonym_index::RuleCheck;
 use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::IsLogicalWorker;
 use crate::postgres::composite::CompositeSlotValues;
@@ -43,6 +44,7 @@ use tantivy::index::SegmentId;
 pub struct InsertModeImmutable {
     writer: Box<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
+    rule_check: Option<RuleCheck>,
 }
 
 impl InsertModeImmutable {
@@ -56,9 +58,11 @@ impl InsertModeImmutable {
         )?;
         let schema = indexrel.schema()?;
         let categorized_fields = schema.categorized_fields().clone();
+        let rule_check = RuleCheck::for_index(&schema, indexrel.options());
         Ok(Self {
             writer: Box::new(writer),
             categorized_fields,
+            rule_check,
         })
     }
 }
@@ -306,6 +310,9 @@ unsafe fn insert(
                 &mut search_document,
                 state.index_created_by_version,
             );
+            if let Some(rule_check) = &mut mode.rule_check {
+                rule_check.check(&search_document);
+            }
             mode.writer
                 .insert(search_document, ctid, || {})
                 .expect("insertion into index should succeed");

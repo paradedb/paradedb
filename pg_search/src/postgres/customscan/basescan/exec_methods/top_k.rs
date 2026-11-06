@@ -66,6 +66,10 @@ pub struct TopKScanExecState {
     /// sides are static at construction; otherwise resolved in `init` from
     /// the `LimitOffset` carried on `ExecMethodType::TopK`.
     limit: Option<usize>,
+    /// Whether to stop after `limit` rows. False when the relation is row-marked
+    /// (`FOR UPDATE`/`FOR SHARE`): `LockRows` can drop rows (`SKIP LOCKED`), so the
+    /// outer Limit must be able to pull past K (#7170).
+    stop_at_limit: bool,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     visibility_selectivity: TopKSelectivity,
@@ -99,6 +103,7 @@ impl TopKScanExecState {
         // ExecMethodType::TopK.
         Self {
             limit: limit_offset.static_fetch(),
+            stop_at_limit: true,
             orderby_info,
             visibility_selectivity,
             window_aggregates: Vec::new(),
@@ -371,26 +376,26 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        let estate = unsafe { (*cstate).ss.ps.state };
+        self.stop_at_limit = unsafe { !relation_is_row_marked(estate, cstate) };
+
         // Resolve K = LIMIT + OFFSET from EState when not already known.
         // `fetch_mut` converts each `Param` → `Static` in place on the
         // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
         // sees resolved values without us holding a separate copy.
-        if self.limit.is_none() {
-            let estate = unsafe { (*cstate).ss.ps.state };
-            if let ExecMethodType::TopK {
+        if self.limit.is_none()
+            && let ExecMethodType::TopK {
                 ref mut limit_offset,
                 ..
             } = state.exec_method_type
-            {
-                self.limit = limit_offset
-                    .resolve_mut(estate)
-                    .expect("LIMIT must be resolvable from EState (param missing or NULL)")
-                    .static_fetch();
-            }
+        {
+            self.limit = limit_offset
+                .resolve_mut(estate)
+                .expect("LIMIT must be resolvable from EState (param missing or NULL)")
+                .static_fetch();
         }
 
         // handle parameterized vectors
-        let estate = unsafe { (*cstate).ss.ps.state };
         let planstate = unsafe { std::ptr::addr_of_mut!((*cstate).ss.ps) };
         if !estate.is_null() {
             let resolve = |infos: &mut [OrderByInfo]| {
@@ -418,7 +423,7 @@ impl ExecMethod for TopKScanExecState {
     }
 
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if self.found >= self.limit() {
+        if self.stop_at_limit && self.found >= self.limit() {
             return false;
         }
 
@@ -469,7 +474,7 @@ impl ExecMethod for TopKScanExecState {
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         check_for_interrupts!();
 
-        if self.found >= self.limit() {
+        if self.stop_at_limit && self.found >= self.limit() {
             return ExecState::Eof;
         }
 
@@ -520,4 +525,17 @@ impl ExecMethod for TopKScanExecState {
             self.window_aggregates = window_aggregates.clone();
         }
     }
+}
+
+/// True if the query row-marks this scan's relation. This includes non-locking marks,
+/// where we skip the early stop unnecessarily but still return correct results.
+unsafe fn relation_is_row_marked(
+    estate: *mut pg_sys::EState,
+    cstate: *mut pg_sys::CustomScanState,
+) -> bool {
+    if estate.is_null() || (*estate).es_rowmarks.is_null() {
+        return false;
+    }
+    let scanrelid = (*(*cstate).ss.ps.plan.cast::<pg_sys::Scan>()).scanrelid as usize;
+    scanrelid > 0 && !(*(*estate).es_rowmarks.add(scanrelid - 1)).is_null()
 }

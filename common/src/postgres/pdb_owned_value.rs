@@ -30,6 +30,7 @@ use crate::postgres::types::TantivyValueError;
 use crate::schema::SearchFieldType;
 
 pub const PDB_DATE_TAG: &str = "$__pdb_date__";
+pub const PDB_FLOAT_TAG: &str = "$__pdb_float__";
 
 /// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent dates
 /// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
@@ -180,6 +181,15 @@ impl PdbOwnedValue {
                     }
                 }
 
+                // So do NaN and the infinities, which JSON has no form for.
+                if object.len() == 1
+                    && let (PDB_FLOAT_TAG, OwnedValue::Str(s)) =
+                        (object[0].0.as_str(), &object[0].1)
+                    && let Some(value) = s.parse::<f64>().ok().filter(|value| !value.is_finite())
+                {
+                    return PdbOwnedValue::F64(value);
+                }
+
                 PdbOwnedValue::Object(
                     object
                         .into_iter()
@@ -251,6 +261,12 @@ impl serde::Serialize for PdbOwnedValue {
                 map.serialize_entry(PDB_DATE_TAG, &date)?;
                 map.end()
             }
+            // tag NaN and the infinities too, since JSON would write them as `null`
+            PdbOwnedValue::F64(value) if !value.is_finite() => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(PDB_FLOAT_TAG, &value.to_string())?;
+                map.end()
+            }
             PdbOwnedValue::Object(ref obj) => {
                 let mut map = serializer.serialize_map(Some(obj.len()))?;
                 for (k, v) in obj {
@@ -282,7 +298,7 @@ impl<'de> serde::Deserialize<'de> for PdbOwnedValue {
 /// The exact, lossless serde form for the scalar variants of [`PdbOwnedValue`], for callers that
 /// must reconstruct a value bit for bit (partition boundaries shipped over the DSM wire). The
 /// `Serialize`/`Deserialize` impls above route through tantivy's `OwnedValue`, which is lossy: a
-/// non-negative `I64` comes back as `U64`, and a non-finite `F64` becomes `null` under JSON.
+/// non-negative `I64` comes back as `U64`, and a NaN loses its bit pattern.
 ///
 /// Scalar values only. It errors on `Null` and the composite variants (`Array`, `Object`,
 /// `Facet`, `PreTokStr`), which never appear as partition split values. `F64` travels as its
@@ -507,6 +523,35 @@ mod tests {
         struct W(#[serde(with = "super::exact_scalar_wire")] PdbOwnedValue);
         for value in [PdbOwnedValue::Null, PdbOwnedValue::Array(vec![])] {
             assert!(postcard::to_allocvec(&W(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn non_finite_floats_survive_json() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let json = serde_json::to_string(&PdbOwnedValue::F64(value)).unwrap();
+            assert!(json.contains(PDB_FLOAT_TAG), "not tagged: {json}");
+            let PdbOwnedValue::F64(decoded) = serde_json::from_str(&json).unwrap() else {
+                panic!("did not decode as a float: {json}");
+            };
+            assert_eq!(decoded.to_bits(), value.to_bits());
+        }
+    }
+
+    #[test]
+    fn finite_floats_stay_plain_json_numbers() {
+        assert_eq!(
+            serde_json::to_string(&PdbOwnedValue::F64(1.5)).unwrap(),
+            "1.5"
+        );
+    }
+
+    #[test]
+    fn float_tag_only_decodes_non_finite_values() {
+        for text in ["1.5", "not a float"] {
+            let value: PdbOwnedValue =
+                serde_json::from_value(serde_json::json!({ PDB_FLOAT_TAG: text })).unwrap();
+            assert!(matches!(value, PdbOwnedValue::Object(_)), "{value:?}");
         }
     }
 

@@ -9,3 +9,4 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
+benchmarks/router-audit/out/

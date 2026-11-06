@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "benchmarks",
+  "benchmarks/router-audit",
   "dst",
   "macros",
   "pg_search",

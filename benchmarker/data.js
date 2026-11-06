@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793953447278,
+  "lastUpdate": 1793954694803,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22102,6 +22102,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13401105469-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793954693383,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 25.187,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 96.913,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 332.259,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 14.188,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 100.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 178.225,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 45.927,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 148.389,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 211.493,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.699,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.001,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 17.397,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 78.821,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 161.941,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13489072509-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -47921,6 +48019,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13401105469-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793954694789,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 23.82819522761661,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.81121765840546,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.62869542451686,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 25.778772691729923,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 36.54199783700467,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13489072509-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

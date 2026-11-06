@@ -259,6 +259,55 @@ jobs:
           echo "max_worker_processes = $workers" >> /home/runner/.pgrx/data-18/postgresql.auto.conf
           (cd pg_search && cargo pgrx start pg18)
 
+      - name: Install fixture reader
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: python3-venv
+
+      - name: Verify query and import ground-truth fixtures
+        run: |
+          set -euo pipefail
+          python3 -m venv .cohere-fixtures
+          .cohere-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '
+            CREATE TABLE IF NOT EXISTS pdbench_ground_truth (
+              corpus text, query_stem text, query_id int, gt_ids text[],
+              PRIMARY KEY (corpus, query_stem, query_id)
+            );'
+          .cohere-fixtures/bin/python - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          import tomllib
+
+          import duckdb
+
+          dataset = tomllib.loads(Path(os.environ["COHERE_CONFIG"]).read_text())["dataset"]
+          fixture_source = dataset["s3_base_path"].rstrip("/") + "/queries"
+          db = duckdb.connect()
+          db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
+          query_source = f"{fixture_source}/cohere_queries.parquet"
+          rows, unique_ids, min_dims, max_dims = db.execute(
+              "SELECT count(*), count(DISTINCT id), min(len(emb)), max(len(emb)) FROM read_parquet(?)",
+              [query_source],
+          ).fetchone()
+          if rows != 100 or unique_ids != 100 or min_dims != dataset["dims"] or max_dims != dataset["dims"]:
+              raise ValueError(f"Invalid query fixtures at {query_source}: {rows=}, {unique_ids=}, {min_dims=}, {max_dims=}")
+          verified = [{"source": query_source, "rows": rows, "dims": min_dims}]
+          url = os.environ["PARADEDB_URL"].replace("'", "''")
+          db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
+          for query in ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct"):
+              source = f"{fixture_source}/ground_truth_{query}_{dataset['size']}.parquet"
+              count = db.execute("SELECT count(*) FROM read_parquet(?)", [source]).fetchone()[0]
+              if count != 100:
+                  raise ValueError(f"{query}: expected 100 ground-truth rows, found {count}")
+              verified.append({"source": source, "rows": count})
+              db.execute("DELETE FROM pg.public.pdbench_ground_truth WHERE corpus = 'cohere_wiki' AND query_stem = ?", [query])
+              db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
+          Path("benchmark-artifacts/fixtures-verification.json").write_text(json.dumps(verified, indent=2) + "\n")
+          print(json.dumps(verified, indent=2))
+          PYTHON
+
       - name: Refresh extension and build index
         run: |
           set -euo pipefail
@@ -324,40 +373,6 @@ jobs:
           cat benchmark-artifacts/replication-verification.json
           jq -e '.options_disabled and .posting_entries == .expected_rows and .dead_entries == 0' \
             benchmark-artifacts/replication-verification.json
-
-      - name: Install fixture reader
-        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
-        with:
-          packages: python3-venv
-
-      - name: Import published ground-truth fixtures
-        env:
-          FIXTURE_SOURCE: s3://paradedb-benchmark/datasets/cohere/v1/queries
-        run: |
-          set -euo pipefail
-          python3 -m venv .cohere-fixtures
-          .cohere-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '
-            CREATE TABLE IF NOT EXISTS pdbench_ground_truth (
-              corpus text, query_stem text, query_id int, gt_ids text[],
-              PRIMARY KEY (corpus, query_stem, query_id)
-            );'
-          .cohere-fixtures/bin/python - <<'PYTHON'
-          import os
-          import duckdb
-
-          db = duckdb.connect()
-          db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
-          url = os.environ["PARADEDB_URL"].replace("'", "''")
-          db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
-          for query in ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct"):
-              source = f"{os.environ['FIXTURE_SOURCE']}/ground_truth_{query}_{os.environ['COHERE_SIZE']}.parquet"
-              count = db.execute("SELECT count(*) FROM read_parquet(?)", [source]).fetchone()[0]
-              if count != 100:
-                  raise ValueError(f"{query}: expected 100 ground-truth rows, found {count}")
-              db.execute("DELETE FROM pg.public.pdbench_ground_truth WHERE corpus = 'cohere_wiki' AND query_stem = ?", [query])
-              db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
-          PYTHON
 
       - name: Sweep recall with pdbench
         run: |

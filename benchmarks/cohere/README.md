@@ -62,13 +62,17 @@ quantized members before the global `router_k` selection.
 Wider selection compensates for errors in quantized centroid ordering;
 retaining more members cannot recover members in unopened lists.
 
-1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
-   extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
-   pdbench records build time, index size, and segment diagnostics before vacuum.
+1. Restore the existing Cohere heap snapshot. Before building the index, verify
+   the 100 unique query vectors and their dimensions, and import the three
+   ground-truth fixtures from the profile's `dataset.s3_base_path`.
+   Both engines use `s3://paradedb-benchmark/datasets/cohere/v1`; fixture failures
+   stop the run before index construction. Save `fixtures-verification.json`.
+   Refresh the installed pg_search extension and run `pdbench build` with
+   `datasets/cohere/indexes/pg_search.sql`. pdbench records build time, index
+   size, and segment diagnostics before vacuum.
    Snapshot generation continues to use `datasets/cohere/config.toml` and
    `create_tables.sql`.
-2. Import the published ground-truth Parquets into pdbench's fixture table.
-   `pdbench search` loads the query vectors and sweeps
+2. `pdbench search` loads the verified query vectors and sweeps
    `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).

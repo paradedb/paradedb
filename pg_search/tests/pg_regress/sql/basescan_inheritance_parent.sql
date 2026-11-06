@@ -40,12 +40,18 @@ EXPLAIN (COSTS OFF)
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
 
--- `pdb.score` and `pdb.snippet` on the parent, for rows of both tables.
+-- `pdb.score` and `pdb.snippet` on the parent fail. PostgreSQL computes the select
+-- list of an inheritance parent above the `Append`: it pushes the list into each
+-- table's scan only for a partitioned table. No Base Scan computes the functions.
 EXPLAIN (COSTS OFF)
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
 SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
 FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
+
+-- With `FROM ONLY`, the parent's Base Scan computes them.
+SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
+FROM ONLY inh_parent WHERE kind ||| 'a c' ORDER BY id;
 
 -- A window function on the parent counts the rows of every table.
 SELECT id, kind, count(*) OVER () AS total
@@ -56,7 +62,8 @@ SELECT id, kind, count(*) OVER () AS total
 FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
 
 -- A table whose only child was dropped keeps `relhassubclass` until ANALYZE, so
--- PostgreSQL still plans it as an inheritance parent.
+-- PostgreSQL still plans it as an inheritance parent. The rows are correct, but
+-- the LIMIT is not pushed into the scan.
 CREATE TABLE inh_former_parent (id SERIAL PRIMARY KEY, kind TEXT)
     WITH (autovacuum_enabled = false);
 CREATE TABLE inh_former_child () INHERITS (inh_former_parent);
@@ -68,7 +75,7 @@ EXPLAIN (COSTS OFF)
 SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
 SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
 
--- ANALYZE clears `relhassubclass`.
+-- ANALYZE clears `relhassubclass`, and the scan gets the LIMIT again.
 ANALYZE inh_former_parent;
 EXPLAIN (COSTS OFF)
 SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;

@@ -12,7 +12,7 @@ trap '"$pg_bin/pg_ctl" -D "$pg_data" -m fast -w stop >/dev/null 2>&1 || true' EX
 
 CARGO_BUILD_JOBS=16 cargo pgrx install -p pg_search --sudo --release --no-default-features --features pg18 \
     --pg-config "$pg_bin/pg_config"
-CC=clang meson setup .cluster-export-deps/pg_vectorsearch/build \
+CC="$($pg_bin/pg_config --cc)" meson setup .cluster-export-deps/pg_vectorsearch/build \
     .cluster-export-deps/pg_vectorsearch --buildtype=release -Dnative=true \
     -Dpostgresql=enabled -Dpg_config="$pg_bin/pg_config" -Dtools=enabled \
     -Dhdf5=disabled -Dtap_tests=disabled

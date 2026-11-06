@@ -45,6 +45,8 @@ jobs:
         with:
           pg_version: "18"
           cache_prefix_key: cluster-export
+          cache_save: "true"
+          cache_on_failure: "true"
           extra_packages: lld clang libopenblas-dev meson ninja-build python3-venv pgbackrest
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd
         with:

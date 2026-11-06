@@ -3,7 +3,7 @@
 import copy
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, operating_points, summary
+from prepare_k6 import PROBES, QUERIES, operating_points, summary
 from verify_plans import verify
 
 
@@ -13,15 +13,15 @@ def reports():
         {
             "kind": "search",
             "config": {
-                "dataset": {"size": "1m"},
+                "dataset": {"size": "1m", "table": "cohere_wiki"},
                 "search": {
                     "query": query,
-                    "sweep": {"tolerance": 0.000001},
+                    "sweep": {"tolerance": 0.000001, "min": 0.0001, "max": 1.0},
                     "session": {"cohere.titles_10pct": "year", "jit": "off"},
                 },
             },
             "data": {
-                "sweep_param": PROBE,
+                "sweep_param": PROBES["pg_search"],
                 "query_vectors": 100,
                 "variants": {
                     query: {
@@ -74,6 +74,39 @@ class OperatingPointsTest(unittest.TestCase):
         self.assertIn("Not reached", summary(points))
         self.assertEqual(inputs, original)
 
+    def test_prism_preserves_integer_probe_and_backend(self):
+        """Hand off nprobe unchanged and reject fractional or out-of-range values."""
+        inputs = reports()
+        for report in inputs:
+            report["config"]["engine"] = "pg_vectorsearch"
+            report["config"]["search"]["sweep"].update(min=1, max=4096)
+            report["data"]["sweep_param"] = "prism.nprobe"
+            result = next(iter(report["data"]["variants"].values()))
+            result["points"][0]["value"] = "95"
+            for target in result["targets"].values():
+                target["value"] = "95"
+        points = operating_points(inputs)
+        for point in points:
+            self.assertEqual(point["probe_param"], "prism.nprobe")
+            self.assertEqual(point["backend"], "pg_vectorsearch")
+            self.assertEqual(point["index_name"], "cohere_wiki_prism_idx")
+            if point["reached"]:
+                self.assertEqual(point["probe"], "95")
+        self.assertIn("not pushed", summary(points))
+        for value in ["95.5", "4097", "0"]:
+            invalid = copy.deepcopy(inputs)
+            result = next(iter(invalid[0]["data"]["variants"].values()))
+            result["points"][0]["value"] = value
+            for target in result["targets"].values():
+                target["value"] = value
+            with self.assertRaisesRegex(
+                ValueError, "invalid selected point|integer probe"
+            ):
+                operating_points(invalid)
+        inputs[0]["data"]["sweep_param"] = PROBES["pg_search"]
+        with self.assertRaisesRegex(ValueError, "selected engine"):
+            operating_points(inputs)
+
     def test_refuses_below_target_point_even_when_pdbench_labels_it_selected(self):
         """Reject a below-target selection rather than relabeling it."""
         inputs = reports()
@@ -125,6 +158,26 @@ class OperatingPointsTest(unittest.TestCase):
             verify(plan, filtered=False)
         with self.assertRaisesRegex(ValueError, "Expected a ParadeDB scan"):
             verify([{"Plan": {"Node Type": "Seq Scan"}}], filtered=False)
+
+    def test_prism_plan_guard_allows_postfilter_but_rejects_other_indexes(self):
+        """PRISM must handle ordering while PostgreSQL applies the text filter."""
+        scan = {
+            "Node Type": "Index Scan",
+            "Index Name": "cohere_wiki_prism_idx",
+            "Filter": "to_tsvector('english', text) @@ 'year'::tsquery",
+        }
+        plan = [{"Plan": {"Node Type": "Limit", "Plans": [scan]}}]
+        verify(plan, True, "pg_vectorsearch", "cohere_wiki_prism_idx")
+        scan.pop("Filter")
+        verify(plan, False, "pg_vectorsearch", "cohere_wiki_prism_idx")
+        with self.assertRaisesRegex(ValueError, "full-text filtering"):
+            verify(plan, True, "pg_vectorsearch", "cohere_wiki_prism_idx")
+        for index in ["another_index", None]:
+            with self.assertRaisesRegex(ValueError, "PRISM Index Scan"):
+                verify(plan, False, "pg_vectorsearch", index)
+        scan["Node Type"] = "Seq Scan"
+        with self.assertRaisesRegex(ValueError, "PRISM Index Scan"):
+            verify(plan, False, "pg_vectorsearch", "cohere_wiki_prism_idx")
 
 
 if __name__ == "__main__":

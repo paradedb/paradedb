@@ -6,7 +6,7 @@ used by the existing CI. `paradedb/pdbench` selects recall operating points;
 
 The workflow runs the 1M and 10M snapshots independently. Each uses the existing
 100 held-out vectors, exact ground-truth fixtures, and unfiltered, approximately
-10% (`year`), and approximately 1% (`battle`) full-text filters. The index retains
+10% (`year`), and approximately 1% (`battle`) full-text filters. The pg_search index retains
 eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
@@ -62,13 +62,17 @@ quantized members before the global `router_k` selection.
 Wider selection compensates for errors in quantized centroid ordering;
 retaining more members cannot recover members in unopened lists.
 
-1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
-   extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
-   pdbench records build time, index size, and segment diagnostics before vacuum.
+1. Restore the existing Cohere heap snapshot. Before building the index, verify
+   the 100 unique query vectors and their dimensions, and import the three
+   ground-truth fixtures from the profile's `dataset.s3_base_path`.
+   Both engines use `s3://paradedb-benchmark/datasets/cohere/v1`; fixture failures
+   stop the run before index construction. Save `fixtures-verification.json`.
+   Refresh the installed pg_search extension and run `pdbench build` with
+   `datasets/cohere/indexes/pg_search.sql`. pdbench records build time, index
+   size, and segment diagnostics before vacuum.
    Snapshot generation continues to use `datasets/cohere/config.toml` and
    `create_tables.sql`.
-2. Import the published ground-truth Parquets into pdbench's fixture table.
-   `pdbench search` loads the query vectors and sweeps
+2. `pdbench search` loads the verified query vectors and sweeps
    `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
@@ -99,9 +103,18 @@ retaining more members cannot recover members in unopened lists.
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 
-The workflow runs on main and via `benchmarks`, `benchmark-cohere-pg_search`, or
-`benchmark-benchmarker-cohere`. Manual runs can select a size, pg_search commit,
-and tool refs. Competitor vector CI implementations and labels are retired.
+The workflow runs pg_search on main and via `benchmarks`,
+`benchmark-cohere-pg_search`, or `benchmark-benchmarker-cohere`.
+`benchmark-cohere-pgvectorsearch` runs pg_vectorsearch's PRISM index on both sizes.
+Manual runs can select an engine, size, pg_search commit, and tool refs.
+For pg_vectorsearch, `disable_replication: true` derives a profile with both
+`boundary_epsilon=0` and `soar_lambda=0`, retaining every other setting. After
+vacuum and before query measurements, CI checks both persisted options, requires
+one physical posting per corpus vector, and rejects dead entries. The generated
+profile and `replication-verification.json` are included in diagnostics; results
+use a separate `cohere-<size>-pgvectorsearch-no-replication` history. Set
+`size: 10m` to run only Cohere 10M. Manual runs can set `pr_number` to associate
+CI-generated result comments with a PR.
 The pdbench checkout uses the ParadeDB GitHub App's read access to the private
 repository. Both tool revisions are pinned and recorded in diagnostics. The
 fixture import only populates pdbench's ground-truth table; the corpus is restored
@@ -112,6 +125,28 @@ The old server-time samples are not comparable to k6's client-observed latency
 and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
+
+PRISM uses a pinned release-mode source build with native CPU instructions and
+OpenBLAS. Its profiles retain the same heap, fixtures, memory settings, and k6
+measurement procedure, and sweep integer `prism.nprobe` values. The full-text
+predicates use PostgreSQL's English `to_tsvector`/`websearch_to_tsquery`, as the
+previous pgvector competitor queries did. They run after ANN retrieval, with
+sequential, bitmap, and sort alternatives disabled; plan checks require the
+PRISM index and explicitly allow PostgreSQL filtering. No text-filter pushdown
+or ParadeDB vector-stage telemetry is claimed for PRISM.
+
+PRISM uses `paradedb/pg_vectorsearch` at
+`1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, which bounds per-tuple detoast
+memory during parallel builds. The table requests eight parallel workers;
+parallel maintenance and query limits are eight, with an eight-process worker
+pool. CI requires observed build workers to be positive and publishes the
+actual worker count and peak summed RSS (which includes shared mappings).
+Index construction and the subsequent vacuum both allow parallel maintenance.
+Results use separate `benchmarker cohere-<size>-pgvectorsearch` histories and
+diagnostics artifacts. The same publisher produces the recall, p50/p95/p99, QPS,
+buffer, and index-build tables. PRISM sweep comparisons look for a preceding
+successful manual run on main with matching configuration; until one exists,
+the missing baseline is reported and the current results still publish.
 
 Diagnostics upload after plan verification, before the longer k6 pass, so recall
 sweeps can be reviewed while latency measurements continue.

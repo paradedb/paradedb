@@ -7,10 +7,34 @@ import subprocess
 from pathlib import Path
 
 
-def verify(plan, filtered):
-    """Require ParadeDB execution and index-level text filtering."""
+def verify(plan, filtered, engine="pg_search", index_name=None):
+    """Require the selected index and its engine's expected filtering path."""
     nodes = [plan[0]["Plan"]]
     scans = []
+    if engine == "pg_vectorsearch":
+        while nodes:
+            node = nodes.pop()
+            if node.get("Custom Plan Provider"):
+                raise ValueError("Expected a PRISM Index Scan, not a custom scan")
+            if (
+                node.get("Node Type") == "Index Scan"
+                and node.get("Index Name") == index_name
+                and index_name
+            ):
+                scans.append(node)
+            nodes.extend(node.get("Plans", []))
+        if not scans:
+            raise ValueError(f"Expected a PRISM Index Scan on {index_name}")
+        if filtered and not any(
+            "to_tsvector" in scan.get("Filter", "") and "@@" in scan.get("Filter", "")
+            for scan in scans
+        ):
+            raise ValueError(
+                "Expected PostgreSQL full-text filtering on the PRISM scan"
+            )
+        return
+    if engine != "pg_search":
+        raise ValueError(f"Unknown benchmark engine: {engine}")
     while nodes:
         node = nodes.pop()
         if node.get("Filter"):
@@ -36,9 +60,7 @@ if __name__ == "__main__":
     for point in points:
         if not point["reached"]:
             continue
-        session = point["session"] | {
-            "paradedb.vector_cluster_max_probe": point["probe"]
-        }
+        session = point["session"] | {point["probe_param"]: point["probe"]}
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()
         )
@@ -61,5 +83,10 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
         )
         path = output / f"{point['name']}.json"
         path.write_text(result.stdout)
-        verify(json.loads(result.stdout), point["query"] != "knn_top10_unfiltered")
+        verify(
+            json.loads(result.stdout),
+            point["query"] != "knn_top10_unfiltered",
+            point["engine"],
+            point["index_name"],
+        )
         print(f"Verified {point['name']}: {path}")

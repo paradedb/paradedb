@@ -1,0 +1,529 @@
+-- Tests pdb.prox_not, the proximity exclusion (Lucene's span_not)
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS prox_not;
+CREATE TABLE prox_not (
+    id serial8,
+    text text
+);
+INSERT INTO prox_not (text) VALUES ('no more timeout');                                  -- 1
+INSERT INTO prox_not (text) VALUES ('no more timeout then timeout on node 2');           -- 2
+INSERT INTO prox_not (text) VALUES ('no more retry on timeout');                         -- 3
+INSERT INTO prox_not (text) VALUES ('timeout fixed');                                    -- 4
+INSERT INTO prox_not (text) VALUES ('timeout not fixed');                                -- 5
+INSERT INTO prox_not (text) VALUES ('timeout error and timeout on node 2');              -- 6
+INSERT INTO prox_not (text) VALUES ('timeout error');                                    -- 7
+INSERT INTO prox_not (text) VALUES ('no more timeout reported');                         -- 8
+INSERT INTO prox_not (text) VALUES ('disk read latency fixed');                          -- 9
+INSERT INTO prox_not (text) VALUES ('disk read latency');                                -- 10
+INSERT INTO prox_not (text) VALUES ('flaky test timeout');                               -- 11
+CREATE INDEX idxprox_not ON prox_not USING paradedb (id, (text::pdb.simple('pnorms=true')));
+--
+-- `pre`: tokens allowed between the end of the exclusion and the occurrence
+--
+-- 2, 3, 4, 5, 6, 7, 11: an adjacent exclusion only
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) ORDER BY id;
+ id 
+----
+  2
+  3
+  4
+  5
+  6
+  7
+ 11
+(7 rows)
+
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 1, -1) ORDER BY id;
+ id 
+----
+  2
+  3
+  4
+  5
+  6
+  7
+ 11
+(7 rows)
+
+-- 3 leaves: two tokens sit between `no more` and `timeout`; so does the second `timeout` of 2
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 2, -1) ORDER BY id;
+ id 
+----
+  4
+  5
+  6
+  7
+ 11
+(5 rows)
+
+--
+-- `post`: tokens allowed between the occurrence and the start of the exclusion
+--
+-- 1, 2, 3, 5, 6, 7, 8, 11: only 4 has `fixed` right after `timeout`
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', 'fixed', post => 0) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  5
+  6
+  7
+  8
+ 11
+(8 rows)
+
+-- 5 leaves too
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', 'fixed', post => 1) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  6
+  7
+  8
+ 11
+(7 rows)
+
+--
+-- overlap only, the defaults: an exclusion that contains the occurrence
+--
+-- 6 keeps its second `timeout`, 7 has none left
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('timeout', 0, 'error')) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  8
+ 11
+(8 rows)
+
+-- an exclusion with a gap covers what lies inside it: 8 leaves, 1 does not
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 3, 'reported')) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+ 11
+(8 rows)
+
+--
+-- a multi-token include is excluded end to end
+--
+-- 10 only
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not(
+    pdb.prox_clause_in_order(pdb.prox_clause_in_order('disk', 0, 'read'), 0, 'latency'),
+    'fixed', post => 0) ORDER BY id;
+ id 
+----
+ 10
+(1 row)
+
+--
+-- several exclusions
+--
+-- each element of an array is its own exclusion: 2, 3, 5, 6, 7, 11
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout',
+    pdb.prox_array(pdb.prox_clause_in_order('no', 0, 'more'), 'fixed'), 0, 0) ORDER BY id;
+ id 
+----
+  2
+  3
+  5
+  6
+  7
+ 11
+(6 rows)
+
+-- a chain applies every exclusion with its own window: 5, 6, 7
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not(
+    pdb.prox_not(pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 2, -1), 'fixed', -1, 0),
+    pdb.prox_clause_in_order('flaky', 0, 'test'), 0, -1) ORDER BY id;
+ id 
+----
+  5
+  6
+  7
+(3 rows)
+
+-- an empty array excludes nothing: 1, 2, 3, 4, 5, 6, 7, 8, 11
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_array(VARIADIC ARRAY[]::pdb.ProximityClause[])) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+ 11
+(9 rows)
+
+-- nor does it empty a proximity around it: 2, 6
+SELECT id FROM prox_not WHERE text @@@ (pdb.prox_not('timeout', pdb.prox_array(VARIADIC ARRAY[]::pdb.ProximityClause[])) ##>1##> 'node') ORDER BY id;
+ id 
+----
+  2
+  6
+(2 rows)
+
+--
+-- regex exclusions
+--
+-- 1, 2, 3, 6, 7, 8, 11
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_regex('fix.*'), -1, 1) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  6
+  7
+  8
+ 11
+(7 rows)
+
+-- 1, 2, 3, 6, 7, 8, 11: an exclusion expands past `max_expansions`, like `##` does
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_regex('fix.*|not', 1), -1, 1) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  6
+  7
+  8
+ 11
+(7 rows)
+
+--
+-- nested in a proximity: only surviving occurrences pair with `node`, 2 and 6
+--
+SELECT id FROM prox_not WHERE text @@@ (pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) ##>1##> 'node') ORDER BY id;
+ id 
+----
+  2
+  6
+(2 rows)
+
+SELECT id FROM prox_not WHERE text @@@ pdb.proximity_in_order(pdb.prox_not('timeout', 'error', -1, 0), 1, 'node') ORDER BY id;
+ id 
+----
+  2
+  6
+(2 rows)
+
+--
+-- scoring, boosting, highlighting and planning
+--
+SELECT id, pdb.score(id) > 0 AS scored FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) ORDER BY id;
+ id | scored 
+----+--------
+  2 | t
+  3 | t
+  4 | t
+  5 | t
+  6 | t
+  7 | t
+ 11 | t
+(7 rows)
+
+SELECT id, pdb.score(id) > 0 AS scored FROM prox_not WHERE text @@@ pdb.prox_not('timeout', 'fixed', post => 0)::pdb.boost(2) ORDER BY id;
+ id | scored 
+----+--------
+  1 | t
+  2 | t
+  3 | t
+  5 | t
+  6 | t
+  7 | t
+  8 | t
+ 11 | t
+(8 rows)
+
+SELECT id, pdb.score(id) = 1 AS constant FROM prox_not WHERE text @@@ pdb.prox_not('timeout', 'fixed', post => 0)::pdb.const(1) ORDER BY id;
+ id | constant 
+----+----------
+  1 | t
+  2 | t
+  3 | t
+  5 | t
+  6 | t
+  7 | t
+  8 | t
+ 11 | t
+(8 rows)
+
+-- excluded terms are not highlighted
+SELECT id, pdb.snippet(text) FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) AND id = 2;
+ id |                       snippet                        
+----+------------------------------------------------------
+  2 | no more <b>timeout</b> then <b>timeout</b> on node 2
+(1 row)
+
+SELECT id FROM prox_not WHERE text @@@ pdb.proximity(pdb.prox_not('timeout', 'fixed', post => 0)) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  5
+  6
+  7
+  8
+ 11
+(8 rows)
+
+EXPLAIN (COSTS OFF) SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', 'fixed', post => 0);
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on prox_not
+   Table: prox_not
+   Index: idxprox_not
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"proximity_not":{"field":"text","include":{"term":"timeout"},"exclude":{"term":"fixed"},"pre":-1,"post":0}}}}
+(7 rows)
+
+--
+-- json representation and argument checks
+--
+SELECT pdb.prox_not('a', 'b');
+                                  prox_not                                  
+----------------------------------------------------------------------------
+ {"not":{"include":{"term":"a"},"exclude":{"term":"b"},"pre":-1,"post":-1}}
+(1 row)
+
+SELECT pdb.prox_not('a', pdb.prox_clause('b', 1, 'c'), 2, 3);
+                                                                    prox_not                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ {"not":{"include":{"term":"a"},"exclude":{"proximity":{"left":{"term":"b"},"distance":{"any_order":1},"right":{"term":"c"}}},"pre":2,"post":3}}
+(1 row)
+
+SELECT pdb.prox_not('a', 'b', -2, 0);   -- error
+ERROR:  pre and post should be between -1 and i32::MAX
+SELECT pdb.prox_not('a', 'b', 0, -2);   -- error
+ERROR:  pre and post should be between -1 and i32::MAX
+SELECT pdb.prox_not('a' ##3, 'b');      -- error: incomplete include
+ERROR:  prox_not requires complete include and exclude ProximityClauses
+SELECT pdb.prox_not('a', 'b' ##3);      -- error: incomplete exclude
+ERROR:  prox_not requires complete include and exclude ProximityClauses
+--
+-- the score counts surviving occurrences: same document, two survivors beat one
+--
+SELECT (SELECT pdb.score(id) FROM prox_not WHERE text @@@ pdb.prox_not('timeout', 'nothing') AND id = 2)
+     > (SELECT pdb.score(id) FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) AND id = 2)
+    AS fewer_survivors_score_lower;
+ fewer_survivors_score_lower 
+-----------------------------
+ t
+(1 row)
+
+--
+-- other entry points: a regex include, and the legacy `paradedb.proximity` builder
+--
+-- 1, 2, 3, 4, 5, 6, 8, 11
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not(pdb.prox_regex('time.*'), pdb.prox_clause_in_order('timeout', 0, 'error')) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  8
+ 11
+(8 rows)
+
+-- 1, 2, 3, 5, 6, 7, 8, 11
+SELECT id FROM prox_not WHERE id @@@ paradedb.proximity('text', pdb.prox_not('timeout', 'fixed', post => 0)) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+  5
+  6
+  7
+  8
+ 11
+(8 rows)
+
+--
+-- rows inserted after the index land in another segment
+--
+INSERT INTO prox_not (text) VALUES ('no more timeout on node 3');                        -- 12
+INSERT INTO prox_not (text) VALUES ('timeout on node 4');                                -- 13
+-- 2, 3, 4, 5, 6, 7, 11, 13
+SELECT id FROM prox_not WHERE text @@@ pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) ORDER BY id;
+ id 
+----
+  2
+  3
+  4
+  5
+  6
+  7
+ 11
+ 13
+(8 rows)
+
+-- 2, 6, 13
+SELECT id FROM prox_not WHERE text @@@ (pdb.prox_not('timeout', pdb.prox_clause_in_order('no', 0, 'more'), 0, -1) ##>1##> 'node') ORDER BY id;
+ id 
+----
+  2
+  6
+ 13
+(3 rows)
+
+--
+-- pairings
+--
+DROP TABLE IF EXISTS prox_not_pairs;
+CREATE TABLE prox_not_pairs (
+    id serial8,
+    text text
+);
+INSERT INTO prox_not_pairs (text) VALUES ('shoes not red shoes');                         -- 1
+INSERT INTO prox_not_pairs (text) VALUES ('a x c x b');                                   -- 2
+INSERT INTO prox_not_pairs (text) VALUES ('a x x x b c');                                 -- 3
+INSERT INTO prox_not_pairs (text) VALUES ('red shop');                                    -- 4
+INSERT INTO prox_not_pairs (text) VALUES ('red shoes not');                               -- 5
+INSERT INTO prox_not_pairs (text) VALUES ('red shoes');                                   -- 6
+INSERT INTO prox_not_pairs (text) VALUES ('not red boots');                               -- 7
+INSERT INTO prox_not_pairs (text) VALUES ('red boots');                                   -- 8
+CREATE INDEX idxprox_not_pairs ON prox_not_pairs USING paradedb (id, (text::pdb.simple('pnorms=true')));
+-- an exclusion rejects one pairing, not the others: 1 keeps `red shoes`, 1, 5, 6
+SELECT id FROM prox_not_pairs WHERE text @@@ pdb.prox_not(pdb.prox_clause('red', 1, 'shoes'), 'not') ORDER BY id;
+ id 
+----
+  1
+  5
+  6
+(3 rows)
+
+-- an exclusion that matches nothing changes nothing
+-- 1, 5, 6
+SELECT id FROM prox_not_pairs WHERE text @@@ ('red' ##1## 'shoes') ORDER BY id;
+ id 
+----
+  1
+  5
+  6
+(3 rows)
+
+SELECT id FROM prox_not_pairs WHERE text @@@ pdb.prox_not(pdb.prox_clause('red', 1, 'shoes'), 'zzz') ORDER BY id;
+ id 
+----
+  1
+  5
+  6
+(3 rows)
+
+-- 3: `c` inside `a … b` does not follow it
+SELECT id FROM prox_not_pairs WHERE text @@@ (pdb.prox_clause_in_order('a', 5, 'b') ##>0##> 'c') ORDER BY id;
+ id 
+----
+  3
+(1 row)
+
+SELECT id FROM prox_not_pairs WHERE text @@@ pdb.prox_not(pdb.prox_clause_in_order('a', 5, 'b') ##>0##> 'c', 'zzz') ORDER BY id;
+ id 
+----
+  3
+(1 row)
+
+-- 1, 4, 5, 6: a regex include expands like it does in `##`
+SELECT id FROM prox_not_pairs WHERE text @@@ (pdb.prox_regex('sho.*', 1) ##1## 'red') ORDER BY id;
+ id 
+----
+  1
+  4
+  5
+  6
+(4 rows)
+
+SELECT id FROM prox_not_pairs WHERE text @@@ pdb.prox_not(pdb.prox_clause(pdb.prox_regex('sho.*', 1), 1, 'red'), 'zzz') ORDER BY id;
+ id 
+----
+  1
+  4
+  5
+  6
+(4 rows)
+
+-- on the right of a proximity: 1, 6
+SELECT id FROM prox_not_pairs WHERE text @@@ ('red' ##>0##> pdb.prox_not('shoes', 'not', -1, 0)) ORDER BY id;
+ id 
+----
+  1
+  6
+(2 rows)
+
+-- in an array next to a term: 1, 6, 7, 8
+SELECT id FROM prox_not_pairs WHERE text @@@ ('red' ##>0##> pdb.prox_array(pdb.prox_not('shoes', 'not', -1, 0), 'boots')) ORDER BY id;
+ id 
+----
+  1
+  6
+  7
+  8
+(4 rows)
+
+-- in an exclusion: a `red` right after `not` no longer excludes the `shoes` that follows it, 1
+SELECT id FROM prox_not_pairs WHERE text @@@ pdb.prox_not('shoes', pdb.prox_not('red', 'not', 0, -1), 0, -1) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- error: incomplete include inside an array
+SELECT pdb.prox_not(pdb.prox_array('x', 'a' ##3), 'b');
+ERROR:  prox_not requires complete include and exclude ProximityClauses
+--
+-- around `prox_not`, a nested match pairs by its ends, not by its inner positions
+--
+DROP TABLE IF EXISTS prox_not_spans;
+CREATE TABLE prox_not_spans (
+    id serial8,
+    text text
+);
+INSERT INTO prox_not_spans (text) VALUES ('a c x x b');                                   -- 1
+INSERT INTO prox_not_spans (text) VALUES ('a x x x b c');                                 -- 2
+INSERT INTO prox_not_spans (text) VALUES ('c a x x b');                                   -- 3
+CREATE INDEX idxprox_not_spans ON prox_not_spans USING paradedb (id, (text::pdb.simple('pnorms=true')));
+-- 2: `c` inside `a … b` does not follow it, however deep the `prox_not`
+SELECT id FROM prox_not_spans WHERE text @@@ (pdb.prox_not(pdb.prox_clause_in_order('a', 5, 'b'), 'zzz') ##>0##> 'c') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM prox_not_spans WHERE text @@@ pdb.prox_not(pdb.prox_not(pdb.prox_clause_in_order('a', 5, 'b'), 'zzz') ##>0##> 'c', 'zzz') ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+-- 3: nor does it precede it
+SELECT id FROM prox_not_spans WHERE text @@@ ('c' ##>2##> pdb.prox_not(pdb.prox_clause_in_order('a', 5, 'b'), 'zzz')) ORDER BY id;
+ id 
+----
+  3
+(1 row)
+

@@ -63,6 +63,7 @@ These functions create proximity clauses for `@@@`.
 | `pdb.prox_array`           | `pdb.prox_array(variadic clauses)`                                              | Match any of several proximity terms or clauses.                 | [Proximity Array](/reference/full-text/proximity#proximity-array) |
 | `pdb.prox_clause`          | `pdb.prox_clause(left, distance int, right)`                                    | Build an unordered proximity clause.                             | [Proximity](/reference/full-text/proximity)                       |
 | `pdb.prox_clause_in_order` | `pdb.prox_clause_in_order(left, distance int, right)`                           | Build an ordered proximity clause.                               | [Proximity](/reference/full-text/proximity)                       |
+| `pdb.prox_not`             | `pdb.prox_not(include, exclude, pre int default -1, post int default -1)`       | Match occurrences of a clause that an exclusion does not touch.  | [Proximity](/reference/full-text/proximity#proximity-exclusion)   |
 | `pdb.proximity`            | `pdb.proximity(proximity_clause)` or `pdb.proximity(left, distance int, right)` | Convert a proximity clause into a query builder result.          | [Proximity](/reference/full-text/proximity)                       |
 | `pdb.proximity_in_order`   | `pdb.proximity_in_order(left, distance int, right)`                             | Convert an ordered proximity clause into a query builder result. | [Proximity](/reference/full-text/proximity)                       |
 

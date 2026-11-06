@@ -3143,6 +3143,7 @@ fn base_query_has_search_predicates(
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Phrase { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::PhraseArray { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Proximity { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::ProximityNot { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::TokenizedPhrase { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::PhrasePrefix { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::FuzzyTerm { .. }, .. }

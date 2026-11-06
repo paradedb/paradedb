@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/paradedb/paradedb/actions/runs/41977107529",
+  "commit": "e6c7dcc51677f3f20c3a1929f803fcb8da4810f3",
+  "recall_target": 0.99,
+  "caps": {
+    "knn_top10_unfiltered": "0.106",
+    "knn_top100_unfiltered": "0.079"
+  }
+}

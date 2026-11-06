@@ -2060,13 +2060,15 @@ impl PartialEq for PostgresPointer {
         if self.0.is_null() || other.0.is_null() {
             return false;
         }
-        unsafe { pg_sys::equal(self.0.cast(), other.0.cast()) }
+        crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
+            pg_sys::equal(self.0.cast(), other.0.cast())
+        })
     }
 }
 
-// SAFETY: PostgresPointer is only used within PostgreSQL's single-threaded context
-// during query execution. The PostgresPointer serialization/deserialization handles
-// the cross-thread boundary properly via nodeToString/stringToNode.
+// SAFETY: All dereferences of the underlying Postgres node pointer (`PartialEq`, `Serialize`,
+// `Deserialize`, and evaluation) are dispatched to the Postgres main thread via
+// `run_on_main_thread`.
 unsafe impl Send for PostgresPointer {}
 unsafe impl Sync for PostgresPointer {}
 
@@ -2084,16 +2086,15 @@ impl Serialize for PostgresPointer {
         if self.0.is_null() {
             serializer.serialize_none()
         } else {
-            unsafe {
+            let string = crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
                 let stripped = crate::postgres::utils::strip_placeholder_vars_deep(self.0.cast());
                 let s = pg_sys::nodeToString(stripped.cast());
-                let cstr = core::ffi::CStr::from_ptr(s)
-                    .to_str()
-                    .map_err(serde::ser::Error::custom)?;
-                let string = cstr.to_owned();
+                let res = core::ffi::CStr::from_ptr(s).to_str().map(|s| s.to_owned());
                 pg_sys::pfree(s.cast());
-                serializer.serialize_some(&string)
-            }
+                res
+            })
+            .map_err(serde::ser::Error::custom)?;
+            serializer.serialize_some(&string)
         }
     }
 }
@@ -2115,11 +2116,11 @@ impl<'de> Deserialize<'de> for PostgresPointer {
             where
                 E: serde::de::Error,
             {
-                unsafe {
-                    let cstr = std::ffi::CString::new(v).map_err(E::custom)?;
-                    let node = pg_sys::stringToNode(cstr.as_ptr());
-                    Ok(PostgresPointer(node.cast()))
-                }
+                let cstr = std::ffi::CString::new(v).map_err(E::custom)?;
+                let node = crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
+                    pg_sys::stringToNode(cstr.as_ptr())
+                });
+                Ok(PostgresPointer(node.cast()))
             }
 
             fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>

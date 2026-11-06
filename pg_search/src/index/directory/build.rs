@@ -25,6 +25,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
 use tantivy::directory::{
@@ -40,7 +41,7 @@ type SharedFile = Arc<Mutex<BuildFile>>;
 #[derive(Clone)]
 pub(crate) struct BuildDirectory {
     files: Arc<Mutex<HashMap<PathBuf, SharedFile>>>,
-    release_guard: Arc<BufFileReleaseGuard>,
+    release_guard: crate::postgres::customscan::mpp::MainThread<Rc<BufFileReleaseGuard>>,
     #[cfg(unix)]
     temp_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
@@ -57,7 +58,9 @@ impl BuildDirectory {
     pub fn new() -> Self {
         Self {
             files: Default::default(),
-            release_guard: BufFileReleaseGuard::register(),
+            release_guard: crate::postgres::customscan::mpp::MainThread::new(
+                BufFileReleaseGuard::register(),
+            ),
             #[cfg(unix)]
             temp_paths: Default::default(),
         }
@@ -128,19 +131,22 @@ impl Directory for BuildDirectory {
         if files.contains_key(path) {
             return Err(OpenWriteError::FileAlreadyExists(path.to_path_buf()));
         }
-        assert_eq!(self.release_guard.owner(), unsafe {
-            pg_sys::CurrentResourceOwner
+        let file = crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let release_guard = self.release_guard.get(token);
+            assert_eq!(release_guard.owner(), unsafe {
+                pg_sys::CurrentResourceOwner
+            });
+            Arc::new(Mutex::new(BuildFile {
+                file: TempFileOwner::new(
+                    unsafe {
+                        pg_sys::PrepareTempTablespaces();
+                        pg_sys::OpenTemporaryFile(false)
+                    },
+                    Rc::clone(release_guard),
+                ),
+                len: 0,
+            }))
         });
-        let file = Arc::new(Mutex::new(BuildFile {
-            file: TempFileOwner::new(
-                unsafe {
-                    pg_sys::PrepareTempTablespaces();
-                    pg_sys::OpenTemporaryFile(false)
-                },
-                self.release_guard.clone(),
-            ),
-            len: 0,
-        }));
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;

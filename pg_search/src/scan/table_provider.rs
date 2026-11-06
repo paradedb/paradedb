@@ -200,8 +200,9 @@ impl Clone for PgSearchTableProvider {
     }
 }
 
-// SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
-// process-local fields (raw pointers, the reference-counted manifest) never cross a thread.
+// SAFETY: `PgSearchTableProvider::scan` is only invoked during physical plan construction on the
+// Postgres main thread, so its process-local fields (raw pointers and reference-counted manifest)
+// are only ever accessed on the main thread.
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 

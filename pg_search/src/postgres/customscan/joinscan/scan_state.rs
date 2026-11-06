@@ -84,7 +84,9 @@ use crate::postgres::customscan::datafusion::translator::{
     make_source_score_col, make_source_unnested_col, make_source_vector_score_col,
     translate_pg_node_string,
 };
-use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
+use crate::postgres::customscan::joinscan::privdat::{
+    LogicalPlanMode, OutputColumnInfo, PrivateData,
+};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
@@ -300,15 +302,15 @@ impl QueryPlanner for PgSearchQueryPlanner {
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
-    /// Keeps the relation open and locked during the scan.
-    /// The relation is closed/unlocked when this struct is dropped.
-    pub _heaprel: PgSearchRelation,
+    /// Fast-field helper for resolving deferred CTIDs in batch at the top of the plan.
+    pub ffhelper: Option<Arc<FFHelper>>,
     pub visibility_checker: VisibilityChecker,
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
     /// Index of the CTID column for this relation in the result RecordBatch.
     pub ctid_col_idx: Option<usize>,
-    /// Fast-field helper for resolving deferred CTIDs in batch at the top of the plan.
-    pub ffhelper: Option<Arc<FFHelper>>,
+    /// Keeps the relation open and locked during the scan.
+    /// Declared last so it closes after `ffhelper` and `visibility_checker` are dropped.
+    pub _heaprel: PgSearchRelation,
 }
 
 crate::impl_safe_drop!(RelationState, |self| {
@@ -323,6 +325,25 @@ crate::impl_safe_drop!(RelationState, |self| {
 /// The execution state for the JoinScan.
 #[derive(Default)]
 pub struct JoinScanState {
+    // === DataFusion Execution State (dropped first, before manifests/relations) ===
+    pub datafusion_stream: Option<datafusion::execution::SendableRecordBatchStream>,
+    pub current_batch: Option<arrow_array::RecordBatch>,
+    pub batch_index: usize,
+
+    /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
+    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
+
+    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
+    /// on first exec after runtime expressions are resolved and the built plan's stages are
+    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
+    /// `Inactive` on the serial path.
+    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+
+    /// Tokio runtime dropped after `datafusion_stream`, `physical_plan`, and `mpp` so any
+    /// background tasks are aborted and their deferred main-thread drops are drained before
+    /// `source_manifests`, `relations`, and `window_agg_ctx` are torn down.
+    pub runtime: Option<crate::postgres::customscan::mpp::interrupt::PgTokioRuntime>,
+
     /// The join clause from planning.
     pub join_clause: JoinCSClause,
 
@@ -338,18 +359,6 @@ pub struct JoinScanState {
     /// PrivateData::custom_exprs_string.
     pub custom_exprs_string: Option<String>,
 
-    /// Map of source index (in plan.sources()) to relation execution state.
-    pub relations: crate::api::HashMap<usize, RelationState>,
-
-    /// Result tuple slot.
-    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
-
-    // === DataFusion State ===
-    pub datafusion_stream: Option<datafusion::execution::SendableRecordBatchStream>,
-    pub runtime: Option<tokio::runtime::Runtime>,
-    pub current_batch: Option<arrow_array::RecordBatch>,
-    pub batch_index: usize,
-
     /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.
     /// Populated from PrivateData during create_custom_scan_state.
     pub output_columns: Vec<OutputColumnInfo>,
@@ -360,8 +369,8 @@ pub struct JoinScanState {
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
 
-    /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
-    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
+    /// Whether `logical_plan` was baked for serial or MPP execution.
+    pub logical_plan_mode: LogicalPlanMode,
 
     /// Per-phase MPP launch timing, filled during exec when the query runs distributed, for
     /// `EXPLAIN ANALYZE`. `None` when the query ran serially (no launch).
@@ -384,11 +393,11 @@ pub struct JoinScanState {
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
-    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
-    /// on first exec after runtime expressions are resolved and the built plan's stages are
-    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
-    /// `Inactive` on the serial path.
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// Map of source index (in plan.sources()) to relation execution state.
+    pub relations: crate::api::HashMap<usize, RelationState>,
+
+    /// Result tuple slot.
+    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
 
     /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
     /// scan may still use DataFusion, but it must never launch MPP producer workers.
@@ -421,10 +430,10 @@ impl JoinScanState {
     /// row's stale plan.
     pub fn reset(&mut self) {
         self.datafusion_stream = None;
-        self.runtime = None;
         self.current_batch = None;
         self.batch_index = 0;
         self.physical_plan = None;
+        self.runtime = None;
         self.output_batch_col_indices.clear();
 
         self.window_agg_datums.get_mut().clear();
@@ -444,7 +453,7 @@ impl JoinScanState {
             // unconditionally (`.expect("Logical plan is required")`) before
             // maybe_solve_and_rebake's gate is checked, so nulling it out would panic. Restoring
             // join_clause above is what makes that gate see unsolved expressions again and
-            // re-run rebake_for_mpp, which overwrites logical_plan with the freshly-resolved
+            // re-run rebake_logical_plan, which overwrites logical_plan with the freshly-resolved
             // bytes before it's read.
         }
     }
@@ -481,6 +490,91 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
     state.optimizer().optimize(planted, &state, |_, _| {})
 }
 
+static BASE_SESSION_STATE: std::sync::LazyLock<datafusion::execution::SessionState> =
+    std::sync::LazyLock::new(|| {
+        use super::visibility_filter::VisibilityFilterOptimizerRule;
+        use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
+        use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
+        let mut builder = SessionStateBuilder::new().with_default_features();
+
+        builder
+            .aggregate_functions()
+            .get_or_insert_with(Vec::new)
+            .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
+        builder
+            .scalar_functions()
+            .get_or_insert_with(Vec::new)
+            .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
+
+        let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+        let propagate_empty_pos = optimizer_rules
+            .iter()
+            .position(|r| r.name() == "propagate_empty_relation")
+            .expect("propagate_empty_relation optimizer rule not found");
+        optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
+
+        let pos = optimizer_rules
+            .iter()
+            .position(|r| r.name() == "optimize_projections")
+            .expect("optimize_projections optimizer rule not found");
+        // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
+        // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
+        // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+        // DataFusion dropping `projection_beneficial` across extension nodes).
+        // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+        // above `VisibilityFilterNode`.
+        optimizer_rules.insert(
+            pos,
+            Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
+        );
+        optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
+        optimizer_rules.push(Arc::new(
+            super::range_partitioning_rule::RangePartitioningRule::new(),
+        ));
+        builder = builder.with_optimizer_rules(optimizer_rules);
+
+        builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
+
+        let mut physical_rules =
+            datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+        let co_partitioned_rule =
+            Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+        let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
+        let pos = physical_rules
+            .iter()
+            .position(|r| r.name() == "EnsureRequirements")
+            .expect("EnsureRequirements physical optimizer rule not found");
+        physical_rules.insert(pos, co_partitioned_rule);
+        physical_rules.insert(pos + 1, rank_join_rule);
+        builder = builder.with_physical_optimizer_rules(physical_rules);
+
+        // Placement reads the final join sides and modes, so it follows the co-partitioning
+        // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
+        builder
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::deferred_placement_rule::DeferredPlacementRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::segmented_topk_rule::SegmentedTopKRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::filter_passthrough_exec::UnwrapFilterPassthroughRule,
+            ))
+            .build()
+    });
+
+/// Pre-initializes [`BASE_SESSION_STATE`] in `postmaster` during `_PG_init` so forked backends
+/// inherit the built function registries and optimizer rule lists via copy-on-write.
+pub fn init_base_session_state() {
+    std::sync::LazyLock::force(&BASE_SESSION_STATE);
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - `PgSearchQueryPlanner`
@@ -490,88 +584,35 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
 /// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
 /// columns are still present in the logical plan.
 pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
-    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
-    // worker process. Partitioning is used exclusively for MPP task distribution, never for
-    // intra-task CPU parallelization.
     config
         .options_mut()
         .optimizer
         .enable_round_robin_repartition = false;
 
-    use super::visibility_filter::VisibilityFilterOptimizerRule;
-    use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-
-    let mut builder = SessionStateBuilder::new()
-        .with_config(config)
-        .with_default_features();
-
+    let mut builder =
+        SessionStateBuilder::new_from_existing(BASE_SESSION_STATE.clone()).with_config(config);
+    // Reset `catalog_list` so `builder.build()` creates a fresh per-session catalog rather than
+    // sharing `BASE_SESSION_STATE`'s catalog across queries that call `register_source_table`.
+    *builder.catalog_list() = None;
     builder
-        .aggregate_functions()
-        .get_or_insert_with(Vec::new)
-        .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
-    builder
-        .scalar_functions()
-        .get_or_insert_with(Vec::new)
-        .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
-
-    let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
-    let propagate_empty_pos = optimizer_rules
-        .iter()
-        .position(|r| r.name() == "propagate_empty_relation")
-        .expect("propagate_empty_relation optimizer rule not found");
-    optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
-
-    let pos = optimizer_rules
-        .iter()
-        .position(|r| r.name() == "optimize_projections")
-        .expect("optimize_projections optimizer rule not found");
-    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
-    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
-    // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
-    // DataFusion dropping `projection_beneficial` across extension nodes).
-    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
-    // above `VisibilityFilterNode`.
-    optimizer_rules.insert(
-        pos,
-        Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
-    );
-    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
-    optimizer_rules.push(Arc::new(
-        super::range_partitioning_rule::RangePartitioningRule::new(),
-    ));
-    builder = builder.with_optimizer_rules(optimizer_rules);
-
-    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
-
-    let mut physical_rules =
-        datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
-    let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
-    let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
-    let pos = physical_rules
-        .iter()
-        .position(|r| r.name() == "EnsureRequirements")
-        .expect("EnsureRequirements physical optimizer rule not found");
-    physical_rules.insert(pos, co_partitioned_rule);
-    physical_rules.insert(pos + 1, rank_join_rule);
-    builder = builder.with_physical_optimizer_rules(physical_rules);
-
-    // Placement reads the final join sides and modes, so it follows the co-partitioning
-    // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
-    builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_placement_rule::DeferredPlacementRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
-/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
-pub fn create_datafusion_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
+/// Applies ParadeDB's optimizer GUC settings (`hash_join_inlist_pushdown_max_size`,
+/// `hash_join_inlist_pushdown_max_distinct_values`, `hash_join_single_partition_threshold_rows`,
+/// `hash_join_single_partition_threshold`, `enable_topk_dynamic_filter_pushdown`, and
+/// `enable_round_robin_repartition = false`) to a DataFusion [`SessionConfig`].
+///
+/// Called both when constructing the leader's session context and when initializing each MPP
+/// worker's base `SessionState` in `worker::worker_base_session_state`, because operators such as
+/// `HashJoinExec` read `hash_join_inlist_pushdown_max_*` from the worker's
+/// `TaskContext::session_config()` at execution time.
+pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
+    // Disable round-robin repartitioning: ParadeDB uses partitioning exclusively for MPP task
+    // distribution across worker processes, never for intra-task round-robin repartitioning.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
 
     // Configure dynamic filter pushdown thresholds from our GUCs
     config
@@ -604,32 +645,31 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+}
 
-    let mut builder = build_base_session(config);
+/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
+/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
+pub fn create_datafusion_session_context() -> SessionContext {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    apply_paradedb_session_config(&mut config);
 
-    builder = builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::segmented_topk_rule::SegmentedTopKRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-
+    let builder = build_base_session(config);
     SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
 /// Returns a LogicalPlan that can be serialized with datafusion_proto.
 ///
-/// `force_serial`: bake every source with `mpp_source_idx = None` regardless of
-/// `mpp_is_active()`. See `bake_logical_plan`'s doc comment for why this exists.
+/// `mode`: whether to bake sources with MPP `source_idx` (`LogicalPlanMode::Mpp`) or `None`
+/// (`LogicalPlanMode::Serial`).
 pub async fn build_joinscan_logical_plan(
     join_clause: &JoinCSClause,
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
-    force_serial: bool,
+    mode: LogicalPlanMode,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     let ctx = create_datafusion_session_context();
-    let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
-    let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
+    let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, mode).await?;
     optimize_logical_plan(df)
 }
 
@@ -725,7 +765,7 @@ pub fn clone_task_context_with_config(
 /// `build_clause_df` and pass it down by reference.
 struct RelNodeBuildCtx<'a> {
     ctx: &'a SessionContext,
-    is_parallel: bool,
+    mode: LogicalPlanMode,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     custom_expr_idx: &'a std::cell::Cell<usize>,
@@ -756,16 +796,10 @@ fn build_relnode_df<'a>(
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let is_parallel = rctx.is_parallel;
 
-                let mut df = build_source_df(
-                    rctx.ctx,
-                    source,
-                    plan_position,
-                    rctx.join_clause,
-                    is_parallel,
-                )
-                .await?;
+                let mut df =
+                    build_source_df(rctx.ctx, source, plan_position, rctx.join_clause, rctx.mode)
+                        .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
@@ -843,7 +877,7 @@ fn build_clause_df<'a>(
     join_clause: &'a JoinCSClause,
     private_data: &'a PrivateData,
     custom_exprs: *mut pg_sys::List,
-    is_parallel: bool,
+    mode: LogicalPlanMode,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         let plan_sources = join_clause.plan.sources();
@@ -873,7 +907,7 @@ fn build_clause_df<'a>(
         let custom_expr_idx = std::cell::Cell::new(0);
         let rctx = RelNodeBuildCtx {
             ctx,
-            is_parallel,
+            mode,
             join_clause,
             translated_exprs: &translated_exprs,
             custom_expr_idx: &custom_expr_idx,
@@ -2116,7 +2150,7 @@ fn build_source_df<'a>(
     source: &'a JoinSource,
     plan_position: usize,
     join_clause: &'a JoinCSClause,
-    is_parallel: bool,
+    mode: LogicalPlanMode,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
@@ -2184,10 +2218,9 @@ fn build_source_df<'a>(
         // replication so every worker sees the full build side. The MPP
         // per-source claim counter goes on top of that and PG-parallel doesn't
         // want it.
-        let source_idx = if is_parallel && crate::postgres::customscan::mpp::glue::mpp_is_active() {
-            Some(plan_position)
-        } else {
-            None
+        let source_idx = match mode {
+            LogicalPlanMode::Mpp => Some(plan_position),
+            LogicalPlanMode::Serial => None,
         };
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);

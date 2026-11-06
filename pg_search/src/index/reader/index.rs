@@ -478,6 +478,9 @@ impl PartialOrd for AscendingScore {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return None;
+        }
         if self.iterators.is_empty()
             && let Some(ref mut lazy) = self.lazy_iterators
             && let Some(next_iter) = lazy.next()
@@ -1964,16 +1967,18 @@ impl SearchIndexReader {
         }
         // SAFETY: the pointer addresses DSM shared memory; the state's mutex serializes
         // every access, including the cross-process claims this iterator drives. The reader
-        // holds `Rc` schema state that is only ever touched from this iterator. `Send`/`Sync`
-        // are required so DataFusion can wrap the iterator in
-        // `Box<dyn Iterator<...> + Send + Sync>` even though the runtime is current-thread.
+        // holds `Rc` schema state that is only ever touched on the Postgres main thread via
+        // `run_on_main_thread` and dropped via `MainThread`. `Send`/`Sync` are required so
+        // `SearchResults::new_lazy` can store the iterator as `Box<dyn Iterator<...> + Send + Sync>`.
         unsafe impl Send for ParallelCandidateIterator {}
         unsafe impl Sync for ParallelCandidateIterator {}
         impl Iterator for ParallelCandidateIterator {
             type Item = SegmentOrdinal;
             fn next(&mut self) -> Option<Self::Item> {
                 loop {
-                    pgrx::check_for_interrupts!();
+                    if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+                        return None;
+                    }
                     let segment_id = unsafe {
                         match self.source_idx {
                             Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
@@ -3329,6 +3334,7 @@ impl SearchIndexReader {
             stats.reset();
         }
         readers
+            .take_while(|_| !crate::postgres::customscan::mpp::check_for_interrupts_or_cancel())
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
@@ -3361,6 +3367,7 @@ impl SearchIndexReader {
             stats.reset();
         }
         readers
+            .take_while(|_| !crate::postgres::customscan::mpp::check_for_interrupts_or_cancel())
             .map(|(segment_ord, segment_reader, query_kind)| {
                 let weight = match query_kind {
                     SegmentQueryKind::Unconstrained => unconstrained_weight.get(),

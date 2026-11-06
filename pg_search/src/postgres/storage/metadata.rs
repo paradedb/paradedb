@@ -104,11 +104,27 @@ pub struct CleanupAdmission {
     mode: pg_sys::LOCKMODE,
 }
 
-crate::impl_safe_drop!(CleanupAdmission, |self| {
+struct LockReleaseOnMainThread {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+crate::impl_safe_drop!(LockReleaseOnMainThread, |self| {
     if unsafe { crate::postgres::utils::IsTransactionState() } {
         unsafe { pg_sys::LockRelease(&self.tag, self.mode, false) };
     }
 });
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the lock tag
+// and mode to `drop_on_main_thread`, where `LockReleaseOnMainThread` uses `impl_safe_drop!`.
+impl Drop for CleanupAdmission {
+    fn drop(&mut self) {
+        crate::postgres::customscan::mpp::drop_on_main_thread(LockReleaseOnMainThread {
+            tag: self.tag,
+            mode: self.mode,
+        });
+    }
+}
 
 impl MetaPage {
     pub unsafe fn init(indexrel: &PgSearchRelation) {

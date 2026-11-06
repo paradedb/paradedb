@@ -2176,7 +2176,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed.git?tag=snapshot-main-2026-11-05-211705#fd089c1fac1ba95dd382078d118e9dc3cd05f10f"
+source = "git+https://github.com/paradedb/datafusion-distributed.git?branch=stuhood.head-stage-lifecycle#a402fda63a220e33e83dd7f8a95ea4ee5a3a3a70"
 dependencies = [
  "arrow-flight",
  "arrow-ipc",

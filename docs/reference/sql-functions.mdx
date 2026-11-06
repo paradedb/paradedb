@@ -8,7 +8,7 @@ This page lists the callable, user-facing SQL functions and function-like casts 
 
 Older `paradedb.*` query builders and scoring functions are also intentionally omitted because `pdb.*` supersedes them.
 
-Use `pdb` for query builders, scoring, and aggregates. Tokenizer utilities use `paradedb`; index diagnostics and maintenance functions span both schemas, as listed below.
+Use `pdb` for query builders, scoring, and aggregates. Tokenizer utilities use `paradedb`. Index diagnostics and maintenance functions span both schemas, as listed below.
 
 ## Query Builders
 
@@ -91,7 +91,7 @@ These functions are placeholders that ParadeDB's custom scan resolves during que
 row-level security for the effective caller. Metadata APIs (schema and field
 configuration, layer sizes, creation details, merge/vacuum/FSM status, segment
 counts, and `pdb.indexes()`) also allow callers with `pg_stat_scan_tables`
-privileges, inherited by `pg_monitor`; those roles can see whole-index metadata
+privileges, inherited by `pg_monitor`. Those roles can see whole-index metadata
 and counts under RLS, but this exception does not authorize document reads or
 verification. `merge_lock_garbage_collect()` instead requires table `MAINTAIN`
 on PostgreSQL 17+, including `pg_maintain`, or table ownership on older versions.
@@ -106,7 +106,7 @@ Supported aggregate JSON shapes are documented under [Aggregates](/reference/agg
 | `paradedb.tokenize`   | `paradedb.tokenize(tokenizer_setting jsonb, input_text text) -> table(token text, position int)`                                                                                                                                                                                                                                                                                                                         | Preview tokenizer output for a tokenizer configuration.                    | [Tokenizers](/reference/tokenizers/overview) |
 | `paradedb.tokenizers` | `paradedb.tokenizers() -> table(tokenizer text)`                                                                                                                                                                                                                                                                                                                                                                         | List tokenizer names available to `paradedb.tokenizer`.                    | [Tokenizers](/reference/tokenizers/overview) |
 
-ParadeDB also generates cast-support helpers such as `pdb.tokenize_simple`, `pdb.tokenize_icu`, `pdb.tokenize_ngram`, and `pdb.tokenize_edge_ngram`. Prefer tokenizer casts or `paradedb.tokenize(...)`; the generated helper names are part of the cast implementation.
+ParadeDB also generates cast-support helpers such as `pdb.tokenize_simple`, `pdb.tokenize_icu`, `pdb.tokenize_ngram`, and `pdb.tokenize_edge_ngram`. Use tokenizer casts or `paradedb.tokenize(...)` instead of calling these generated helpers directly.
 
 ## Index Diagnostics and Maintenance
 

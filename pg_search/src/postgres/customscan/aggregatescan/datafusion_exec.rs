@@ -1608,7 +1608,11 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
     let r = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
-    Ok(make_plan_position_col(plan, r.plan_position, &r.field_name))
+    let column = make_plan_position_col(plan, r.plan_position, &r.field_name);
+    Ok(match r.coalesce_default {
+        Some(default) => coalesce(vec![column, lit(default)]),
+        None => column,
+    })
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.

@@ -213,6 +213,9 @@ pub struct JoinAggColRef {
     /// Set when the referenced field is NUMERIC.
     #[serde(default)]
     pub numeric: Option<SearchFieldType>,
+    /// The value a NULL reads as, for an `int8` `COALESCE(col, default)`.
+    #[serde(default)]
+    pub coalesce_default: Option<i64>,
 }
 
 /// Aggregate ORDER BY entry (e.g. `STRING_AGG(col, ',' ORDER BY col2)`).
@@ -1292,7 +1295,14 @@ unsafe fn extract_raw_aggregate_entry(
             "string_agg with a non-constant separator is not supported for aggregate-on-join",
         )?);
     }
-    let field_refs = extract_aggref_field_refs(context, aggref, is_string_agg)?;
+    // The aggregates the Tantivy backend takes a `COALESCE` argument for. Keeping
+    // them all means a query that must leave Tantivy can bring its other aggregates.
+    let allows_int8_coalesce = matches!(
+        agg_kind,
+        AggKind::Count | AggKind::Sum | AggKind::Avg | AggKind::Min | AggKind::Max
+    );
+    let field_refs =
+        extract_aggref_field_refs(context, aggref, is_string_agg, allows_int8_coalesce)?;
     let order_by =
         extract_aggref_order_by(aggref, context.sources, context.plan, context.outer_root_id)?;
     let numeric = numeric_agg_field_type(&agg_kind, &field_refs, has_distinct)?;
@@ -1455,10 +1465,13 @@ unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<St
 /// For `COUNT(col)`, `SUM(col)`, etc.: returns the column reference.
 /// For `STRING_AGG(col, sep)`: only processes the first arg (column),
 /// skipping the separator which is handled by `extract_string_agg_separator`.
+/// With `allows_int8_coalesce`, an `int8` `COALESCE(col, constant)` also returns
+/// the column reference, carrying its default.
 unsafe fn extract_aggref_field_refs(
     context: &RawColumnContext<'_>,
     aggref: *mut pg_sys::Aggref,
     is_string_agg: bool,
+    allows_int8_coalesce: bool,
 ) -> Result<Vec<JoinAggColRef>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
@@ -1481,14 +1494,24 @@ unsafe fn extract_aggref_field_refs(
         }
         let expr = (*arg_ptr).expr;
 
-        // The argument must be a bare Var (possibly wrapped in RelabelType).
-        // Reject complex expressions like COALESCE(score, 0) - find_single_node
-        // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
-        // instead of the intended SUM(COALESCE(score, 0)).
-        let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
-            "aggregate argument must be a direct column reference; \
+        // The argument must be a bare Var (possibly wrapped in RelabelType), or an
+        // `int8` COALESCE(Var, constant) whose default is kept so the aggregate
+        // applies it. Reject other complex expressions like COALESCE(score, 0) on
+        // a float - find_single_node would strip the wrapper, causing DataFusion
+        // to compute e.g. SUM(score) instead of the intended SUM(COALESCE(score, 0)).
+        let int8_coalesce = allows_int8_coalesce
+            .then(|| unwrap_int8_coalesce(expr as *mut pg_sys::Node))
+            .flatten();
+        let (var, coalesce_default) = match int8_coalesce {
+            Some((var, default)) => (var, Some(default)),
+            None => (
+                unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
+                    "aggregate argument must be a direct column reference; \
                      wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join",
-        )?;
+                )?,
+                None,
+            ),
+        };
 
         let resolved = resolve_var_source(
             context,
@@ -1506,6 +1529,7 @@ unsafe fn extract_aggref_field_refs(
             attno: resolved.attno,
             field_name: resolved.field_name,
             numeric,
+            coalesce_default,
         });
     }
 
@@ -1614,4 +1638,24 @@ pub(in crate::postgres::customscan) fn unwrap_to_var(
         }
     }
     None
+}
+
+/// Split an `int8` `COALESCE(column, constant)` into its column and default.
+/// Returns `None` for any other shape, including a NULL default.
+pub(in crate::postgres::customscan) unsafe fn unwrap_int8_coalesce(
+    node: *mut pg_sys::Node,
+) -> Option<(*mut pg_sys::Var, i64)> {
+    let coalesce = nodecast!(CoalesceExpr, T_CoalesceExpr, node)?;
+    if (*coalesce).coalescetype != pg_sys::INT8OID {
+        return None;
+    }
+    let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
+    if args.len() != 2 {
+        return None;
+    }
+    let var = unwrap_to_var(args.get_ptr(0)?)?;
+    let default = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
+    let value: Option<i64> =
+        pgrx::FromDatum::from_datum((*default).constvalue, (*default).constisnull);
+    Some((var, value?))
 }

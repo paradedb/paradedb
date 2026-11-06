@@ -697,9 +697,10 @@ impl CustomScan for AggregateScan {
                             // backend: Tantivy aggregations compute in f64 and cannot
                             // read the decimal-bytes storage.
                             || builder.args().has_numeric_aggregate()
-                            // Tantivy sums int8 in f64, which rounds past 2^53. Only
-                            // take queries the Tantivy backend would have taken.
-                            || (builder.args().has_int8_sum_aggregate()
+                            // Tantivy computes an int8 sum, min or max in f64, which
+                            // rounds past 2^53. Only take queries the Tantivy
+                            // backend would have taken.
+                            || (builder.args().has_exact_int8_aggregate()
                                 && (gucs::enable_custom_scan_without_operator()
                                     || search_operator_relations::applies_to(
                                         builder.args().root,
@@ -1034,8 +1035,14 @@ impl CustomScan for AggregateScan {
                         // Other no-arg aggregates (none currently) also use Display directly.
                         a.agg_kind.to_string()
                     } else {
-                        let fields: Vec<&str> =
-                            a.field_refs.iter().map(|r| r.field_name.as_str()).collect();
+                        let fields: Vec<String> = a
+                            .field_refs
+                            .iter()
+                            .map(|r| match r.coalesce_default {
+                                Some(default) => format!("COALESCE({}, {default})", r.field_name),
+                                None => r.field_name.clone(),
+                            })
+                            .collect();
                         format!("{}({})", a.agg_kind, fields.join(", "))
                     }
                 };

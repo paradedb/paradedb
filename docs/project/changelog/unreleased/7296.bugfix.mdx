@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- `min()` and `max()` over a `bigint` column in a single-table aggregate now return the exact value instead of rounding values past 2^53, as do `min()`, `max()` and `sum()` of `COALESCE(column, constant)`.

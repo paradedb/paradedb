@@ -496,7 +496,6 @@ impl SearchQueryInput {
         match self {
             SearchQueryInput::All
             | SearchQueryInput::Empty
-            | SearchQueryInput::Null
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. } => true,
             // The negation of a pushed filter guards NULLs with a `0.0` constant.
@@ -2262,7 +2261,6 @@ mod tests {
 
         assert!(SearchQueryInput::All.is_pushdown_filter(&no_filter));
         assert!(SearchQueryInput::Empty.is_pushdown_filter(&no_filter));
-        assert!(SearchQueryInput::Null.is_pushdown_filter(&no_filter));
         assert!(pg_expr.is_pushdown_filter(&no_filter));
         assert!(and_pg_expr.is_pushdown_filter(&filter));
         assert!(!and_pg_expr.is_pushdown_filter(&no_filter));

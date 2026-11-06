@@ -38,7 +38,7 @@ use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use superkmeans::common::Y_BATCH_SIZE;
 use superkmeans::distance::l2_squared;
-use superkmeans::{SuperKMeans, SuperKMeansConfig};
+use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, SuperKMeansConfig};
 use tantivy::schema::{Field, FieldType, Schema, VectorOptions};
 
 use crate::api::FieldName;
@@ -68,6 +68,13 @@ const MAX_SAMPLE_BLOCKS: u32 = 4096;
 /// default statistics target. Rows beyond it are reservoir-sampled so the kept set stays
 /// uniform over the visited blocks.
 const MAX_SAMPLE_ROWS: usize = 30_000;
+
+/// Target number of sampled rows per coarse vector partition.
+const VECTOR_TARGET_SAMPLES_PER_PARTITION: usize = 256;
+
+/// Minimum recommended sampled rows per coarse vector partition before warning that
+/// `maintenance_work_mem` is constraining partition training.
+const VECTOR_MIN_SAMPLES_PER_PARTITION: usize = 64;
 
 /// Current, previous, and returned centroids coexist at the end of training.
 const VECTOR_TRAINING_CENTROID_BUFFERS: usize = 3;
@@ -264,16 +271,22 @@ impl VectorPartitioning {
         let count = target.min(distinct.len());
         drop(distinct);
         let centroids = if count > 1 {
-            let mut clusterer = SuperKMeans::with_config(
-                count,
+            let max_leaf_size = rows.div_ceil(count).max(1);
+            let base_config = SuperKMeansConfig {
+                seed: SAMPLE_SEED as u64,
+                n_threads: 1,
+                angular: metric.is_angular(),
+                use_blas_only: true,
+                data_already_rotated: true,
+                suppress_warnings: true,
+                use_aggressive_split: true,
+                ..Default::default()
+            };
+            let mut clusterer = HierarchicalSuperKMeans::with_config(
                 dimensions,
-                SuperKMeansConfig {
-                    seed: SAMPLE_SEED as u64,
-                    n_threads: 1,
-                    angular: metric != VectorMetric::L2,
-                    use_blas_only: true,
-                    data_already_rotated: true,
-                    suppress_warnings: true,
+                HierarchicalSuperKMeansConfig {
+                    base: base_config,
+                    max_leaf_size,
                     ..Default::default()
                 },
             );
@@ -348,23 +361,7 @@ pub(super) fn plan_partition_boundaries(
 
     let sample_rows = vector.map_or(MAX_SAMPLE_ROWS, |(dimensions, _)| {
         let budget = (unsafe { pg_sys::maintenance_work_mem } as usize).saturating_mul(1024);
-        let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
-        let centroid_bytes = target_partitions.saturating_mul(
-            vector_bytes
-                .saturating_mul(VECTOR_TRAINING_CENTROID_BUFFERS)
-                .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES),
-        );
-        let ratio_bytes = dimensions
-            .saturating_add(1)
-            .saturating_mul(std::mem::size_of::<f32>());
-        let fixed_bytes = centroid_bytes
-            .saturating_add(vector_bytes)
-            .saturating_add(ratio_bytes);
-        // One vector buffer plus row state and a conservatively unbatched distance buffer.
-        let row_bytes = vector_bytes
-            .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
-            .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
-        (budget.saturating_sub(fixed_bytes) / row_bytes).clamp(1, MAX_SAMPLE_ROWS)
+        vector_training_sample_rows(dimensions, target_partitions, budget)
     });
     let categorized_fields = schema.categorized_fields();
     if let Some((dimensions, metric)) = vector {
@@ -411,6 +408,50 @@ pub(super) fn plan_partition_boundaries(
         sample,
         target_partitions,
     ))))
+}
+
+fn vector_training_sample_rows(
+    dimensions: usize,
+    target_partitions: usize,
+    budget_bytes: usize,
+) -> usize {
+    let target_rows = target_partitions
+        .saturating_mul(VECTOR_TARGET_SAMPLES_PER_PARTITION)
+        .clamp(1, MAX_SAMPLE_ROWS);
+    let min_rows = target_partitions
+        .saturating_mul(VECTOR_MIN_SAMPLES_PER_PARTITION)
+        .min(target_rows);
+    let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
+    let centroid_bytes = target_partitions.saturating_mul(
+        vector_bytes
+            .saturating_mul(VECTOR_TRAINING_CENTROID_BUFFERS)
+            .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES),
+    );
+    let ratio_bytes = dimensions
+        .saturating_add(1)
+        .saturating_mul(std::mem::size_of::<f32>());
+    let fixed_bytes = centroid_bytes
+        .saturating_add(vector_bytes)
+        .saturating_add(ratio_bytes);
+    // One vector buffer plus row state and a conservatively unbatched distance buffer.
+    let row_bytes = vector_bytes
+        .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
+        .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
+    let max_budget_rows = budget_bytes.saturating_sub(fixed_bytes) / row_bytes.max(1);
+    if max_budget_rows < min_rows {
+        let samples_per_partition = max_budget_rows / target_partitions.max(1);
+        let recommended_mb = fixed_bytes
+            .saturating_add(target_rows.saturating_mul(row_bytes))
+            .div_ceil(1024 * 1024);
+        pgrx::warning!(
+            "`maintenance_work_mem` only fits {} training samples per vector partition (minimum recommended is {}, target is {}); consider increasing `maintenance_work_mem` to at least {}MB",
+            samples_per_partition,
+            VECTOR_MIN_SAMPLES_PER_PARTITION,
+            VECTOR_TARGET_SAMPLES_PER_PARTITION,
+            recommended_mb
+        );
+    }
+    max_budget_rows.clamp(1, target_rows)
 }
 
 /// Whether `dim` has a columnar field at all, whatever order that column is in.
@@ -865,7 +906,11 @@ mod tests {
                     .collect(),
                 2,
             );
-            assert_eq!(model.centroids.len(), 4);
+            assert!(
+                model.centroids.len() >= 4 && model.centroids.len() % 2 == 0,
+                "expected at least 2 centroids, got {} floats",
+                model.centroids.len()
+            );
             assert_ne!(
                 model.route(Some(&PgVector(vec![-10.0, 0.0]))),
                 model.route(Some(&PgVector(vec![10.0, 0.0])))
@@ -881,6 +926,27 @@ mod tests {
                 model
             );
         }
+        // Skewed distributions split dense clusters so the final partition count is emergent.
+        let skewed = train(
+            VectorMetric::L2,
+            (0..400)
+                .map(|i| {
+                    Some(PgVector(if i < 300 {
+                        vec![
+                            if i % 2 == 0 { -10.0 } else { -8.0 },
+                            (i % 13) as f32 * 0.1,
+                        ]
+                    } else {
+                        vec![10.0, (i % 7) as f32 * 0.1]
+                    }))
+                })
+                .collect(),
+            2,
+        );
+        assert!(
+            BuildPartitioning::Vector(skewed).partition_count() > 2,
+            "dense cluster should split beyond target=2"
+        );
         for sample in [vec![], vec![None], vec![Some(PgVector(vec![0.0, 0.0]))]] {
             let model = train(VectorMetric::Cosine, sample, 8);
             assert_eq!(model.route(Some(&PgVector(vec![1.0, 0.0]))), 0);

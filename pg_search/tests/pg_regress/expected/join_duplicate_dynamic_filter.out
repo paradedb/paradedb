@@ -1,0 +1,132 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_rank_join = off;
+SET paradedb.enable_aggregate_custom_scan = off;
+SET join_collapse_limit = 1;
+CREATE TABLE j6953_dyn_users (id bigint PRIMARY KEY, group_id bigint);
+CREATE TABLE j6953_dyn_products (id bigint PRIMARY KEY, group_id bigint);
+CREATE TABLE j6953_dyn_orders (id bigint PRIMARY KEY, group_id bigint, maxproduct bigint, maxuser bigint);
+INSERT INTO j6953_dyn_users SELECT i, 1 FROM generate_series(12000, 1, -1) i;
+INSERT INTO j6953_dyn_products VALUES (1, 1), (2, 1);
+INSERT INTO j6953_dyn_orders VALUES (11, 1, 2, 12000);
+CREATE INDEX ON j6953_dyn_users USING paradedb (id, group_id);
+CREATE INDEX ON j6953_dyn_products USING paradedb (id, group_id);
+CREATE INDEX ON j6953_dyn_orders USING paradedb (id, group_id, maxproduct, maxuser);
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT p.id, u.id, o.id
+FROM (j6953_dyn_users u JOIN j6953_dyn_products p ON p.group_id = u.group_id)
+JOIN j6953_dyn_orders o ON o.group_id = p.group_id
+WHERE o.id @@@ pdb.all()
+ORDER BY p.id, u.id LIMIT 2;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, u.id, o.id
+   Relation Tree: (u INNER p) INNER o
+   Join Cond: o.group_id = p.group_id, p.group_id = u.group_id
+   Limit: 2
+   Order By: p.id asc, u.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+     :   SortExec: TopK(fetch=2), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[u, p, o]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@1, group_id@3)], projection=[ctid_0@2, id@3, ctid_1@4, id@6, ctid_2@0]
+     :         CooperativeExec
+     :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@1, group_id@1)], projection=[ctid_0@3, id@5, ctid_1@0, group_id@1, id@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: table=u, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT p.id, u.id, o.id
+FROM (j6953_dyn_users u JOIN j6953_dyn_products p ON p.group_id = u.group_id)
+JOIN j6953_dyn_orders o ON o.group_id = p.group_id
+WHERE o.id @@@ pdb.all()
+ORDER BY p.id, u.id LIMIT 2;
+ id | id | id 
+----+----+----
+  1 |  1 | 11
+  1 |  2 | 11
+(2 rows)
+
+-- the top-k filter must use products.id, not the duplicate users.id.
+EXPLAIN (COSTS OFF)
+SELECT p.id AS product_id, u.id AS user_id
+FROM (j6953_dyn_users u JOIN j6953_dyn_products p ON p.group_id = u.group_id)
+JOIN j6953_dyn_orders o ON o.group_id = p.group_id
+    AND o.maxproduct >= p.id AND o.maxuser >= u.id
+WHERE o.id @@@ pdb.all()
+ORDER BY p.id LIMIT 10000;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: (u INNER p) INNER o
+   Join Cond: o.group_id = p.group_id, p.group_id = u.group_id
+   Join Filter: ((o.maxproduct >= p.id) AND (o.maxuser >= u.id))
+   Limit: 10000
+   Order By: p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, id@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10000), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[u, p, o], pruned=[o]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@0, group_id@3)], filter=maxproduct@2 >= id@1 AND maxuser@3 >= id@0, projection=[ctid_0@4, id@5, ctid_1@6, id@8, ctid_2@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=o, segments=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(group_id@1, group_id@2)], projection=[ctid_0@3, id@4, ctid_1@0, group_id@1, id@2]
+     :           CooperativeExec
+     :             PgSearchScan: table=p, segments=1, dynamic_filters=1, query="all"
+     :           CooperativeExec
+     :             PgSearchScan: table=u, segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+CREATE TEMP TABLE j6953_dynamic_scan AS
+SELECT p.id AS product_id, u.id AS user_id
+FROM (j6953_dyn_users u JOIN j6953_dyn_products p ON p.group_id = u.group_id)
+JOIN j6953_dyn_orders o ON o.group_id = p.group_id
+    AND o.maxproduct >= p.id AND o.maxuser >= u.id
+WHERE o.id @@@ pdb.all()
+ORDER BY p.id LIMIT 10000;
+SELECT count(*) AS total, count(*) FILTER (WHERE product_id = 1) AS product_one
+FROM j6953_dynamic_scan;
+ total | product_one 
+-------+-------------
+ 10000 |       10000
+(1 row)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, u.id, o.id
+FROM (j6953_dyn_users u JOIN j6953_dyn_products p ON p.group_id = u.group_id)
+JOIN j6953_dyn_orders o ON o.group_id = p.group_id
+WHERE o.id @@@ pdb.all()
+ORDER BY p.id, u.id LIMIT 2;
+ id | id | id 
+----+----+----
+  1 |  1 | 11
+  1 |  2 | 11
+(2 rows)
+
+CREATE TEMP TABLE j6953_dynamic_native AS
+SELECT p.id AS product_id, u.id AS user_id
+FROM (j6953_dyn_users u JOIN j6953_dyn_products p ON p.group_id = u.group_id)
+JOIN j6953_dyn_orders o ON o.group_id = p.group_id
+    AND o.maxproduct >= p.id AND o.maxuser >= u.id
+WHERE o.id @@@ pdb.all()
+ORDER BY p.id LIMIT 10000;
+SELECT count(*) AS total, count(*) FILTER (WHERE product_id = 1) AS product_one
+FROM j6953_dynamic_native;
+ total | product_one 
+-------+-------------
+ 10000 |       10000
+(1 row)
+
+DROP TABLE j6953_dynamic_scan, j6953_dynamic_native;
+DROP TABLE j6953_dyn_orders CASCADE;
+DROP TABLE j6953_dyn_products CASCADE;
+DROP TABLE j6953_dyn_users CASCADE;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_rank_join;
+RESET join_collapse_limit;
+RESET max_parallel_workers_per_gather;

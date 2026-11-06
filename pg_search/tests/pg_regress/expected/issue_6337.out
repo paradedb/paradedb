@@ -47,7 +47,7 @@ ORDER BY u.id, p.id, o.id LIMIT 27 OFFSET 2;
      :               CooperativeExec
      :                 PgSearchScan: table=p, segments=1, query="all"
      :             CooperativeExec
-     :               PgSearchScan: table=u, segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :               PgSearchScan: table=u, segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :           CooperativeExec
      :             PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
 (21 rows)

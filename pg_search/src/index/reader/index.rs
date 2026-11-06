@@ -620,6 +620,7 @@ pub struct SearchIndexReader {
     directory: MVCCDirectory,
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
+    pub(crate) vector_routing_plan: Option<Arc<tantivy::vector::VectorRoutingPlan>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -667,6 +668,7 @@ impl Clone for SearchIndexReader {
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
+            vector_routing_plan: self.vector_routing_plan.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -824,6 +826,65 @@ struct IndexComponents {
 impl SearchIndexReader {
     pub(crate) fn index_rel(&self) -> &PgSearchRelation {
         &self.index_rel
+    }
+
+    pub(crate) fn route_vector_segments(
+        &self,
+        name: &FieldName,
+        query: &[f32],
+    ) -> tantivy::vector::VectorRoutingPlan {
+        self.validate_vector_segments()
+            .expect("vector segments must be readable");
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let collector = TopDocs::with_limit(1)
+            .order_by_similarity(field, query.to_vec())
+            .with_probe_params(ProbeParams {
+                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
+                router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
+                router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
+                router_aps: crate::gucs::vector_router_aps(),
+                ..Default::default()
+            })
+            .build();
+        let readers = self.candidate_segment_readers().collect::<Vec<_>>();
+        let centroids = readers
+            .iter()
+            .map(|(_, reader)| {
+                SegmentStats::of_reader(reader)
+                    .expect("segment stats should be readable")
+                    .and_then(|stats| {
+                        stats
+                            .vector_partition(field)
+                            .expect("partition centroid should be readable")
+                    })
+            })
+            .collect::<Vec<_>>();
+        let segments = readers
+            .iter()
+            .zip(&centroids)
+            .map(|(&(ordinal, reader), centroid)| VectorSegment {
+                ordinal,
+                reader,
+                partition_centroid: centroid.as_deref(),
+            })
+            .collect::<Vec<_>>();
+        let weight = self
+            .query
+            .weight(enable_scoring(false, &self.searcher))
+            .expect("creating vector filter weight should not fail");
+        collector
+            .route_segments(weight.as_ref(), &segments, |ord| {
+                pgrx::check_for_interrupts!();
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(self.searcher.segment_reader(ord).segment_id());
+                }
+            })
+            .expect("global vector routing should succeed")
     }
 
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
@@ -1102,6 +1163,7 @@ impl SearchIndexReader {
             directory,
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
+            vector_routing_plan: None,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2351,6 +2413,9 @@ impl SearchIndexReader {
                     ));
                 }
 
+                if let Some(plan) = &self.vector_routing_plan {
+                    collector = collector.with_routing_plan(Arc::clone(plan));
+                }
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
                 let mut tie_breaks = Vec::with_capacity(erased_features.len());

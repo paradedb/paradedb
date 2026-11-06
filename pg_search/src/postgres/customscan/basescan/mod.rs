@@ -173,7 +173,7 @@ impl BaseScan {
         let needs_tokenizer_manager =
             search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
-        let search_reader = SearchIndexReader::open_with_context(
+        let mut search_reader = SearchIndexReader::open_with_context(
             indexrel,
             search_query_input.clone(),
             need_scores,
@@ -197,6 +197,7 @@ impl BaseScan {
             state.custom_state().io_trace.clone(),
         )
         .expect("should be able to open the search index reader");
+        search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -1855,6 +1856,29 @@ impl CustomScan for BaseScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
+        if state.custom_state().vector_routing_plan.is_some() {
+            explainer.add_text("Vector Routing", "Leader");
+            if let Some(ms) = state.custom_state().vector_routing_build_ms {
+                explainer.add_text("Vector Routing Build ms", format!("{ms:.3}"));
+                explainer.add_text(
+                    "Vector Routing Publish ms",
+                    format!(
+                        "{:.3}",
+                        state
+                            .custom_state()
+                            .vector_routing_publish_ms
+                            .unwrap_or_default()
+                    ),
+                );
+                explainer.add_text(
+                    "Vector Routing Waiting Workers",
+                    state
+                        .custom_state()
+                        .vector_routing_waiting_workers
+                        .to_string(),
+                );
+            }
+        }
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
                 "   TopK Order By",
@@ -2070,6 +2094,7 @@ impl CustomScan for BaseScan {
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
+        parallel::ensure_vector_routing_plan(state);
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();
@@ -2200,6 +2225,8 @@ impl CustomScan for BaseScan {
         let scan_state = state.custom_state_mut();
         if let Some(parallel) = scan_state.parallel.take() {
             if parallel.is_leader() {
+                scan_state.vector_routing_waiting_workers =
+                    unsafe { (*parallel.dsm_ptr()).vector_routing_waiting_workers };
                 // Leader: last chance to read the DSM before Postgres destroys it.
                 parallel.finalize_explain(&mut scan_state.telemetry);
             } else {

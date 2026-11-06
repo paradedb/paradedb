@@ -270,9 +270,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     idle_segments.insert(id, count);
                                 }
                             });
-                            let idle_index = previous == Some(&segment_counts)
-                                && segment_counts.len() > index.options().target_segment_count()
-                                && !index.options().background_layer_sizes().is_empty();
+                            let idle_index = previous == Some(&segment_counts);
                             current_counts.insert(index.oid(), segment_counts);
                             (!idle_segments.is_empty() || idle_index)
                                 .then_some((index.oid(), idle_segments, idle_index))
@@ -300,16 +298,8 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     .into_iter()
                                     .all(|variant| MergeSlot::new(index.oid(), variant).is_available())
                             {
-                                let mut segment_counts = HashMap::default();
-                                MetaPage::open(&index).segment_metas().for_each(|_, entry| {
-                                    if entry.visible() {
-                                        segment_counts.insert(entry.segment_id(), entry.num_docs());
-                                    }
-                                });
-                                if current_counts.get(&index.oid()) == Some(&segment_counts) {
-                                    do_merge(&index, MergeStyle::Background)
-                                        .expect("should be able to schedule an idle background merge");
-                                }
+                                do_merge(&index, MergeStyle::Background)
+                                    .expect("should be able to schedule an idle background merge");
                             }
                             if idle_segments.is_empty() {
                                 return;

@@ -328,6 +328,9 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     }
 
     let layer_sizes = IndexLayerSizes::from(index);
+    if matches!(style, MergeStyle::Background) && !layer_sizes.user_configured_background_layers() {
+        return Ok(());
+    }
     let metadata = MetaPage::open(index);
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();

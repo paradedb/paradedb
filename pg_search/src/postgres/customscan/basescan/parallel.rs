@@ -223,9 +223,7 @@ impl ParallelQueryCapable for BaseScan {
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
         if unsafe { !pg_sys::parallel_leader_participation }
-            && state
-                .custom_state()
-                .needs_vector_routing(state.custom_state().search_query_input())
+            && state.custom_state().needs_vector_routing()
         {
             BaseScan::init_search_reader(state);
         }
@@ -255,7 +253,7 @@ impl ParallelQueryCapable for BaseScan {
         let query = unsafe { (*pscan_state).query(query_area(state)) }
             .expect("should be able to read the query from the ParallelScanState");
         state.custom_state_mut().vector_routing_pending =
-            state.custom_state().needs_vector_routing(&query);
+            state.custom_state().needs_vector_routing();
         state.custom_state_mut().set_base_search_query_input(query);
     }
 }

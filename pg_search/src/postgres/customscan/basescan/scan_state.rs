@@ -409,8 +409,8 @@ impl BaseScanState {
         }
     }
 
-    pub(super) fn needs_vector_routing(&self, query: &SearchQueryInput) -> bool {
-        !query.is_match_all()
+    pub(super) fn needs_vector_routing(&self) -> bool {
+        self.parallel.is_some()
             && self
                 .orderby_info()
                 .as_ref()
@@ -430,7 +430,7 @@ impl BaseScanState {
                         name, query_vector, ..
                     },
                 ..
-            }) if self.needs_vector_routing(self.search_query_input()) => {
+            }) if self.needs_vector_routing() => {
                 // A nonparticipating leader never executes this scan, so it must route at init.
                 if defer {
                     self.vector_routing_pending = true;

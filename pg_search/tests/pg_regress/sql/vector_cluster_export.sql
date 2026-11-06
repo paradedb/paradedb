@@ -1,0 +1,59 @@
+SET client_min_messages = error;
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+SET paradedb.vector_clustering_threshold = 64;
+
+CREATE TABLE cluster_export_rows (id integer PRIMARY KEY, emb vector(1024));
+INSERT INTO cluster_export_rows
+SELECT g, ARRAY(SELECT (sin(g * d) + g % 4)::real FROM generate_series(1, 1024) d)::vector
+FROM generate_series(1, 4096) g;
+
+CREATE INDEX cluster_export_idx ON cluster_export_rows USING paradedb (id, emb vector_l2_ops)
+WITH (target_segment_count=1, mutable_segment_rows=0, max_leaf_size=20, training_sample_ratio=1.0,
+      vector_fields='{"emb":{"quantization":false}}');
+
+SELECT count(*)=4096 AND count(DISTINCT t.id)=4096 AS complete_memberships
+FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb') m
+JOIN cluster_export_rows t ON t.ctid=m.heap_tid;
+
+SELECT bool_and(array_length(centroid, 1)=1024) AS correct_dimensions,
+       count(*)=(SELECT vector_num_centroids FROM paradedb.vector_info('cluster_export_idx', 'emb')) AS correct_cluster_count
+FROM paradedb.vector_cluster_centroids('cluster_export_idx', 'emb');
+
+SELECT count(*)=0 AS no_missing_centroids
+FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb') m
+LEFT JOIN paradedb.vector_cluster_centroids('cluster_export_idx', 'emb') c
+USING (index_oid, segno, cluster_id)
+WHERE c.centroid IS NULL;
+
+ALTER INDEX cluster_export_idx SET (vector_fields='{"emb":{"quantization":true}}');
+REINDEX INDEX cluster_export_idx;
+SELECT bool_and(quantized) AS uses_quantized_storage
+FROM paradedb.vector_info('cluster_export_idx', 'emb');
+SELECT count(*)=4096 AND count(DISTINCT t.id)=4096 AS quantized_memberships
+FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb') m
+JOIN cluster_export_rows t ON t.ctid=m.heap_tid;
+
+CREATE ROLE cluster_export_reader;
+GRANT SELECT ON cluster_export_rows TO cluster_export_reader;
+SET ROLE cluster_export_reader;
+SELECT count(*) FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb');
+SELECT count(*) FROM paradedb.vector_cluster_centroids('cluster_export_idx', 'emb');
+RESET ROLE;
+REVOKE SELECT ON cluster_export_rows FROM cluster_export_reader;
+DROP ROLE cluster_export_reader;
+
+DELETE FROM cluster_export_rows WHERE id <= 16;
+SELECT count(*)=4080 AS visible_memberships
+FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb') m
+JOIN cluster_export_rows t ON t.ctid=m.heap_tid;
+
+DROP INDEX cluster_export_idx;
+SET paradedb.vector_clustering_threshold = 100000;
+CREATE INDEX cluster_export_idx ON cluster_export_rows USING paradedb (id, emb vector_l2_ops)
+WITH (target_segment_count=1, mutable_segment_rows=0);
+SELECT count(*)=0 AS flat_has_no_centroids FROM paradedb.vector_cluster_centroids('cluster_export_idx', 'emb');
+SELECT count(*)=0 AS flat_has_no_memberships FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb');
+DROP TABLE cluster_export_rows;
+RESET paradedb.vector_clustering_threshold;
+RESET client_min_messages;

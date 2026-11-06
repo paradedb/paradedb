@@ -1,0 +1,67 @@
+name: Cohere 10m Default Cluster Comparison
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  compare:
+    timeout-minutes: 180
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache+git-cache+apt-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: paradedb/tantivy
+          ref: 39b7f0e7ad74a81a089defa67d84e008b75c5c00
+          path: .cluster-export-deps/tantivy
+          persist-credentials: false
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        id: private-source
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pg_vectorsearch
+          permission-contents: read
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: paradedb/pg_vectorsearch
+          ref: e9284639954aba09130688c20e20759f94f4c24e
+          path: .cluster-export-deps/pg_vectorsearch
+          token: ${{ steps.private-source.outputs.token }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pg-search-build-environment
+        with:
+          pg_version: "18"
+          cache_prefix_key: cluster-export
+          extra_packages: lld clang libopenblas-dev meson ninja-build python3-venv pgbackrest
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+          role-session-name: clusters-${{ github.run_id }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
+      - name: Build, restore, and compare all 10m rows
+        run: bash benchmarks/clustering_quality/run_ci.sh
+      - name: Save comparison artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cohere-10m-default-clusters
+          path: benchmark-artifacts/
+          compression-level: 1
+          retention-days: 14
+          if-no-files-found: error

@@ -618,6 +618,116 @@ fn vector_clusters(
     Ok(TableIterator::new(rows))
 }
 
+fn vector_export_indexes(index: PgRelation) -> anyhow::Result<IndexKind> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    // SAFETY: the relation is open and locked above.
+    let is_owner =
+        unsafe { pg_sys::has_privs_of_role(pg_sys::GetUserId(), (*index.rd_rel).relowner) };
+    if !is_owner {
+        pgrx::ereport!(
+            ERROR,
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_PRIVILEGE,
+            "must be owner of index to export vector clusters"
+        );
+    }
+    IndexKind::for_index(index)
+}
+
+/// Stored IVF centroids, keyed by partition index, segment, and cluster.
+#[pg_extern]
+#[allow(clippy::type_complexity)]
+fn vector_cluster_centroids(
+    index: PgRelation,
+    field: String,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(index_oid, pg_sys::Oid),
+            name!(segno, String),
+            name!(cluster_id, i64),
+            name!(centroid, Vec<f32>),
+        ),
+    >,
+> {
+    let mut rows = Vec::new();
+    for index in vector_export_indexes(index)?.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+        let (reader, field, _) = open_vector_field(&index, &field)?;
+        for segment in reader.segment_readers() {
+            let Some(centroids) = segment.vector_index(field)?.cluster_centroids()? else {
+                continue;
+            };
+            for (cluster, centroid) in centroids.into_iter().enumerate() {
+                pgrx::check_for_interrupts!();
+                rows.push((
+                    index.oid(),
+                    segment.segment_id().uuid_string(),
+                    cluster as i64,
+                    centroid,
+                ));
+            }
+        }
+    }
+    Ok(TableIterator::new(rows))
+}
+
+/// Stored IVF memberships; heap TIDs must be joined to the table in the same snapshot.
+#[pg_extern]
+#[allow(clippy::type_complexity)]
+fn vector_cluster_members(
+    index: PgRelation,
+    field: String,
+) -> anyhow::Result<
+    TableIterator<
+        'static,
+        (
+            name!(index_oid, pg_sys::Oid),
+            name!(segno, String),
+            name!(cluster_id, i64),
+            name!(heap_tid, pg_sys::ItemPointerData),
+        ),
+    >,
+> {
+    let mut rows = Vec::new();
+    for index in vector_export_indexes(index)?.partitions() {
+        if !index.is_usable() {
+            continue;
+        }
+        let (reader, field, _) = open_vector_field(&index, &field)?;
+        for segment in reader.segment_readers() {
+            let vector_index = segment.vector_index(field)?;
+            let Some(sizes) = vector_index.cluster_sizes() else {
+                continue;
+            };
+            let ctid_column = FFType::new_ctid(segment.fast_fields());
+            for cluster in 0..sizes.len() {
+                pgrx::check_for_interrupts!();
+                for doc in vector_index.cluster_doc_ids(cluster)?.unwrap_or_default() {
+                    if segment
+                        .alive_bitset()
+                        .is_some_and(|alive| !alive.is_alive(doc))
+                    {
+                        continue;
+                    }
+                    let ctid = ctid_column.as_u64(doc).context("missing vector heap TID")?;
+                    let mut tid = pg_sys::ItemPointerData::default();
+                    u64_to_item_pointer(ctid, &mut tid);
+                    rows.push((
+                        index.oid(),
+                        segment.segment_id().uuid_string(),
+                        cluster as i64,
+                        tid,
+                    ));
+                }
+            }
+        }
+    }
+    Ok(TableIterator::new(rows))
+}
+
 /// Returns the list of segments that contain the specified [`pg_sys::ItemPointerData]` heap tuple
 /// identifier.
 ///

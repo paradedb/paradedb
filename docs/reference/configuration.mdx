@@ -141,7 +141,7 @@ Set these options in the index's `WITH` clause. The linked guides explain when c
 | `training_sample_ratio` | `0.32`                    | Fraction of vectors sampled whenever a segment is clustered. Accepts `0.000001` through `1.0`.                                 | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `max_leaf_size`         | `200`                     | Maximum sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                          | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `quantization`          | `[1,1]`                   | Quantization layer widths shared by all vector fields. Set to `0` to disable quantization.                                     | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
-| `spill`                 | `false`                   | Also assign each vector to a second IVF cluster chosen to cover queries its first cluster misses, doubling the rows scanned.   | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `spill`                 | `true`                    | Also assign each vector to a second IVF cluster chosen to cover queries its first cluster misses, doubling the rows scanned.   | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 
 ## Per-Index Write Options
 

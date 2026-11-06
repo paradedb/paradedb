@@ -234,7 +234,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 19;
+const NUM_REL_OPTS: usize = 20;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -315,6 +315,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "vector_router_quantization".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
             offset: std::mem::offset_of!(BM25IndexOptionsData, vector_router_quantization) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "spill".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, spill) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -441,6 +448,12 @@ impl BM25IndexOptions {
     /// Captured in stored index settings during creation or rebuilding.
     pub fn vector_router_quantization(&self) -> bool {
         self.options_data().vector_router_quantization
+    }
+
+    /// Whether new quantized IVF segments assign each vector to a second cluster as well.
+    /// Captured in stored index settings during creation or rebuilding.
+    pub fn spill(&self) -> bool {
+        self.options_data().spill
     }
 
     pub fn target_segment_count(&self) -> usize {
@@ -829,6 +842,7 @@ struct BM25IndexOptionsData {
     training_sample_ratio: f64,
     partition_by_offset: i32,
     vector_router_quantization: bool,
+    spill: bool,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -852,6 +866,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
     vector_router_quantization: true,
+    spill: false,
 };
 
 impl BM25IndexOptionsData {
@@ -1105,6 +1120,14 @@ pub unsafe fn init() {
         "Use one-bit centroid routing with exact reranking when creating or rebuilding the index"
             .as_pg_cstr(),
         true,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_bool_reloption(
+        RELOPT_KIND_PDB,
+        "spill".as_pg_cstr(),
+        "Assign each vector to a second IVF cluster chosen to cover queries its first cluster misses"
+            .as_pg_cstr(),
+        false,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

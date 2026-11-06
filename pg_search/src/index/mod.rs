@@ -97,6 +97,7 @@ pub fn index_settings(
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
         vector_centroid_quantization: options.vector_router_quantization(),
+        vector_spill: options.spill(),
         vector_quantization,
         ..IndexSettings::default()
     })

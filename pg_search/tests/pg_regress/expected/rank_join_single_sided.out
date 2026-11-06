@@ -460,12 +460,12 @@ LIMIT 5;
 -- ============================================================
 -- Test 6: RankJoinRule expression shapes and eligibility gates
 --
--- Note on planner diagnostics (missing feature / bug):
--- When RankJoinRule declines a rewrite in `with_elided_disjunctive_tags`,
--- `try_rewrite_scored_branch` (Gates 1, 2, 3), or `try_rewrite_scored_leaf`,
--- it currently returns `None` silently without emitting a
--- `paradedb.planner_warnings` diagnostic. We enable `planner_warnings = 'warning'`
--- here so that once gate-decline warnings are emitted, they are captured below.
+-- Note on planner diagnostics:
+-- When RankJoinRule declines a rewrite on a score-ordered top-K join in
+-- `with_elided_disjunctive_tags`, `try_rewrite_scored_branch` (Gates 1, 2, 3), or
+-- `try_rewrite_scored_leaf` and falls back to `HashJoinExec`, it emits a
+-- `WARNING: RankJoinExec not used: ...` diagnostic when `paradedb.planner_warnings`
+-- is enabled.
 -- ============================================================
 SET paradedb.enable_rank_join = on;
 SET paradedb.rank_join_min_rows = 0;
@@ -530,6 +530,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.id @@@ pdb.all() AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  RankJoinExec not used: scored table "u" has only constant-score predicates. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -556,6 +557,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  RankJoinExec not used: score contribution ratio (0.010) is below balance threshold (0.20). To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -636,6 +638,7 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'extra'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
+WARNING:  RankJoinExec not used: Gate 2: score contribution ratio (0.167) is below balance threshold (0.20). To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -696,6 +699,7 @@ JOIN rj_posts p ON u.id = p.user_id
 WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) DESC
 LIMIT 5;
+WARNING:  RankJoinExec not used: ORDER BY scores only one side of a cross-table OR join; include pdb.score() from all OR branches. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                      QUERY PLAN                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)

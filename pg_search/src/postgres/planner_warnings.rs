@@ -185,6 +185,7 @@ pub fn mark_contexts_successful<C: ToWarningContexts>(contexts: C) {
 }
 
 pub fn clear_planner_warnings() {
+    PLANNING_CYCLE_ID.with(|id| id.set(id.get().wrapping_add(1)));
     PLANNER_STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.warnings.clear();
@@ -426,9 +427,11 @@ type StatementId = pg_sys::TimestampTz;
 const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 
 thread_local! {
+    static PLANNING_CYCLE_ID: Cell<u64> = const { Cell::new(0) };
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_STALE_VM_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+    static WARNED_RANK_JOIN_AT: Cell<(u64, StatementId)> = const { Cell::new((0, NEVER)) };
 }
 
 fn current_statement_id() -> StatementId {
@@ -519,6 +522,32 @@ pub fn warn_stale_visibility_map(table_name: &str) {
          To disable this warning: SET paradedb.planner_warnings = 'off'"
     );
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
+}
+
+/// Warn (once per query planning/execution cycle, on the leader only) when `RankJoinRule`
+/// declines to rewrite a score-ordered top-K join into `RankJoinExec`.
+///
+/// Unlike scan-level planner warnings (`add_planner_warning`), this intentionally emits a
+/// standard `pgrx::warning!` even when `paradedb.planner_warnings = 'error'`: the query is
+/// still executed by a ParadeDB custom scan (`ParadeDB Join Scan`), and while `RankJoinExec`
+/// is highly beneficial for top-K join performance, it is not required for correct operation.
+pub fn warn_rank_join_not_used(reason: &str) {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+        return;
+    }
+    if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+        return;
+    }
+    let key = (
+        PLANNING_CYCLE_ID.with(|id| id.get()),
+        current_statement_id(),
+    );
+    if WARNED_RANK_JOIN_AT.with(|last| last.replace(key)) != key {
+        pgrx::warning!(
+            "RankJoinExec not used: {reason}. \
+             To disable this warning: SET paradedb.planner_warnings = 'off'"
+        );
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

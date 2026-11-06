@@ -258,12 +258,12 @@ LIMIT 5;
 -- ============================================================
 -- Test 6: RankJoinRule expression shapes and eligibility gates
 --
--- Note on planner diagnostics (missing feature / bug):
--- When RankJoinRule declines a rewrite in `with_elided_disjunctive_tags`,
--- `try_rewrite_scored_branch` (Gates 1, 2, 3), or `try_rewrite_scored_leaf`,
--- it currently returns `None` silently without emitting a
--- `paradedb.planner_warnings` diagnostic. We enable `planner_warnings = 'warning'`
--- here so that once gate-decline warnings are emitted, they are captured below.
+-- Note on planner diagnostics:
+-- When RankJoinRule declines a rewrite on a score-ordered top-K join in
+-- `with_elided_disjunctive_tags`, `try_rewrite_scored_branch` (Gates 1, 2, 3), or
+-- `try_rewrite_scored_leaf` and falls back to `HashJoinExec`, it emits a
+-- `WARNING: RankJoinExec not used: ...` diagnostic when `paradedb.planner_warnings`
+-- is enabled.
 -- ============================================================
 SET paradedb.enable_rank_join = on;
 SET paradedb.rank_join_min_rows = 0;

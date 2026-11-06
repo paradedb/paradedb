@@ -10,6 +10,37 @@ mkdir -p "$task_root/socket" "$artifacts"
 exec > >(tee "$artifacts/run.log") 2>&1
 trap '"$pg_bin/pg_ctl" -D "$pg_data" -m fast -w stop >/dev/null 2>&1 || true' EXIT
 
+mkdir -p "$task_root/backrest-log" "$task_root/backrest-spool"
+(
+    umask 077
+    cat > "$task_root/pgbackrest.conf" <<CONF
+[global]
+repo1-type=s3
+repo1-s3-bucket=paradedb-benchmark
+repo1-s3-region=us-east-1
+repo1-s3-endpoint=s3.us-east-1.amazonaws.com
+repo1-s3-key=$AWS_ACCESS_KEY_ID
+repo1-s3-key-secret=$AWS_SECRET_ACCESS_KEY
+repo1-s3-token=$AWS_SESSION_TOKEN
+repo1-path=/snapshots/cohere/v1/10m/pg_backrest
+log-path=$task_root/backrest-log
+spool-path=$task_root/backrest-spool
+log-level-console=info
+process-max=16
+
+[bench]
+pg1-path=$pg_data
+CONF
+)
+pgbackrest --config="$task_root/pgbackrest.conf" --stanza=bench --output=json info \
+    > "$artifacts/snapshot-info.json"
+python3 - "$artifacts/snapshot-info.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as source:
+    assert any(stanza.get("backup") for stanza in json.load(source)), "Missing Cohere 10m snapshot"
+PY
+
 CARGO_BUILD_JOBS=16 cargo pgrx install -p pg_search --sudo --release --no-default-features --features pg18 \
     --pg-config "$pg_bin/pg_config"
 CC="$($pg_bin/pg_config --cc)" meson setup .cluster-export-deps/pg_vectorsearch/build \
@@ -32,11 +63,7 @@ sha256sum "$($pg_bin/pg_config --pkglibdir)/pg_search.so" \
     "$($pg_bin/pg_config --pkglibdir)/pg_vectorsearch-0.2.0-dev.so" > "$artifacts/library-sha256.txt"
 cp benchmarks/clustering_quality/{compare.py,prepare_cohere.py,plot.py,README.md,run_ci.sh} "$artifacts/"
 
-cargo run --manifest-path benchmarks/Cargo.toml --release -- restore-heap \
-    --dataset cohere --size 10m --pgdata "$pg_data" --stanza bench \
-    --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
-    --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
-    --repo-s3-key-type shared --process-max 16
+pgbackrest --config="$task_root/pgbackrest.conf" --stanza=bench --delta restore
 cat > "$pg_data/postgresql.auto.conf" <<'CONF'
 CONF
 cat > "$task_root/postgresql.conf" <<CONF

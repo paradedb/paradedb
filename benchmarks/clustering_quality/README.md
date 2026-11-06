@@ -45,7 +45,8 @@ The extension SQL functions themselves can still materialize their output on the
 server, so the database host needs memory and temporary disk for that export.
 
 The manual Cohere workflow runs `run_ci.sh` on the existing benchmark runner. It
-restores the published Cohere 10m heap snapshot, verifies exactly 10,000,000 rows,
+restores the published Cohere 10m heap snapshot from
+`s3://paradedb-benchmark/snapshots/cohere/v1/10m/pg_backrest`, verifies exactly 10,000,000 rows,
 exports all embeddings with binary COPY, and reads the published 100-query fixture.
 `prepare_cohere.py` can also export an existing local heap. The cloud run uses the
 common benchmark PostgreSQL settings (12 GiB maintenance memory and shared buffers,

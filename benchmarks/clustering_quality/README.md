@@ -66,7 +66,10 @@ incomplete export rather than silently excluding their rows.
 Per-row cosine loss uses the best of that row's actual stored memberships.
 Posting-weighted cosine loss is also reported, along with replication factor and
 the fraction of rows replicated. The nearest-centroid diagnostic does not change
-any assignment.
+any assignment. For pg_search, it also compares centroids from other segments;
+a gap therefore does not by itself indicate an incorrect assignment within a
+segment. Cosine loss depends on the number of clusters, so compare recall at equal
+posting work alongside loss when using each extension's native defaults.
 
 The recall/work curves use exact ordering of exported leaf centroids and count
 posting rows scanned (which can exceed the corpus size with replication). They

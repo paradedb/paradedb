@@ -20,6 +20,10 @@
 
 use std::os::raw::c_void;
 use std::ptr::NonNull;
+use std::sync::{Arc, OnceLock};
+
+use crate::scan::execution_plan::UnsafeSendSync;
+use tantivy::vector::{VectorRoutingPlan, VectorRoutingPlanProvider};
 
 use crate::index::reader::io_stats::Trace;
 use crate::postgres::ParallelScanState;
@@ -29,6 +33,23 @@ use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
+
+struct ParallelVectorRoutingPlan {
+    shared: UnsafeSendSync<(*mut ParallelScanState, *mut dsa_area)>,
+    plan: OnceLock<VectorRoutingPlan>,
+}
+
+impl VectorRoutingPlanProvider for ParallelVectorRoutingPlan {
+    fn get(&self) -> tantivy::Result<&VectorRoutingPlan> {
+        pg_sys::thread_check::check_active_thread();
+        Ok(self.plan.get_or_init(|| {
+            let (state, area) = self.shared.0;
+            unsafe { (*state).vector_routing_plan(area) }
+                .expect("should be able to read the vector routing plan")
+                .expect("filtered parallel vector scan must have a routing plan")
+        }))
+    }
+}
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,6 +336,7 @@ unsafe fn leader_publish_vector_routing_plan(
         .expect("should be able to publish the vector routing plan");
     state.custom_state_mut().vector_routing_publish_ms =
         publish_started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
+    let plan = plan.map(|plan| plan as Arc<dyn VectorRoutingPlanProvider>);
     state.custom_state_mut().vector_routing_plan = plan.clone();
     state.custom_state_mut().vector_routing_pending = false;
     if let Some(reader) = state.custom_state_mut().search_reader.as_mut() {
@@ -330,13 +352,14 @@ pub(super) fn ensure_vector_routing_plan(state: &mut CustomScanStateWrapper<Base
         .custom_state()
         .parallel
         .expect("parallel scan must be attached");
-    let pscan_state = unsafe { &mut *parallel.dsm_ptr() };
     if parallel.is_leader() {
-        unsafe { leader_publish_vector_routing_plan(state, pscan_state, false) };
+        unsafe { leader_publish_vector_routing_plan(state, &mut *parallel.dsm_ptr(), false) };
     } else {
-        let plan = unsafe { pscan_state.vector_routing_plan(query_area(state)) }
-            .expect("should be able to read the vector routing plan")
-            .map(std::sync::Arc::new);
+        let plan: Option<Arc<dyn VectorRoutingPlanProvider>> =
+            Some(Arc::new(ParallelVectorRoutingPlan {
+                shared: UnsafeSendSync((parallel.dsm_ptr(), query_area(state))),
+                plan: OnceLock::new(),
+            }));
         state.custom_state_mut().vector_routing_plan = plan.clone();
         state.custom_state_mut().vector_routing_pending = false;
         state

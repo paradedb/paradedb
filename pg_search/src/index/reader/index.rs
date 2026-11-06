@@ -620,7 +620,7 @@ pub struct SearchIndexReader {
     directory: MVCCDirectory,
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
-    pub(crate) vector_routing_plan: Option<Arc<tantivy::vector::VectorRoutingPlan>>,
+    pub(crate) vector_routing_plan: Option<Arc<dyn tantivy::vector::VectorRoutingPlanProvider>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -2422,7 +2422,7 @@ impl SearchIndexReader {
                 }
 
                 if let Some(plan) = &self.vector_routing_plan {
-                    collector = collector.with_routing_plan(Arc::clone(plan));
+                    collector = collector.with_routing_plan_provider(Arc::clone(plan));
                 }
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

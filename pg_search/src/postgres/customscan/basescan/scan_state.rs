@@ -55,7 +55,7 @@ pub struct BaseScanState {
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).
     pub parallel: Option<ParallelScanHandle>,
-    pub vector_routing_plan: Option<Arc<tantivy::vector::VectorRoutingPlan>>,
+    pub vector_routing_plan: Option<Arc<dyn tantivy::vector::VectorRoutingPlanProvider>>,
     pub vector_routing_pending: bool,
     pub vector_routing_build_ms: Option<f64>,
     pub vector_routing_publish_ms: Option<f64>,

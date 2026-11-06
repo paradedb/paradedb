@@ -37,8 +37,7 @@ if __name__ == "__main__":
         if not point["reached"]:
             continue
         session = point["session"] | {
-            "paradedb.vector_cluster_max_probe": point["probe"],
-            "paradedb.vector_stats": "on",
+            "paradedb.vector_cluster_max_probe": point["probe"]
         }
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()

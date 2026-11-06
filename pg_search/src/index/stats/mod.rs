@@ -91,18 +91,14 @@ pub(crate) fn partition_box(
     partition: usize,
 ) -> Option<std::sync::Arc<LogicalBoundsByField>> {
     let bounds = tree.partition_bounds(partition)?;
-    let dim_names = tree
-        .dims()
-        .iter()
-        .map(|f| f.to_string())
-        // add the CTID name to the end. If the ctid fallback was used, this there will be an extra
-        // bound that pairs with this. If not, then the zip will return None at this entry.
-        .chain([CTID_FIELD_NAME.to_string()]);
-    let bounds_by_field = dim_names
-        .zip(bounds)
+    let dim_names = tree.dims().iter().map(|f| f.to_string());
+    let mut bounds_by_field: LogicalBoundsByField = dim_names
+        .zip(bounds.dims)
         .map(|(dim, (lower, upper))| (dim, LogicalBounds { lower, upper }))
         .collect();
-
+    if let Some((lower, upper)) = bounds.ctid_fallback {
+        bounds_by_field.insert(CTID_FIELD_NAME.to_string(), LogicalBounds { lower, upper });
+    }
     Some(std::sync::Arc::new(bounds_by_field))
 }
 

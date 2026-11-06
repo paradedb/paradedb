@@ -78,6 +78,25 @@ enum KdNode {
 /// The half-open range a partition covers on one dimension.
 pub type DimBounds = (Bound<PdbOwnedValue>, Bound<PdbOwnedValue>);
 
+#[derive(Debug, PartialEq)]
+pub struct PartitionBounds {
+    pub dims: Vec<DimBounds>,
+    pub ctid_fallback: Option<DimBounds>,
+}
+impl PartitionBounds {
+    pub fn new(dims: Vec<DimBounds>) -> Self {
+        Self {
+            dims,
+            ctid_fallback: None,
+        }
+    }
+
+    pub fn with_ctid_fallback(mut self, ctid_fallback: DimBounds) -> Self {
+        self.ctid_fallback = Some(ctid_fallback);
+        self
+    }
+}
+
 impl KdTree {
     /// A tree with a single partition that every row routes to.
     pub fn unpartitioned(dims: Vec<FieldName>) -> Self {
@@ -187,8 +206,9 @@ impl KdTree {
     /// The bounding box of `partition`, one half-open range per dimension of [`Self::dims`].
     ///
     /// Returns `None` when `partition` is out of range.
-    pub fn partition_bounds(&self, partition: usize) -> Option<Vec<DimBounds>> {
-        let mut bounds = vec![(Bound::Unbounded, Bound::Unbounded); self.dims.len()];
+    pub fn partition_bounds(&self, partition: usize) -> Option<PartitionBounds> {
+        let mut bounds =
+            PartitionBounds::new(vec![(Bound::Unbounded, Bound::Unbounded); self.dims.len()]);
         let mut node = &self.root;
         loop {
             match node {
@@ -201,23 +221,24 @@ impl KdTree {
                     left,
                     right,
                 } => {
-                    let bounds_idx = match dim {
-                        DimHandle::Index(i) => *i,
-                        // add the ctid bound at the end if it doesn't exist and return that index
+                    let bound_handle = match dim {
+                        DimHandle::Index(i) => &mut bounds.dims[*i],
                         DimHandle::Ctid => {
-                            if bounds.len() == self.dims.len() {
-                                bounds.push((Bound::Unbounded, Bound::Unbounded));
+                            if bounds.ctid_fallback.is_none() {
+                                bounds =
+                                    bounds.with_ctid_fallback((Bound::Unbounded, Bound::Unbounded));
                             }
-                            bounds.len() - 1
+                            bounds.ctid_fallback.as_mut().expect("just added it")
                         }
                     };
+
                     // Leaves are numbered in-order, so the highest partition in the left
                     // subtree is one below the lowest in the right subtree.
                     if partition < first_partition(right) {
-                        bounds[bounds_idx].1 = Bound::Excluded(value.clone());
+                        bound_handle.1 = Bound::Excluded(value.clone());
                         node = left;
                     } else {
-                        bounds[bounds_idx].0 = Bound::Included(value.clone());
+                        bound_handle.0 = Bound::Included(value.clone());
                         node = right;
                     }
                 }
@@ -289,17 +310,16 @@ impl fmt::Display for BoundsListing<'_> {
             let bounds = tree
                 .partition_bounds(partition)
                 .expect("partitions are numbered contiguously");
+            let bounds = bounds.dims.iter().chain(bounds.ctid_fallback.iter());
             for (dim, (lower, upper)) in tree.dims.iter().zip(bounds) {
                 match lower {
-                    Bound::Included(ref v) => {
+                    Bound::Included(v) => {
                         write!(f, " {dim}=[{}", DimValueDisplay { dim, value: v })?
                     }
                     _ => write!(f, " {dim}=[..")?,
                 }
                 match upper {
-                    Bound::Excluded(ref v) => {
-                        write!(f, ", {})", DimValueDisplay { dim, value: v })?
-                    }
+                    Bound::Excluded(v) => write!(f, ", {})", DimValueDisplay { dim, value: v })?,
                     _ => write!(f, ", ..)")?,
                 }
             }
@@ -513,6 +533,8 @@ impl Builder<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::RangeBounds;
+
     use super::*;
     use crate::postgres::datetime::PostgresDateTime;
 
@@ -553,8 +575,8 @@ mod tests {
         counts
     }
 
-    fn contains(bounds: &[DimBounds], point: &[PdbOwnedValue]) -> bool {
-        bounds.iter().zip(point).all(|((lo, hi), v)| {
+    fn contains(bounds: &PartitionBounds, point: &[PdbOwnedValue], ctid: u64) -> bool {
+        bounds.dims.iter().zip(point).all(|((lo, hi), v)| {
             let above_lo = match lo {
                 Bound::Unbounded => true,
                 Bound::Included(l) => {
@@ -570,7 +592,11 @@ mod tests {
                 Bound::Included(_) => unreachable!("upper bounds are exclusive"),
             };
             above_lo && below_hi
-        })
+        }) && bounds
+            .ctid_fallback
+            .as_ref()
+            .map(|b| b.contains(&ctid.into()))
+            .unwrap_or(true)
     }
 
     /// Every sample point routes to a leaf whose box contains it, and every partition id is
@@ -582,15 +608,9 @@ mod tests {
             let ctid = ctids.map_or(i as u64, |c| c[i]);
             let p = tree.route(point, ctid);
             let bounds = tree.partition_bounds(p).expect("partition in range");
-            // `contains` zips, so the ctid is only checked when the bounds carry a ctid range.
-            let point: Point = point
-                .iter()
-                .cloned()
-                .chain(ctids.map(|_| PdbOwnedValue::U64(ctid)))
-                .collect();
             assert!(
-                contains(&bounds, &point),
-                "{point:?} not in bounds of partition {p}: {bounds:?}"
+                contains(&bounds, point, ctid),
+                "{point:?} or ctid {ctid} not in bounds of partition {p}: {bounds:?}"
             );
             seen[p] += 1;
         }
@@ -675,7 +695,7 @@ mod tests {
             assert_eq!(tree.route(&[PdbOwnedValue::I64(42)], 0), 0);
             assert_eq!(
                 tree.partition_bounds(0).unwrap(),
-                vec![(Bound::Unbounded, Bound::Unbounded)]
+                PartitionBounds::new(vec![(Bound::Unbounded, Bound::Unbounded)]),
             );
         }
     }
@@ -749,16 +769,16 @@ mod tests {
             let bounds = tree.partition_bounds(p).unwrap();
             let bounded = |b: &DimBounds| !matches!(b, (Bound::Unbounded, Bound::Unbounded));
             assert!(
-                bounds.iter().all(bounded),
+                bounds.dims.iter().all(bounded),
                 "partition {p}: {bounds:?}\n{tree}"
             );
         }
         assert_eq!(
             tree.partition_bounds(0).unwrap(),
-            vec![
+            PartitionBounds::new(vec![
                 (Bound::Unbounded, Bound::Excluded(PdbOwnedValue::I64(20))),
                 (Bound::Unbounded, Bound::Excluded(PdbOwnedValue::I64(20))),
-            ]
+            ])
         );
     }
 
@@ -774,7 +794,11 @@ mod tests {
         check_invariants(&tree, &sample, None);
         for p in 0..8 {
             let bounds = tree.partition_bounds(p).unwrap();
-            assert_eq!(bounds[1], (Bound::Unbounded, Bound::Unbounded), "{tree}");
+            assert_eq!(
+                bounds.dims[1],
+                (Bound::Unbounded, Bound::Unbounded),
+                "{tree}"
+            );
         }
     }
 
@@ -789,7 +813,7 @@ mod tests {
         assert_eq!(tree.partition_count(), 8);
         check_invariants(&tree, &sample, None);
         let tenant_bounds: Vec<_> = (0..8)
-            .map(|p| tree.partition_bounds(p).unwrap()[0].clone())
+            .map(|p| tree.partition_bounds(p).unwrap().dims[0].clone())
             .collect();
         assert!(
             tenant_bounds
@@ -884,11 +908,18 @@ mod tests {
         let cold_box = (Bound::Included(PdbOwnedValue::I64(1)), Bound::Unbounded);
         for p in 0..7 {
             let bounds = tree.partition_bounds(p).unwrap();
-            assert_eq!(bounds[0], hot_box, "partition {p}\n{tree}");
-            // The fallback's cut shows up as one extra range, after the declared dimensions.
-            assert_eq!(bounds.len(), 2, "partition {p}: {bounds:?}\n{tree}");
+            assert_eq!(bounds.dims[0], hot_box, "partition {p}\n{tree}");
+            // The fallback's cut shows up as in the ctid_fallback
+            assert!(
+                bounds.ctid_fallback.is_some(),
+                "partition {p}: {bounds:?}\n{tree}"
+            );
         }
-        assert_eq!(tree.partition_bounds(7).unwrap(), vec![cold_box], "{tree}");
+        assert_eq!(
+            tree.partition_bounds(7).unwrap(),
+            PartitionBounds::new(vec![]).with_ctid_fallback(cold_box),
+            "{tree}"
+        );
     }
 
     #[test]
@@ -921,11 +952,15 @@ mod tests {
         );
         let null_box = (Bound::Unbounded, Bound::Excluded(PdbOwnedValue::I64(0)));
         for p in 0..7 {
-            assert_eq!(tree.partition_bounds(p).unwrap()[0], null_box, "{tree}");
+            assert_eq!(
+                tree.partition_bounds(p).unwrap().dims[0],
+                null_box,
+                "{tree}"
+            );
         }
         assert_eq!(
-            tree.partition_bounds(7).unwrap(),
-            vec![(Bound::Included(PdbOwnedValue::I64(0)), Bound::Unbounded)],
+            tree.partition_bounds(7).unwrap().ctid_fallback,
+            Some((Bound::Included(PdbOwnedValue::I64(0)), Bound::Unbounded)),
             "{tree}"
         );
         // No split value, on the key or on ctid, is NULL.
@@ -937,7 +972,13 @@ mod tests {
         };
         assert!(
             (0..8)
-                .flat_map(|p| tree.partition_bounds(p).unwrap())
+                .flat_map(|p| tree.partition_bounds(p).unwrap().dims)
+                .all(|(lo, hi)| !is_null(&lo) && !is_null(&hi)),
+            "{tree}"
+        );
+        assert!(
+            (0..8)
+                .flat_map(|p| tree.partition_bounds(p).unwrap().ctid_fallback)
                 .all(|(lo, hi)| !is_null(&lo) && !is_null(&hi)),
             "{tree}"
         );

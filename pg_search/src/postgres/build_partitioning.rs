@@ -1143,7 +1143,7 @@ mod tests {
 
         // Both declared fields end up cutting the space.
         let bounded_dims = (0..8)
-            .flat_map(|p| tree.partition_bounds(p).unwrap())
+            .flat_map(|p| tree.partition_bounds(p).unwrap().dims)
             .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
             .count();
         assert!(bounded_dims > 8, "{tree}");
@@ -1271,7 +1271,13 @@ mod tests {
         let label_width = 32 * 2 * 40 + 10;
         let mut saw_label_split = false;
         for p in 0..tree.partition_count() {
-            for (dim, (lower, upper)) in tree.partition_bounds(p).unwrap().into_iter().enumerate() {
+            for (dim, (lower, upper)) in tree
+                .partition_bounds(p)
+                .unwrap()
+                .dims
+                .into_iter()
+                .enumerate()
+            {
                 for bound in [lower, upper] {
                     let value = match bound {
                         std::ops::Bound::Included(v) | std::ops::Bound::Excluded(v) => Some(v),
@@ -1337,10 +1343,15 @@ mod tests {
 
         // Both declared fields end up cutting the space.
         let bounded_dims = (0..4)
-            .flat_map(|p| tree.partition_bounds(p).unwrap())
+            .flat_map(|p| tree.partition_bounds(p).unwrap().dims)
             .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
             .count();
         assert!(bounded_dims > 4, "{tree}");
+        // ctid is a declared field, so the fallback is never filled.
+        let fallback_dims = (0..4)
+            .flat_map(|p| tree.partition_bounds(p).unwrap().ctid_fallback)
+            .count();
+        assert_eq!(fallback_dims, 0, "{tree}");
 
         // With ctid declared there is no fallback, so ctid competes with `tenant_id` as an
         // equal. Ctid is unique and so wider than ten tenants, and it takes the root cut.

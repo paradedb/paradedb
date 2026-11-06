@@ -61,6 +61,7 @@ use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
 use crate::postgres::customscan::mpp::wakeup::{has_available_wakeup_slots, reserve_wakeup_slots};
 use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::scan::execution_plan::prepare_vector_routing;
 use crate::scan::info::{RowEstimate, ScanInfo};
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
@@ -398,6 +399,7 @@ pub fn launch_mpp(
     // (mpp_worker_sizing).
     crate::mpp_log!("launch: spawning {producer_count} producers");
     let attach = launcher.launch()?;
+    prepare_vector_routing(physical);
 
     let t_attach = std::time::Instant::now();
     let finish = attach.wait_for_attach()?;

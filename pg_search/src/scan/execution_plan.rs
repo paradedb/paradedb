@@ -33,6 +33,8 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, SchemaRef};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -60,8 +62,9 @@ use datafusion_proto::physical_plan::{
 use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
+use tantivy::vector::{VectorRoutingPlan, VectorRoutingPlanProvider};
 
-use crate::api::OrderByInfo;
+use crate::api::{HashMap, OrderByInfo};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -70,6 +73,7 @@ use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::mpp::interrupt::check_for_cancel;
+use crate::postgres::customscan::mpp::{run_on_main_thread, try_run_on_main_thread};
 use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -1114,6 +1118,23 @@ impl PgSearchScanPlan {
             None => None,
         };
 
+        let vector_routing_plan = try_run_on_main_thread(|token| {
+            state
+                .get(token)
+                .reader
+                .vector_routing_plan
+                .as_ref()
+                .map(|provider| {
+                    let plan = provider
+                        .get()
+                        .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                    serde_cbor::to_vec(plan)
+                        .map(|bytes| STANDARD.encode(bytes))
+                        .map_err(|e| DataFusionError::External(Box::new(e)))
+                })
+                .transpose()
+        })?;
+
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             dynamic_filters,
@@ -1134,6 +1155,7 @@ impl PgSearchScanPlan {
             partition_segments: self.partition_segments.clone(),
             scan_mode: scanner_config.scan_mode,
             lazy_sort,
+            vector_routing_plan,
             check_visibility,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
@@ -1160,6 +1182,20 @@ impl PgSearchScanPlan {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
         })?;
+
+        if parallel_state.is_some()
+            && descriptor.lazy_sort.as_ref().is_some_and(|sort| {
+                sort.orderby_info
+                    .as_ref()
+                    .and_then(|orders| orders.first())
+                    .is_some_and(OrderByInfo::is_vector_distance)
+            })
+            && descriptor.vector_routing_plan.is_none()
+        {
+            return Err(DataFusionError::Internal(
+                "PgSearchScan dispatch: vector scan is missing its global routing plan".into(),
+            ));
+        }
 
         let schema_proto = <datafusion_proto::protobuf::Schema as prost::Message>::decode(
             descriptor.schema_proto.as_slice(),
@@ -1228,7 +1264,7 @@ impl PgSearchScanPlan {
             }
             None => (None, None),
         };
-        let reader = SearchIndexReader::open_with_context(
+        let mut reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
             descriptor.score_needed,
@@ -1244,6 +1280,17 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
         })?;
 
+        reader.vector_routing_plan = descriptor
+            .vector_routing_plan
+            .map(|encoded| {
+                let bytes = STANDARD
+                    .decode(encoded)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                serde_cbor::from_slice::<VectorRoutingPlan>(&bytes)
+                    .map(|plan| Arc::new(plan) as Arc<dyn VectorRoutingPlanProvider>)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))
+            })
+            .transpose()?;
         let ffhelper = Arc::new(FFHelper::with_fields(
             &reader,
             &descriptor.which_fast_fields,
@@ -1410,6 +1457,7 @@ struct ScanDispatchDescriptor {
     partition_segments: Option<PartitionSegments>,
     scan_mode: crate::scan::ScanMode,
     lazy_sort: Option<LazySortConfigDescriptor>,
+    vector_routing_plan: Option<String>,
 }
 
 /// A classification received with a dispatched task, tagged by the view it is checked
@@ -2448,6 +2496,45 @@ pub(crate) fn visit_scan_nodes(
     for child in plan.children() {
         visit_scan_nodes(child, visit);
     }
+}
+
+pub(crate) fn prepare_vector_routing(plan: &Arc<dyn ExecutionPlan>) {
+    run_on_main_thread(|token| {
+        let mut plans = HashMap::default();
+        visit_scan_nodes(plan, &mut |scan| {
+            let Some((name, query, _)) = scan
+                .lazy_sort()
+                .and_then(|sort| sort.orderby_info.as_ref())
+                .and_then(|orders| orders.first())
+                .and_then(OrderByInfo::as_vector_distance)
+            else {
+                return;
+            };
+            let mut state = scan.state.lock().unwrap();
+            let scan_state = match &mut *state {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state.get_mut(token),
+                ExecutionState::Consumed | ExecutionState::Uninitialized => return,
+            };
+            let key = serde_json::to_vec(&(
+                scan_state.source_idx,
+                scan.indexrelid,
+                name,
+                query,
+                scan.resolved_query(),
+            ))
+            .expect("vector routing identity must serialize");
+            let plan = plans.entry(key).or_insert_with(|| {
+                // Build-side join filters are not available until workers execute.
+                Arc::new(
+                    scan_state
+                        .reader
+                        .vector_routing_plan(name, query, Some(0.0)),
+                )
+            });
+            scan_state.reader.vector_routing_plan = Some(Arc::clone(plan) as Arc<_>);
+        });
+    });
 }
 
 /// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values

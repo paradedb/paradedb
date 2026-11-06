@@ -832,7 +832,12 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
-    pub(crate) fn vector_routing_plan(&self, name: &FieldName, query: &[f32]) -> VectorRoutingPlan {
+    pub(crate) fn vector_routing_plan(
+        &self,
+        name: &FieldName,
+        query: &[f32],
+        match_fraction: Option<f64>,
+    ) -> VectorRoutingPlan {
         let field = self
             .schema
             .tantivy_schema()
@@ -860,18 +865,21 @@ impl SearchIndexReader {
                 partition_centroid: centroid.as_deref(),
             })
             .collect::<Vec<_>>();
-        let (matches, docs) = readers
-            .iter()
-            .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
-                let estimated = self
-                    .query
-                    .estimate_docs(reader)
-                    .ok()
-                    .flatten()
-                    .map_or(0, |estimate| estimate.live_docs(reader));
-                (matches + estimated, docs + u64::from(reader.num_docs()))
-            });
-        let match_fraction = matches as f64 / docs.max(1) as f64;
+        let match_fraction = match_fraction.unwrap_or_else(|| {
+            let (matches, docs) =
+                readers
+                    .iter()
+                    .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
+                        let estimated = self
+                            .query
+                            .estimate_docs(reader)
+                            .ok()
+                            .flatten()
+                            .map_or(0, |estimate| estimate.live_docs(reader));
+                        (matches + estimated, docs + u64::from(reader.num_docs()))
+                    });
+            matches as f64 / docs.max(1) as f64
+        });
         VectorRoutingPlan::build(
             field,
             query.to_vec(),
@@ -2396,6 +2404,12 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
+                let routing_plan = self.vector_routing_plan.clone().or_else(|| {
+                    matches!(batching, SegmentBatching::PerSegment).then(|| {
+                        Arc::new(self.vector_routing_plan(name, &query_vector, Some(0.0)))
+                            as Arc<dyn VectorRoutingPlanProvider>
+                    })
+                });
                 let max_scan_levels = gucs::vector_max_scan_levels();
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
@@ -2415,8 +2429,8 @@ impl SearchIndexReader {
                     ));
                 }
 
-                if let Some(plan) = &self.vector_routing_plan {
-                    collector = collector.with_routing_plan_provider(Arc::clone(plan));
+                if let Some(plan) = routing_plan {
+                    collector = collector.with_routing_plan_provider(plan);
                 }
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();

@@ -443,7 +443,7 @@ impl BaseScanState {
                     .search_reader
                     .as_ref()
                     .expect("search reader must be open");
-                Some(Arc::new(reader.vector_routing_plan(name, query)))
+                Some(Arc::new(reader.vector_routing_plan(name, query, None)))
             }
             _ => None,
         };

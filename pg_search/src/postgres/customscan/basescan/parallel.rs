@@ -20,7 +20,7 @@
 
 use std::os::raw::c_void;
 use std::ptr::NonNull;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use crate::scan::execution_plan::UnsafeSendSync;
 use tantivy::vector::{VectorRoutingPlan, VectorRoutingPlanProvider};
@@ -34,9 +34,9 @@ use crate::postgres::customscan::dsm::ParallelQueryCapable;
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
-struct ParallelVectorRoutingPlan {
-    shared: UnsafeSendSync<(*mut ParallelScanState, *mut dsa_area)>,
-    plan: OnceLock<VectorRoutingPlan>,
+pub(super) struct ParallelVectorRoutingPlan {
+    pub(super) shared: UnsafeSendSync<(*mut ParallelScanState, *mut dsa_area)>,
+    pub(super) plan: OnceLock<VectorRoutingPlan>,
 }
 
 impl VectorRoutingPlanProvider for ParallelVectorRoutingPlan {
@@ -181,11 +181,10 @@ impl ParallelQueryCapable for BaseScan {
             let planned_workers = (*pcxt).nworkers as u32;
             (*pscan_state).bitmap_slots = planned_workers + 1;
             leader_publish_bitmap(state, pscan_state);
-            leader_publish_vector_routing_plan(
-                state,
-                &mut *pscan_state,
-                pg_sys::parallel_leader_participation,
-            );
+            let area = query_area(state);
+            state
+                .custom_state_mut()
+                .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation);
         }
     }
 
@@ -223,18 +222,19 @@ impl ParallelQueryCapable for BaseScan {
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
         if unsafe { !pg_sys::parallel_leader_participation }
-            && uses_leader_vector_routing(state, state.custom_state().search_query_input())
+            && state
+                .custom_state()
+                .needs_vector_routing(state.custom_state().search_query_input())
         {
             BaseScan::init_search_reader(state);
         }
         unsafe { leader_publish_query(state, pscan_state) };
         unsafe { leader_publish_bitmap(state, pscan_state) };
         unsafe {
-            leader_publish_vector_routing_plan(
-                state,
-                pscan_state,
-                pg_sys::parallel_leader_participation,
-            )
+            let area = query_area(state);
+            state
+                .custom_state_mut()
+                .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation)
         };
     }
 
@@ -253,14 +253,15 @@ impl ParallelQueryCapable for BaseScan {
         };
         let query = unsafe { (*pscan_state).query(query_area(state)) }
             .expect("should be able to read the query from the ParallelScanState");
-        state.custom_state_mut().vector_routing_pending = uses_leader_vector_routing(state, &query);
+        state.custom_state_mut().vector_routing_pending =
+            state.custom_state().needs_vector_routing(&query);
         state.custom_state_mut().set_base_search_query_input(query);
     }
 }
 
 /// The parallel query's DSA area. Postgres installs it on the EState around the DSM
 /// callbacks and local execution in the leader, and for the whole run in a worker.
-fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+pub(super) fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
     let area = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
     assert!(
         !area.is_null(),
@@ -277,98 +278,6 @@ unsafe fn leader_publish_query(
     let query = serde_json::to_vec(state.custom_state().search_query_input())
         .expect("should be able to serialize query");
     unsafe { pscan_state.publish_query(query_area(state), &query) };
-}
-
-fn uses_leader_vector_routing(
-    state: &CustomScanStateWrapper<BaseScan>,
-    query: &crate::query::SearchQueryInput,
-) -> bool {
-    let custom = state.custom_state();
-    !query.is_match_all()
-        && custom
-            .orderby_info()
-            .as_ref()
-            .and_then(|orders| orders.first())
-            .is_some_and(|order| order.is_vector_distance())
-}
-
-unsafe fn leader_publish_vector_routing_plan(
-    state: &mut CustomScanStateWrapper<BaseScan>,
-    pscan_state: &mut ParallelScanState,
-    defer: bool,
-) {
-    let started = crate::gucs::vector_stats().then(std::time::Instant::now);
-    let custom = state.custom_state();
-    let plan = match custom
-        .orderby_info()
-        .as_ref()
-        .and_then(|infos| infos.first())
-    {
-        Some(crate::api::OrderByInfo {
-            feature:
-                crate::api::OrderByFeature::VectorDistance {
-                    name, query_vector, ..
-                },
-            ..
-        }) if uses_leader_vector_routing(state, custom.search_query_input()) => {
-            // A nonparticipating leader never executes this scan, so it must route at init.
-            if defer {
-                state.custom_state_mut().vector_routing_pending = true;
-                return;
-            }
-            let query = query_vector
-                .resolved()
-                .expect("query vector must be resolved before routing");
-            let reader = custom
-                .search_reader
-                .as_ref()
-                .expect("search reader must be open");
-            Some(std::sync::Arc::new(
-                reader.route_vector_segments(name, query),
-            ))
-        }
-        _ => None,
-    };
-    state.custom_state_mut().vector_routing_build_ms =
-        started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
-    let publish_started = started.map(|_| std::time::Instant::now());
-    unsafe { pscan_state.publish_vector_routing_plan(query_area(state), plan.as_deref()) }
-        .expect("should be able to publish the vector routing plan");
-    state.custom_state_mut().vector_routing_publish_ms =
-        publish_started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
-    let plan = plan.map(|plan| plan as Arc<dyn VectorRoutingPlanProvider>);
-    state.custom_state_mut().vector_routing_plan = plan.clone();
-    state.custom_state_mut().vector_routing_pending = false;
-    if let Some(reader) = state.custom_state_mut().search_reader.as_mut() {
-        reader.vector_routing_plan = plan;
-    }
-}
-
-pub(super) fn ensure_vector_routing_plan(state: &mut CustomScanStateWrapper<BaseScan>) {
-    if !state.custom_state().vector_routing_pending {
-        return;
-    }
-    let parallel = state
-        .custom_state()
-        .parallel
-        .expect("parallel scan must be attached");
-    if parallel.is_leader() {
-        unsafe { leader_publish_vector_routing_plan(state, &mut *parallel.dsm_ptr(), false) };
-    } else {
-        let plan: Option<Arc<dyn VectorRoutingPlanProvider>> =
-            Some(Arc::new(ParallelVectorRoutingPlan {
-                shared: UnsafeSendSync((parallel.dsm_ptr(), query_area(state))),
-                plan: OnceLock::new(),
-            }));
-        state.custom_state_mut().vector_routing_plan = plan.clone();
-        state.custom_state_mut().vector_routing_pending = false;
-        state
-            .custom_state_mut()
-            .search_reader
-            .as_mut()
-            .expect("search reader must be open")
-            .vector_routing_plan = plan;
-    }
 }
 
 /// Leader-only: ensure the reader (and with it the executed query and cell) exists,

@@ -245,19 +245,16 @@ pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
     )
 }
 
-/// Builds the PostgreSQL error for vector storage this build can't read without a rebuild.
-pub(crate) fn vector_format_error_report(
-    index_name: &str,
-    error: &tantivy::TantivyError,
-) -> Option<pgrx::pg_sys::panic::ErrorReport> {
-    needs_rebuild(error).then(|| {
+fn report_vector_error(index_name: &str, error: &tantivy::TantivyError) {
+    if needs_rebuild(error) {
         pgrx::pg_sys::panic::ErrorReport::new(
             pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
             format!("index {index_name:?} has an unsupported vector storage format: {error}"),
             pgrx::function_name!(),
         )
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
-    })
+        .report(pgrx::PgLogLevel::ERROR);
+    }
 }
 
 fn probe_stats_to_segment_info(
@@ -833,8 +830,6 @@ impl SearchIndexReader {
         name: &FieldName,
         query: &[f32],
     ) -> tantivy::vector::VectorRoutingPlan {
-        self.validate_vector_segments()
-            .expect("vector segments must be readable");
         let field = self
             .schema
             .tantivy_schema()
@@ -894,28 +889,23 @@ impl SearchIndexReader {
                 }
             },
         )
+        .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
         .expect("global vector routing should succeed")
     }
 
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
     /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub(crate) fn validate_vector_segments(&self) -> Result<()> {
-        let result = self.vector_segments_valid.get_or_init(|| {
-            self.searcher
-                .segment_readers()
-                .iter()
-                .try_for_each(SegmentReader::validate_vector_format)
-        });
-        match result {
-            Ok(()) => Ok(()),
-            Err(error) => match vector_format_error_report(self.index_rel.name(), error) {
-                Some(report) => {
-                    report.report(pgrx::PgLogLevel::ERROR);
-                    unreachable!("PostgreSQL ERROR reports do not return")
-                }
-                None => Err(error.clone().into()),
-            },
-        }
+        self.vector_segments_valid
+            .get_or_init(|| {
+                self.searcher
+                    .segment_readers()
+                    .iter()
+                    .try_for_each(SegmentReader::validate_vector_format)
+            })
+            .clone()
+            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+            .map_err(Into::into)
     }
 
     /// Returns the minimum and maximum heap block numbers represented in the segment.
@@ -2386,8 +2376,6 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
-                self.validate_vector_segments()
-                    .expect("vector segments must be readable");
                 if orderby_info[1..].iter().any(|o| o.is_score()) {
                     panic!(
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
@@ -3212,6 +3200,7 @@ impl SearchIndexReader {
                     .collect::<Vec<_>>();
                 collector
                     .collect_segments(weight.as_ref(), &segments, on_segment)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("vector collection should not fail")
             })
             .collect();
@@ -3407,6 +3396,7 @@ impl SearchIndexReader {
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("should be able to collect in segment");
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
@@ -3446,6 +3436,7 @@ impl SearchIndexReader {
                 };
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("should be able to collect in segment");
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());

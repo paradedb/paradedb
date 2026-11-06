@@ -1353,6 +1353,18 @@ mod tests {
     }
 
     #[pg_test]
+    fn vector_routing_does_not_validate_pruned_segments() {
+        use crate::api::FieldName;
+        use crate::index::reader::index::test_support::{open_snapshot_reader, range_query};
+
+        let index = vector_metadata_fixture();
+        replace_vector_version(&index, 99);
+        let reader = open_snapshot_reader(&index, range_query("id", -10, -1), false);
+        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 0);
+        reader.route_vector_segments(&FieldName::from("vec"), &[1.0; 1024]);
+    }
+
+    #[pg_test]
     fn unsupported_vector_storage_names_index_and_reindex() {
         let indexrel = vector_metadata_fixture();
         Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();

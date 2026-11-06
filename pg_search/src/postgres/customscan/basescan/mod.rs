@@ -36,7 +36,7 @@ use cost::{
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
@@ -2094,7 +2094,39 @@ impl CustomScan for BaseScan {
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
-        parallel::ensure_vector_routing_plan(state);
+        // Build the leader's routing plan on first execution; workers wait for publication
+        // only when they need the plan, after evaluating their segment filters.
+        if state.custom_state().vector_routing_pending {
+            let parallel = state
+                .custom_state()
+                .parallel
+                .expect("parallel scan must be attached");
+            let area = parallel::query_area(state);
+            if parallel.is_leader() {
+                unsafe {
+                    state
+                        .custom_state_mut()
+                        .leader_publish_vector_routing_plan(area, false)
+                };
+            } else {
+                let plan: Option<Arc<dyn tantivy::vector::VectorRoutingPlanProvider>> =
+                    Some(Arc::new(parallel::ParallelVectorRoutingPlan {
+                        shared: crate::scan::execution_plan::UnsafeSendSync((
+                            parallel.dsm_ptr(),
+                            area,
+                        )),
+                        plan: OnceLock::new(),
+                    }));
+                let custom = state.custom_state_mut();
+                custom.vector_routing_plan = plan.clone();
+                custom.vector_routing_pending = false;
+                custom
+                    .search_reader
+                    .as_mut()
+                    .expect("search reader must be open")
+                    .vector_routing_plan = plan;
+            }
+        }
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();

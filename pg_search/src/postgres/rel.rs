@@ -27,77 +27,15 @@ use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
-use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::ptr::NonNull;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use tantivy::TantivyError;
 use tantivy::directory::RamDirectory;
 use tantivy::index::{Index, IndexSettings, Order};
-
-type NeedClose = bool;
-
-#[repr(transparent)]
-struct IsCreateIndex(Rc<RefCell<bool>>);
-impl Default for IsCreateIndex {
-    fn default() -> Self {
-        Self(Rc::new(RefCell::new(false)))
-    }
-}
-impl IsCreateIndex {
-    fn set(&self, value: bool) {
-        self.0.replace(value);
-    }
-
-    fn get(&self) -> bool {
-        *self.0.borrow()
-    }
-}
-
-#[repr(transparent)]
-struct ForkNumber(Rc<RefCell<pg_sys::ForkNumber::Type>>);
-impl Default for ForkNumber {
-    fn default() -> Self {
-        Self(Rc::new(RefCell::new(pg_sys::ForkNumber::MAIN_FORKNUM)))
-    }
-}
-impl ForkNumber {
-    fn set(&self, value: pg_sys::ForkNumber::Type) {
-        self.0.replace(value);
-    }
-
-    fn get(&self) -> pg_sys::ForkNumber::Type {
-        *self.0.borrow()
-    }
-}
-
-/// A lazily-evaluated flag for if a relation needs WAL or not.
-#[repr(transparent)]
-struct NeedWal(Rc<RefCell<Option<bool>>>);
-impl Default for NeedWal {
-    /// Default WAL status is "unknown"
-    fn default() -> Self {
-        Self(Rc::new(RefCell::new(None)))
-    }
-}
-
-impl NeedWal {
-    /// Set if WAL is needed or not, replacing any previous value
-    fn set(&self, value: bool) {
-        self.0.replace(Some(value));
-    }
-
-    /// Indicates if WAL is needed or not.  If the decision is currently unknown, this
-    /// will check to see if Postgres generally thinks the Relation itself needs WAL
-    fn get(&self, rel: pg_sys::Relation) -> bool {
-        *self
-            .0
-            .borrow_mut()
-            .get_or_insert_with(|| relation_needs_wal(rel))
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum SchemaError {
@@ -116,30 +54,68 @@ impl Display for SchemaError {
 
 impl Error for SchemaError {}
 
+struct PgSearchRelationInner {
+    relation: NonNull<pg_sys::RelationData>,
+    need_close: bool,
+    lockmode: Option<pg_sys::LOCKMODE>,
+    schema: parking_lot::Mutex<Option<Result<SearchIndexSchema, SchemaError>>>,
+    options: BM25IndexOptions,
+    is_create_index: AtomicBool,
+    fork_number: AtomicI32,
+    need_wal: parking_lot::Mutex<Option<bool>>,
+}
+
+impl PgSearchRelationInner {
+    // `PgSearchRelationInner` is intentionally `!Send` and `!Sync` so bare `PgSearchRelation`
+    // values cannot be sent across threads without an explicit wrapper (such as `MainThread` or
+    // `RelationBufferAccess`), but it must still use atomic reference counting (`Arc`, not `Rc`)
+    // because wrapped clones can be dropped concurrently on worker threads and the main thread.
+    #[allow(clippy::arc_with_non_send_sync)]
+    fn new(
+        relation: NonNull<pg_sys::RelationData>,
+        need_close: bool,
+        lockmode: Option<pg_sys::LOCKMODE>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            relation,
+            need_close,
+            lockmode,
+            schema: parking_lot::Mutex::new(None),
+            options: unsafe { BM25IndexOptions::from_relation(relation.as_ptr()) },
+            is_create_index: AtomicBool::new(false),
+            fork_number: AtomicI32::new(pg_sys::ForkNumber::MAIN_FORKNUM),
+            need_wal: parking_lot::Mutex::new(None),
+        })
+    }
+}
+
+struct RelationCloseOnMainThread {
+    relation: usize,
+    lockmode: Option<pg_sys::LOCKMODE>,
+}
+
+crate::impl_safe_drop!(RelationCloseOnMainThread, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            let rel = self.relation as pg_sys::Relation;
+            match self.lockmode {
+                Some(lockmode) => pg_sys::relation_close(rel, lockmode),
+                None => pg_sys::RelationClose(rel),
+            }
+        }
+    }
+});
+
 /// Represents an opened Postgres relation to be used by pg_search.
 ///
-/// [`PgSearchRelation`] is reference counted and will close the underlying
-/// [`pg_sys::Relation`] when the last reference is dropped, accounting for
-/// the state of the current transaction.
+/// [`PgSearchRelation`] is atomically reference counted and will close the underlying
+/// [`pg_sys::Relation`] on the Postgres main thread when the last reference is dropped,
+/// accounting for the state of the current transaction.
 ///
 /// Instances of [`PgSearchRelation`] can be closed as necessary.
-#[allow(clippy::type_complexity)]
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct PgSearchRelation(
-    Option<
-        Rc<(
-            NonNull<pg_sys::RelationData>,
-            NeedClose,
-            Option<pg_sys::LOCKMODE>,
-            RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
-            BM25IndexOptions,
-            IsCreateIndex,
-            ForkNumber,
-            NeedWal,
-        )>,
-    >,
-);
+pub struct PgSearchRelation(Option<Arc<PgSearchRelationInner>>);
 
 impl Debug for PgSearchRelation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -150,22 +126,25 @@ impl Debug for PgSearchRelation {
     }
 }
 
-crate::impl_safe_drop!(PgSearchRelation, |self| {
-    let Some(rc) = self.0.take() else {
-        return;
-    };
-    let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
-        return;
-    };
-    unsafe {
-        if need_close && pg_sys::IsTransactionState() {
-            match lockmode {
-                Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
-                None => pg_sys::RelationClose(relation.as_ptr()),
-            }
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the final
+// `RelationCloseOnMainThread` cleanup to `drop_on_main_thread`, where its own `Drop` impl uses
+// `impl_safe_drop!`.
+impl Drop for PgSearchRelation {
+    fn drop(&mut self) {
+        let Some(arc) = self.0.take() else {
+            return;
+        };
+        let Some(inner) = Arc::into_inner(arc) else {
+            return;
+        };
+        if inner.need_close {
+            crate::postgres::customscan::mpp::drop_on_main_thread(RelationCloseOnMainThread {
+                relation: inner.relation.as_ptr() as usize,
+                lockmode: inner.lockmode,
+            });
         }
     }
-});
+}
 
 impl Deref for PgSearchRelation {
     type Target = pg_sys::RelationData;
@@ -182,17 +161,12 @@ impl PgSearchRelation {
     ///
     /// This relation will not be closed when we're dropped.
     pub unsafe fn from_pg(relation: pg_sys::Relation) -> Self {
-        Self(Some(Rc::new((
+        Self(Some(PgSearchRelationInner::new(
             NonNull::new(relation)
                 .expect("PgSearchRelation::from_pg: provided relation cannot be NULL"),
             false,
             None,
-            Default::default(),
-            BM25IndexOptions::from_relation(relation),
-            IsCreateIndex::default(),
-            ForkNumber::default(),
-            NeedWal::default(),
-        ))))
+        )))
     }
 
     /// Open a relation with the specified [`pg_sys::Oid`].
@@ -207,16 +181,11 @@ impl PgSearchRelation {
                 panic!("relation not found, suggesting it was just dropped");
             }
 
-            Self(Some(Rc::new((
+            Self(Some(PgSearchRelationInner::new(
                 NonNull::new_unchecked(relation),
                 true,
                 None,
-                Default::default(),
-                BM25IndexOptions::from_relation(relation),
-                IsCreateIndex::default(),
-                ForkNumber::default(),
-                NeedWal::default(),
-            ))))
+            )))
         }
     }
 
@@ -230,16 +199,11 @@ impl PgSearchRelation {
             if relation.is_null() {
                 None
             } else {
-                Some(Self(Some(Rc::new((
+                Some(Self(Some(PgSearchRelationInner::new(
                     NonNull::new_unchecked(relation),
                     true,
                     None,
-                    Default::default(),
-                    BM25IndexOptions::from_relation(relation),
-                    IsCreateIndex::default(),
-                    ForkNumber::default(),
-                    NeedWal::default(),
-                )))))
+                ))))
             }
         }
     }
@@ -251,33 +215,40 @@ impl PgSearchRelation {
         unsafe {
             // SAFETY: relation_open() always returns a valid RelationData pointer
             let relation = pg_sys::relation_open(oid, lockmode);
-            Self(Some(Rc::new((
+            Self(Some(PgSearchRelationInner::new(
                 NonNull::new_unchecked(relation),
                 true,
                 Some(lockmode),
-                Default::default(),
-                BM25IndexOptions::from_relation(relation),
-                IsCreateIndex::default(),
-                ForkNumber::default(),
-                NeedWal::default(),
-            ))))
+            )))
         }
     }
 
     pub fn set_is_create_index(&mut self) {
-        self.0.as_ref().unwrap().5.set(true);
+        self.0
+            .as_ref()
+            .unwrap()
+            .is_create_index
+            .store(true, Ordering::Relaxed);
     }
 
     pub fn is_create_index(&self) -> bool {
-        self.0.as_ref().unwrap().5.get()
+        self.0
+            .as_ref()
+            .unwrap()
+            .is_create_index
+            .load(Ordering::Relaxed)
     }
 
     pub fn set_fork_number(&mut self, fork_number: pg_sys::ForkNumber::Type) {
-        self.0.as_ref().unwrap().6.set(fork_number);
+        self.0
+            .as_ref()
+            .unwrap()
+            .fork_number
+            .store(fork_number, Ordering::Relaxed);
     }
 
     pub fn fork_number(&self) -> pg_sys::ForkNumber::Type {
-        self.0.as_ref().unwrap().6.get()
+        self.0.as_ref().unwrap().fork_number.load(Ordering::Relaxed)
     }
 
     /// Returns false if in the middle of a `REINDEX CONCURRENTLY`
@@ -307,18 +278,25 @@ impl PgSearchRelation {
     /// Allows the user to decide for themselves if this [`PgSearchRelation`] instance (and all its
     /// clones) need to do WAL or not.
     pub fn set_need_wal(&mut self, need_wal: bool) {
-        self.0.as_ref().unwrap().7.set(need_wal);
+        *self.0.as_ref().unwrap().need_wal.lock() = Some(need_wal);
     }
 
     /// Returns true if Postgres thinks this relation needs WAL *or* instead returns the WAL-ness
     /// based on a prior call to `set_need_wal`.
     pub fn need_wal(&self) -> bool {
-        self.0.as_ref().unwrap().7.get(self.as_ptr())
+        let rel = self.as_ptr();
+        *self
+            .0
+            .as_ref()
+            .unwrap()
+            .need_wal
+            .lock()
+            .get_or_insert_with(|| relation_needs_wal(rel))
     }
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {
         // SAFETY: self.0 is always Some
-        unsafe { self.0.as_ref().unwrap_unchecked().2 }
+        unsafe { self.0.as_ref().unwrap_unchecked().lockmode }
     }
 
     pub fn oid(&self) -> pg_sys::Oid {
@@ -362,7 +340,7 @@ impl PgSearchRelation {
 
     pub fn as_ptr(&self) -> pg_sys::Relation {
         // SAFETY: self.0 is always Some
-        unsafe { self.0.as_ref().unwrap_unchecked().0.as_ptr() }
+        unsafe { self.0.as_ref().unwrap_unchecked().relation.as_ptr() }
     }
 
     /// Bytes available to a non-privileged process on the filesystem backing this relation's
@@ -480,14 +458,14 @@ impl PgSearchRelation {
     pub fn options(&self) -> &BM25IndexOptions {
         unsafe {
             // SAFETY: self.0 is always Some
-            &self.0.as_ref().unwrap_unchecked().4
+            &self.0.as_ref().unwrap_unchecked().options
         }
     }
 
     pub fn schema(&self) -> Result<SearchIndexSchema, SchemaError> {
-        let rc = self.0.as_ref().unwrap();
-        let mut borrow = rc.3.borrow_mut();
-        let schema = borrow.get_or_insert_with(|| {
+        let arc = self.0.as_ref().unwrap();
+        let mut guard = arc.schema.lock();
+        let schema = guard.get_or_insert_with(|| {
             if !unsafe { (*self.rd_rel).relam.is_paradedb_am() } {
                 return Err(SchemaError::RelationNotBM25Index);
             }

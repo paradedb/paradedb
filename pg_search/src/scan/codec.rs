@@ -53,8 +53,9 @@ struct PgSearchExtensionCodec {
     explain_only: bool,
 }
 
-// SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
-// process-local fields (raw pointers, the reference-counted manifests) never cross a thread.
+// SAFETY: Logical plan serialization/deserialization runs synchronously on the Postgres main
+// thread during query planning/execution setup, so the process-local fields (raw pointers and
+// reference-counted manifests) are only ever dereferenced on the main thread.
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
 
@@ -413,9 +414,7 @@ mod tests {
         .expect("deserialize with manifest");
 
         let session = datafusion::prelude::SessionContext::new();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         let physical = runtime
             .block_on(session.state().create_physical_plan(&decoded))
             .expect("physical plan (runs the provider's scan)");

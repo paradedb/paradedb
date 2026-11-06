@@ -1085,9 +1085,16 @@ impl Assembler<'_> {
         // The datetime sentinel is a valid timestamp, so it has to go before the
         // rewrite would turn it into one.
         scrub_missing_sentinel_value(&mut json);
-        rewrite_aggregate_result_json_timestamps_with(&mut json, &entry.agg_json, &|name| {
-            entry.datetime_fields.contains(name)
-        });
+        if !entry.datetime_fields.is_empty() {
+            crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+                rewrite_aggregate_result_json_timestamps_with(
+                    &mut json,
+                    &entry.agg_json,
+                    &|name| entry.datetime_fields.contains(name),
+                );
+                Ok(())
+            })?;
+        }
         Ok(json)
     }
 }

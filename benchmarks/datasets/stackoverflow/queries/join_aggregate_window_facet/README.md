@@ -10,4 +10,4 @@
 
 ## Comparison Strategy
 
-`pdb.agg(...) OVER ()` over a join is only supported by ParadeDB's Join Scan, so native PostgreSQL (`postgres.sql`) and Base Scan (`basescan.sql`) variants are not applicable.
+`pdb.agg(...) OVER ()` over a join is only supported by ParadeDB's Join Scan, so native PostgreSQL (`postgres.sql`) and Base Scan (`basescan.sql`) variants are not applicable. `two_queries.sql` computes the same result by combining a Top-K Join Scan CTE with a scalar `pdb.agg(...)` Aggregate Scan CTE via `CROSS JOIN`.

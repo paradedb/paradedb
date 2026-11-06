@@ -1,0 +1,298 @@
+-- MIN and MAX over bigint must stay exact past 2^53, including COALESCE arguments.
+-- Tantivy computes them in f64, so they run on the DataFusion aggregate backend.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE issue_7263_t (id bigint PRIMARY KEY, grp int4, b int8, small int4, body text);
+INSERT INTO issue_7263_t VALUES
+    (1234567890123456789, 1, 9223372036854775807,  1, 'payment failed'),
+    (1234567890123456001, 1, -9223372036854775808, 2, 'payment ok'),
+    (1234567890123456003, 2, 9007199254740993,     3, 'payment late'),
+    (1234567890123456005, 2, -9007199254740993,    4, 'payment held'),
+    (1234567890123456007, 3, NULL,                 5, 'payment void');
+CREATE INDEX issue_7263_t_idx ON issue_7263_t USING paradedb (id, grp, b, small, body);
+CREATE TABLE issue_7263_u (id bigint PRIMARY KEY, grp int4, v int8, body text);
+INSERT INTO issue_7263_u VALUES (1, 1, 9007199254740993, 'refund'), (2, 1, NULL, 'refund');
+CREATE INDEX issue_7263_u_idx ON issue_7263_u USING paradedb (id, grp, v, body);
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- MIN and MAX of a bigint run in the DataFusion aggregate backend
+EXPLAIN (COSTS OFF)
+SELECT MAX(id), MIN(id) FROM issue_7263_t WHERE body ||| 'payment';
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: issue_7263_t_idx (issue_7263_t)
+   Aggregates: MAX(id), MIN(id)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[max(issue_7263_t_0.id) as agg_0, min(issue_7263_t_0.id) as agg_1]
+     :   CooperativeExec
+     :     PgSearchScan: table=issue_7263_t, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"body","value":"payment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(8 rows)
+
+-- COALESCE stays pushed down, and applies its default
+EXPLAIN (COSTS OFF)
+SELECT MAX(COALESCE(b, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: issue_7263_t_idx (issue_7263_t)
+   Aggregates: MAX(COALESCE(b, 0))
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[max(CASE WHEN issue_7263_t_0.b IS NOT NULL THEN issue_7263_t_0.b ELSE 0 END) as agg_0]
+     :   CooperativeExec
+     :     PgSearchScan: table=issue_7263_t, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"body","value":"payment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(8 rows)
+
+-- Aggregates that read a COALESCE on Tantivy stay pushed down beside it
+EXPLAIN (COSTS OFF)
+SELECT COUNT(COALESCE(b, 0)), SUM(COALESCE(b, 0)), MAX(COALESCE(b, 0))
+FROM issue_7263_t WHERE body ||| 'payment';
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: issue_7263_t_idx (issue_7263_t)
+   Aggregates: COUNT(COALESCE(b, 0)), SUM(COALESCE(b, 0)), MAX(COALESCE(b, 0))
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(__common_expr_1) as agg_0, sum(__common_expr_1) as agg_1, max(__common_expr_1) as agg_2]
+     :   ProjectionExec: expr=[CASE WHEN b@0 IS NOT NULL THEN b@0 ELSE 0 END as __common_expr_1]
+     :     CooperativeExec
+     :       PgSearchScan: table=issue_7263_t, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"body","value":"payment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+-- int4 is exact in f64, so it stays on Tantivy
+EXPLAIN (COSTS OFF)
+SELECT MAX(small), MIN(small) FROM issue_7263_t WHERE body ||| 'payment';
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on issue_7263_t
+   Index: issue_7263_t_idx
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"payment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     Applies to Aggregates: MAX(small), MIN(small)
+     Aggregate Definition: {"0":{"max":{"field":"small","missing":null}},"1":{"min":{"field":"small","missing":null}}}
+(5 rows)
+
+SELECT MAX(id), MIN(id) FROM issue_7263_t WHERE body ||| 'payment';
+         max         |         min         
+---------------------+---------------------
+ 1234567890123456789 | 1234567890123456001
+(1 row)
+
+SELECT MAX(b), MIN(b) FROM issue_7263_t WHERE body ||| 'payment';
+         max         |         min          
+---------------------+----------------------
+ 9223372036854775807 | -9223372036854775808
+(1 row)
+
+SELECT * FROM issue_7263_t
+WHERE id = (SELECT MAX(id) FROM issue_7263_t WHERE body ||| 'payment');
+         id          | grp |          b          | small |      body      
+---------------------+-----+---------------------+-------+----------------
+ 1234567890123456789 |   1 | 9223372036854775807 |     1 | payment failed
+(1 row)
+
+SELECT grp, MAX(id), MIN(b) FROM issue_7263_t WHERE body ||| 'payment' GROUP BY grp ORDER BY grp;
+ grp |         max         |         min          
+-----+---------------------+----------------------
+   1 | 1234567890123456789 | -9223372036854775808
+   2 | 1234567890123456005 |    -9007199254740993
+   3 | 1234567890123456007 |                     
+(3 rows)
+
+SELECT MAX(id), COUNT(*) FROM issue_7263_t WHERE body ||| 'payment';
+         max         | count 
+---------------------+-------
+ 1234567890123456789 |     5
+(1 row)
+
+SELECT MAX(id) FILTER (WHERE grp > 1) FROM issue_7263_t WHERE body ||| 'payment';
+         max         
+---------------------
+ 1234567890123456007
+(1 row)
+
+SELECT grp FROM issue_7263_t WHERE body ||| 'payment'
+GROUP BY grp HAVING MAX(id) = 1234567890123456789 ORDER BY grp;
+ grp 
+-----
+   1
+(1 row)
+
+SELECT MAX(id) FROM issue_7263_t WHERE body ||| 'nomatch';
+ max 
+-----
+    
+(1 row)
+
+-- COALESCE: a NULL reads as the default, and an exact default survives
+SELECT MAX(COALESCE(b, 0)), MIN(COALESCE(b, 0)) FROM issue_7263_t WHERE body ||| 'void OR late';
+       max        | min 
+------------------+-----
+ 9007199254740993 |   0
+(1 row)
+
+SELECT MAX(COALESCE(b, 1234567890123456789)) FROM issue_7263_t WHERE body ||| 'void';
+         max         
+---------------------
+ 1234567890123456789
+(1 row)
+
+SELECT MIN(COALESCE(id, 5)) FROM issue_7263_t WHERE body ||| 'payment';
+         min         
+---------------------
+ 1234567890123456001
+(1 row)
+
+SELECT grp, MAX(COALESCE(b, 7)) FROM issue_7263_t WHERE body ||| 'payment' GROUP BY grp ORDER BY grp;
+ grp |         max         
+-----+---------------------
+   1 | 9223372036854775807
+   2 |    9007199254740993
+   3 |                   7
+(3 rows)
+
+SELECT COUNT(COALESCE(b, 0)), SUM(COALESCE(b, 0)), MAX(COALESCE(b, 0))
+FROM issue_7263_t WHERE body ||| 'payment';
+ count | sum |         max         
+-------+-----+---------------------
+     5 |  -1 | 9223372036854775807
+(1 row)
+
+SELECT SUM(COALESCE(id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+         sum         
+---------------------
+ 6172839450617280805
+(1 row)
+
+-- The default also applies to rows a LEFT JOIN leaves unmatched
+EXPLAIN (COSTS OFF)
+SELECT MIN(COALESCE(u.v, -1)), MAX(COALESCE(u.v, -1)), COUNT(COALESCE(u.v, -1))
+FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| 'payment';
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: issue_7263_t_idx (t), issue_7263_u_idx (u)
+   Aggregates: MIN(COALESCE(v, -1)), MAX(COALESCE(v, -1)), COUNT(COALESCE(v, -1))
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[min(__common_expr_1) as agg_0, max(__common_expr_1) as agg_1, count(__common_expr_1) as agg_2]
+     :   ProjectionExec: expr=[CASE WHEN v@0 IS NOT NULL THEN v@0 ELSE -1 END as __common_expr_1]
+     :     HashJoinExec: mode=CollectLeft, join_type=Right, on=[(grp@1, grp@0)], projection=[v@0]
+     :       CooperativeExec
+     :         PgSearchScan: table=u, segments=1, visibility=eager, query="all"
+     :       CooperativeExec
+     :         PgSearchScan: table=t, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"body","value":"payment","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(12 rows)
+
+SELECT MIN(COALESCE(u.v, -1)), MAX(COALESCE(u.v, -1)), COUNT(COALESCE(u.v, -1))
+FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| 'payment';
+ min |       max        | count 
+-----+------------------+-------
+  -1 | 9007199254740993 |     7
+(1 row)
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT MAX(id), MIN(id) FROM issue_7263_t WHERE body ||| 'payment';
+         max         |         min         
+---------------------+---------------------
+ 1234567890123456789 | 1234567890123456001
+(1 row)
+
+SELECT MAX(b), MIN(b) FROM issue_7263_t WHERE body ||| 'payment';
+         max         |         min          
+---------------------+----------------------
+ 9223372036854775807 | -9223372036854775808
+(1 row)
+
+SELECT * FROM issue_7263_t
+WHERE id = (SELECT MAX(id) FROM issue_7263_t WHERE body ||| 'payment');
+         id          | grp |          b          | small |      body      
+---------------------+-----+---------------------+-------+----------------
+ 1234567890123456789 |   1 | 9223372036854775807 |     1 | payment failed
+(1 row)
+
+SELECT grp, MAX(id), MIN(b) FROM issue_7263_t WHERE body ||| 'payment' GROUP BY grp ORDER BY grp;
+ grp |         max         |         min          
+-----+---------------------+----------------------
+   1 | 1234567890123456789 | -9223372036854775808
+   2 | 1234567890123456005 |    -9007199254740993
+   3 | 1234567890123456007 |                     
+(3 rows)
+
+SELECT MAX(id), COUNT(*) FROM issue_7263_t WHERE body ||| 'payment';
+         max         | count 
+---------------------+-------
+ 1234567890123456789 |     5
+(1 row)
+
+SELECT MAX(id) FILTER (WHERE grp > 1) FROM issue_7263_t WHERE body ||| 'payment';
+         max         
+---------------------
+ 1234567890123456007
+(1 row)
+
+SELECT grp FROM issue_7263_t WHERE body ||| 'payment'
+GROUP BY grp HAVING MAX(id) = 1234567890123456789 ORDER BY grp;
+ grp 
+-----
+   1
+(1 row)
+
+SELECT MAX(id) FROM issue_7263_t WHERE body ||| 'nomatch';
+ max 
+-----
+    
+(1 row)
+
+SELECT MAX(COALESCE(b, 0)), MIN(COALESCE(b, 0)) FROM issue_7263_t WHERE body ||| 'void OR late';
+       max        | min 
+------------------+-----
+ 9007199254740993 |   0
+(1 row)
+
+SELECT MAX(COALESCE(b, 1234567890123456789)) FROM issue_7263_t WHERE body ||| 'void';
+         max         
+---------------------
+ 1234567890123456789
+(1 row)
+
+SELECT MIN(COALESCE(id, 5)) FROM issue_7263_t WHERE body ||| 'payment';
+         min         
+---------------------
+ 1234567890123456001
+(1 row)
+
+SELECT grp, MAX(COALESCE(b, 7)) FROM issue_7263_t WHERE body ||| 'payment' GROUP BY grp ORDER BY grp;
+ grp |         max         
+-----+---------------------
+   1 | 9223372036854775807
+   2 |    9007199254740993
+   3 |                   7
+(3 rows)
+
+SELECT COUNT(COALESCE(b, 0)), SUM(COALESCE(b, 0)), MAX(COALESCE(b, 0))
+FROM issue_7263_t WHERE body ||| 'payment';
+ count | sum |         max         
+-------+-----+---------------------
+     5 |  -1 | 9223372036854775807
+(1 row)
+
+SELECT SUM(COALESCE(id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+         sum         
+---------------------
+ 6172839450617280805
+(1 row)
+
+SELECT MIN(COALESCE(u.v, -1)), MAX(COALESCE(u.v, -1)), COUNT(COALESCE(u.v, -1))
+FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| 'payment';
+ min |       max        | count 
+-----+------------------+-------
+  -1 | 9007199254740993 |     7
+(1 row)
+
+RESET paradedb.enable_aggregate_custom_scan;
+RESET max_parallel_workers_per_gather;
+DROP TABLE issue_7263_u;
+DROP TABLE issue_7263_t;

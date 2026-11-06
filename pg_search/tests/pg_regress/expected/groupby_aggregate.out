@@ -432,16 +432,22 @@ FROM type_test
 WHERE (text_val ||| 'test1' OR text_val ||| 'test2' OR text_val ||| 'test3')
 GROUP BY text_val
 ORDER BY text_val;
-                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: text_val, pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-   Index: type_test_idx
-   Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"match":{"field":"text_val","value":"test1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"text_val","value":"test2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"text_val","value":"test3","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     Applies to Aggregates: SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
-     Group By: text_val
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"int_val","missing":null,"none_if_no_match":true}},"1":{"avg":{"field":"numeric_val","missing":null}},"2":{"min":{"field":"float_val","missing":null}},"3":{"max":{"field":"bigint_val","missing":null}}},"terms":{"field":"text_val","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: text_val, (sum(int_val)), (avg(numeric_val)), (min(float_val)), (max(bigint_val))
+   Sort Key: type_test.text_val
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: text_val, (sum(int_val)), (avg(numeric_val)), (min(float_val)), (max(bigint_val))
+         Backend: DataFusion
+         Indexes: type_test_idx (type_test)
+         Group By: text_val
+         Aggregates: SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[text_val@0 as text_val], aggr=[sum(type_test_0.int_val) as agg_0, avg(type_test_0.numeric_val) as agg_1, min(type_test_0.float_val) as agg_2, max(type_test_0.bigint_val) as agg_3]
+           :   CooperativeExec
+           :     PgSearchScan: table=type_test, segments=1, eager=[text_val], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"text_val","value":"test1","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"text_val","value":"test2","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"text_val","value":"test3","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+(13 rows)
 
 SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
 FROM type_test

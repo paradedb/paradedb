@@ -23,6 +23,7 @@ pub mod aggregate;
 pub mod builder_fns;
 pub mod config;
 pub mod operator;
+mod synonyms;
 pub mod tokenize;
 pub mod tokenizers;
 mod vector;

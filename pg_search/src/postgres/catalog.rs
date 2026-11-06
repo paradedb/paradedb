@@ -159,6 +159,12 @@ pub fn lookup_fully_qualified_func_name(funcid: pg_sys::Oid) -> Option<String> {
     Some(name)
 }
 
+/// The oid of `pdb.synonym_rule`. It is not cached, because the type does not exist until the
+/// extension script creates it.
+pub fn synonym_rule_typoid() -> Option<pg_sys::Oid> {
+    lookup_typoid(c"pdb", c"synonym_rule")
+}
+
 /// Returns `true` if `oid` is the OID of the `citext` type.
 pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
     static CITEXT_OID: OnceLock<pg_sys::Oid> = OnceLock::new();

@@ -43,6 +43,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
   'SELECT paradedb.fsm_size(''permission_access.docs_idx'')',
   'SELECT * FROM paradedb.index_info(''permission_access.docs_idx'')',
   'SELECT * FROM pdb.index_segments(''permission_access.docs_idx'')',
+  'SELECT * FROM pdb.synonym_expansion(''permission_access.docs_idx'', ''sofa'')',
   'SELECT * FROM paradedb.vector_info(''permission_access.docs_idx'', ''missing'')',
   'SELECT * FROM paradedb.vector_config(''permission_access.docs_idx'', ''missing'')',
   'SELECT * FROM paradedb.vector_clusters(''permission_access.docs_idx'', ''missing'')',
@@ -98,14 +99,15 @@ ORDER BY 1;
  paradedb.vector_info(index regclass, field text)
  paradedb.with_index(index regclass, query paradedb.searchqueryinput)
  pdb.index_segments(index regclass)
+ pdb.synonym_expansion(index regclass, input text)
  pdb.verify_index(index regclass, heapallindexed boolean, sample_rate double precision, report_progress boolean, "verbose" boolean, on_error_stop boolean, segment_ids integer[])
-(30 rows)
+(31 rows)
 
 SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;
  no_grant_denials 
 ------------------
-               23
+               24
 (1 row)
 
 SELECT permission_access.assert_denied(ARRAY[
@@ -198,7 +200,7 @@ ROLLBACK TO SAVEPOINT named_rls_error;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS rls_denials;
  rls_denials 
 -------------
-          23
+          24
 (1 row)
 
 SELECT count(*) AS rls_inventory FROM pdb.indexes() WHERE schemaname = 'permission_access';

@@ -15,8 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::options::BM25IndexOptions;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
+
+/// High enough that the planner picks any other path for a query on a synonym index's table.
+const SYNONYM_INDEX_SCAN_COST: f64 = 1.0e10;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_guard(immutable, parallel_safe)]
@@ -50,7 +54,19 @@ pub unsafe extern "C-unwind" fn amcostestimate(
         indexrel.as_ptr(),
         pg_sys::ForkNumber::MAIN_FORKNUM,
     );
+    let is_synonym_index = BM25IndexOptions::from_relation(indexrel.as_ptr()).is_synonym_index();
     drop(indexrel);
+
+    // The rule field of a synonym index holds the keys of rules, so it can't answer a query on
+    // its own table.
+    if is_synonym_index {
+        *index_startup_cost = SYNONYM_INDEX_SCAN_COST;
+        *index_total_cost = SYNONYM_INDEX_SCAN_COST;
+        *index_selectivity = 1.0;
+        *index_correlation = 0.0;
+        *index_pages = 0.0;
+        return;
+    }
 
     // start these at zero
     *index_selectivity = 0.0;

@@ -773,8 +773,7 @@ impl PgSearchScanPlan {
     /// bounds a partner found only by `RA` at `0.0`. Only a pushed SQL restriction
     /// (`SearchQueryInput::is_pushdown_filter`) qualifies; an explicit search, a scored base,
     /// or one with heap filters that `SA` cannot apply before pulling a window, keeps
-    /// `HashJoinExec` with its score intact. A `PostgresExpression` base is accepted: it
-    /// resolves to a term set at execution.
+    /// `HashJoinExec` with its score intact.
     pub(crate) fn with_elided_disjunctive_tags(
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
@@ -787,32 +786,31 @@ impl PgSearchScanPlan {
         else {
             return None;
         };
-        let term_is_filter = |field: &crate::api::FieldName| -> bool {
+        if local_queries.is_empty()
+            || !local_queries
+                .iter()
+                .all(|tq| elided_tags.contains(&tq.tag_name))
+            || base_query.has_heap_filters()
+        {
+            return None;
+        }
+        {
             let state = self
                 .state
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            match &*state {
+            let schema = match &*state {
                 ExecutionState::Shared { scan_state, .. }
-                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state
-                    .0
-                    .reader
-                    .schema()
-                    .search_field(field.root())
-                    .is_some_and(|f| !f.is_tokenized_text() && !f.is_json()),
-                ExecutionState::Uninitialized | ExecutionState::Consumed => false,
+                | ExecutionState::RangePartitioned { scan_state, .. } => {
+                    Some(scan_state.0.reader.schema())
+                }
+                ExecutionState::Uninitialized | ExecutionState::Consumed => None,
+            };
+            if !base_query.is_pushdown_filter(&|field| {
+                schema.is_some_and(|s| s.is_term_filter_field(field.root()))
+            }) {
+                return None;
             }
-        };
-        let base_is_filter = base_query.is_pushdown_filter(&term_is_filter)
-            || matches!(**base_query, SearchQueryInput::PostgresExpression { .. });
-        if !base_is_filter
-            || base_query.has_heap_filters()
-            || local_queries.is_empty()
-            || !local_queries
-                .iter()
-                .all(|tq| elided_tags.contains(&tq.tag_name))
-        {
-            return None;
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
         let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();

@@ -502,12 +502,17 @@ impl SearchQueryInput {
 
     /// Whether this is a plain SQL restriction as pushdown lowers it (`=`, `= ANY`, a range,
     /// `IS NOT NULL`, `<>`, or an AND of those), which the rank join can keep as a `0.0`-score
-    /// filter. A term counts only on a field `term_is_filter` accepts. Every explicit `@@@`
-    /// search (`WithIndex`), any boost or non-zero constant score, an OR, and every other form
-    /// is refused.
+    /// filter. A term counts only on a field `term_is_filter` accepts. A `PostgresExpression` is
+    /// accepted for plain `EXPLAIN` (before `solve_postgres_expressions` resolves it at
+    /// execution). Every explicit `@@@` search (`WithIndex`), any boost or non-zero constant
+    /// score, an OR, and every other form is refused.
     pub(crate) fn is_pushdown_filter(&self, term_is_filter: &dyn Fn(&FieldName) -> bool) -> bool {
         match self {
-            SearchQueryInput::All | SearchQueryInput::TermSet { .. } => true,
+            SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::Null
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. } => true,
             // The negation of a pushed filter guards NULLs with a `0.0` constant.
             SearchQueryInput::ConstScore { query, score } => {
                 *score == 0.0 && query.is_pushdown_filter(term_is_filter)
@@ -2287,6 +2292,21 @@ mod tests {
             },
         };
 
+        let pg_expr =
+            SearchQueryInput::postgres_expression(std::ptr::null_mut(), "expr".to_string());
+        let and_pg_expr = SearchQueryInput::Boolean {
+            must: vec![pg_expr.clone(), term.clone()],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+
+        assert!(SearchQueryInput::All.is_pushdown_filter(&no_filter));
+        assert!(SearchQueryInput::Empty.is_pushdown_filter(&no_filter));
+        assert!(SearchQueryInput::Null.is_pushdown_filter(&no_filter));
+        assert!(pg_expr.is_pushdown_filter(&no_filter));
+        assert!(and_pg_expr.is_pushdown_filter(&filter));
+        assert!(!and_pg_expr.is_pushdown_filter(&no_filter));
         assert!(term_set.is_pushdown_filter(&no_filter));
         assert!(term.is_pushdown_filter(&filter));
         assert!(!term.is_pushdown_filter(&no_filter));

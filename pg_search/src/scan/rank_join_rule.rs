@@ -52,9 +52,9 @@
 //!      side to completion.
 //!    - When `paradedb.rank_join_min_rows > 0`, two-sided `RankJoinExec` is restricted to
 //!      tagless disjunctive (`ScanMode::Disjunctive`) subtrees (where `HashJoinExec` over
-//!      `ScanMode::Tagged` would otherwise have to scan 100% of every table with
-//!      `base_query = All`), keeping conjunctive (`ScanMode::Standard`) two-sided joins on
-//!      parallel `HashJoinExec` with dynamic filter pushdown.
+//!      `ScanMode::Tagged` would otherwise have to scan every row matching `base_query`),
+//!      keeping conjunctive (`ScanMode::Standard`) two-sided joins on parallel `HashJoinExec`
+//!      with dynamic filter pushdown.
 //!
 //! 3. **Gate 3 (Cardinality, Unscored Selectivity & Initial Window Scaling)**:
 //!    - Requires `K <= 1,000` ([`MAX_RANK_JOIN_K`]), estimated rows `>=`
@@ -465,11 +465,12 @@ pub(crate) struct DecomposedJoinScore {
 /// top-K join.
 ///
 /// When the root `HashJoinExec` has a pure-`OR` cross-table search tag filter (`ScanMode::Tagged`
-/// with `SearchQueryInput::All` base queries), attempts to elide the tag columns and convert leaf
-/// scans to `ScanMode::Disjunctive` first (for two-sided score joins where `SA` unions the
-/// disjunct queries and `RA` scores them unconditionally). If the tagless candidate is rejected by
-/// `try_rewrite_scored_branch` (e.g. single-sided `NRJN` join or failed gate), falls back to the
-/// original `ScanMode::Tagged` subtree so the `JoinFilter` is never lost.
+/// with pushed-filter or `SearchQueryInput::All` base queries), attempts to elide the tag columns
+/// and convert leaf scans to `ScanMode::Disjunctive` first (for two-sided score joins where `SA`
+/// and `RA` filter by `base_query` with score `0.0` and score by the union of `disjunct_queries`).
+/// If the tagless candidate is rejected by `try_rewrite_scored_branch` (e.g. single-sided `NRJN`
+/// join or failed gate), falls back to the original `ScanMode::Tagged` subtree so the `JoinFilter`
+/// is never lost.
 ///
 /// TODO: Reorder joins based on rank / score correlation rather than relying solely on the
 /// selectivity-driven join tree topology chosen by PostgreSQL (`collect_join_sources_join_rel`).
@@ -1012,8 +1013,8 @@ fn try_rewrite_scored_branch(
     // inputs suffer from multiplicative RA miss rates across independent predicates and slow
     // additive upper-bound decay compared to parallel MPP `HashJoinExec` with dynamic filter
     // pushdown. Only plan two-sided `RankJoinExec` when the subtree contains tagless disjunctive
-    // (`ScanMode::Disjunctive`) scans (where the alternative `ScanMode::Tagged` must scan 100%
-    // of every table), or when `min_rows == 0` (used in tests to force `RankJoinExec`).
+    // (`ScanMode::Disjunctive`) scans (where the alternative `ScanMode::Tagged` must scan every
+    // row matching `base_query`), or when `min_rows == 0` (used in tests to force `RankJoinExec`).
     if uses_left && uses_right && ctx.min_rows > 0 && !has_disjunctive_scans {
         return Ok(None);
     }

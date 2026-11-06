@@ -840,17 +840,6 @@ impl SearchIndexReader {
             .tantivy_schema()
             .get_field(&name.root())
             .expect("vector field should exist");
-        let collector = TopDocs::with_limit(1)
-            .order_by_similarity(field, query.to_vec())
-            .with_probe_params(ProbeParams {
-                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
-                router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
-                router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
-                router_aps: crate::gucs::vector_router_aps(),
-                ..Default::default()
-            })
-            .build();
         let readers = self.candidate_segment_readers().collect::<Vec<_>>();
         let centroids = readers
             .iter()
@@ -885,14 +874,27 @@ impl SearchIndexReader {
                 (matches + estimated, docs + u64::from(reader.num_docs()))
             });
         let match_fraction = matches as f64 / docs.max(1) as f64;
-        collector
-            .route_segments(match_fraction, &segments, |ord| {
+        tantivy::vector::VectorRoutingPlan::build(
+            field,
+            query.to_vec(),
+            ProbeParams {
+                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
+                fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
+                router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
+                router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
+                router_aps: crate::gucs::vector_router_aps(),
+                ..Default::default()
+            },
+            match_fraction,
+            &segments,
+            |ord| {
                 pgrx::check_for_interrupts!();
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(self.searcher.segment_reader(ord).segment_id());
                 }
-            })
-            .expect("global vector routing should succeed")
+            },
+        )
+        .expect("global vector routing should succeed")
     }
 
     /// Validates this reader's visible vector headers once, including an unsuccessful check.

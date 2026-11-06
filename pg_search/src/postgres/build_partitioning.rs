@@ -271,7 +271,9 @@ impl VectorPartitioning {
         let count = target.min(distinct.len());
         drop(distinct);
         let centroids = if count > 1 {
-            let max_leaf_size = rows.div_ceil(count).max(1);
+            let target_leaf_size = rows as f64 / count as f64;
+            let max_leaf_size = ((target_leaf_size * std::f64::consts::SQRT_2).round() as usize)
+                .clamp(1, rows.saturating_sub(1).max(1));
             let base_config = SuperKMeansConfig {
                 seed: SAMPLE_SEED as u64,
                 n_threads: 1,

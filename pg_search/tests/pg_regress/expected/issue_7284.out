@@ -1,0 +1,70 @@
+-- Zero edit distance still allows exact prefix matching for match queries.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.planner_warnings = off;
+CREATE TABLE match_prefix_zero (id int PRIMARY KEY, body text);
+INSERT INTO match_prefix_zero VALUES
+    (1, 'sho'), (2, 'shoes'), (3, 'short'),
+    (4, 'ashore'), (5, 'shoe'), (6, 'other');
+CREATE INDEX match_prefix_zero_idx ON match_prefix_zero USING bm25 (id, body);
+-- The full-token query remains exact when prefix is false.
+SELECT array_agg(id ORDER BY id) FROM match_prefix_zero
+WHERE body @@@ pdb.match('sho', distance => 0, prefix => false);
+ array_agg 
+-----------
+ {1}
+(1 row)
+
+-- Both match paths must agree with the existing fuzzy term prefix behavior.
+SELECT array_agg(id ORDER BY id) FROM match_prefix_zero
+WHERE body @@@ pdb.fuzzy_term('sho', distance => 0, prefix => true);
+ array_agg 
+-----------
+ {1,2,3,5}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM match_prefix_zero
+WHERE body @@@ pdb.match('sho', distance => 0, prefix => true);
+ array_agg 
+-----------
+ {1,2,3,5}
+(1 row)
+
+SELECT array_agg(id ORDER BY id) FROM match_prefix_zero
+WHERE body ||| ARRAY['sho']::pdb.fuzzy(0, t);
+ array_agg 
+-----------
+ {1,2,3,5}
+(1 row)
+
+-- The same result is required with custom scans disabled.
+SET paradedb.enable_custom_scan = off;
+SET enable_indexscan = on;
+SET enable_seqscan = off;
+SELECT array_agg(id ORDER BY id) FROM match_prefix_zero
+WHERE body @@@ pdb.match('sho', distance => 0, prefix => true);
+ array_agg 
+-----------
+ {1,2,3,5}
+(1 row)
+
+RESET enable_seqscan;
+RESET enable_indexscan;
+RESET paradedb.enable_custom_scan;
+DROP TABLE match_prefix_zero;
+RESET paradedb.planner_warnings;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

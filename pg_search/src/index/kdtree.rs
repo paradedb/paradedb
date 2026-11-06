@@ -114,11 +114,16 @@ impl KdTree {
     /// types are comparable); ties go to the earlier `partition_by` field. The cut sits at the
     /// quantile that gives both children a share of the sample proportional to the leaves they
     /// will hold, so a single wide dimension splits into roughly equal leaves even when
-    /// `target_partitions` is not a power of two. Leaf sizes can still come out uneven when a
+    /// `target_partitions` is not a power of two.
+    ///
+    /// If `ctid_fallback` is `None`, leaf sizes can still come out uneven when a
     /// low-cardinality dimension wins a split: cutting it buys pruning on that dimension, at the
     /// cost of balance. A box whose points are all equal on every dimension cannot be cut and
     /// stays a leaf, so the tree can end up with fewer partitions than requested when the sample
     /// has too few distinct values.
+    ///
+    /// If `ctid_fallback` is `Some(_)`, then any box that should be cut but has dimensions to cut
+    /// on will fall back to cutting on `ctid`, which will result in roughly balanced leaves
     ///
     /// Split values are never NULL, so every leaf's box is expressible as plain range bounds.
     pub fn from_sample(
@@ -435,8 +440,7 @@ impl Builder<'_> {
             }
         }
 
-        let k_left = k / 2;
-        let target = idx.len() * k_left / k;
+        let target = idx.len() / 2;
         let Some(cut) = self.nearest_cut(idx, dim, target) else {
             return self.leaf();
         };
@@ -475,8 +479,9 @@ impl Builder<'_> {
 
     /// The dimension whose values inside the box span the largest rank range, or `None` when
     /// the box is a single point on every dimension. All non-ctid dimensions will be tried first,
-    /// with ctid only be considered as a fallback if every other dimension holds a single point.
+    /// with ctid only being considered as a fallback if every other dimension holds a single point.
     fn widest_dim(&self, idx: &[usize]) -> Option<DimHandle> {
+        assert!(idx.len() > 1, "should only ever run with cuttable idx");
         let mut best: Option<(usize, usize)> = None;
         for (dim, ranks) in self.ranks.iter().enumerate() {
             let (min, max) = idx.iter().fold((usize::MAX, 0), |(lo, hi), &i| {
@@ -487,13 +492,10 @@ impl Builder<'_> {
                 best = Some((dim, spread));
             }
         }
-        best.map(|(dim_idx, _)| DimHandle::Index(dim_idx)).or({
-            if idx.len() <= 1 {
-                None
-            } else {
-                self.ctid_fallback.map(|_| DimHandle::Ctid)
-            }
-        })
+        match best {
+            Some((dim_idx, _)) => Some(DimHandle::Index(dim_idx)),
+            None => self.ctid_fallback.map(|_| DimHandle::Ctid),
+        }
     }
 
     /// The position in `idx` (sorted on `dim`) closest to `target` where the value changes,

@@ -284,7 +284,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             }
                             if [MergeSlotVariant::Small, MergeSlotVariant::Large]
                                 .into_iter()
-                                .all(|variant| MergeSlot::new(index.oid(), variant).is_available())
+                                .any(|variant| MergeSlot::new(index.oid(), variant).is_available())
                             {
                                 do_merge(&index, MergeStyle::Background)
                                     .expect("should be able to schedule a background merge");

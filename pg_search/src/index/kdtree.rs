@@ -440,7 +440,7 @@ impl Builder<'_> {
             }
         }
 
-        let target = idx.len() / 2;
+        let target = idx.len() * (k / 2) / k;
         let Some(cut) = self.nearest_cut(idx, dim, target) else {
             return self.leaf();
         };
@@ -919,7 +919,7 @@ mod tests {
         }
         assert_eq!(
             tree.partition_bounds(7).unwrap(),
-            PartitionBounds::new(vec![]).with_ctid_fallback(cold_box),
+            PartitionBounds::new(vec![cold_box]),
             "{tree}"
         );
     }
@@ -953,25 +953,23 @@ mod tests {
             "{tree}"
         );
         let null_box = (Bound::Unbounded, Bound::Excluded(PdbOwnedValue::I64(0)));
-        for p in 0..7 {
-            assert_eq!(
-                tree.partition_bounds(p).unwrap().dims[0],
-                null_box,
-                "{tree}"
-            );
-        }
-        assert_eq!(
-            tree.partition_bounds(7).unwrap().ctid_fallback,
-            Some((Bound::Included(PdbOwnedValue::I64(0)), Bound::Unbounded)),
-            "{tree}"
-        );
-        // No split value, on the key or on ctid, is NULL.
         let is_null = |b: &Bound<PdbOwnedValue>| {
             matches!(
                 b,
                 Bound::Included(PdbOwnedValue::Null) | Bound::Excluded(PdbOwnedValue::Null)
             )
         };
+        for p in 0..7 {
+            let bounds = tree.partition_bounds(p).unwrap();
+            assert_eq!(bounds.dims[0], null_box, "{tree}");
+            assert!(
+                bounds
+                    .ctid_fallback
+                    .filter(|(lo, hi)| !is_null(lo) && !is_null(hi))
+                    .is_some()
+            )
+        }
+        // No split value, on the key or on ctid, is NULL.
         assert!(
             (0..8)
                 .flat_map(|p| tree.partition_bounds(p).unwrap().dims)

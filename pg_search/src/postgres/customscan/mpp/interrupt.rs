@@ -798,10 +798,9 @@ impl HeldInterrupts {
     /// reduced hold depth when nested [`HeldInterrupts`] guards are active). Restores the count
     /// to [`HELD_INTERRUPTS_DEPTH`] so each active guard's `Drop` decrements back to zero.
     pub(crate) fn reassert() {
+        #[cfg(not(test))]
         if is_main_thread() {
             let depth = HELD_INTERRUPTS_DEPTH.with(|d| d.get());
-            let _ = depth;
-            #[cfg(not(test))]
             unsafe {
                 if pgrx::pg_sys::InterruptHoldoffCount < depth {
                     pgrx::pg_sys::InterruptHoldoffCount = depth;
@@ -1142,9 +1141,15 @@ impl PgTokioRuntime {
             return;
         }
         #[cfg(not(test))]
-        if crate::postgres::utils::proc_exit_in_progress()
-            || unsafe { pgrx::pg_sys::ProcDiePending != 0 }
-        {
+        let cancel_or_exit_pending = || {
+            crate::postgres::utils::proc_exit_in_progress()
+                || unsafe {
+                    pgrx::pg_sys::ProcDiePending != 0 || pgrx::pg_sys::QueryCancelPending != 0
+                }
+        };
+        #[cfg(test)]
+        let cancel_or_exit_pending = || false;
+        if cancel_or_exit_pending() {
             self.shutdown_workers();
             return;
         }
@@ -1174,6 +1179,14 @@ impl PgTokioRuntime {
                 && !self.inner.main_executor.has_pending_work()
             {
                 break;
+            }
+            if cancel_or_exit_pending() {
+                self.inner
+                    .main_executor
+                    .quiescing
+                    .store(false, Ordering::SeqCst);
+                self.shutdown_workers();
+                return;
             }
             if std::time::Instant::now() >= deadline {
                 self.inner

@@ -162,6 +162,9 @@ fn estimate_plan_memory(
     let mut total_memory = 0usize;
     plan.apply(|node| {
         let partitions = node.output_partitioning().partition_count();
+        // TODO: Also budget hash `AggregateExec` (`work_mem * hash_mem_multiplier * partitions`)
+        // and `RepartitionExec` per-partition coalescer buffers once `spilling_buffile_*` test
+        // thresholds are adjusted accordingly.
         if node.is::<HashJoinExec>() || node.is::<RankJoinExec>() {
             total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
         } else if node.is::<SortExec>() || node.is::<SortMergeJoinExec>() {

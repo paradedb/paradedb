@@ -492,7 +492,7 @@ mod tests {
             ANALYZE mpp_spill_items;
 
             SET max_parallel_workers_per_gather TO 3;
-            SET max_parallel_workers TO 8;
+            SET max_parallel_workers TO 64;
             SET min_parallel_table_scan_size TO 0;
             SET parallel_setup_cost TO 0;
             SET parallel_tuple_cost TO 0;

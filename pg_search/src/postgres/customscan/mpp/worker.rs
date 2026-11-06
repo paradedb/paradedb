@@ -160,8 +160,8 @@ impl DsmGrpcChannelResolver {
 /// keeping per-connection transport buffering bounded.
 const HTTP2_STREAM_WINDOW_SIZE: u32 = 4 * 1024 * 1024;
 
-/// HTTP/2 connection-level flow-control window (`8 MiB`, matching `DistributedConfig`'s default
-/// `worker_connection_buffer_budget_bytes`).
+/// HTTP/2 connection-level flow-control window (`8 MiB`, also passed to
+/// `with_distributed_worker_connection_buffer_budget_bytes`).
 const HTTP2_CONNECTION_WINDOW_SIZE: u32 = 8 * 1024 * 1024;
 
 /// HTTP/2 maximum frame payload size (`4 MiB`, up from the `16 KiB` spec default) so `FlightData`
@@ -301,6 +301,10 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_desired_task_count_handler(n_workers)
         .with_distributed_compression(None)
         .expect("with_distributed_compression")
+        .with_distributed_worker_connection_buffer_budget_bytes(
+            HTTP2_CONNECTION_WINDOW_SIZE as usize,
+        )
+        .expect("with_distributed_worker_connection_buffer_budget_bytes")
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
         // Disable the use of distributed dynamic filters until we fix

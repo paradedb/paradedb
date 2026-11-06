@@ -574,7 +574,7 @@ mod tests {
         Spi::run("INSERT INTO mpp_pg_test SELECT i, i % 3, i * 10 FROM generate_series(31, 60) i;")
             .unwrap();
         Spi::run("RESET paradedb.global_mutable_segment_rows;").unwrap();
-        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_workers = 64;").unwrap();
         Spi::run("SET max_parallel_workers_per_gather = 2;").unwrap();
 
         let heap_oid = Spi::get_one::<pg_sys::Oid>(

@@ -2721,7 +2721,7 @@ mod tests {
             SET paradedb.mpp_min_rows TO 0;
             SET enable_indexscan TO off;
             SET plan_cache_mode = force_generic_plan;
-            SET max_parallel_workers TO 8;
+            SET max_parallel_workers TO 64;
             SET min_parallel_table_scan_size TO 0;
             SET parallel_setup_cost TO 0;
             SET parallel_tuple_cost TO 0;
@@ -2878,6 +2878,54 @@ mod tests {
         assert!(
             !is_dist,
             "expected serial execution after toggling back to workers=0"
+        );
+
+        // 3. Issue #6950: MPP `AggregateScan` over a join with a non-equi filter, `SUM` + `AVG`,
+        //    `enable_filter_pushdown = false`, `add_doc_count_to_aggs = true`, and
+        //    `parallel_leader_participation = false`, also exercising `AggregateScan` across
+        //    MPP and serial mode toggles on a cached generic plan.
+        Spi::run(
+            r#"
+            SET paradedb.enable_aggregate_custom_scan TO on;
+            SET paradedb.enable_filter_pushdown TO false;
+            SET paradedb.add_doc_count_to_aggs TO true;
+            SET parallel_leader_participation TO false;
+            SET max_parallel_workers_per_gather TO 2;
+
+            PREPARE q_agg_join_6950 AS
+            SELECT (SUM(f.id) + ROUND(AVG(p.file_id)))::integer
+            FROM mpp_mode_files f
+            JOIN mpp_mode_pages p ON f.id = p.id AND f.id <= p.file_id
+            WHERE NOT (f.title === 'Doc 999')
+            GROUP BY f.title
+            ORDER BY 1
+            LIMIT 5;
+            "#,
+        )
+        .unwrap();
+
+        let expected_agg = vec![2, 4, 6, 8, 10];
+        let (rows, is_dist) = run_stmt("q_agg_join_6950");
+        assert_eq!(rows, expected_agg);
+        assert!(
+            is_dist,
+            "expected DistributedExec for #6950 aggregate join at workers=2"
+        );
+
+        Spi::run("SET max_parallel_workers_per_gather TO 0;").unwrap();
+        let (rows, is_dist) = run_stmt("q_agg_join_6950");
+        assert_eq!(rows, expected_agg);
+        assert!(
+            !is_dist,
+            "expected serial execution for #6950 aggregate join at workers=0"
+        );
+
+        Spi::run("SET max_parallel_workers_per_gather TO 2;").unwrap();
+        let (rows, is_dist) = run_stmt("q_agg_join_6950");
+        assert_eq!(rows, expected_agg);
+        assert!(
+            is_dist,
+            "expected DistributedExec for #6950 aggregate join after toggling back to workers=2"
         );
     }
 }

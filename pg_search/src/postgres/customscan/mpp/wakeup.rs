@@ -149,8 +149,13 @@ unsafe impl Sync for WakeupPool {}
 
 impl WakeupPool {
     fn new(count: usize) -> Self {
+        let Some(owners_ptr) = allocate_shared_owners(count) else {
+            return Self {
+                pairs: Vec::new(),
+                owners_ptr: std::ptr::NonNull::<AtomicI32>::dangling().as_ptr(),
+            };
+        };
         let pairs = allocate_pool(count);
-        let owners_ptr = allocate_shared_owners(pairs.len());
         Self { pairs, owners_ptr }
     }
 
@@ -215,9 +220,9 @@ fn allocate_pool(count: usize) -> Vec<WakeupSocketPair> {
     pairs
 }
 
-fn allocate_shared_owners(len: usize) -> *mut AtomicI32 {
+fn allocate_shared_owners(len: usize) -> Option<*mut AtomicI32> {
     if len == 0 {
-        return std::ptr::NonNull::<AtomicI32>::dangling().as_ptr();
+        return None;
     }
     let byte_len = (len * std::mem::size_of::<AtomicI32>()).max(4096);
     unsafe {
@@ -229,18 +234,14 @@ fn allocate_shared_owners(len: usize) -> *mut AtomicI32 {
             -1,
             0,
         );
-        let atomics = if ptr == libc::MAP_FAILED {
-            let layout = std::alloc::Layout::array::<AtomicI32>(len).expect("valid layout");
-            let fallback = std::alloc::alloc_zeroed(layout) as *mut AtomicI32;
-            assert!(!fallback.is_null(), "wakeup slot owner allocation failed");
-            fallback
-        } else {
-            ptr as *mut AtomicI32
-        };
+        if ptr == libc::MAP_FAILED {
+            return None;
+        }
+        let atomics = ptr as *mut AtomicI32;
         for i in 0..len {
             std::ptr::write(atomics.add(i), AtomicI32::new(0));
         }
-        atomics
+        Some(atomics)
     }
 }
 

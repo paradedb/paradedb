@@ -228,6 +228,12 @@ pub mod pg_test {
         vec![
             "shared_preload_libraries='pg_search'",
             "paradedb.mutable_sweep_interval=0",
+            // `cargo test` runs `#[pg_test]` functions concurrently across threads, and several
+            // tests (parallel index builds, MPP scans) spawn background workers simultaneously.
+            // Raise the cluster-wide worker pool above Postgres's default of 8 so concurrent
+            // `#[pg_test]` backends do not starve `LaunchParallelWorkers`.
+            "max_worker_processes=64",
+            "max_parallel_workers=64",
         ]
     }
 }

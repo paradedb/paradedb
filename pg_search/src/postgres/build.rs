@@ -590,7 +590,6 @@ mod tests {
     fn test_router_quantization_option_persists_through_reindex() {
         use tantivy::directory::RamDirectory;
 
-        // Quantized routing is the default; full-precision routing is the opt-out.
         Spi::run(
             "CREATE TABLE centroid_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
              CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body);

@@ -257,6 +257,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ 'crossing'
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                                explain_redact_oid                                                                                                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -281,6 +282,7 @@ FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
 WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ 'crossing'
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
  job | client | job_score  | client_score 
 -----+--------+------------+--------------
    3 |      3 | 0.39050695 |    1.2039728
@@ -302,6 +304,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                                                     explain_redact_oid                                                                                                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -327,6 +330,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
   AND (j.division = ANY ('{1}'::int[]) OR j.client_id = ANY ('{1,3}'::int[]))
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
  job | client | job_score | client_score 
 -----+--------+-----------+--------------
    3 |      3 |         2 |    1.2039728
@@ -346,6 +350,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.note = 'a'
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
+WARNING:  RankJoinExec not used: table "j" has a non-indexed filter alongside a cross-table OR predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                explain_redact_oid                                                                                                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -416,6 +421,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ pdb.term('crossi
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                   explain_redact_oid                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -445,6 +451,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ pdb.term('crossi
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                             explain_redact_oid                                                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)

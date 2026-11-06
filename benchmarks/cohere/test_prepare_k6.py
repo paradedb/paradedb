@@ -160,6 +160,24 @@ class OperatingPointsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Expected a ParadeDB scan"):
             verify([{"Plan": {"Node Type": "Seq Scan"}}], filtered=False)
 
+    def test_adaptive_caps_survive_handoff_and_unreached_targets(self):
+        """Keep per-filter work caps without hiding recall failures."""
+        inputs = reports()
+        caps = dict(zip(QUERIES, ["0.0298", "0.0211", "0.00762"]))
+        for report in inputs:
+            query = report["config"]["search"]["query"]
+            report["data"]["sweep_param"] = EFFORT
+            report["config"]["search"]["session"][PROBE] = caps[query]
+        points = operating_points(inputs)
+        for point in points:
+            self.assertEqual(point["session"][PROBE], caps[point["query"]])
+            self.assertEqual(point["reached"], point["target"] != 0.99)
+        self.assertIn("`0.0298`", summary(points))
+        for cap in ["-0.01", "1.01", "nan", "inf"]:
+            inputs[0]["config"]["search"]["session"][PROBE] = cap
+            with self.assertRaisesRegex(ValueError, "work ceilings"):
+                operating_points(inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

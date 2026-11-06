@@ -70,8 +70,13 @@ retaining more members cannot recover members in unopened lists.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `pdbench search` loads the query vectors and sweeps
    `paradedb.vector_search_effort` from 0.05 to 10 separately for each filter to
-   r90/r95/r99. Adaptive probing is enabled and
-   `paradedb.vector_cluster_max_probe = 0` supplies automatic headroom.
+   r90/r95/r99. Adaptive probing is enabled. CI sets
+   `paradedb.vector_cluster_max_probe` to the measured fixed-probing R99 budget
+   for each corpus and filter from `probe_caps.json`, which records the source
+   run. This experiment holds the work ceiling fixed as effort increases; the
+   same cap applies to R90/R95 to check their latency. The TOML defaults retain
+   automatic headroom for standalone runs. These are benchmark-specific caps,
+   not a general recall-to-budget formula.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
    After the sweeps, CI downloads diagnostics from the latest successful main

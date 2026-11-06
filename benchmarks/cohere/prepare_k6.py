@@ -19,12 +19,17 @@ def operating_points(reports):
     for report in reports:
         current = json.loads(json.dumps(report["config"]))
         current["search"].pop("query", None)
-        if config is not None and config != current:
+        param = report["data"]["sweep_param"]
+        shared = json.loads(json.dumps(current))
+        if param == EFFORT:
+            cap = float(shared["search"]["session"].pop(PROBE, "0"))
+            if not 0 <= cap <= 1:
+                raise ValueError("Adaptive work ceilings must be between 0 and 1")
+        if config is not None and config != shared:
             raise ValueError(
                 "Recall sweeps must use the same dataset, index, and session settings"
             )
-        config = current
-        param = report["data"]["sweep_param"]
+        config = shared
         if report["kind"] != "search" or param not in (PROBE, EFFORT):
             raise ValueError(
                 "Expected a pdbench probe or adaptive effort search report"
@@ -80,10 +85,10 @@ def summary(points):
     parameter = "search effort" if points[0]["param"] == EFFORT else "max_probe"
     lines = [
         (
-            f"| Filter / recall target | {parameter} | Achieved recall@10 "
+            f"| Filter / recall target | {parameter} | max_probe ceiling | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
-        "|---|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for point in points:
         buffers = point["buffers"]
@@ -98,8 +103,13 @@ def summary(points):
             else "—"
         )
         probe = f"`{point['probe']}`" if point["reached"] else "⚠️ Not reached"
+        cap = (
+            point["session"].get(PROBE, "0")
+            if point["param"] == EFFORT
+            else point["probe"]
+        )
         lines.append(
-            f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
+            f"| `{point['name']}` | {probe} | `{cap}` | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
         f"\npdbench selects {parameter} separately for each filter and recall target "

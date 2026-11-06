@@ -19,8 +19,23 @@ K1 and L are built 5 times and K3r 40 times, over input rows shuffled with seeds
 ids mapped back to exported clusters, and reported as median and `[min, max]` `m_r`: input order
 alone moves `m_r` by far more than the comparisons here need to resolve.
 
-The index is built with one segment. Nothing here changes a product default: the export function
+The default index has one segment. Nothing here changes a product default: the export function
 exists only in a `pg_search` built with the `vector_audit` feature.
+
+## Eight segments
+
+`--layout p8` audits the production global walk on Cohere 10M with `target_segment_count = 8` and
+`partition_by = 'emb'`, stored routers only. The probe unit is `(segment, cluster)`.
+
+- **FLAT-G**: exact scores over every centroid of every segment, in one order. **FLAT-S** ranks each
+  segment alone and merges by score; it must equal FLAT-G on every query.
+- **G3-2, G3-4**: the global walk over the stored routers and their partition centroids, at
+  `rerank_factor` 2 and 4, patience on and off.
+- **G3-4-nopart**: the same walk with every partition centroid passed as `None`.
+
+Attribution gains `partition`: the segment's partition centroid was cut by the partition layer.
+The profile sets `max_parallel_workers_per_gather = 0`, because a parallel plan searches segment by
+segment and never reaches the global walk; `collect_perf.py` stops on a parallel plan.
 
 ## Running
 
@@ -36,13 +51,15 @@ variables that locate the inputs. Results land in `benchmarks/router-audit/out/1
 gitignored.
 
 Cohere 10M, in CI: add the `benchmark-router-audit` label to a pull request, or dispatch
-`.github/workflows/benchmark-router-audit.yml` with `size`. The job uploads `router-audit-<size>`
+`.github/workflows/benchmark-router-audit.yml` with `size` and `layout`. The job uploads `router-audit-<size>`
 and puts `REPORT.md` in its summary.
 
 `run.sh` is the same either way. Each step leaves a `.done-*` marker under `--out`, so a rerun
 resumes at the first unfinished step. It stops on any of these:
 
-- the index is not exactly one IVF segment;
+- the index is not exactly one IVF segment, or with `--layout p8` not exactly 8, or a segment has
+  no partition centroid;
+- FLAT-S differs from FLAT-G on any query;
 - exported cluster sizes differ from `paradedb.vector_clusters`, or the document map from the row
   count;
 - the stored K3 is above K3r's 95th percentile on every held-out, APS on, factor 2 row;

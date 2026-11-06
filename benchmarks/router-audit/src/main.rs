@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Loads what `paradedb.vector_router_export` wrote and runs tantivy's router audit over it.
-//! `run.sh` documents the inputs; the audit itself is `tantivy::vector::router_audit`.
+//! `run.sh` documents the inputs; the audits themselves are `tantivy::vector::router_audit` for one
+//! segment and `tantivy::vector::router_audit_global` for several.
 
 use std::collections::HashMap;
 use std::fs;
@@ -30,6 +31,9 @@ use tantivy::schema::Metric;
 use tantivy::vector::clustering::SuperKMeansClusterer;
 use tantivy::vector::router_audit::{
     AuditInput, OnlinePoint, Phases, default_ks, offline_recall, rebuild_check_stops, run_audit,
+};
+use tantivy::vector::router_audit_global::{
+    GlobalAuditInput, GlobalSegment, global_offline_recall, run_global_audit,
 };
 
 #[derive(Parser)]
@@ -45,6 +49,10 @@ enum Command {
     Run(RunArgs),
     /// The stored router's coverage recall at online operating points.
     Online(OnlineArgs),
+    /// The stored routers of several segments under the global walk.
+    Global(GlobalArgs),
+    /// The global walk's coverage recall at online operating points.
+    GlobalOnline(OnlineArgs),
 }
 
 #[derive(clap::Args)]
@@ -85,6 +93,41 @@ struct OnlineArgs {
     /// Where the recalls go.
     #[arg(long)]
     output: PathBuf,
+}
+
+#[derive(clap::Args)]
+struct GlobalArgs {
+    #[command(flatten)]
+    inputs: Inputs,
+    /// Where the report goes.
+    #[arg(long)]
+    output: PathBuf,
+}
+
+/// A segment's entry in a multi-segment `meta.json`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SegmentMeta {
+    segment_id: String,
+    clusters: usize,
+    docs: u64,
+    router_kind: String,
+    partition_centroid: bool,
+}
+
+/// A multi-segment `meta.json`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct GlobalMeta {
+    dim: usize,
+    metric: Metric,
+    clusters: usize,
+    docs: u64,
+    router_kind: String,
+    max_leaf_size: usize,
+    training_sample_ratio: f32,
+    quantization: Option<Vec<u8>>,
+    spill: bool,
+    partition_by: Vec<String>,
+    segments: Vec<SegmentMeta>,
 }
 
 /// `meta.json`.
@@ -186,6 +229,112 @@ fn id_clusters(export: &Path, ids: &Path, meta: &Meta) -> Result<HashMap<String,
     Ok(clusters)
 }
 
+/// Each table id's `(segment, cluster)`, from the export's multi-segment rows and the table's ids.
+fn id_probes(export: &Path, ids: &Path, meta: &GlobalMeta) -> Result<HashMap<String, (u32, u32)>> {
+    let bytes = fs::read(export.join("doc_clusters"))?;
+    let (rows, _) = bytes.as_chunks::<16>();
+    let ctid_probes: HashMap<u64, (u32, u32)> = rows
+        .iter()
+        .map(|row| {
+            (
+                u64::from_le_bytes(row[..8].try_into().expect("eight bytes")),
+                (
+                    u32::from_le_bytes(row[8..12].try_into().expect("four bytes")),
+                    u32::from_le_bytes(row[12..].try_into().expect("four bytes")),
+                ),
+            )
+        })
+        .collect();
+    ensure!(
+        ctid_probes.len() as u64 == meta.docs,
+        "doc_clusters holds {} documents, meta.json {}",
+        ctid_probes.len(),
+        meta.docs
+    );
+    let mut probes = HashMap::with_capacity(ctid_probes.len());
+    let mut table_rows = 0u64;
+    for line in BufReader::new(fs::File::open(ids)?).lines() {
+        let line = line?;
+        let (ctid, id) = line
+            .split_once('\t')
+            .with_context(|| format!("malformed id line {line}"))?;
+        table_rows += 1;
+        if let Some(&probe) = ctid_probes.get(&ctid_key(ctid)?) {
+            probes.insert(id.to_string(), probe);
+        }
+    }
+    ensure!(
+        table_rows == meta.docs,
+        "the table holds {table_rows} rows, the doc-cluster map {}",
+        meta.docs
+    );
+    Ok(probes)
+}
+
+/// The global audit input, the query ids in file order, and the metadata.
+fn load_global(inputs: &Inputs) -> Result<(GlobalAuditInput, Vec<i64>, GlobalMeta)> {
+    let meta: GlobalMeta = serde_json::from_slice(&fs::read(inputs.export.join("meta.json"))?)?;
+    let id_probes = id_probes(&inputs.export, &inputs.ids, &meta)?;
+    let mut segments = Vec::with_capacity(meta.segments.len());
+    for (index, stored) in meta.segments.iter().enumerate() {
+        let dir = inputs.export.join(format!("segment-{index}"));
+        let sizes = read_u32s(&dir.join("sizes.u32"))?;
+        ensure!(
+            sizes.len() == stored.clusters,
+            "segment {index} holds {} clusters, its meta.json {}",
+            sizes.len(),
+            stored.clusters
+        );
+        segments.push(GlobalSegment {
+            segment_id: stored.segment_id.clone(),
+            centroids: read_f32s(&dir.join("centroids.f32"))?,
+            router_slot: fs::read(dir.join("router.bin"))?,
+            sizes,
+            partition_centroid: stored
+                .partition_centroid
+                .then(|| read_f32s(&dir.join("partition.f32")))
+                .transpose()?,
+        });
+    }
+    let mut queries = Vec::new();
+    let mut gt_probes = Vec::new();
+    let mut query_set = Vec::new();
+    let mut query_ids = Vec::new();
+    for line in BufReader::new(fs::File::open(&inputs.queries)?).lines() {
+        let query: Query = serde_json::from_str(&line?)?;
+        ensure!(
+            query.emb.len() == meta.dim,
+            "query {} has {} dimensions",
+            query.query_id,
+            query.emb.len()
+        );
+        let probes = query
+            .gt_ids
+            .iter()
+            .map(|id| {
+                id_probes
+                    .get(id)
+                    .copied()
+                    .with_context(|| format!("ground-truth id {id} has no cluster"))
+            })
+            .collect::<Result<Vec<(u32, u32)>>>()?;
+        queries.push(query.emb);
+        gt_probes.push(probes);
+        query_set.push(query.set);
+        query_ids.push(query.query_id);
+    }
+    let input = GlobalAuditInput {
+        dim: meta.dim,
+        metric: meta.metric,
+        ks: default_ks(meta.clusters),
+        segments,
+        queries,
+        gt_probes,
+        query_set,
+    };
+    Ok((input, query_ids, meta))
+}
+
 /// The audit input and the query ids, in file order.
 fn load(inputs: &Inputs) -> Result<(AuditInput, Vec<i64>, Meta)> {
     let meta: Meta = serde_json::from_slice(&fs::read(inputs.export.join("meta.json"))?)?;
@@ -278,32 +427,28 @@ fn run(args: &RunArgs) -> Result<()> {
     Ok(())
 }
 
-fn online(args: &OnlineArgs) -> Result<()> {
-    let (mut input, query_ids, _) = load(&args.inputs)?;
-    let keep: Vec<usize> = (0..query_ids.len())
-        .filter(|&q| input.query_set[q] == args.set)
-        .collect();
-    let kept_ids: Vec<i64> = keep.iter().map(|&q| query_ids[q]).collect();
-    input.queries = keep
-        .iter()
-        .map(|&q| std::mem::take(&mut input.queries[q]))
-        .collect();
-    input.gt_clusters = keep
-        .iter()
-        .map(|&q| std::mem::take(&mut input.gt_clusters[q]))
-        .collect();
-    input.query_set = vec![args.set.clone(); keep.len()];
+/// Keeps the entries of `values` at positions `keep`.
+fn kept<T: Default>(values: &mut [T], keep: &[usize]) -> Vec<T> {
+    keep.iter()
+        .map(|&q| std::mem::take(&mut values[q]))
+        .collect()
+}
 
-    let points: Vec<Point> = serde_json::from_slice(&fs::read(&args.points)?)?;
+/// The points of `path`, checked against the queries they measured.
+fn online_points(
+    path: &Path,
+    kept_ids: &[i64],
+    set: &str,
+) -> Result<(Vec<Point>, Vec<OnlinePoint>)> {
+    let points: Vec<Point> = serde_json::from_slice(&fs::read(path)?)?;
     for point in &points {
         ensure!(
             point.query_ids == kept_ids,
-            "point {} measured other queries than {}",
-            point.label,
-            args.set
+            "point {} measured other queries than {set}",
+            point.label
         );
     }
-    let online: Vec<OnlinePoint> = points
+    let online = points
         .iter()
         .map(|point| OnlinePoint {
             rerank_factor: point.rerank_factor,
@@ -311,7 +456,10 @@ fn online(args: &OnlineArgs) -> Result<()> {
             clusters: point.clusters.clone(),
         })
         .collect();
-    let recalls = offline_recall(&input, &online)?;
+    Ok((points, online))
+}
+
+fn write_online(output: &Path, points: &[Point], recalls: Vec<f64>) -> Result<()> {
     let rows: Vec<OnlineRecall> = points
         .iter()
         .zip(recalls)
@@ -320,14 +468,60 @@ fn online(args: &OnlineArgs) -> Result<()> {
             offline_recall,
         })
         .collect();
-    fs::write(&args.output, serde_json::to_vec_pretty(&rows)?)?;
+    fs::write(output, serde_json::to_vec_pretty(&rows)?)?;
     Ok(())
+}
+
+fn online(args: &OnlineArgs) -> Result<()> {
+    let (mut input, query_ids, _) = load(&args.inputs)?;
+    let keep: Vec<usize> = (0..query_ids.len())
+        .filter(|&q| input.query_set[q] == args.set)
+        .collect();
+    let kept_ids: Vec<i64> = keep.iter().map(|&q| query_ids[q]).collect();
+    input.queries = kept(&mut input.queries, &keep);
+    input.gt_clusters = kept(&mut input.gt_clusters, &keep);
+    input.query_set = vec![args.set.clone(); keep.len()];
+    let (points, online) = online_points(&args.points, &kept_ids, &args.set)?;
+    write_online(&args.output, &points, offline_recall(&input, &online)?)
+}
+
+fn global(args: &GlobalArgs) -> Result<()> {
+    let (input, _, meta) = load_global(&args.inputs)?;
+    let report = run_global_audit(&input)?;
+    let document = serde_json::json!({ "meta": meta, "report": report });
+    fs::write(&args.output, serde_json::to_vec_pretty(&document)?)?;
+    if !report.flat_s_matches_flat_g {
+        bail!(
+            "stop conditions tripped; report written to {}:\nFLAT-S differs from FLAT-G",
+            args.output.display()
+        );
+    }
+    Ok(())
+}
+
+fn global_online(args: &OnlineArgs) -> Result<()> {
+    let (mut input, query_ids, _) = load_global(&args.inputs)?;
+    let keep: Vec<usize> = (0..query_ids.len())
+        .filter(|&q| input.query_set[q] == args.set)
+        .collect();
+    let kept_ids: Vec<i64> = keep.iter().map(|&q| query_ids[q]).collect();
+    input.queries = kept(&mut input.queries, &keep);
+    input.gt_probes = kept(&mut input.gt_probes, &keep);
+    input.query_set = vec![args.set.clone(); keep.len()];
+    let (points, online) = online_points(&args.points, &kept_ids, &args.set)?;
+    write_online(
+        &args.output,
+        &points,
+        global_offline_recall(&input, &online)?,
+    )
 }
 
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Run(args) => run(&args),
         Command::Online(args) => online(&args),
+        Command::Global(args) => global(&args),
+        Command::GlobalOnline(args) => global_online(&args),
     }
 }
 

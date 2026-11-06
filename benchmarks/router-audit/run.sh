@@ -13,7 +13,7 @@ INDEX=cohere_wiki_bm25_idx
 FIELD=emb
 STEM=knn_top10_unfiltered
 
-SIZE="" URL="" DATA="" OUT="" PG_LOG="" PDBENCH_DATA=""
+SIZE="" URL="" DATA="" OUT="" PG_LOG="" PDBENCH_DATA="" LAYOUT=single
 SETTINGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,6 +31,10 @@ while [ $# -gt 0 ]; do
       ;;
     --out)
       OUT="$2"
+      shift 2
+      ;;
+    --layout)
+      LAYOUT="$2"
       shift 2
       ;;
     --pg-log)
@@ -52,7 +56,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$SIZE" ] && [ -n "$URL" ] && [ -n "$OUT" ] || {
-  echo "usage: run.sh --size 1m|10m --url <pg> --out <dir> [--data <dir>] [--pdbench-data <dir>]" >&2
+  echo "usage: run.sh --size 1m|10m --url <pg> --out <dir> [--layout single|p8]" \
+    "[--data <dir>] [--pdbench-data <dir>]" >&2
   exit 2
 }
 [ "$SIZE" = 10m ] || [ -n "$DATA" ] || {
@@ -63,7 +68,26 @@ done
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-PROFILE="$HERE/profile-$SIZE.toml"
+case "$LAYOUT" in
+  single)
+    PROFILE="$HERE/profile-$SIZE.toml"
+    INDEX_SQL="$HERE/index.sql"
+    SEGMENTS=1
+    ;;
+  p8)
+    PROFILE="$HERE/profile-$SIZE-p8.toml"
+    INDEX_SQL="$HERE/index-p8.sql"
+    SEGMENTS=8
+    ;;
+  *)
+    echo "unknown layout $LAYOUT" >&2
+    exit 2
+    ;;
+esac
+[ -r "$PROFILE" ] || {
+  echo "no profile for $SIZE $LAYOUT" >&2
+  exit 2
+}
 ASSETS="$OUT/assets"
 RUNS="$OUT/pdbench"
 
@@ -90,7 +114,7 @@ stop() {
 build() {
   rm -rf "$ASSETS"
   cp -R "$ASSETS_SOURCE" "$ASSETS"
-  cp "$HERE/index.sql" "$ASSETS/cohere/index.sql"
+  cp "$INDEX_SQL" "$ASSETS/cohere/index.sql"
   # The build's timing line is a NOTICE; the server log only keeps it at this level.
   sql "ALTER SYSTEM SET log_min_messages = notice"
   sql "SELECT pg_reload_conf()" >/dev/null
@@ -103,31 +127,23 @@ build() {
 }
 
 check_segments() {
-  local ivf
+  local ivf total
   ivf=$(sql "SELECT count(*) FROM paradedb.vector_info('$INDEX', '$FIELD') WHERE vector_format = 'ivf'")
+  total=$(sql "SELECT count(*) FROM paradedb.vector_info('$INDEX', '$FIELD')")
   sql "SELECT segno, vector_format, vector_num_vectors, vector_num_centroids
        FROM paradedb.vector_info('$INDEX', '$FIELD')" | tee "$OUT/segments.txt"
-  [ "$ivf" = 1 ] || stop "$INDEX holds $ivf IVF segments, not one"
+  if [ "$ivf" != "$SEGMENTS" ] || { [ "$SEGMENTS" != 1 ] && [ "$total" != "$SEGMENTS" ]; }; then
+    stop "$INDEX holds $ivf IVF segments of $total, not $SEGMENTS"
+  fi
 }
 
 export_router() {
   sql "SELECT paradedb.vector_router_export('$INDEX', '$FIELD', '$OUT/export')" >/dev/null
   psql "$URL" -X -q -c "\\copy (SELECT ctid, _id FROM $TABLE) TO '$OUT/ids.tsv'"
-  sql "SELECT to_json(cluster_sizes) FROM paradedb.vector_clusters('$INDEX', '$FIELD')
+  sql "SELECT json_object_agg(segno, cluster_sizes) FROM paradedb.vector_clusters('$INDEX', '$FIELD')
        WHERE cluster_sizes IS NOT NULL" >"$OUT/vector_clusters.json"
-  python3 - "$OUT" <<'PYTHON' || stop "exported cluster sizes differ from paradedb.vector_clusters"
-import json, struct, sys
-out = sys.argv[1]
-with open(f"{out}/export/sizes.u32", "rb") as handle:
-    raw = handle.read()
-sizes = list(struct.unpack(f"<{len(raw) // 4}I", raw))
-with open(f"{out}/vector_clusters.json") as handle:
-    assert sizes == json.load(handle)
-meta = json.load(open(f"{out}/export/meta.json"))
-assert meta["router_kind"] == "quantized_stacked", meta
-assert meta["quantization"] == [1, 1], meta
-assert meta["spill"] is False, meta
-PYTHON
+  python3 "$HERE/check_export.py" --out "$OUT" --segments "$SEGMENTS" ||
+    stop "the export disagrees with the index"
 }
 
 prepare_queries() {
@@ -138,8 +154,11 @@ prepare_queries() {
 }
 
 audit() {
-  "$ROUTER_AUDIT" run --export "$OUT/export" --ids "$OUT/ids.tsv" --queries "$OUT/queries.jsonl" \
-    --output "$OUT/audit.json" || stop "router-audit failed; see the message above"
+  local command=run
+  [ "$LAYOUT" = single ] || command=global
+  "$ROUTER_AUDIT" "$command" --export "$OUT/export" --ids "$OUT/ids.tsv" \
+    --queries "$OUT/queries.jsonl" --output "$OUT/audit.json" ||
+    stop "router-audit failed; see the message above"
 }
 
 sweep_factor() {
@@ -159,15 +178,19 @@ sweeps() {
     stop "pdbench's held-out queries are not the audited ones"
   sweep_factor 4
   python3 "$HERE/collect_perf.py" --url "$URL" --profile "$OUT/profiles/k3-2.toml" \
-    --assets "$ASSETS" --runs-dir "$RUNS" --queries "$OUT/queries.jsonl" \
+    --assets "$ASSETS" --runs-dir "$RUNS" --queries "$OUT/queries.jsonl" --segments "$SEGMENTS" \
     --clusters "$(python3 -c "import json; print(json.load(open('$OUT/export/meta.json'))['clusters'])")" \
     --out "$OUT"
-  "$ROUTER_AUDIT" online --export "$OUT/export" --ids "$OUT/ids.tsv" --queries "$OUT/queries.jsonl" \
-    --points "$OUT/points.json" --output "$OUT/online.json"
+  local command=online
+  [ "$LAYOUT" = single ] || command=global-online
+  "$ROUTER_AUDIT" "$command" --export "$OUT/export" --ids "$OUT/ids.tsv" \
+    --queries "$OUT/queries.jsonl" --points "$OUT/points.json" --output "$OUT/online.json"
 }
 
 report() {
-  python3 "$HERE/report.py" --out "$OUT" || stop "report checks failed; see REPORT.md"
+  local script=report.py
+  [ "$LAYOUT" = single ] || script=report_global.py
+  python3 "$HERE/$script" --out "$OUT" || stop "report checks failed; see REPORT.md"
 }
 
 step 1-build build

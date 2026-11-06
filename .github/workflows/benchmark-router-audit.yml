@@ -12,6 +12,11 @@ on:
         type: choice
         options: [1m, 10m]
         default: 10m
+      layout:
+        description: "One segment, or 8 partitioned segments under the global router"
+        type: choice
+        options: [single, p8]
+        default: single
       pdbench_ref:
         description: "pdbench ref"
         default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
@@ -28,7 +33,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: Router audit ${{ inputs.size || '10m' }}
+    name: Router audit ${{ inputs.size || '10m' }} ${{ inputs.layout || 'single' }}
     if: >-
       github.event_name != 'pull_request' ||
       github.event.label.name == 'benchmark-router-audit'
@@ -41,6 +46,8 @@ jobs:
       - extras=s3-cache
     env:
       COHERE_SIZE: ${{ inputs.size || '10m' }}
+      LAYOUT: ${{ inputs.layout || 'single' }}
+      AUDIT_NAME: ${{ inputs.layout == 'p8' && format('{0}-p8', inputs.size) || inputs.size || '10m' }}
       pg_version: "18"
       PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
 
@@ -190,13 +197,14 @@ jobs:
 
       - name: Run the audit
         run: |
-          benchmarks/router-audit/run.sh --size "$COHERE_SIZE" --url "$PARADEDB_URL" \
-            --pg-log "$HOME/.pgrx/18.log" --out benchmarks/router-audit/out/"$COHERE_SIZE"
+          benchmarks/router-audit/run.sh --size "$COHERE_SIZE" --layout "$LAYOUT" \
+            --url "$PARADEDB_URL" --pg-log "$HOME/.pgrx/18.log" \
+            --out benchmarks/router-audit/out/"$AUDIT_NAME"
 
       - name: Write the job summary
         if: always()
         run: |
-          report="benchmarks/router-audit/out/$COHERE_SIZE/REPORT.md"
+          report="benchmarks/router-audit/out/$AUDIT_NAME/REPORT.md"
           if [ -f "$report" ]; then
             head -c 1000000 "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -205,11 +213,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: router-audit-${{ env.COHERE_SIZE }}
+          name: router-audit-${{ env.AUDIT_NAME }}
           path: |
-            benchmarks/router-audit/out/${{ env.COHERE_SIZE }}/
-            !benchmarks/router-audit/out/${{ env.COHERE_SIZE }}/ids.tsv
-            !benchmarks/router-audit/out/${{ env.COHERE_SIZE }}/assets/
+            benchmarks/router-audit/out/${{ env.AUDIT_NAME }}/
+            !benchmarks/router-audit/out/${{ env.AUDIT_NAME }}/ids.tsv
+            !benchmarks/router-audit/out/${{ env.AUDIT_NAME }}/assets/
           retention-days: 30
           if-no-files-found: warn
 

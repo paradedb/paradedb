@@ -8,6 +8,7 @@
 #   SOURCE_TABLE  table on SOURCE_URL with the Cohere schema
 #   SKIP_BUILD    set to reuse the image
 #   HOST_SCRIPTS  set to run this directory's scripts instead of the image's
+#   LAYOUT        single (default) or p8; needs a profile for 1M at that layout
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +23,10 @@ PDBENCH_SRC="${PDBENCH_SRC:-$WORKSPACE/pdbench}"
 PDBENCH_REF="${PDBENCH_REF:-e1bd111cb1c2aa64303493c60f067b22a43f039d}"
 SOURCE_URL="${SOURCE_URL:-postgresql://localhost:28818/pg_search}"
 SOURCE_TABLE="${SOURCE_TABLE:-cohere_1m_q11}"
+LAYOUT="${LAYOUT:-single}"
 OUT="$HERE/out"
+RUN_OUT=1m
+[ "$LAYOUT" = single ] || RUN_OUT="1m-$LAYOUT"
 
 # Docker Desktop's VM must hold the buffers and the build.
 memory=$(docker info --format '{{.MemTotal}}')
@@ -33,8 +37,8 @@ if [ "$memory" -lt $((16 * 1024 * 1024 * 1024 - 1024 * 1024 * 1024)) ] || [ "$cp
   exit 1
 fi
 
-mkdir -p "$OUT/dump" "$OUT/1m"
-chmod 777 "$OUT/1m"
+mkdir -p "$OUT/dump" "$OUT/$RUN_OUT"
+chmod 777 "$OUT/$RUN_OUT"
 
 if [ -z "${SKIP_BUILD:-}" ]; then
   pdbench_context="$OUT/pdbench-src"
@@ -52,7 +56,7 @@ start() {
   docker run -d --name "$CONTAINER" --platform linux/arm64 --shm-size=9g \
     -v "$VOLUME:/var/lib/postgresql" \
     -v "$OUT/dump:/dump:ro" -v "$SOAR_DATA:/data:ro" -v "$PDBENCH_DATA:/pdbench-data:ro" \
-    -v "$OUT/1m:/out" ${scripts[@]+"${scripts[@]}"} \
+    -v "$OUT/$RUN_OUT:/out" ${scripts[@]+"${scripts[@]}"} \
     -e POSTGRES_PASSWORD=audit -e POSTGRES_DB=pg_search -e PDB_TUNE=false \
     "$IMAGE" postgres -c shared_buffers=8GB -c maintenance_work_mem=12GB \
     -c max_parallel_maintenance_workers=8 -c max_parallel_workers=8 -c max_worker_processes=32 \
@@ -89,9 +93,9 @@ loaded=$(docker exec "$CONTAINER" psql -U postgres -d pg_search -X -At \
 
 # pdbench's DuckDB wants an S3 credential even for local parquet; nothing here reads S3.
 docker exec -e AWS_ACCESS_KEY_ID=unused -e AWS_SECRET_ACCESS_KEY=unused -e AWS_REGION=us-east-1 \
-  "$CONTAINER" bash -c 'cd /tmp && /opt/router-audit/benchmarks/router-audit/run.sh --size 1m \
+  "$CONTAINER" bash -c "cd /tmp && /opt/router-audit/benchmarks/router-audit/run.sh --size 1m --layout $LAYOUT \
   --url postgresql://postgres@localhost:5432/pg_search --data /data --pdbench-data /pdbench-data \
-  --allow-settings-drift --pg-log /var/lib/postgresql/log/postgres.log --out /out'
+  --allow-settings-drift --pg-log /var/lib/postgresql/log/postgres.log --out /out"
 docker stop -t 60 "$CONTAINER" >/dev/null
 docker rm "$CONTAINER" >/dev/null
-echo "results: $OUT/1m/REPORT.md"
+echo "results: $OUT/$RUN_OUT/REPORT.md"

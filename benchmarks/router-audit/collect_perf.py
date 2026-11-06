@@ -54,6 +54,13 @@ def segment_info(node):
     return None
 
 
+def parallel_plan(node):
+    """Whether a plan node or anything under it runs in parallel workers."""
+    if "Workers Planned" in node:
+        return True
+    return any(parallel_plan(child) for child in node.get("Plans", []))
+
+
 def run_point(args, session, query_sql, vectors, factor, value):
     settings = dict(session)
     settings["paradedb.vector_router_rerank_factor"] = str(factor)
@@ -77,14 +84,26 @@ def run_point(args, session, query_sql, vectors, factor, value):
     return explains
 
 
-def summarize(explains, query_ids, clusters_total):
+def merged_stats(info):
+    """One query's numeric stats summed over its segments."""
+    totals = {}
+    for stats in info.values():
+        for field, value in stats.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                totals[field] = totals.get(field, 0) + value
+    return totals
+
+
+def summarize(explains, query_ids, clusters_total, segments):
     rows = []
     for query_id, explain in zip(query_ids, explains):
-        info = segment_info(explain[0]["Plan"])
-        if info is None or len(info) != 1:
-            raise SystemExit(f"expected one segment's stats, got {info!r}")
-        stats = next(iter(info.values()))
-        rows.append((query_id, stats, explain[0]["Execution Time"]))
+        plan = explain[0]["Plan"]
+        if segments > 1 and parallel_plan(plan):
+            raise SystemExit("a parallel plan does not reach the global walk")
+        info = segment_info(plan)
+        if info is None or len(info) != segments:
+            raise SystemExit(f"expected {segments} segments' stats, got {info!r}")
+        rows.append((query_id, merged_stats(info), explain[0]["Execution Time"]))
 
     def mean(field):
         return sum(stats.get(field, 0) for _, stats, _ in rows) / len(rows)
@@ -154,6 +173,7 @@ def main():
     parser.add_argument("--runs-dir", required=True)
     parser.add_argument("--queries", required=True, help="queries.jsonl")
     parser.add_argument("--clusters", type=int, required=True)
+    parser.add_argument("--segments", type=int, default=1)
     parser.add_argument("--out", required=True)
     parser.add_argument("--query-stem", default="knn_top10_unfiltered")
     args = parser.parse_args()
@@ -185,7 +205,9 @@ def main():
             value = chosen["value"]
             label = f"K3-{factor} r{target}"
             explains = run_point(args, session, query_sql, vectors, factor, value)
-            summary, router_k, clusters = summarize(explains, query_ids, args.clusters)
+            summary, router_k, clusters = summarize(
+                explains, query_ids, args.clusters, args.segments
+            )
             latency = by_value[value]["metrics"]["latency"]
             perf.append(
                 {

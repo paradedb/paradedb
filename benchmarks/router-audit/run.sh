@@ -17,21 +17,48 @@ SIZE="" URL="" DATA="" OUT="" PG_LOG="" PDBENCH_DATA=""
 SETTINGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --size) SIZE="$2"; shift 2 ;;
-    --url) URL="$2"; shift 2 ;;
-    --data) DATA="$2"; shift 2 ;;
-    --out) OUT="$2"; shift 2 ;;
-    --pg-log) PG_LOG="$2"; shift 2 ;;
-    --pdbench-data) PDBENCH_DATA="$2"; shift 2 ;;
-    --allow-settings-drift) SETTINGS+=(--allow-settings-drift); shift ;;
-    *) echo "unknown argument $1" >&2; exit 2 ;;
+    --size)
+      SIZE="$2"
+      shift 2
+      ;;
+    --url)
+      URL="$2"
+      shift 2
+      ;;
+    --data)
+      DATA="$2"
+      shift 2
+      ;;
+    --out)
+      OUT="$2"
+      shift 2
+      ;;
+    --pg-log)
+      PG_LOG="$2"
+      shift 2
+      ;;
+    --pdbench-data)
+      PDBENCH_DATA="$2"
+      shift 2
+      ;;
+    --allow-settings-drift)
+      SETTINGS+=(--allow-settings-drift)
+      shift
+      ;;
+    *)
+      echo "unknown argument $1" >&2
+      exit 2
+      ;;
   esac
 done
 [ -n "$SIZE" ] && [ -n "$URL" ] && [ -n "$OUT" ] || {
   echo "usage: run.sh --size 1m|10m --url <pg> --out <dir> [--data <dir>] [--pdbench-data <dir>]" >&2
   exit 2
 }
-[ "$SIZE" = 10m ] || [ -n "$DATA" ] || { echo "--size 1m needs --data" >&2; exit 2; }
+[ "$SIZE" = 10m ] || [ -n "$DATA" ] || {
+  echo "--size 1m needs --data" >&2
+  exit 2
+}
 [ -z "$PDBENCH_DATA" ] || SETTINGS+=(--set "dataset.s3_base_path=$PDBENCH_DATA")
 
 mkdir -p "$OUT"
@@ -70,7 +97,7 @@ build() {
   pdbench build --url "$URL" --config "$PROFILE" --assets-dir "$ASSETS" --runs-dir "$RUNS" \
     --force-rebuild "${SETTINGS[@]}" | tee "$OUT/build.log"
   if [ -n "$PG_LOG" ] && [ -r "$PG_LOG" ]; then
-    grep 'ivf_build' "$PG_LOG" | tail -1 > "$OUT/ivf_build.log" || true
+    grep 'ivf_build' "$PG_LOG" | tail -1 >"$OUT/ivf_build.log" || true
     cat "$OUT/ivf_build.log"
   fi
 }
@@ -87,7 +114,7 @@ export_router() {
   sql "SELECT paradedb.vector_router_export('$INDEX', '$FIELD', '$OUT/export')" >/dev/null
   psql "$URL" -X -q -c "\\copy (SELECT ctid, _id FROM $TABLE) TO '$OUT/ids.tsv'"
   sql "SELECT to_json(cluster_sizes) FROM paradedb.vector_clusters('$INDEX', '$FIELD')
-       WHERE cluster_sizes IS NOT NULL" > "$OUT/vector_clusters.json"
+       WHERE cluster_sizes IS NOT NULL" >"$OUT/vector_clusters.json"
   python3 - "$OUT" <<'PYTHON' || stop "exported cluster sizes differ from paradedb.vector_clusters"
 import json, struct, sys
 out = sys.argv[1]
@@ -121,15 +148,15 @@ sweep_factor() {
   mkdir -p "$OUT/profiles"
   awk -v factor="$factor" '{ print }
     /^\[search\.session\]$/ { printf "\"paradedb.vector_router_rerank_factor\" = \"%s\"\n", factor }' \
-    "$PROFILE" > "$profile"
+    "$PROFILE" >"$profile"
   pdbench search --url "$URL" --config "$profile" --assets-dir "$ASSETS" --runs-dir "$RUNS" \
     --query "$STEM" --no-compare "${SETTINGS[@]}" | tee "$OUT/sweep-k3-$factor.log"
 }
 
 sweeps() {
   sweep_factor 2
-  python3 "$HERE/prepare_queries.py" --size "$SIZE" --url "$URL" --out "$OUT" --check-loaded \
-    || stop "pdbench's held-out queries are not the audited ones"
+  python3 "$HERE/prepare_queries.py" --size "$SIZE" --url "$URL" --out "$OUT" --check-loaded ||
+    stop "pdbench's held-out queries are not the audited ones"
   sweep_factor 4
   python3 "$HERE/collect_perf.py" --url "$URL" --profile "$OUT/profiles/k3-2.toml" \
     --assets "$ASSETS" --runs-dir "$RUNS" --queries "$OUT/queries.jsonl" \

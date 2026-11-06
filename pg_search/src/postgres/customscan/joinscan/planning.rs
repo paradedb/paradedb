@@ -873,19 +873,17 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
         return Err("returns a set".to_string());
     }
 
+    if expr.contains_type(pg_sys::NodeTag::T_SubPlan) {
+        pgrx::debug1!("JoinScan declined Postgres projection: expression contains a SubPlan");
+        return Err("contains a subplan".to_string());
+    }
+
     let mut deps = ExprDeps {
         vars: Vec::new(),
         score_rtis: Vec::new(),
         window_funcs: Vec::new(),
     };
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
-
-    if !deps.score_rtis.is_empty() {
-        pgrx::debug1!(
-            "JoinScan declined Postgres projection: expression depends on a score function"
-        );
-        return Err("depends on a score function".to_string());
-    }
 
     if !deps.window_funcs.is_empty() {
         pgrx::debug1!(
@@ -900,6 +898,19 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
         .map(|s| source_table_name(&s.to_source_context()))
         .collect::<Vec<_>>()
         .join(", ");
+
+    let output_rtis = plan.output_rtis();
+    for score_rti in deps.score_rtis {
+        if !output_rtis.contains(&score_rti) {
+            pgrx::debug1!(
+                "JoinScan declined Postgres projection: expression depends on score for relation \
+                 (rti={}) not found in any source (tables: {})",
+                score_rti,
+                tables_str
+            );
+            return Err("score function references a relation outside the join".to_string());
+        }
+    }
 
     let mut seen = std::collections::HashSet::new();
     for var_ptr in deps.vars {
@@ -921,7 +932,7 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
             continue;
         }
 
-        if !plan.output_rtis().contains(&varno) {
+        if !output_rtis.contains(&varno) {
             pgrx::debug1!(
                 "JoinScan declined Postgres projection: expression depends on a relation \
                  (rti={}) not found in any source (tables: {})",
@@ -2577,9 +2588,9 @@ unsafe extern "C-unwind" fn expr_deps_walker(
 /// Plain Vars, score functions, and indexed expressions are mapped to their respective
 /// ResolvedExpr variants. A general expression (or constant) declines on an aggregate. It
 /// runs inside the scan when every Var it reads is a fast field (score function arguments
-/// excluded) and its result type is Arrow-convertible; otherwise, volatile functions
-/// included, Postgres computes it over the scan's rows when `enable_pg_project_fallback`
-/// is set.
+/// excluded), its result type is Arrow-convertible, and it contains no parameters or
+/// untranslatable score subtrees; otherwise, volatile functions and parameters included,
+/// Postgres computes it over the scan's rows when `enable_pg_project_fallback` is set.
 pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     root: *mut pg_sys::PlannerInfo,
@@ -2668,6 +2679,20 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             );
         });
     }
+    if expr.contains_param() || expr.contains_type(pg_sys::NodeTag::T_SubPlan) {
+        return pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            "target list expression contains a parameter or subplan".to_string(),
+        )
+        .inspect_err(|_| {
+            pgrx::debug1!(
+                "JoinScan declined: target list expression contains a parameter \
+                 or subplan (tables: {})",
+                tables_str
+            );
+        });
+    }
 
     let mut deps = ExprDeps {
         vars: Vec::new(),
@@ -2675,6 +2700,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         window_funcs: Vec::new(),
     };
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+    let has_score_deps = !deps.score_rtis.is_empty();
 
     // Each embedded window function must itself be absorbable (supported
     // aggregate, bare OVER (), fast-field argument, columnar FILTER columns).
@@ -2802,6 +2828,23 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                     result_type,
                     tables_str
                 );
+        });
+    }
+
+    if has_score_deps
+        && window_deps.is_empty()
+        && !PredicateTranslator::can_translate(Some(root), &plan.sources(), expr, Some(plan))
+    {
+        return pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            "target list score expression cannot be evaluated in DataFusion".to_string(),
+        )
+        .inspect_err(|_| {
+            pgrx::debug1!(
+                "JoinScan declined: target list score expression cannot be evaluated in DataFusion (tables: {})",
+                tables_str
+            );
         });
     }
 

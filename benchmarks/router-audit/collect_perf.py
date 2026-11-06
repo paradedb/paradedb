@@ -203,7 +203,7 @@ def main():
         by_value = {point["value"]: point for point in variant["points"]}
         for target, chosen in sorted(variant["targets"].items(), key=lambda kv: float(kv[0])):
             value = chosen["value"]
-            label = f"K3-{factor} r{target}"
+            label = f"{'G3' if args.segments > 1 else 'K3'}-{factor} r{target}"
             explains = run_point(args, session, query_sql, vectors, factor, value)
             summary, router_k, clusters = summarize(
                 explains, query_ids, args.clusters, args.segments

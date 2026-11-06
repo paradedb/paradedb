@@ -2,4 +2,4 @@
 header: performance
 ---
 
-- Added adaptive vector probing with `paradedb.vector_search_effort` to control search work and `paradedb.vector_cluster_max_probe` to impose an optional work ceiling.
+- Added adaptive stopping for vector cluster probing. `paradedb.vector_cluster_max_probe` continues to control the router request and probe-work ceiling; `paradedb.vector_adaptive_probing` allows the scan to stop sooner when competitive-candidate admission decays.

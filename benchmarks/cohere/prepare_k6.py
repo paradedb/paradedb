@@ -7,7 +7,6 @@ from pathlib import Path
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
-EFFORT = "paradedb.vector_search_effort"
 QVEC = "current_setting('cohere.qvec')"
 
 
@@ -19,21 +18,13 @@ def operating_points(reports):
     for report in reports:
         current = json.loads(json.dumps(report["config"]))
         current["search"].pop("query", None)
-        param = report["data"]["sweep_param"]
-        shared = json.loads(json.dumps(current))
-        if param == EFFORT:
-            cap = float(shared["search"]["session"].pop(PROBE, "0"))
-            if not 0 <= cap <= 1:
-                raise ValueError("Adaptive work ceilings must be between 0 and 1")
-        if config is not None and config != shared:
+        if config is not None and config != current:
             raise ValueError(
                 "Recall sweeps must use the same dataset, index, and session settings"
             )
-        config = shared
-        if report["kind"] != "search" or param not in (PROBE, EFFORT):
-            raise ValueError(
-                "Expected a pdbench probe or adaptive effort search report"
-            )
+        config = current
+        if report["kind"] != "search" or report["data"]["sweep_param"] != PROBE:
+            raise ValueError("Expected a pdbench max_probe search report")
         if (
             report["data"]["query_vectors"] != 100
             or not 0 < current["search"]["sweep"]["tolerance"] < 0.001
@@ -52,7 +43,7 @@ def operating_points(reports):
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
-                    not 0 < float(selected["value"]) <= (10 if param == EFFORT else 1)
+                    not 0 < float(selected["value"]) <= 1
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
@@ -64,7 +55,6 @@ def operating_points(reports):
                         "target": target,
                         "reached": selected is not None,
                         "probe": selected["value"] if selected else None,
-                        "param": param,
                         "recall": selected["recall"]
                         if selected
                         else max(
@@ -82,13 +72,12 @@ def operating_points(reports):
 
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
-    parameter = "search effort" if points[0]["param"] == EFFORT else "max_probe"
     lines = [
         (
-            f"| Filter / recall target | {parameter} | max_probe ceiling | Achieved recall@10 "
+            "| Filter / recall target | max_probe | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
-        "|---|---:|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|",
     ]
     for point in points:
         buffers = point["buffers"]
@@ -103,17 +92,11 @@ def summary(points):
             else "—"
         )
         probe = f"`{point['probe']}`" if point["reached"] else "⚠️ Not reached"
-        cap = (
-            point["session"].get(PROBE, "0")
-            if point["param"] == EFFORT
-            else point["probe"]
-        )
         lines.append(
-            f"| `{point['name']}` | {probe} | `{cap}` | {point['recall']:.1%} | {hits} | {reads} |"
+            f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        f"\npdbench selects {parameter} separately for each filter and recall target "
-        "on this index. "
+        "\npdbench selects max_probe separately for each filter and recall target on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

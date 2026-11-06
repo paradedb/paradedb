@@ -4,34 +4,30 @@ description: Trade recall against latency for vector search
 canonical: https://www.paradedb.com/docs/reference/vector/tuning
 ---
 
-Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Adaptive probing uses the rate of promising candidates to decide when to stop. Tune search effort against measured recall and latency for your workload:
+Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. One session-level setting controls this tradeoff:
 
 ```sql
-SET paradedb.vector_search_effort = 4.4;
+SET paradedb.vector_cluster_max_probe = 0.02;
 ```
 
-<ParamField body="paradedb.vector_search_effort" default={4.4}>
-  Larger values widen the router window and require a greater reduction in the
-  admission rate before stopping. The value must be at least `0.000001`. Effort
-  is not a recall probability or guarantee; calibrate it using queries with
-  known nearest neighbors.
+<ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
+  Controls the probe-work budget as a fraction of each segment's capacity.
+  Must be between `0.000001` and `1.0`. The budget is checked between clusters
+  and subject to a minimum probe floor.
+
+The router's requested cluster count follows this budget and the filter's
+selectivity. Adaptive probing uses the same router request and work ceiling.
+A value of `1.0` allows probing the full index, but adaptive stopping can
+still end the scan early.
+
 </ParamField>
 
 <ParamField body="paradedb.vector_adaptive_probing" default="on">
-  Enables admission-based early stopping. Set to `off` to use the probe-work
-  ceiling without adaptive stopping.
-</ParamField>
-
-<ParamField body="paradedb.vector_cluster_max_probe" default={0}>
-  Limits probe work as a fraction of the index's cluster capacity. Values range
-  from `0` to `1.0`. Zero selects automatic headroom: `1.0` when adaptive
-  probing is enabled and `0.02` otherwise. Positive values impose an explicit
-  work ceiling, checked between clusters.
-
-Queries can stop earlier when the adaptive criterion is met or the router's
-candidate list is exhausted. Setting this ceiling to `1.0` alone does not
-guarantee an exhaustive search.
-
+  Stop opening clusters early when competitive-candidate admission has
+  sufficiently decayed. This does not widen routing or change the work ceiling.
+  The stopping rule is a heuristic, so measure recall for your workload. Set to
+  `off` to probe until the work budget or the router's candidate list is
+  exhausted.
 </ParamField>
 
 <Note>

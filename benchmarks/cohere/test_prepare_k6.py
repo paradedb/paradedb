@@ -3,14 +3,7 @@
 import copy
 import unittest
 
-from prepare_k6 import (
-    EFFORT,
-    PROBE,
-    QUERIES,
-    TARGETS,
-    operating_points,
-    summary,
-)
+from prepare_k6 import PROBE, QUERIES, operating_points, summary
 from verify_plans import verify
 
 
@@ -116,33 +109,6 @@ class OperatingPointsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "strict recall targets"):
                 operating_points(inputs)
 
-    def test_adaptive_targets_keep_selected_effort_and_automatic_ceiling(self):
-        """Every measured target exports its own effort from the same sweep."""
-        inputs = reports()
-        values = dict(zip(TARGETS, ["2.1", "4.4", "6.7"]))
-        for report in inputs:
-            report["config"]["search"]["session"][PROBE] = "0"
-            report["data"]["sweep_param"] = EFFORT
-            result = next(iter(report["data"]["variants"].values()))
-            template = result["points"][0]
-            result["targets"] = {}
-            result["points"] = []
-            for target, effort in values.items():
-                result["targets"][str(target)] = {"value": effort, "recall": target}
-                point = copy.deepcopy(template)
-                point["value"] = effort
-                point["metrics"]["recall"]["recall"] = target
-                result["points"].append(point)
-        original = copy.deepcopy(inputs)
-        points = operating_points(inputs)
-        self.assertEqual(len(points), 9)
-        for point in points:
-            self.assertEqual(point["param"], EFFORT)
-            self.assertEqual(point["session"][PROBE], "0")
-            self.assertEqual(point["probe"], values[point["target"]])
-        self.assertEqual(inputs, original)
-        self.assertIn("search effort", summary(points))
-
     def test_plan_guard_requires_index_scan_and_filter_pushdown(self):
         """Reject fallback scans and filters outside the index."""
         scan = {
@@ -159,24 +125,6 @@ class OperatingPointsTest(unittest.TestCase):
             verify(plan, filtered=False)
         with self.assertRaisesRegex(ValueError, "Expected a ParadeDB scan"):
             verify([{"Plan": {"Node Type": "Seq Scan"}}], filtered=False)
-
-    def test_adaptive_caps_survive_handoff_and_unreached_targets(self):
-        """Keep per-filter work caps without hiding recall failures."""
-        inputs = reports()
-        caps = dict(zip(QUERIES, ["0.0298", "0.0211", "0.00762"]))
-        for report in inputs:
-            query = report["config"]["search"]["query"]
-            report["data"]["sweep_param"] = EFFORT
-            report["config"]["search"]["session"][PROBE] = caps[query]
-        points = operating_points(inputs)
-        for point in points:
-            self.assertEqual(point["session"][PROBE], caps[point["query"]])
-            self.assertEqual(point["reached"], point["target"] != 0.99)
-        self.assertIn("`0.0298`", summary(points))
-        for cap in ["-0.01", "1.01", "nan", "inf"]:
-            inputs[0]["config"]["search"]["session"][PROBE] = cap
-            with self.assertRaisesRegex(ValueError, "work ceilings"):
-                operating_points(inputs)
 
 
 if __name__ == "__main__":

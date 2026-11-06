@@ -229,16 +229,12 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'cohere_wiki', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep adaptive effort within fixed R99 probe ceilings
+      - name: Sweep max_probe with pdbench
         run: |
           set -euo pipefail
-          cp benchmarks/cohere/probe_caps.json benchmark-artifacts/probe_caps.json
           for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-            cap=$(jq -er --arg size "$COHERE_SIZE" --arg query "$query" \
-              '.caps[$size][$query]' benchmarks/cohere/probe_caps.json)
             pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
               --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
-              --set "search.session.paradedb.vector_cluster_max_probe=$cap" \
               --query "$query" --no-compare --html
           done
 

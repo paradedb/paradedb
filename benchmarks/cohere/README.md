@@ -45,7 +45,7 @@ Router search policies can be adjusted at query time without rebuilding:
 
 | Setting                                    | Default | Effect                                                 |
 | ------------------------------------------ | ------: | ------------------------------------------------------ |
-| `paradedb.vector_router_rerank_factor`     |     1.0 | Fractional candidate multiplier before exact reranking |
+| `paradedb.vector_router_rerank_factor`     |     2.0 | Fractional candidate multiplier before exact reranking |
 | `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level   |
 | `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists            |
 
@@ -55,7 +55,7 @@ for `router_k = 3`. A factor of `1.0` removes padding but still computes exact
 scores, which document pruning and quantized distance estimation require.
 
 The beam setting leaves full-precision-only routing unchanged. Quantized routing
-defaults to a 50% beam floor with `router_k` retained members. Global routing
+defaults to a 50% beam floor with `2 * router_k` retained members. Global routing
 shares this beam and the padded shortlist across segments, including mixed raw
 and quantized routers and coarse partition centroids. It reranks retained
 quantized members before the global `router_k` selection.
@@ -69,14 +69,7 @@ retaining more members cannot recover members in unopened lists.
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `pdbench search` loads the query vectors and sweeps
-   `paradedb.vector_search_effort` from 0.05 to 10 separately for each filter to
-   r90/r95/r99. Adaptive probing is enabled. CI sets
-   `paradedb.vector_cluster_max_probe` to the measured fixed-probing R99 budget
-   for each corpus and filter from `probe_caps.json`, which records the source
-   run. This experiment holds the work ceiling fixed as effort increases; the
-   same cap applies to R90/R95 to check their latency. The TOML defaults retain
-   automatic headroom for standalone runs. These are benchmark-specific caps,
-   not a general recall-to-budget formula.
+   `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
    After the sweeps, CI downloads diagnostics from the latest successful main
@@ -97,12 +90,12 @@ retaining more members cannot recover members in unopened lists.
 4. k6 cycles over the same 100 vectors with one VU: 10 seconds of discarded
    warmup and 50 seconds of measurement per filter/target. The vector is bound
    as a parameter, with custom plans and no prepared-statement cache. The
-   selected search effort and all fixed search settings apply to every connection.
+   selected max_probe and all fixed search settings apply to every connection.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
    and index size with baseline comparisons and dashboard links. Recall,
-   search effort and mean whole-query shared buffer hits/reads appear above those
+   max_probe, and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 

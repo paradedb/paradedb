@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793953229473,
+  "lastUpdate": 1793953257033,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -512876,6 +512876,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398398434-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953254100,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3916.069234682818,
+            "unit": "median tps",
+            "extra": "avg tps: 3901.281561294602, max tps: 4621.294729462524, count: 58899"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4532.73180913356,
+            "unit": "median tps",
+            "extra": "avg tps: 4562.76364382081, max tps: 6131.859864927391, count: 58899"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.02374729460001,
+            "unit": "median tps",
+            "extra": "avg tps: 165.39466589597973, max tps: 3165.545458396586, count: 58899"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.78266210174085,
+            "unit": "median tps",
+            "extra": "avg tps: 39.856235668915836, max tps: 581.0433986892497, count: 58899"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.647200911867237,
+            "unit": "median tps",
+            "extra": "avg tps: 39.290618668397016, max tps: 559.3487146423838, count: 58899"
+          }
+        ],
+        "publication_id": "13487467131-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -527768,6 +527821,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398398434-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953256942,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5736065,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.339049531608061, max cpu: 9.151573, count: 58899"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.24701481826941, max mem: 21.31640625, count: 58899"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5649076,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.738083398469766, max cpu: 9.160305, count: 58899"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.931456815905193, max mem: 20.9375, count: 58899"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.517251469099891, max cpu: 37.5, count: 58899"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.46644063088932, max mem: 21.47265625, count: 58899"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.0542963378, max document_count: 10002.0, count: 58899"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.042156912681, max document_count: 10002.0, count: 58899"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58899"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.233618,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.497854231152154, max cpu: 34.23332, count: 58899"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 50.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.009891734685645, max mem: 64.12109375, count: 58899"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.233618,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.564683012465345, max cpu: 39.12379, count: 58899"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 51.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.29608962482385, max mem: 65.8984375, count: 58899"
+          }
+        ],
+        "publication_id": "13487467131-other"
       }
     ]
   }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793869027688,
+  "lastUpdate": 1793953423667,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -66503,6 +66503,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398698701-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953418166,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.26,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 11.989,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 12.564,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 14.226,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 14.998,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 15.476,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 25.328,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 26.933,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 28.075,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 11.725,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 12.455,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 12.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 14.74,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 15.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 16.292,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 28.103,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 29.685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 29.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.744,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 6.894,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.512,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 10.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.725,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 32.204,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 35.438,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 37.551,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13487763278-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -69757,6 +69915,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398698701-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953420100,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 88.06515053762882,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 69.96982888082856,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 39.3504586486222,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 84.99604784661315,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 67.28962682912116,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 35.82705239280713,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 171.58878184768844,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 110.94435407805558,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 30.737903128688426,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13487763278-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -71211,6 +71437,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398698701-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953423654,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 4.322271421933333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43200.453125,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13487763278-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -73913,6 +74172,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398698701-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953421830,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 13165.4,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 21578.38,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 54650.54,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 15853.83,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 24835.96,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 47232.81,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1866.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3158.91,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 12358.96,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13487763278-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

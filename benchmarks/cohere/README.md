@@ -45,7 +45,7 @@ Router search policies can be adjusted at query time without rebuilding:
 
 | Setting                                    | Default | Effect                                                 |
 | ------------------------------------------ | ------: | ------------------------------------------------------ |
-| `paradedb.vector_router_rerank_factor`     |     2.0 | Fractional candidate multiplier before exact reranking |
+| `paradedb.vector_router_rerank_factor`     |     4.0 | Fractional candidate multiplier before exact reranking |
 | `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level   |
 | `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists            |
 

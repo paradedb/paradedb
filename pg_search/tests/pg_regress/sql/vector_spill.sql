@@ -34,12 +34,11 @@ BEGIN
 END
 $$;
 
--- A spilled quantized IVF segment: every vector in its nearest cluster and in a second one.
+-- Spill is enabled by default for quantized IVF segments.
 CREATE TABLE spill_rows (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX spill_rows_idx ON spill_rows
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    spill = true,
     max_leaf_size = 5,
     training_sample_ratio = 1.0,
     target_segment_count = 1,
@@ -51,7 +50,7 @@ INSERT INTO spill_rows SELECT g, spill_fixture_vector(768, g) FROM generate_seri
 INSERT INTO spill_rows SELECT g, spill_fixture_vector(768, g) FROM generate_series(101, 200) g;
 VACUUM spill_rows;
 
-SELECT 'spill=true' = ANY(reloptions) AS option_stored
+SELECT NOT (reloptions && ARRAY['spill=true', 'spill=false']) AS uses_default
 FROM pg_class WHERE relname = 'spill_rows_idx';
 
 SELECT bool_and(vector_format = 'ivf') AS clustered,
@@ -109,6 +108,12 @@ WITH indexed AS (
 )
 SELECT (SELECT count(*) FROM indexed i JOIN oracle o USING (id)) >= 9 AS recall_at_half_probe;
 SET paradedb.vector_cluster_max_probe = 1.0;
+
+ALTER INDEX spill_rows_idx SET (spill = false);
+REINDEX INDEX spill_rows_idx;
+SELECT bool_and(quantized) AS quantized,
+       sum(vector_total_rows) = sum(vector_num_vectors) AS one_row_per_vector
+FROM paradedb.vector_info('spill_rows_idx', 'vec');
 
 DROP TABLE spill_rows_plain;
 DROP TABLE spill_rows;

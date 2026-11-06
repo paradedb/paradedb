@@ -2,4 +2,4 @@
 header: features
 ---
 
-Vector indexes accept `spill = true`: each vector of a quantized IVF field is also assigned to a second cluster chosen to cover queries its first cluster misses. The option doubles the quantized rows scanned per opened cluster and adds about one quantized row per vector to the index; it applies to segments clustered after it is set.
+Vector indexes default to `spill = true`: each vector of a quantized IVF field is also assigned to a second cluster chosen to cover queries its first cluster misses. The option doubles the quantized rows scanned per opened cluster and adds about one quantized row per vector to the index; it applies to newly clustered segments. Set `spill = false` to disable the second assignment.

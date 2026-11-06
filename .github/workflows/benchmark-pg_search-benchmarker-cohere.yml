@@ -194,6 +194,14 @@ jobs:
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log
 
+      - name: Verify default boundary replication
+        run: |
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_agg(v) FROM paradedb.vector_info('cohere_wiki_bm25_idx', 'emb') AS v" \
+            > benchmark-artifacts/vector-info.json
+          jq -e 'length > 0 and all(.[]; .vector_format == "ivf" and .quantized and .vector_total_rows == 2 * .vector_num_vectors)' \
+            benchmark-artifacts/vector-info.json
+
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:

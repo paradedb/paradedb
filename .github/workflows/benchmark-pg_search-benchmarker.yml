@@ -55,8 +55,8 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - ami=ami-0a2a2634ec0e33c35 # PostgreSQL in Docker hits an AppArmor/gosu bug on Ubuntu 26.04. Unpin once fixed: https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'schedule' ||
@@ -199,8 +199,8 @@ jobs:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
-      - ami=ami-0a2a2634ec0e33c35 # PostgreSQL in Docker hits an AppArmor/gosu bug on Ubuntu 26.04. Unpin once fixed: https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2172422
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
       github.event_name == 'schedule' ||

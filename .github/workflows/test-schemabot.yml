@@ -36,7 +36,7 @@ jobs:
       - cpu=4
       - ram=8
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
 
     steps:
       - name: Checkout Git Repository

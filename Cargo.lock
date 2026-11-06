@@ -1887,7 +1887,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.3.2",
@@ -1931,7 +1931,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1955,7 +1955,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -1978,7 +1978,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -2002,7 +2002,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "futures",
  "log",
@@ -2012,7 +2012,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2042,7 +2042,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ipc",
@@ -2066,7 +2066,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2089,7 +2089,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2144,12 +2144,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 
 [[package]]
 name = "datafusion-execution"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.3.2",
@@ -2174,7 +2174,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.3.2",
@@ -2197,7 +2197,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2208,7 +2208,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-buffer 59.3.2",
@@ -2235,7 +2235,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2255,7 +2255,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2266,7 +2266,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-nested"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-ord 59.2.0",
@@ -2290,7 +2290,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "async-trait",
@@ -2305,7 +2305,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2321,7 +2321,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -2330,7 +2330,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "datafusion-doc",
  "quote",
@@ -2340,7 +2340,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2358,7 +2358,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-schema 59.3.2",
@@ -2380,7 +2380,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2394,7 +2394,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "chrono",
@@ -2411,7 +2411,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2429,7 +2429,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "arrow-data 59.3.2",
@@ -2465,7 +2465,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-catalog",
@@ -2490,7 +2490,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-common"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2500,7 +2500,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-models"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "datafusion-common",
  "datafusion-proto-common",
@@ -2510,7 +2510,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "datafusion-common",
@@ -2525,7 +2525,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow-schema 59.3.2",
  "async-trait",
@@ -2539,7 +2539,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "55.1.0"
-source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#41b058cc278eb497a2ffc6b41a323f056d3ef568"
+source = "git+https://github.com/paradedb/datafusion.git?branch=paradedb.branch-55#058e049c90569751ae572d5bdb7cc26fbf01636f"
 dependencies = [
  "arrow 59.2.0",
  "bigdecimal",
@@ -4465,10 +4465,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f607c237553f086e7043417a51df26b2eb899d3caff94e6a67592ff992fedc7"
 dependencies = [
  "autocfg",
- "num_cpus",
- "once_cell",
  "rawpointer",
- "thread-tree",
 ]
 
 [[package]]
@@ -4761,16 +4758,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num_cpus"
-version = "1.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
-dependencies = [
- "hermit-abi",
- "libc",
-]
-
-[[package]]
 name = "objc2"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4958,7 +4945,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5783,7 +5770,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -5803,7 +5790,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -5816,7 +5803,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -7048,7 +7035,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "superkmeans-rs"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=738408113432215334bcb086a94bff78be8e8fab#738408113432215334bcb086a94bff78be8e8fab"
+source = "git+https://github.com/paradedb/superkmeans-rs?rev=ec3c9befe84d8beb437111a8eb4876eebc58e7a3#ec3c9befe84d8beb437111a8eb4876eebc58e7a3"
 dependencies = [
  "matrixmultiply",
  "pkg-config",
@@ -7151,7 +7138,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7210,7 +7197,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "bitpacking",
 ]
@@ -7218,7 +7205,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7233,7 +7220,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7266,7 +7253,7 @@ dependencies = [
 [[package]]
 name = "tantivy-quant"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
@@ -7275,7 +7262,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7287,7 +7274,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7300,7 +7287,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7337,7 +7324,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=35442e73f5555a68544bfed2499ad3a06cd41f96#35442e73f5555a68544bfed2499ad3a06cd41f96"
+source = "git+https://github.com/paradedb/tantivy.git?rev=d1d4de7c43c5201842e62e62e1200f287ff18bc9#d1d4de7c43c5201842e62e62e1200f287ff18bc9"
 dependencies = [
  "serde",
 ]
@@ -7366,7 +7353,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
@@ -7445,15 +7432,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
-]
-
-[[package]]
-name = "thread-tree"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffbd370cb847953a25954d9f63e14824a36113f8c72eecf6eccef5dc4b45d630"
-dependencies = [
- "crossbeam-channel",
 ]
 
 [[package]]

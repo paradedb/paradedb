@@ -71,6 +71,11 @@ impl VectorMetric {
         }
     }
 
+    /// Returns true if the metric represents an angular distance
+    pub fn is_angular(&self) -> bool {
+        !matches!(&self, VectorMetric::L2)
+    }
+
     /// Map a pgvector distance operator OID (`<->`, `<=>`, `<#>`) to its
     /// implied metric. Returns `None` when `opoid` is not one of them —
     /// which includes the case where pgvector is not installed at all.

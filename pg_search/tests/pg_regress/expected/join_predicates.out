@@ -696,7 +696,7 @@ LIMIT 10;
      : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, price@1 as col_3, NULL as col_4, min_order_value@4 as col_5, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
      :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=min_order_value@1 <= price@0, projection=[ctid_0@0, price@2, id@3, ctid_1@4, min_order_value@6]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=pdb_eval_expr_opexpr_7667f7b9(price@0, min_order_value@1), projection=[ctid_0@0, price@2, id@3, ctid_1@4, min_order_value@6]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"description","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
@@ -713,8 +713,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description ||| 'cable'
    OR p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price, s.name, s.min_order_value
    Relation Tree: p INNER s
@@ -725,7 +725,7 @@ LIMIT 10;
      : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, min_order_value@6 as col_5, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[p, s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@1 OR min_order_value@2 <= price@0, projection=[ctid_0@3, supplier_id@4, price@5, __p_0_tag_0@6, ctid_1@0, id@1, min_order_value@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=__p_0_tag_0@1 OR pdb_eval_expr_opexpr_7667f7b9(price@0, min_order_value@2), projection=[ctid_0@3, supplier_id@4, price@5, __p_0_tag_0@6, ctid_1@0, id@1, min_order_value@2]
      :         CooperativeExec
      :           PgSearchScan: table=s, segments=1, query="all"
      :         CooperativeExec

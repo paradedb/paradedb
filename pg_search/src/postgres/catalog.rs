@@ -80,19 +80,46 @@ pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
 
 pub fn lookup_extension_version(name: &CStr) -> Option<String> {
     unsafe {
-        let oid = pg_sys::get_extension_oid(name.as_ptr(), true);
-        #[cfg(feature = "pg17")]
-        let cache = pg_sys::SysCacheIdentifier::ZEXTENSIONOID;
-        #[cfg(not(feature = "pg17"))]
-        let cache = pg_sys::SysCacheIdentifier::EXTENSIONOID;
-        let entry = SysCacheEntry::search1(cache, oid.into_datum()?)?;
-        entry.attr(pg_sys::Anum_pg_extension_extversion)
+        let relation =
+            pg_sys::table_open(pg_sys::ExtensionRelationId, pg_sys::AccessShareLock as _);
+        let mut key = pg_sys::ScanKeyData::default();
+        pg_sys::ScanKeyInit(
+            &mut key,
+            pg_sys::Anum_pg_extension_extname as _,
+            pg_sys::BTEqualStrategyNumber as _,
+            pg_sys::F_NAMEEQ.into(),
+            pg_sys::Datum::from(name.as_ptr()),
+        );
+        let scan = pg_sys::systable_beginscan(
+            relation,
+            pg_sys::ExtensionNameIndexId.into(),
+            true,
+            std::ptr::null_mut(),
+            1,
+            &mut key,
+        );
+        let tuple = pg_sys::systable_getnext(scan);
+        let version = if tuple.is_null() {
+            None
+        } else {
+            let mut is_null = false;
+            let datum = pg_sys::heap_getattr(
+                tuple,
+                pg_sys::Anum_pg_extension_extversion as _,
+                (*relation).rd_att,
+                &mut is_null,
+            );
+            String::from_datum(datum, is_null)
+        };
+        pg_sys::systable_endscan(scan);
+        pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
+        version
     }
 }
 
 pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
     unsafe {
-        let relation = pg_sys::table_open(pg_sys::IndexRelationId, pg_sys::AccessShareLock as _);
+        let relation = pg_sys::table_open(pg_sys::RelationRelationId, pg_sys::AccessShareLock as _);
         let scan = pg_sys::systable_beginscan(
             relation,
             pg_sys::InvalidOid,
@@ -107,22 +134,22 @@ pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
             if tuple.is_null() {
                 break;
             }
-            let index = &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_index>();
-            if !index.indisvalid || !index.indisready {
+            let class = &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_class>();
+            if class.relkind as u8 != pg_sys::RELKIND_INDEX
+                || class.relpersistence as u8 == pg_sys::RELPERSISTENCE_TEMP
+                || !class.relam.is_paradedb_am()
+            {
                 continue;
             }
             let Some(entry) = SysCacheEntry::search1(
-                pg_sys::SysCacheIdentifier::RELOID,
-                index.indexrelid.into_datum().unwrap(),
+                pg_sys::SysCacheIdentifier::INDEXRELID,
+                class.oid.into_datum().unwrap(),
             ) else {
                 continue;
             };
-            let class = &*pg_sys::GETSTRUCT(entry.tuple).cast::<pg_sys::FormData_pg_class>();
-            if class.relkind as u8 == pg_sys::RELKIND_INDEX
-                && class.relpersistence as u8 != pg_sys::RELPERSISTENCE_TEMP
-                && class.relam.is_paradedb_am()
-            {
-                indexes.push(index.indexrelid);
+            let index = &*pg_sys::GETSTRUCT(entry.tuple).cast::<pg_sys::FormData_pg_index>();
+            if index.indisvalid && index.indisready {
+                indexes.push(class.oid);
             }
         }
         pg_sys::systable_endscan(scan);

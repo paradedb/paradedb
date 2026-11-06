@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793866414668,
+  "lastUpdate": 1793953200243,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112765,6 +112765,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13308390982-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953196920,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1766.0737841210614,
+            "unit": "median tps",
+            "extra": "avg tps: 1787.125606361052, max tps: 1979.8270015144556, count: 59255"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.98854884573259,
+            "unit": "median tps",
+            "extra": "avg tps: 6.028430648190244, max tps: 7.113601972038429, count: 59255"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1845.7985934456449,
+            "unit": "median tps",
+            "extra": "avg tps: 1844.5776894391104, max tps: 1858.6767427831244, count: 59255"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2951.0622708263636,
+            "unit": "median tps",
+            "extra": "avg tps: 2880.956107617203, max tps: 3206.2932928151563, count: 59255"
+          }
+        ],
+        "publication_id": "13488176191-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -157330,6 +157377,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13308390982-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953200118,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 1.0584254493291705, max background_merging: 3.0, count: 59255"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.401463670543188, max cpu: 9.6337185, count: 59255"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.010609864146485, max mem: 27.015625, count: 59255"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.680589781453244, max cpu: 9.831029, count: 59255"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 44.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.4749686867142, max mem: 44.51171875, count: 59255"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40417,
+            "unit": "median block_count",
+            "extra": "avg block_count: 40263.46578347819, max block_count: 40417.0, count: 59255"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.08576491435322, max segment_count: 20.0, count: 59255"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.154848,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.96371764871088, max cpu: 33.0546, count: 59255"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 38.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.993960623048686, max mem: 39.08203125, count: 59255"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5175343631291724, max cpu: 9.653092, count: 59255"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 44.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.88097958505611, max mem: 44.9453125, count: 59255"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.510260075901334, max cpu: 9.8209715, count: 59255"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 44.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.49967757204033, max mem: 44.51171875, count: 59255"
+          }
+        ],
+        "publication_id": "13488176191-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

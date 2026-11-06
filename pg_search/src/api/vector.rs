@@ -1361,7 +1361,7 @@ mod tests {
         replace_vector_version(&index, 99);
         let reader = open_snapshot_reader(&index, range_query("id", -10, -1), false);
         assert_eq!(reader.segment_pruning_estimate().candidate_segments, 0);
-        reader.route_vector_segments(&FieldName::from("vec"), &[1.0; 1024]);
+        reader.route_vector_segments(&FieldName::from("vec"), &[1.0; 1024], None);
     }
 
     #[pg_test]

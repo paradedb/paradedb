@@ -429,6 +429,7 @@ fn launch_mpp(
     // launch was attempted at all (mpp_worker_sizing).
     crate::mpp_log!("launch: spawning {producer_count} producers");
     let attach = launcher.launch()?;
+    crate::scan::execution_plan::prepare_vector_routing(physical);
 
     let t_attach = std::time::Instant::now();
     let finish = attach.wait_for_attach()?;

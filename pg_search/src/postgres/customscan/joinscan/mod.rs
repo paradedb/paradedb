@@ -1270,6 +1270,8 @@ impl CustomScan for JoinScan {
                 pg_sys::copyObjectImpl(tlist_ptr.cast()).cast(),
             );
             // replace pg_projected slots with NULL placeholders, and add their inputs to the tlist.
+            let mut pg_projected_exprs =
+                Vec::with_capacity(private_data.join_clause.pg_projected_resnos.len());
             for resno in &private_data.join_clause.pg_projected_resnos {
                 let te = custom_scan_tlist
                     .get_ptr(((*resno) - 1) as usize)
@@ -1283,7 +1285,10 @@ impl CustomScan for JoinScan {
                     pg_sys::exprCollation(expr),
                 )
                 .cast();
-                crate::postgres::utils::add_vars_to_tlist(expr, &mut custom_scan_tlist);
+                pg_projected_exprs.push(expr);
+            }
+            for expr in pg_projected_exprs {
+                add_vars_and_scores_to_tlist(expr, &mut custom_scan_tlist);
             }
 
             let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
@@ -2093,6 +2098,64 @@ impl CustomScan for JoinScan {
     }
 }
 
+/// Ensure all non-score `Var` nodes and `pdb.score(...)` subexpressions referenced by
+/// `expr` are present in `tlist` so PostgreSQL's `set_customscan_references` can rewrite
+/// them to `INDEX_VAR` references into the scan slot.
+unsafe fn add_vars_and_scores_to_tlist(
+    expr: *mut pg_sys::Node,
+    tlist: &mut PgList<pg_sys::TargetEntry>,
+) {
+    if expr.is_null() {
+        return;
+    }
+
+    expr.walk(|node| {
+        if matches!(
+            (*node).type_,
+            pg_sys::NodeTag::T_PlaceHolderVar | pg_sys::NodeTag::T_FuncExpr
+        ) {
+            let stripped = crate::postgres::utils::strip_wrappers(node);
+            if get_score_func_rti(stripped.cast()).is_some() {
+                let already_present = tlist
+                    .iter_ptr()
+                    .any(|te| pg_sys::equal((*te).expr.cast(), node.cast()));
+                if !already_present {
+                    let resno = tlist.len() as pg_sys::AttrNumber + 1;
+                    let new_score = pg_sys::copyObjectImpl(node.cast()).cast::<pg_sys::Expr>();
+                    let te = pg_sys::makeTargetEntry(new_score, resno, std::ptr::null_mut(), true);
+                    tlist.push(te);
+                }
+                return crate::postgres::node::WalkControl::SkipChildren;
+            }
+        }
+
+        if let Some(var_ptr) = nodecast!(Var, T_Var, node) {
+            let varno = (*var_ptr).varno as pg_sys::Index;
+            let varattno = (*var_ptr).varattno;
+            if varno != 0 && varattno > 0 {
+                let already_present = tlist.iter_ptr().any(|te| {
+                    let te = &*te;
+                    if (*te.expr).type_ == pg_sys::NodeTag::T_Var {
+                        let existing = &*(te.expr as *mut pg_sys::Var);
+                        existing.varno as pg_sys::Index == varno && existing.varattno == varattno
+                    } else {
+                        false
+                    }
+                });
+                if !already_present {
+                    let resno = tlist.len() as pg_sys::AttrNumber + 1;
+                    let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Expr>();
+                    let te = pg_sys::makeTargetEntry(new_var, resno, std::ptr::null_mut(), true);
+                    tlist.push(te);
+                }
+            }
+            return crate::postgres::node::WalkControl::SkipChildren;
+        }
+
+        crate::postgres::node::WalkControl::Continue
+    });
+}
+
 /// Walk a target list and classify each entry into the corresponding
 /// [`privdat::OutputColumnInfo`]: a `Var` resolves to a plan position via the
 /// join clause, a `paradedb.score()` call becomes a `Score` sentinel, and any
@@ -2288,19 +2351,46 @@ unsafe fn build_output_projection(
         }
     }
 
+    // `add_vars_and_scores_to_tlist` may have appended extra `Var` and `pdb.score()` entries
+    // after `scan_target_entries` to feed `pg_projected_resnos`. Appended `Var`s are populated
+    // via CTID heap fetch, whereas appended `Score` entries must be included in DataFusion's
+    // `output_projection` so `exec_custom_scan` can read the score column from the batch.
+    let has_appended_scores = private_data
+        .output_columns
+        .get(scan_target_entries.len()..)
+        .is_some_and(|cols| {
+            cols.iter()
+                .any(|c| matches!(c, privdat::OutputColumnInfo::Score { .. }))
+        });
+    let num_projected_columns = if has_appended_scores {
+        private_data.output_columns.len()
+    } else {
+        scan_target_entries.len()
+    };
+
     private_data.join_clause.output_projection = Some(
         private_data
             .output_columns
             .iter()
-            .zip(&resolved_entries)
-            .zip(&scan_target_entries)
-            .map(|((info, resolved), te)| {
+            .take(num_projected_columns)
+            .enumerate()
+            .map(|(idx, info)| {
                 // If this column belongs to a relation pruned from output (e.g. the RHS
                 // of an Anti Join), do not construct projection expressions referencing
                 // the pruned source, as it does not exist in the physical scan plan.
                 if matches!(info, privdat::OutputColumnInfo::Pruned) {
                     return info.into();
                 }
+                if idx >= scan_target_entries.len() {
+                    return match info {
+                        privdat::OutputColumnInfo::Score { rti, .. } => {
+                            build::ChildProjection::Score { rti: *rti }
+                        }
+                        _ => (&privdat::OutputColumnInfo::Pruned).into(),
+                    };
+                }
+                let resolved = &resolved_entries[idx];
+                let te = &scan_target_entries[idx];
                 match resolved {
                     Some(planning::ResolvedExpr::Expression {
                         expr_node,

@@ -873,12 +873,20 @@ impl SearchIndexReader {
                 partition_centroid: centroid.as_deref(),
             })
             .collect::<Vec<_>>();
-        let weight = self
-            .query
-            .weight(enable_scoring(false, &self.searcher))
-            .expect("creating vector filter weight should not fail");
+        let (matches, docs) = readers
+            .iter()
+            .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
+                let estimated = self
+                    .query
+                    .estimate_docs(reader)
+                    .ok()
+                    .flatten()
+                    .map_or(0, |estimate| estimate.live_docs(reader));
+                (matches + estimated, docs + u64::from(reader.num_docs()))
+            });
+        let match_fraction = matches as f64 / docs.max(1) as f64;
         collector
-            .route_segments(weight.as_ref(), &segments, |ord| {
+            .route_segments(match_fraction, &segments, |ord| {
                 pgrx::check_for_interrupts!();
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(self.searcher.segment_reader(ord).segment_id());

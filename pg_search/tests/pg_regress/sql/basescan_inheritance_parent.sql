@@ -40,6 +40,40 @@ EXPLAIN (COSTS OFF)
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
 
+-- `pdb.score` and `pdb.snippet` on the parent, for rows of both tables.
+EXPLAIN (COSTS OFF)
+SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
+FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
+SELECT id, kind, pdb.score(id) > 0 AS scored, pdb.snippet(kind)
+FROM inh_parent WHERE kind ||| 'a c' ORDER BY id;
+
+-- A window function on the parent counts the rows of every table.
+SELECT id, kind, count(*) OVER () AS total
+FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+
+-- With `FROM ONLY`, the window function counts the parent's rows.
+SELECT id, kind, count(*) OVER () AS total
+FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+
+-- A table whose only child was dropped keeps `relhassubclass` until ANALYZE, so
+-- PostgreSQL still plans it as an inheritance parent.
+CREATE TABLE inh_former_parent (id SERIAL PRIMARY KEY, kind TEXT)
+    WITH (autovacuum_enabled = false);
+CREATE TABLE inh_former_child () INHERITS (inh_former_parent);
+DROP TABLE inh_former_child;
+INSERT INTO inh_former_parent (kind) VALUES ('a'), ('b'), ('c');
+CREATE INDEX inh_former_parent_idx ON inh_former_parent USING paradedb (id, kind);
+
+EXPLAIN (COSTS OFF)
+SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+
+-- ANALYZE clears `relhassubclass`.
+ANALYZE inh_former_parent;
+EXPLAIN (COSTS OFF)
+SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+DROP TABLE inh_former_parent;
+
 -- Control: a partitioned table already gets one Base Scan per partition.
 CREATE TABLE part_parent (id INT, kind TEXT) PARTITION BY RANGE (id);
 CREATE TABLE part_low PARTITION OF part_parent FOR VALUES FROM (1) TO (3);

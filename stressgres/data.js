@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793953200243,
+  "lastUpdate": 1793953229473,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -491860,6 +491860,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398502796-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953226587,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.612169102818484,
+            "unit": "median tps",
+            "extra": "avg tps: 57.3203220718679, max tps: 528.3402897582838, count: 58786"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.330866916272758,
+            "unit": "median tps",
+            "extra": "avg tps: 31.87229077340011, max tps: 352.11436518395794, count: 58786"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.42643472797934,
+            "unit": "median tps",
+            "extra": "avg tps: 132.89336856788654, max tps: 1217.0784172428628, count: 58786"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.491239073916255,
+            "unit": "median tps",
+            "extra": "avg tps: 30.980284228833327, max tps: 274.92063632456484, count: 58786"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.85738521856581,
+            "unit": "median tps",
+            "extra": "avg tps: 59.752316408662445, max tps: 526.384508872373, count: 58786"
+          }
+        ],
+        "publication_id": "13487157822-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -504898,6 +504951,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13398502796-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Niladri Adhikary",
+            "username": "niladrix719",
+            "email": "91966855+niladrix719@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "17f0af99e9e077a90248c449e9d6210a6d13c99e",
+          "message": "fix: decode NUMERIC columns in join filters (#7162)\n\n# Ticket(s) Closed\n\n- Closes #7149\n\n## What\n\nJoin filters over NUMERIC columns now evaluate decoded values on the\naggregate scan and JoinScan, instead of the raw stored integers.\n\n## Why\n\nNUMERIC fast fields are storage-encoded: `numeric(10,2)` stores 1.10 as\n110 and `numeric(10,3)` stores it as 1100. Native DataFusion operators\nread those scaled integers, so `a.amt <> b.amt` returned 5 where\nPostgres returns 0. The same problem affects same-scale filters that do\narithmetic or call functions, such as `a.amt * c.amt < a.amt` and\n`floor(a.amt) <> c.amt`.\n\n## How\n\n`CombinedMapper` and `AggregateIndexVarMapper` now refuse NUMERIC\ncolumns in `map_var`, as `JoinClauseMapper` already does. The filter is\nthen wrapped in `PgExprUdf`, and `udf_input` supplies the decode for\neach NUMERIC input. Same-scale NUMERIC filters now run through the UDF\nrather than a native compare\n\n## Tests\n\nAdded `issue_7149` with the issue's repro, `floor` and `*` over the same\nscale, an `OR` case, a `LEFT JOIN` multi-table filter, and\n`numeric(10,2)` vs `numeric(20,2)`\n\nSigned-off-by: Niladri Adhikary <niladrix719@gmail.com>",
+          "timestamp": "2026-11-06T07:05:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/17f0af99e9e077a90248c449e9d6210a6d13c99e"
+        },
+        "date": 1793953229365,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 21.9765625,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 21.1198915611285, max partition_index_size:MB: 25.7578125, count: 58786"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.214206370707604, max cpu: 37.55501, count: 58786"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.319563158638964, max mem: 58.12109375, count: 58786"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.999521,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.86744947557087, max cpu: 42.249386, count: 58786"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 56.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.264531188867245, max mem: 64.4453125, count: 58786"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.694721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.115837656325125, max cpu: 23.143684, count: 58786"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 43.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.135244055238495, max mem: 43.23046875, count: 58786"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.999521,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.84900496323309, max cpu: 32.479458, count: 58786"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 55.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.740192911045995, max mem: 63.38671875, count: 58786"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.17208231622415, max cpu: 37.55501, count: 58786"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 54.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.031787503083216, max mem: 62.33984375, count: 58786"
+          }
+        ],
+        "publication_id": "13487157822-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

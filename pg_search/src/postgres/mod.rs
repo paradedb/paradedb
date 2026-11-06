@@ -24,6 +24,7 @@ use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
+use crate::postgres::customscan::mpp::check_for_interrupts_or_cancel;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
@@ -1278,15 +1279,28 @@ impl ParallelScanState {
         &mut self,
         area: *mut pg_sys::dsa_area,
     ) -> anyhow::Result<Option<VectorRoutingPlan>> {
-        self.vector_routing_cv.prepare_to_sleep();
         loop {
+            unsafe { pg_sys::ResetLatch(pg_sys::MyLatch) };
+            if check_for_interrupts_or_cancel() {
+                ConditionVariable::cancel_sleep();
+                anyhow::bail!("vector routing interrupted");
+            }
+            self.vector_routing_cv.prepare_to_sleep();
             {
                 let _lock = self.mutex.acquire();
                 if self.vector_routing_ready {
                     break;
                 }
             }
-            self.vector_routing_cv.sleep();
+            // ConditionVariableSleep would swallow cancellation while Tokio holds interrupts.
+            unsafe {
+                pg_sys::WaitLatch(
+                    pg_sys::MyLatch,
+                    (pg_sys::WL_LATCH_SET | pg_sys::WL_EXIT_ON_PM_DEATH) as i32,
+                    -1,
+                    pg_sys::PG_WAIT_EXTENSION,
+                );
+            }
         }
         ConditionVariable::cancel_sleep();
         if self.vector_routing_plan == 0 {

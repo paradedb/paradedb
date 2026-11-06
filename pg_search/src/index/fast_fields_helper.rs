@@ -72,6 +72,16 @@ pub struct FFHelper(
     Option<FFInner>,
 );
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the inner
+// state to `drop_on_main_thread`, where its own `Drop` impls handle unwinding and process exit.
+impl Drop for FFHelper {
+    fn drop(&mut self) {
+        if let Some(inner) = self.0.take() {
+            crate::postgres::customscan::mpp::drop_on_main_thread(inner);
+        }
+    }
+}
+
 struct FFInner {
     // A segment's fast-field file opens on first column access: the tantivy fork's
     // `SegmentReader::fast_fields()` is a lazy open, and for a mutable segment it materializes

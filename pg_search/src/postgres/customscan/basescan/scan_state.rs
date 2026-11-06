@@ -51,6 +51,12 @@ use tantivy::vector::VectorRoutingPlanProvider;
 
 #[derive(Default)]
 pub struct BaseScanState {
+    // Declared first so any DataFusion stream /PgTokioRuntime / Tantivy scorers inside
+    // `exec_method` drop before `visibility_checker`, `doc_from_heap_state`, `search_reader`,
+    // `bitmap_cell`, `bitmap_exec`, and `heaprel`/`indexrel`.
+    exec_method: UnsafeCell<Box<dyn ExecMethod>>,
+    exec_method_name: String,
+
     pub io_trace: Option<crate::index::reader::io_stats::Trace>,
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
@@ -59,9 +65,6 @@ pub struct BaseScanState {
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<dyn VectorRoutingPlanProvider>>,
     pub vector_routing_pending: bool,
-    pub vector_routing_build_ms: Option<f64>,
-    pub vector_routing_publish_ms: Option<f64>,
-    pub vector_routing_waiting_workers: u32,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -77,6 +80,8 @@ pub struct BaseScanState {
     /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
     /// `solve_expr.rs`.
     pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
+    pub visibility_checker: Option<VisibilityChecker>,
+    pub doc_from_heap_state: Option<HeapFetchState>,
     pub search_reader: Option<SearchIndexReader>,
     /// Executor startup before `SearchIndexReader::open`; consumed into the
     /// reader's flat `scan_init_ns` metric on first execution.
@@ -92,13 +97,6 @@ pub struct BaseScanState {
 
     pub virtual_tuple_count: usize,
 
-    pub heaprelid: pg_sys::Oid,
-    pub heaprel: Option<PgSearchRelation>,
-    pub indexrel: Option<PgSearchRelation>,
-    pub indexrelid: pg_sys::Oid,
-    pub lockmode: pg_sys::LOCKMODE,
-
-    pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
     pub(super) worker_selection_reason: Option<WorkerDecisionReason>,
     pub quals: Option<Qual>,
@@ -132,17 +130,18 @@ pub struct BaseScanState {
 
     /// Execution state for the child bitmap scan, if a bitmap intersection source was
     /// harvested at plan time.
-    pub bitmap_exec: Option<BitmapExec>,
     pub bitmap_cell: Option<BitmapCell>,
-
-    pub doc_from_heap_state: Option<HeapFetchState>,
+    pub bitmap_exec: Option<BitmapExec>,
 
     // Window aggregate support
     pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
 
-    exec_method: UnsafeCell<Box<dyn ExecMethod>>,
-    exec_method_name: String,
+    pub heaprelid: pg_sys::Oid,
+    pub heaprel: Option<PgSearchRelation>,
+    pub indexrel: Option<PgSearchRelation>,
+    pub indexrelid: pg_sys::Oid,
+    pub lockmode: pg_sys::LOCKMODE,
 }
 
 /// The projection that gives a row its score, snippets and window aggregates, and the placeholder
@@ -424,7 +423,6 @@ impl BaseScanState {
         query_area: *mut pg_sys::dsa_area,
         defer: bool,
     ) {
-        let started = crate::gucs::vector_stats().then(std::time::Instant::now);
         let plan = match self.orderby_info().as_ref().and_then(|infos| infos.first()) {
             Some(OrderByInfo {
                 feature:
@@ -445,17 +443,13 @@ impl BaseScanState {
                     .search_reader
                     .as_ref()
                     .expect("search reader must be open");
-                Some(Arc::new(reader.route_vector_segments(name, query)))
+                Some(Arc::new(reader.vector_routing_plan(name, query)))
             }
             _ => None,
         };
-        self.vector_routing_build_ms = started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
-        let publish_started = started.map(|_| std::time::Instant::now());
         let parallel = self.parallel.expect("parallel scan must be attached");
         unsafe { (*parallel.dsm_ptr()).publish_vector_routing_plan(query_area, plan.as_deref()) }
             .expect("should be able to publish the vector routing plan");
-        self.vector_routing_publish_ms =
-            publish_started.map(|start| start.elapsed().as_secs_f64() * 1000.0);
         let plan = plan.map(|plan| plan as Arc<dyn VectorRoutingPlanProvider>);
         self.vector_routing_plan = plan.clone();
         self.vector_routing_pending = false;

@@ -33,6 +33,7 @@ use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
+use tantivy::vector::VectorRoutingPlan;
 
 pub mod access;
 mod build;
@@ -717,7 +718,6 @@ pub struct ParallelScanState {
     vector_routing_plan_len: usize,
     vector_routing_ready: bool,
     vector_routing_cv: ConditionVariable,
-    vector_routing_waiting_workers: u32,
 
     /// Set by a worker that spills a DataFusion operator to disk. The leader reads it
     /// once, after joining the workers, and folds it into its own sticky flag.
@@ -779,7 +779,6 @@ impl ParallelScanState {
         self.vector_routing_plan_len = 0;
         self.vector_routing_ready = false;
         self.vector_routing_cv.init();
-        self.vector_routing_waiting_workers = 0;
         self.spilled.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
@@ -1247,7 +1246,7 @@ impl ParallelScanState {
     pub unsafe fn publish_vector_routing_plan(
         &mut self,
         area: *mut pg_sys::dsa_area,
-        plan: Option<&tantivy::vector::VectorRoutingPlan>,
+        plan: Option<&VectorRoutingPlan>,
     ) -> anyhow::Result<()> {
         unsafe {
             if self.vector_routing_plan != 0 {
@@ -1278,18 +1277,13 @@ impl ParallelScanState {
     pub unsafe fn vector_routing_plan(
         &mut self,
         area: *mut pg_sys::dsa_area,
-    ) -> anyhow::Result<Option<tantivy::vector::VectorRoutingPlan>> {
+    ) -> anyhow::Result<Option<VectorRoutingPlan>> {
         self.vector_routing_cv.prepare_to_sleep();
-        let mut counted = false;
         loop {
             {
                 let _lock = self.mutex.acquire();
                 if self.vector_routing_ready {
                     break;
-                }
-                if !counted {
-                    self.vector_routing_waiting_workers += 1;
-                    counted = true;
                 }
             }
             self.vector_routing_cv.sleep();

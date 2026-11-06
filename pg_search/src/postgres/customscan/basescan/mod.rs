@@ -50,6 +50,7 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
+use crate::postgres::customscan::basescan::parallel::ParallelVectorRoutingPlan;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 
 use crate::postgres::customscan::basescan::projections::snippet::{
@@ -69,6 +70,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::mpp::MainThread;
 use crate::postgres::customscan::orderby::{
     PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
@@ -106,6 +108,7 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::VectorRoutingPlanProvider;
 
 use super::pullup::SourceContext;
 
@@ -1856,29 +1859,7 @@ impl CustomScan for BaseScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if state.custom_state().vector_routing_plan.is_some() {
-            explainer.add_text("Vector Routing", "Leader");
-            if let Some(ms) = state.custom_state().vector_routing_build_ms {
-                explainer.add_text("Vector Routing Build ms", format!("{ms:.3}"));
-                explainer.add_text(
-                    "Vector Routing Publish ms",
-                    format!(
-                        "{:.3}",
-                        state
-                            .custom_state()
-                            .vector_routing_publish_ms
-                            .unwrap_or_default()
-                    ),
-                );
-                explainer.add_text(
-                    "Vector Routing Waiting Workers",
-                    state
-                        .custom_state()
-                        .vector_routing_waiting_workers
-                        .to_string(),
-                );
-            }
-        }
+
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
                 "   TopK Order By",
@@ -2109,12 +2090,9 @@ impl CustomScan for BaseScan {
                         .leader_publish_vector_routing_plan(area, false)
                 };
             } else {
-                let plan: Option<Arc<dyn tantivy::vector::VectorRoutingPlanProvider>> =
-                    Some(Arc::new(parallel::ParallelVectorRoutingPlan {
-                        shared: crate::scan::execution_plan::UnsafeSendSync((
-                            parallel.dsm_ptr(),
-                            area,
-                        )),
+                let plan: Option<Arc<dyn VectorRoutingPlanProvider>> =
+                    Some(Arc::new(ParallelVectorRoutingPlan {
+                        shared: MainThread::new((parallel.dsm_ptr(), area)),
                         plan: OnceLock::new(),
                     }));
                 let custom = state.custom_state_mut();
@@ -2257,8 +2235,6 @@ impl CustomScan for BaseScan {
         let scan_state = state.custom_state_mut();
         if let Some(parallel) = scan_state.parallel.take() {
             if parallel.is_leader() {
-                scan_state.vector_routing_waiting_workers =
-                    unsafe { (*parallel.dsm_ptr()).vector_routing_waiting_workers };
                 // Leader: last chance to read the DSM before Postgres destroys it.
                 parallel.finalize_explain(&mut scan_state.telemetry);
             } else {

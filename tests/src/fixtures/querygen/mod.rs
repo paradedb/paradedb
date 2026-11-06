@@ -418,11 +418,13 @@ CREATE TABLE {tname} (
 -- hand the replay other rows.
 ALTER TABLE {tname} SET (autovacuum_enabled = off);
 {index_before_data}
+SET paradedb.global_mutable_segment_rows = 0;
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
 {bulk_insert_sql}
 
+RESET paradedb.global_mutable_segment_rows;
 {index_after_data}
 
 {b_tree_indexes}
@@ -814,11 +816,29 @@ impl PgGucs {
             "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
-        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
+        // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
+        // (and MPP distributed execution) to be used on the small property-test tables.
         if *parallel_workers {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO 0;").unwrap();
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO DEFAULT;").unwrap();
+        }
+        // In MPP distributed execution (with `paradedb.spill_to_disk` off by default),
+        // `RepartitionExec` at the top of a shuffle producer stage creates `W * T` output partition
+        // channels (`max_parallel_workers_per_gather * consumer_tasks`, up to 16 in qgen). Each
+        // output partition's `8192`-row `LimitedBatchCoalescer` pre-allocates `16,384` slots per
+        // column and does not shrink `Buffer::capacity()` on residual batches at EOF (~600 KB per
+        // partition for multi-column grouping sets), which can exceed the 4MB default `work_mem`
+        // across 8-16 partitions. Single-table MPP queries use a 16MB bound, while join-eligible
+        // MPP queries use 32MB because DataFusion's `HashJoinExec` and `NestedLoopJoinExec` do not
+        // spill to disk.
+        if *parallel_workers {
+            let limit = if *join_custom_scan { "32MB" } else { "16MB" };
+            writeln!(gucs, "{verb} work_mem TO '{limit}';").unwrap();
+        } else {
+            writeln!(gucs, "{verb} work_mem TO DEFAULT;").unwrap();
         }
         writeln!(
             gucs,
@@ -1081,6 +1101,9 @@ pub fn compare_plan_retrying_on(
         ))
     };
 
+    // Use TEXT format rather than `FORMAT JSON` into `serde_json::Value`: `explain_physical_plan`
+    // emits each physical-plan line under the key `"  "`, so `serde_json::Map` overwrites all
+    // lines except the last one (hiding `DistributedExec` on the first line).
     let outcome = retry_transient(pool, "qgen plan check", |conn| {
         sql_attempt(
             sides
@@ -1093,8 +1116,8 @@ pub fn compare_plan_retrying_on(
         )
     });
 
-    let plan = match outcome {
-        Ok(Ok(plan)) => plan,
+    let plan_rows = match outcome {
+        Ok(Ok(rows)) => rows,
         Ok(Err(e)) => return fail(format!("{e}: EXPLAIN failed for '{candidate_query}'")),
         Err(RetryError::TimedOutUnderPause(e)) => {
             return fail(format!(
@@ -1104,7 +1127,7 @@ pub fn compare_plan_retrying_on(
         Err(RetryError::GraceExpired(reason)) => return fail(reason),
     };
 
-    let plan_str = plan
+    let plan_str = plan_rows
         .into_iter()
         .map(|(line,)| line)
         .collect::<Vec<_>>()
@@ -1115,7 +1138,7 @@ pub fn compare_plan_retrying_on(
     {
         let expected_desc = expected_any.join(" or ");
         return fail(format!(
-            "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {candidate_query}"
+            "Query should use {expected_desc} but got plan:\n{plan_str}\nQuery: {candidate_query}"
         ));
     }
 
@@ -1124,9 +1147,18 @@ pub fn compare_plan_retrying_on(
         .find(|forbidden| plan_str.contains(**forbidden))
     {
         return fail(format!(
-            "Query should not use {forbidden} but got plan: {plan_str}\nQuery: {candidate_query}"
+            "Query should not use {forbidden} but got plan:\n{plan_str}\nQuery: {candidate_query}"
         ));
     }
+
+    crate::fixtures::ensure_dst_init();
+    dst::observe!(|| {
+        dst::assert_sometimes!(
+            plan_str.contains("DistributedExec"),
+            "qgen: custom scan produces a distributed MPP plan",
+            &serde_json::json!({})
+        );
+    });
 
     CaseOutcome::Match
 }

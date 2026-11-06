@@ -540,26 +540,28 @@ impl MVCCDirectory {
                 }
                 let file_handle = directory
                     .get_or_init(|| {
-                        let _snapshot_guard = ActiveSnapshotGuard::ensure();
-                        let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
-                            let heaprel = self
-                                .indexrel
-                                .heap_relation()
-                                .expect("Should have a heap relation.");
-                            HeapFetchState::new(&heaprel)
-                        });
-                        let expression_state = self
-                            .expression_state
-                            .get_or_init(|| ExpressionState::new(&self.indexrel));
-                        index_memory_segment(
-                            &self.indexrel,
-                            &tantivy_meta,
-                            &meta,
-                            heap_fetch_state,
-                            expression_state,
-                            &self.mvcc_style,
-                        )
-                        .expect("Failed to index mutable segment.")
+                        crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+                            let _snapshot_guard = ActiveSnapshotGuard::ensure();
+                            let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
+                                let heaprel = self
+                                    .indexrel
+                                    .heap_relation()
+                                    .expect("Should have a heap relation.");
+                                HeapFetchState::new(&heaprel)
+                            });
+                            let expression_state = self
+                                .expression_state
+                                .get_or_init(|| ExpressionState::new(&self.indexrel));
+                            index_memory_segment(
+                                &self.indexrel,
+                                &tantivy_meta,
+                                &meta,
+                                heap_fetch_state,
+                                expression_state,
+                                &self.mvcc_style,
+                            )
+                            .expect("Failed to index mutable segment.")
+                        })
                     })
                     .get_file_handle(path)
                     .map_err(|err| match err {

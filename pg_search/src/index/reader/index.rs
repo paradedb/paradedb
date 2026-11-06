@@ -29,6 +29,7 @@ use std::time::Instant;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -53,6 +54,8 @@ use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::{Context, Result};
 use pgrx::pg_sys::BlockNumber;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{PgLogLevel, PgSqlErrorCode};
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
@@ -67,7 +70,8 @@ use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Sc
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
-    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSegment, VectorSimilarityFruit,
+    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorRoutingPlan,
+    VectorRoutingPlanProvider, VectorSegment, VectorSimilarityFruit,
 };
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
@@ -247,13 +251,13 @@ pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
 
 fn report_vector_error(index_name: &str, error: &tantivy::TantivyError) {
     if needs_rebuild(error) {
-        pgrx::pg_sys::panic::ErrorReport::new(
-            pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
             format!("index {index_name:?} has an unsupported vector storage format: {error}"),
             pgrx::function_name!(),
         )
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
-        .report(pgrx::PgLogLevel::ERROR);
+        .report(PgLogLevel::ERROR);
     }
 }
 
@@ -475,6 +479,9 @@ impl PartialOrd for AscendingScore {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return None;
+        }
         if self.iterators.is_empty()
             && let Some(ref mut lazy) = self.lazy_iterators
             && let Some(next_iter) = lazy.next()
@@ -617,7 +624,7 @@ pub struct SearchIndexReader {
     directory: MVCCDirectory,
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
-    pub(crate) vector_routing_plan: Option<Arc<dyn tantivy::vector::VectorRoutingPlanProvider>>,
+    pub(crate) vector_routing_plan: Option<Arc<dyn VectorRoutingPlanProvider>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -825,11 +832,7 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
-    pub(crate) fn route_vector_segments(
-        &self,
-        name: &FieldName,
-        query: &[f32],
-    ) -> tantivy::vector::VectorRoutingPlan {
+    pub(crate) fn vector_routing_plan(&self, name: &FieldName, query: &[f32]) -> VectorRoutingPlan {
         let field = self
             .schema
             .tantivy_schema()
@@ -869,15 +872,15 @@ impl SearchIndexReader {
                 (matches + estimated, docs + u64::from(reader.num_docs()))
             });
         let match_fraction = matches as f64 / docs.max(1) as f64;
-        tantivy::vector::VectorRoutingPlan::build(
+        VectorRoutingPlan::build(
             field,
             query.to_vec(),
             ProbeParams {
-                max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
-                router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
-                router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
-                router_aps: crate::gucs::vector_router_aps(),
+                max_probe_fraction: gucs::vector_cluster_max_probe(),
+                fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
+                router_rerank_factor: gucs::vector_router_rerank_factor(),
+                router_min_beam_fraction: gucs::vector_router_min_beam_fraction(),
+                router_aps: gucs::vector_router_aps(),
                 ..Default::default()
             },
             match_fraction,
@@ -954,8 +957,7 @@ impl SearchIndexReader {
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
-        index.settings_mut().bitmap_postings.use_for_queries =
-            crate::gucs::enable_bitmap_postings();
+        index.settings_mut().bitmap_postings.use_for_queries = gucs::enable_bitmap_postings();
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -2026,16 +2028,18 @@ impl SearchIndexReader {
         }
         // SAFETY: the pointer addresses DSM shared memory; the state's mutex serializes
         // every access, including the cross-process claims this iterator drives. The reader
-        // holds `Rc` schema state that is only ever touched from this iterator. `Send`/`Sync`
-        // are required so DataFusion can wrap the iterator in
-        // `Box<dyn Iterator<...> + Send + Sync>` even though the runtime is current-thread.
+        // holds `Rc` schema state that is only ever touched on the Postgres main thread via
+        // `run_on_main_thread` and dropped via `MainThread`. `Send`/`Sync` are required so
+        // `SearchResults::new_lazy` can store the iterator as `Box<dyn Iterator<...> + Send + Sync>`.
         unsafe impl Send for ParallelCandidateIterator {}
         unsafe impl Sync for ParallelCandidateIterator {}
         impl Iterator for ParallelCandidateIterator {
             type Item = SegmentOrdinal;
             fn next(&mut self) -> Option<Self::Item> {
                 loop {
-                    pgrx::check_for_interrupts!();
+                    if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+                        return None;
+                    }
                     let segment_id = unsafe {
                         match self.source_idx {
                             Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
@@ -2392,16 +2396,16 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                let max_scan_levels = crate::gucs::vector_max_scan_levels();
+                let max_scan_levels = gucs::vector_max_scan_levels();
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
-                        max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
-                        router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
-                        router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
-                        router_aps: crate::gucs::vector_router_aps(),
+                        max_probe_fraction: gucs::vector_cluster_max_probe(),
+                        fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
+                        router_rerank_factor: gucs::vector_router_rerank_factor(),
+                        router_min_beam_fraction: gucs::vector_router_min_beam_fraction(),
+                        router_aps: gucs::vector_router_aps(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -2889,7 +2893,7 @@ impl SearchIndexReader {
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
     /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
-        if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
+        if (gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
             || query_input.has_postgres_expressions()
             || query_input.has_parameters()
         {
@@ -3393,6 +3397,7 @@ impl SearchIndexReader {
             stats.reset();
         }
         readers
+            .take_while(|_| !crate::postgres::customscan::mpp::check_for_interrupts_or_cancel())
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
@@ -3426,6 +3431,7 @@ impl SearchIndexReader {
             stats.reset();
         }
         readers
+            .take_while(|_| !crate::postgres::customscan::mpp::check_for_interrupts_or_cancel())
             .map(|(segment_ord, segment_reader, query_kind)| {
                 let weight = match query_kind {
                     SegmentQueryKind::Unconstrained => unconstrained_weight.get(),
@@ -3474,7 +3480,7 @@ impl SearchIndexManifest {
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
-            .with_disjunction_pruning(crate::gucs::disjunction_pruning())
+            .with_disjunction_pruning(gucs::disjunction_pruning())
     } else {
         EnableScoring::disabled_from_searcher(searcher)
     }

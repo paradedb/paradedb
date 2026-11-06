@@ -22,7 +22,6 @@ use std::os::raw::c_void;
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
-use crate::scan::execution_plan::UnsafeSendSync;
 use tantivy::vector::{VectorRoutingPlan, VectorRoutingPlanProvider};
 
 use crate::index::reader::io_stats::Trace;
@@ -31,11 +30,12 @@ use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
+use crate::postgres::customscan::mpp::{MainThread, run_on_main_thread};
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
 
 pub(super) struct ParallelVectorRoutingPlan {
-    pub(super) shared: UnsafeSendSync<(*mut ParallelScanState, *mut dsa_area)>,
+    pub(super) shared: MainThread<(*mut ParallelScanState, *mut dsa_area)>,
     pub(super) plan: OnceLock<VectorRoutingPlan>,
 }
 
@@ -43,10 +43,12 @@ impl VectorRoutingPlanProvider for ParallelVectorRoutingPlan {
     fn get(&self) -> tantivy::Result<&VectorRoutingPlan> {
         pg_sys::thread_check::check_active_thread();
         Ok(self.plan.get_or_init(|| {
-            let (state, area) = self.shared.0;
-            unsafe { (*state).vector_routing_plan(area) }
-                .expect("should be able to read the vector routing plan")
-                .expect("filtered parallel vector scan must have a routing plan")
+            run_on_main_thread(|token| {
+                let (state, area) = *self.shared.get(token);
+                unsafe { (*state).vector_routing_plan(area) }
+                    .expect("should be able to read the vector routing plan")
+                    .expect("filtered parallel vector scan must have a routing plan")
+            })
         }))
     }
 }
@@ -209,7 +211,6 @@ impl ParallelQueryCapable for BaseScan {
         pscan_state.bitmap_reset();
         pscan_state.reset();
         pscan_state.vector_routing_ready = false;
-        pscan_state.vector_routing_waiting_workers = 0;
         state.custom_state_mut().vector_routing_plan = None;
         if let Some(reader) = state.custom_state_mut().search_reader.as_mut() {
             reader.vector_routing_plan = None;

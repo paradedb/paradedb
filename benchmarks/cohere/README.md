@@ -71,10 +71,7 @@ retaining more members cannot recover members in unopened lists.
    `pdbench search` loads the query vectors and sweeps
    `paradedb.vector_search_effort` from 0.05 to 10 separately for each filter to
    r90/r95/r99. Adaptive probing is enabled and
-   `paradedb.vector_cluster_max_probe = 0` supplies automatic headroom. The
-   admission-rate stopping rule and effort-derived router window are unchanged
-   from the adaptive implementation; this run establishes the baseline for
-   subsequent ceiling tuning.
+   `paradedb.vector_cluster_max_probe = 0` supplies automatic headroom.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
    After the sweeps, CI downloads diagnostics from the latest successful main
@@ -100,7 +97,7 @@ retaining more members cannot recover members in unopened lists.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
    and index size with baseline comparisons and dashboard links. Recall,
-   search effort, max_probe, and mean whole-query shared buffer hits/reads appear above those
+   search effort and mean whole-query shared buffer hits/reads appear above those
    results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
    100 vectors.
 

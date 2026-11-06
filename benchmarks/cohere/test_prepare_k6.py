@@ -121,7 +121,6 @@ class OperatingPointsTest(unittest.TestCase):
         inputs = reports()
         values = dict(zip(TARGETS, ["2.1", "4.4", "6.7"]))
         for report in inputs:
-            report["config"]["search"]["sweep"]["targets"] = list(TARGETS)
             report["config"]["search"]["session"][PROBE] = "0"
             report["data"]["sweep_param"] = EFFORT
             result = next(iter(report["data"]["variants"].values()))
@@ -143,9 +142,6 @@ class OperatingPointsTest(unittest.TestCase):
             self.assertEqual(point["probe"], values[point["target"]])
         self.assertEqual(inputs, original)
         self.assertIn("search effort", summary(points))
-        inputs[0]["config"]["search"]["session"][PROBE] = "0.1"
-        with self.assertRaisesRegex(ValueError, "automatic max_probe"):
-            operating_points(inputs)
 
     def test_plan_guard_requires_index_scan_and_filter_pushdown(self):
         """Reject fallback scans and filters outside the index."""

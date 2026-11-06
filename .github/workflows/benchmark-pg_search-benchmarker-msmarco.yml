@@ -194,6 +194,14 @@ jobs:
             -c 'VACUUM (ANALYZE) msmarco;' \
             | tee benchmark-artifacts/index-vacuum.log
 
+      - name: Verify boundary replication storage
+        run: |
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_agg(v) FROM paradedb.vector_info('msmarco_bm25_idx', 'emb') AS v" \
+            > benchmark-artifacts/vector-info.json
+          jq -e 'length > 0 and all(.[]; .vector_format == "ivf" and .quantized and .vector_total_rows == 2 * .vector_num_vectors)' \
+            benchmark-artifacts/vector-info.json
+
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
@@ -367,7 +375,7 @@ jobs:
 
           pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
 
-          Adaptive probing with fixed R99 work ceilings (top-10: 0.106; top-100: 0.079), quantized routing, rerank factor 2. Boundary replication is disabled.
+          Adaptive probing with fixed R99 work ceilings (top-10: 0.106; top-100: 0.079), quantized routing, rerank factor 2. Boundary replication is enabled (SOAR spill from #7277, including the V6 exact-row dependency from #7275).
 
           Eight build/query workers are available with a 32-process worker pool. Build RSS is the sum across sampled processes and includes shared mappings. Only a workflow_dispatch run on main updates the rolling main baseline.
 

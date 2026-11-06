@@ -3,7 +3,10 @@
 Benchmark-only candidate based on ParadeDB main `17f0af99e` and Tantivy main
 `d1d4de7c4`, with the latest adaptive probing from #7279 / Tantivy #378.
 Quantized routing is enabled and the router rerank factor is 2. Boundary
-replication is disabled in this arm.
+replication is enabled (`spill = true`) from #7277, including the V6 storage
+dependency in #7275. The workflow verifies two stored rows per vector.
+The same fractional ceiling prices replicated rows as specified by #7277;
+it is not an equal-byte scan limit against the non-replicated arm.
 
 The `benchmark-msmarco-pg_search` label runs the 113,520,750-vector corpus using
 the existing heap snapshot and 100 held-out queries. It sweeps adaptive effort

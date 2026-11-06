@@ -749,10 +749,17 @@ impl PgSearchScanPlan {
     }
 
     /// Converts a `ScanMode::Tagged` scan into a tagless `ScanMode::Disjunctive` scan for
-    /// `RankJoinExec` if `base_query` is `SearchQueryInput::All` and all of its `local_queries`
-    /// are in `elided_tags`. Strips the tag columns from the output schema and scanner
-    /// configuration, records the matched tag names in `matched_tags`, and returns the positional
-    /// `old_col_idx -> Option<new_col_idx>` mapping.
+    /// `RankJoinExec` if `base_query` is answered entirely by the index and all of its
+    /// `local_queries` are in `elided_tags`. Strips the tag columns from the output schema and
+    /// scanner configuration, records the matched tag names in `matched_tags`, and returns the
+    /// positional `old_col_idx -> Option<new_col_idx>` mapping.
+    ///
+    /// The base query becomes a `0.0`-score filter (`prepare_sa_and_ra`), because `RankJoinExec`
+    /// bounds a partner found only by `RA` at `0.0`. Only a pushed SQL restriction
+    /// (`SearchQueryInput::is_pushdown_filter`) qualifies; an explicit search, a scored base,
+    /// or one with heap filters that `SA` cannot apply before pulling a window, keeps
+    /// `HashJoinExec` with its score intact. A `PostgresExpression` base is accepted: it
+    /// resolves to a term set at execution.
     pub(crate) fn with_elided_disjunctive_tags(
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
@@ -765,7 +772,26 @@ impl PgSearchScanPlan {
         else {
             return None;
         };
-        if !matches!(**base_query, SearchQueryInput::All)
+        let term_is_filter = |field: &crate::api::FieldName| -> bool {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match &*state {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state
+                    .0
+                    .reader
+                    .schema()
+                    .search_field(field.root())
+                    .is_some_and(|f| !f.is_tokenized_text() && !f.is_json()),
+                ExecutionState::Uninitialized | ExecutionState::Consumed => false,
+            }
+        };
+        let base_is_filter = base_query.is_pushdown_filter(&term_is_filter)
+            || matches!(**base_query, SearchQueryInput::PostgresExpression { .. });
+        if !base_is_filter
+            || base_query.has_heap_filters()
             || local_queries.is_empty()
             || !local_queries
                 .iter()
@@ -775,7 +801,8 @@ impl PgSearchScanPlan {
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
         let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();
-        let new_scan_mode = crate::scan::ScanMode::disjunctive(disjunct_queries);
+        let new_scan_mode =
+            crate::scan::ScanMode::disjunctive((**base_query).clone(), disjunct_queries);
 
         let old_schema = self.properties.eq_properties.schema();
         let mut fields = Vec::with_capacity(old_schema.fields().len());
@@ -1531,8 +1558,7 @@ impl DisplayAs for PgSearchScanPlan {
                 base_query,
                 local_queries,
             } => {
-                let has_base = !matches!(**base_query, SearchQueryInput::All);
-                if has_base {
+                if !matches!(**base_query, SearchQueryInput::All) {
                     write!(f, ", query={}", base_query.explain_format())?;
                 } else if local_queries.is_empty() {
                     write!(f, ", query=\"all\"")?;
@@ -1541,8 +1567,14 @@ impl DisplayAs for PgSearchScanPlan {
                     write!(f, ", tag_{}={}", tq.tag_idx.0, tq.query.explain_format())?;
                 }
             }
-            crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
-                if disjunct_queries.is_empty() {
+            crate::scan::ScanMode::Disjunctive {
+                base_query,
+                disjunct_queries,
+            } => {
+                let has_base = !matches!(**base_query, SearchQueryInput::All);
+                if has_base {
+                    write!(f, ", query={}", base_query.explain_format())?;
+                } else if disjunct_queries.is_empty() {
                     write!(f, ", query=\"all\"")?;
                 }
                 for q in disjunct_queries {

@@ -36,7 +36,11 @@
 //!      (`ScanMode::Tagged`), `try_elide_disjunctive_tags` attempts to strip the boolean
 //!      `__<alias>_tag_<idx>` columns and convert the leaves to `ScanMode::Disjunctive` for
 //!      two-sided score joins (falling back to the original `ScanMode::Tagged` subtree if the
-//!      join is single-sided or fails any gate).
+//!      join is single-sided or fails any gate). A leaf's single-table `base_query` (for
+//!      example a row-level security policy on an indexed column) is kept as a `0.0`-score
+//!      filter on both `SA` and `RA`; a base that is not a pushed SQL restriction
+//!      (`SearchQueryInput::is_pushdown_filter`), or one with heap filters, blocks the
+//!      conversion.
 //!
 //! 2. **Gate 2 (Score Contribution Balance & Disjunctive Restriction)**:
 //!    - When both sides contribute to the monotonic `ORDER BY` expression (`uses_left &&
@@ -1347,8 +1351,11 @@ fn try_rewrite_scored_leaf(
                 s
             })
         }
-        ScanMode::Disjunctive { disjunct_queries } => SubtreeScoreStats::from_leaf_queries(
+        ScanMode::Disjunctive {
+            disjunct_queries, ..
+        } => SubtreeScoreStats::from_leaf_queries(
             order_by.is_score(),
+            // The base scores `0.0` on both `SA` and `RA` (`prepare_sa_and_ra`).
             &SearchQueryInput::All,
             disjunct_queries,
             scan.planner_estimated_rows(),

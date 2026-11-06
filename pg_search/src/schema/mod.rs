@@ -991,6 +991,12 @@ impl SearchField {
             .unwrap_or(false)
     }
 
+    /// A text field whose tokenizer splits values, so a term matches part of a value rather
+    /// than one whole value.
+    pub fn is_tokenized_text(&self) -> bool {
+        self.is_text() && !self.is_keyword()
+    }
+
     /// Whether this field's `.stats` min/max order the way query values compare, so a
     /// comparison against them can prove a segment holds no matching value. `is_sortable` does
     /// not advertise IP fields, but their fast-field and query representations are both

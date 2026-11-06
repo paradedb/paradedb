@@ -155,7 +155,8 @@ pub type LazySortTelemetry = Arc<Mutex<UnsafeSendSync<LazySortTelemetryState>>>;
 ///   `SA` searches the union of positive-score queries (`with_disjunctive_sa_queries`) so
 ///   `0.0`-score documents are never visited by `SA`, while `RA` point lookups score `ra_weights`
 ///   directly on matched `DocId`s (returning `0.0` when a document satisfies `base_query` and the
-///   join key but none of `disjunct_queries`).
+///   join key but none of `disjunct_queries`). A non-`All` `base_query` is a `0.0`-score filter on
+///   both streams.
 #[derive(Clone)]
 pub struct LazySortConfig {
     /// Tantivy sort keys passed to `search_top_k_in_segments`.
@@ -535,11 +536,21 @@ fn prepare_sa_and_ra(
     range_target: Option<&(PartitionSegments, SearchQueryInput)>,
 ) -> (SearchIndexReader, RaLookupWeights, bool) {
     let (sa_reader, is_disjunctive_sa, base_is_match_all, ra_disjunct_queries) = match scan_mode {
-        crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
+        crate::scan::ScanMode::Disjunctive {
+            base_query,
+            disjunct_queries,
+        } => {
             let has_disjuncts = !disjunct_queries.is_empty();
-            let replace_query = !pushed;
-            let sa = if has_disjuncts {
-                reader.with_disjunctive_sa_queries(replace_query, disjunct_queries)
+            let replace_query = matches!(base_query.as_ref(), SearchQueryInput::All) && !pushed;
+            // The reader was opened with the unwrapped base, so the `0.0` score is applied here.
+            // `RA` never scores the base when disjuncts exist (`prepare_ra_lookup_weights`), and
+            // `RankJoinExec` bounds `RA`-only partners at `0.0`, so `SA` must not score it either.
+            let sa = if has_disjuncts && replace_query {
+                reader.with_disjunctive_sa_queries(true, disjunct_queries)
+            } else if has_disjuncts {
+                reader
+                    .with_constant_score(0.0)
+                    .with_disjunctive_sa_queries(false, disjunct_queries)
             } else {
                 reader.clone()
             };

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793956613174,
+  "lastUpdate": 1794000038133,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -67179,6 +67179,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13487763278-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e5aed7739cc99becacf32649230be4e63d229930",
+          "message": "perf(vector): quantize the IVF router by default (#7287)\n\n`vector_router_quantization` now defaults to `true`: newly clustered IVF\nsegments route queries through one-bit centroid codes and exactly rerank\nthe shortlisted centroids. Set `vector_router_quantization = false` for\nfull-precision routing. Existing segments retain their persisted router\nuntil rebuilt; no `.vec` or settings format changes.\n\nBased directly on `main`, with no stacked dependencies. Documents the\noption and updates the merge regression to expect `quantized_stacked`,\nretaining the router-level and vector-count assertions. The settings\npersistence test covers the default, explicit opt-out, and `REINDEX`.\n\nValidation on PostgreSQL 18: all ten `vector_*` regression suites plus\nsetup passed (`passed=11 failed=0`), including `vector_merge`;\n`test_router_quantization_option_persists_through_reindex` passed.\nRepository commit checks passed, including formatting, workspace Clippy,\n`cargo check`, and `cargo doc`.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-11-06T20:39:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e5aed7739cc99becacf32649230be4e63d229930"
+        },
+        "date": 1794000033305,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 12.025,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.733,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.211,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 15.183,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 15.938,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 16.392,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 26.184,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 27.691,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 28.656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 13.292,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 14.028,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 14.378,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.737,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.967,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.417,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 33.892,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 35.413,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 35.637,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.127,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 6.053,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 6.708,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.529,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 9.141,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 10.108,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 19.434,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 21.961,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 24.179,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13541596887-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -70501,6 +70659,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13487763278-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e5aed7739cc99becacf32649230be4e63d229930",
+          "message": "perf(vector): quantize the IVF router by default (#7287)\n\n`vector_router_quantization` now defaults to `true`: newly clustered IVF\nsegments route queries through one-bit centroid codes and exactly rerank\nthe shortlisted centroids. Set `vector_router_quantization = false` for\nfull-precision routing. Existing segments retain their persisted router\nuntil rebuilt; no `.vec` or settings format changes.\n\nBased directly on `main`, with no stacked dependencies. Documents the\noption and updates the merge regression to expect `quantized_stacked`,\nretaining the router-level and vector-count assertions. The settings\npersistence test covers the default, explicit opt-out, and `REINDEX`.\n\nValidation on PostgreSQL 18: all ten `vector_*` regression suites plus\nsetup passed (`passed=11 failed=0`), including `vector_merge`;\n`test_router_quantization_option_persists_through_reindex` passed.\nRepository commit checks passed, including formatting, workspace Clippy,\n`cargo check`, and `cargo doc`.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-11-06T20:39:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e5aed7739cc99becacf32649230be4e63d229930"
+        },
+        "date": 1794000035507,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 82.67475397930777,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 65.69804090192676,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 38.15470385479053,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 75.21885260624883,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 59.31749120911362,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 29.60390730687681,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 193.13872542490645,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 130.54211811961613,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 50.96472429633962,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13541596887-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -71988,6 +72214,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13487763278-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e5aed7739cc99becacf32649230be4e63d229930",
+          "message": "perf(vector): quantize the IVF router by default (#7287)\n\n`vector_router_quantization` now defaults to `true`: newly clustered IVF\nsegments route queries through one-bit centroid codes and exactly rerank\nthe shortlisted centroids. Set `vector_router_quantization = false` for\nfull-precision routing. Existing segments retain their persisted router\nuntil rebuilt; no `.vec` or settings format changes.\n\nBased directly on `main`, with no stacked dependencies. Documents the\noption and updates the merge regression to expect `quantized_stacked`,\nretaining the router-level and vector-count assertions. The settings\npersistence test covers the default, explicit opt-out, and `REINDEX`.\n\nValidation on PostgreSQL 18: all ten `vector_*` regression suites plus\nsetup passed (`passed=11 failed=0`), including `vector_merge`;\n`test_router_quantization_option_persists_through_reindex` passed.\nRepository commit checks passed, including formatting, workspace Clippy,\n`cargo check`, and `cargo doc`.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-11-06T20:39:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e5aed7739cc99becacf32649230be4e63d229930"
+        },
+        "date": 1794000038119,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 4.26531940255,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43200.421875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13541596887-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -74791,6 +75050,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13487763278-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e5aed7739cc99becacf32649230be4e63d229930",
+          "message": "perf(vector): quantize the IVF router by default (#7287)\n\n`vector_router_quantization` now defaults to `true`: newly clustered IVF\nsegments route queries through one-bit centroid codes and exactly rerank\nthe shortlisted centroids. Set `vector_router_quantization = false` for\nfull-precision routing. Existing segments retain their persisted router\nuntil rebuilt; no `.vec` or settings format changes.\n\nBased directly on `main`, with no stacked dependencies. Documents the\noption and updates the merge regression to expect `quantized_stacked`,\nretaining the router-level and vector-count assertions. The settings\npersistence test covers the default, explicit opt-out, and `REINDEX`.\n\nValidation on PostgreSQL 18: all ten `vector_*` regression suites plus\nsetup passed (`passed=11 failed=0`), including `vector_merge`;\n`test_router_quantization_option_persists_through_reindex` passed.\nRepository commit checks passed, including formatting, workspace Clippy,\n`cargo check`, and `cargo doc`.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-11-06T20:39:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e5aed7739cc99becacf32649230be4e63d229930"
+        },
+        "date": 1794000037164,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 12157.23,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 20561.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 51563.03,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 16567.31,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 26001.26,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 51441.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1641.91,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2750.06,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 7745.84,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13541596887-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

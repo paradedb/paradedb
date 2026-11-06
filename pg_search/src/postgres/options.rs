@@ -866,7 +866,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
     vector_router_quantization: true,
-    spill: false,
+    spill: true,
 };
 
 impl BM25IndexOptionsData {
@@ -1127,7 +1127,7 @@ pub unsafe fn init() {
         "spill".as_pg_cstr(),
         "Assign each vector to a second IVF cluster chosen to cover queries its first cluster misses"
             .as_pg_cstr(),
-        false,
+        true,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

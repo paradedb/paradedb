@@ -192,6 +192,21 @@ FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| '
   -1 | 9007199254740993 |     7
 (1 row)
 
+-- DataFusion takes only an int8 COALESCE(column, constant). Other shapes decline to PostgreSQL.
+SELECT MAX(id), AVG(COALESCE(small, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: issue_7263_t)
+         max         |        avg         
+---------------------+--------------------
+ 1234567890123456789 | 3.0000000000000000
+(1 row)
+
+SELECT MAX(COALESCE(b, id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+WARNING:  Aggregate Scan not used: second argument of COALESCE must resolve to a constant. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_7263_t)
+         max         
+---------------------
+ 9223372036854775807
+(1 row)
+
 -- Parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT MAX(id), MIN(id) FROM issue_7263_t WHERE body ||| 'payment';
@@ -290,6 +305,18 @@ FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| '
  min |       max        | count 
 -----+------------------+-------
   -1 | 9007199254740993 |     7
+(1 row)
+
+SELECT MAX(id), AVG(COALESCE(small, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+         max         |        avg         
+---------------------+--------------------
+ 1234567890123456789 | 3.0000000000000000
+(1 row)
+
+SELECT MAX(COALESCE(b, id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+         max         
+---------------------
+ 9223372036854775807
 (1 row)
 
 RESET paradedb.enable_aggregate_custom_scan;

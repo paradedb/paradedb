@@ -62,6 +62,10 @@ FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| '
 SELECT MIN(COALESCE(u.v, -1)), MAX(COALESCE(u.v, -1)), COUNT(COALESCE(u.v, -1))
 FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| 'payment';
 
+-- DataFusion takes only an int8 COALESCE(column, constant). Other shapes decline to PostgreSQL.
+SELECT MAX(id), AVG(COALESCE(small, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+SELECT MAX(COALESCE(b, id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+
 -- Parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT MAX(id), MIN(id) FROM issue_7263_t WHERE body ||| 'payment';
@@ -83,6 +87,8 @@ FROM issue_7263_t WHERE body ||| 'payment';
 SELECT SUM(COALESCE(id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
 SELECT MIN(COALESCE(u.v, -1)), MAX(COALESCE(u.v, -1)), COUNT(COALESCE(u.v, -1))
 FROM issue_7263_t t LEFT JOIN issue_7263_u u ON t.grp = u.grp WHERE t.body ||| 'payment';
+SELECT MAX(id), AVG(COALESCE(small, 0)) FROM issue_7263_t WHERE body ||| 'payment';
+SELECT MAX(COALESCE(b, id, 0)) FROM issue_7263_t WHERE body ||| 'payment';
 
 RESET paradedb.enable_aggregate_custom_scan;
 RESET max_parallel_workers_per_gather;

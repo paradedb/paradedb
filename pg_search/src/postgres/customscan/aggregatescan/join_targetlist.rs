@@ -1655,9 +1655,7 @@ pub(in crate::postgres::customscan) unsafe fn unwrap_int8_coalesce(
     }
     let var = unwrap_to_var(args.get_ptr(0)?)?;
     let default = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
-    if (*default).constisnull {
-        return None;
-    }
-    let default: Option<i64> = pgrx::FromDatum::from_datum((*default).constvalue, false);
-    Some((var, default?))
+    let value: Option<i64> =
+        pgrx::FromDatum::from_datum((*default).constvalue, (*default).constisnull);
+    Some((var, value?))
 }

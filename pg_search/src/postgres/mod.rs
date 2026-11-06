@@ -167,7 +167,9 @@ pub fn rel_get_bm25_index(
     let index = unsafe {
         rel.indices(pg_sys::AccessShareLock as _)
             .filter(|index| {
-                pg_sys::get_index_isvalid(index.oid()) && (*index.rd_rel).relam.is_paradedb_am()
+                pg_sys::get_index_isvalid(index.oid())
+                    && (*index.rd_rel).relam.is_paradedb_am()
+                    && !index.options().is_synonym_index()
             })
             .max_by_key(|i| i.oid().to_u32())?
     };

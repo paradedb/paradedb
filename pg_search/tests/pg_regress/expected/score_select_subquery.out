@@ -165,6 +165,63 @@ LIMIT 1;
 (1 row)
 
 DROP TABLE config;
-RESET max_parallel_workers_per_gather;
-RESET enable_indexscan;
-DROP TABLE IF EXISTS animals CASCADE;
+-- =============================================================================
+-- Test 6: JoinScan with pdb.score() combined with an InitPlan (`PARAM_EXEC`) or
+-- prepared parameter (`PARAM_EXTERN`) in the SELECT target list.
+--
+-- Bug (backend SIGSEGV crash in `PgExprUdf`):
+-- 1. In `6a` below, PostgreSQL plans the scalar subquery
+--    `(SELECT 1.0::real WHERE current_setting('server_version_num') <> '')`
+--    as an `InitPlan` (`T_SubPlan`) and replaces it in the outer target list
+--    with a `T_Param` node (`paramkind = PARAM_EXEC`, `paramid = 0`).
+-- 2. In `JoinScan`, `resolve_target_entry_expr` (`customscan/joinscan/planning.rs`)
+--    accepts `pdb.score(a.id) - $0` as `ResolvedExpr::Expression` to be evaluated
+--    inside DataFusion (`can_pg_project` also rejects host-side projection for
+--    any expression that references `pdb.score`).
+-- 3. During DataFusion plan construction, `PredicateTranslator::translate`
+--    (`customscan/datafusion/translator.rs`) translates `pdb.score(a.id)` natively,
+--    but has no arm for `pg_sys::NodeTag::T_Param`, so the `T_Param` child falls
+--    through `_ => None` into `try_wrap_as_udf` (`customscan/datafusion/expr_translators.rs`).
+-- 4. `try_wrap_as_udf` does not check for `T_Param` (or `T_SubPlan`), so it wraps
+--    the bare `T_Param` (which has 0 `input_vars`) into a nullary `PgExprUdf` with
+--    `Volatility::Immutable`.
+-- 5. Because the `PgExprUdf` is nullary and marked `Immutable`, DataFusion's
+--    `SimplifyExpressions` constant-folder invokes `PgExprUdf::invoke_with_args`
+--    during plan optimization (even on plain `EXPLAIN`, before execution starts).
+--    `PgExprUdf::get_or_init_state` (`customscan/pg_expr_udf.rs`) creates a
+--    standalone `EState` via `pg_sys::CreateExecutorState()` whose
+--    `es_param_exec_vals` / `ecxt_param_exec_info` and `ecxt_param_list_info` are
+--    `NULL`. When `ExecEvalExpr` executes `ExecEvalParamExec` (or
+--    `ExecEvalParamExtern` in `6b`), it dereferences a `NULL` pointer and terminates
+--    the backend with signal 11 (`SIGSEGV`).
+--
+-- Note: The same crash affects any `T_Param` (`PARAM_EXEC` or `PARAM_EXTERN`) or
+-- `T_SubPlan` that reaches `try_wrap_as_udf` in a `SELECT` expression or join filter.
+-- =============================================================================
+CREATE TABLE shelters (
+    id INT PRIMARY KEY,
+    animal_id INT,
+    name TEXT
+);
+INSERT INTO shelters (id, animal_id, name) VALUES
+(10, 1, 'downtown dog rescue'),
+(20, 2, 'uptown cat haven'),
+(30, 3, 'westside dog shelter'),
+(40, 4, 'avian sanctuary');
+CREATE INDEX shelters_idx ON shelters
+USING paradedb (id, animal_id, name);
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.rank_join_min_rows = 0;
+-- 6a: InitPlan (`PARAM_EXEC`) combined with `pdb.score()` in the SELECT list of a JoinScan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT a.id,
+       pdb.score(a.id) - (SELECT 1.0::real WHERE current_setting('server_version_num') <> '') AS score
+FROM animals a
+JOIN shelters s ON s.animal_id = a.id
+WHERE a.description ||| 'dog' OR s.name ||| 'cat'
+ORDER BY pdb.score(a.id) + pdb.score(s.id) DESC, a.id
+LIMIT 5;
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+connection to server was lost

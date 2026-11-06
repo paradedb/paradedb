@@ -459,9 +459,17 @@ LIMIT 5;
 
 -- ============================================================
 -- Test 6: RankJoinRule expression shapes and eligibility gates
+--
+-- Note on planner diagnostics (missing feature / bug):
+-- When RankJoinRule declines a rewrite in `with_elided_disjunctive_tags`,
+-- `try_rewrite_scored_branch` (Gates 1, 2, 3), or `try_rewrite_scored_leaf`,
+-- it currently returns `None` silently without emitting a
+-- `paradedb.planner_warnings` diagnostic. We enable `planner_warnings = 'warning'`
+-- here so that once gate-decline warnings are emitted, they are captured below.
 -- ============================================================
 SET paradedb.enable_rank_join = on;
 SET paradedb.rank_join_min_rows = 0;
+SET paradedb.planner_warnings = 'warning';
 -- 6a: Weighted additive score expression -> plans RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
@@ -565,6 +573,120 @@ LIMIT 5;
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
+
+-- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) cliff with multi-branch OR on one side.
+--
+-- Bug / design limitation in `SubtreeScoreStats::from_leaf_queries` (`scan/rank_join_rule.rs`)
+-- and `SearchQueryInput::estimate_max_score` (`query/mod.rs`):
+-- Each non-constant OR branch (whether lifted into `disjunct_queries` or inside a
+-- `SearchQueryInput::Boolean.should` across multiple indexed text columns/terms) estimates
+-- `max_score = 1.0`, and `score_max` sums those upper bounds across all branches on the leaf.
+-- Gate 2 requires `min(delta_l_max, delta_r_max) / max(delta_l_max, delta_r_max) >= 0.20`.
+--
+-- As a result:
+-- - 5 OR branches on `p` vs 1 branch on `u` gives `score_max(p) = 5.0` and ratio
+--   `1.0 / 5.0 = 0.20 >= 0.20`, so `RankJoinExec` is chosen.
+-- - 6 OR branches on `p` (e.g. a table with 6+ searchable text columns queried via OR)
+--   vs 1 branch on `u` gives `score_max(p) = 6.0` and ratio `1.0 / 6.0 = 0.167 < 0.20`,
+--   causing Gate 2 to reject `RankJoinExec` and fall back to `HashJoinExec` unless the user
+--   artificially scales `paradedb.score(u.id)` in `ORDER BY`.
+-- 5 OR branches on `p` vs 1 on `u` (ratio 1/5 = 0.20) -> RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust'
+   OR p.title @@@ 'bm25'
+   OR p.title @@@ 'ranking'
+   OR p.title @@@ 'fast'
+   OR p.title @@@ 'columnar'
+   OR p.title @@@ 'query'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+-- 6 OR branches on `p` vs 1 on `u` (ratio 1/6 = 0.167 < 0.20) -> rejected by Gate 2 (HashJoinExec)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust'
+   OR p.title @@@ 'bm25'
+   OR p.title @@@ 'ranking'
+   OR p.title @@@ 'fast'
+   OR p.title @@@ 'columnar'
+   OR p.title @@@ 'query'
+   OR p.title @@@ 'extra'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"extra","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[u, p]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, user_id@2)], filter=__u_0_tag_0@0 OR __p_1_tag_0@1 OR __p_1_tag_1@2 OR __p_1_tag_2@3 OR __p_1_tag_3@4 OR __p_1_tag_4@5 OR __p_1_tag_5@6, projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@4, ctid_1@5, id@7]
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}}, tag_2={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}}, tag_3={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}}, tag_4={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}}, tag_5={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"extra","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+-- Same 6 OR branches on `p`, but with a 2x weight on `u` in ORDER BY (ratio 2/6 = 0.333 >= 0.20) -> RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust'
+   OR p.title @@@ 'bm25'
+   OR p.title @@@ 'ranking'
+   OR p.title @@@ 'fast'
+   OR p.title @@@ 'columnar'
+   OR p.title @@@ 'query'
+   OR p.title @@@ 'extra'
+ORDER BY 2.0 * paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"extra","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: 2 * pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, 2 * CAST(pdb.score(u)@0 AS Float64) + CAST(pdb.score(p)@3 AS Float64) as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[2 * pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"extra","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- 6e: Single-sided score sort over cross-table OR -> rejected (HashJoinExec)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -697,6 +819,164 @@ LIMIT 5;
      :           PgSearchScan: table=p, segments=2, lazy_sort=20, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
+-- 6g: Disjunctive (cross-table OR) two-sided score join with a per-table pushdown filter.
+--
+-- When a cross-table OR (`u.bio @@@ 'rust' OR p.title @@@ 'bm25'`) is combined with a
+-- single-table pushdown filter on one input (e.g. `p.user_id = ANY(...)` or `p.views >= 0`),
+-- `with_elided_disjunctive_tags` preserves `base_query` on `ScanMode::Disjunctive` so
+-- `RankJoinExec` still plans and intersects the disjunct union with `base_query`.
+SET paradedb.rank_join_min_rows = 0;
+-- Baseline without a per-table filter (`base_query = All`) -> plans RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE u.bio @@@ 'rust' OR p.title @@@ 'bm25'
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+-- With a per-table TermSet filter (`p.user_id = ANY(...)`) pushed into `p`'s `base_query` -> plans RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.user_id = ANY(ARRAY[2, 4, 6])
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"term_set":{"terms":[{"field":"user_id","value":2},{"field":"user_id","value":4},{"field":"user_id","value":6}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.user_id = ANY(ARRAY[2, 4, 6])
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    2 |   43
+    4 |   29
+    4 |   79
+    6 |   65
+    2 |   93
+(5 rows)
+
+-- With a per-table Range filter (`p.views >= 0`) pushed into `p`'s `base_query` -> plans RankJoinExec
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.views >= 0
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                                  QUERY PLAN                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: u INNER p
+   Join Cond: u.id = p.user_id
+   Join Predicate: (u:{"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}})
+   Limit: 5
+   Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=5
+     :     VisibilityFilterExec: tables=[u, p]
+     :       RankJoinExec: mode=CollectLeft, on=[(user_id@2, id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@4, ctid_0@5, id@6, pdb.score(p)@0, ctid_1@1, id@3]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"range":{"field":"views","lower_bound":{"included":0},"upper_bound":null}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.views >= 0
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    2 |   43
+    4 |   29
+    4 |   79
+    8 |    1
+   10 |   37
+(5 rows)
+
+-- Verify identical results with RankJoin disabled (HashJoinExec baseline)
+SET paradedb.enable_rank_join = off;
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.user_id = ANY(ARRAY[2, 4, 6])
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    2 |   43
+    4 |   29
+    4 |   79
+    6 |   65
+    2 |   93
+(5 rows)
+
+SELECT u.id AS u_id, p.id AS p_id
+FROM rj_users u
+JOIN rj_posts p ON u.id = p.user_id
+WHERE (u.bio @@@ 'rust' OR p.title @@@ 'bm25')
+  AND p.views >= 0
+ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
+LIMIT 5;
+ u_id | p_id 
+------+------
+    2 |   43
+    4 |   29
+    4 |   79
+    8 |    1
+   10 |   37
+(5 rows)
+
+SET paradedb.enable_rank_join = on;
+RESET paradedb.planner_warnings;
 -- ============================================================
 -- Test 7: MPP range co-partitioned RankJoinExec
 -- - Single-stage co-partitioned 2-way and 3-way joins use RankJoinExec(mode=Partitioned)

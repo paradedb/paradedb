@@ -299,9 +299,12 @@ impl TantivyValue {
                     pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,
                 ),
+                // Prefer TryFrom over FromDatum: FromDatum calls modular_from_raw,
+                // which rem_euclid-collapses TIME '24:00:00' (USECS_PER_DAY) to midnight.
+                // TryFrom accepts the inclusive upper bound 0..=USECS_PER_DAY.
                 PgBuiltInOids::TIMEOID => TantivyValue::try_from(
-                    pgrx::datum::Time::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
+                    pgrx::datum::Time::try_from(datum.value() as pg_sys::TimeADT)
+                        .map_err(|_| TantivyValueError::DatumDeref)?,
                 ),
                 PgBuiltInOids::TIMETZOID => TantivyValue::try_from(
                     pgrx::datum::TimeWithTimeZone::from_datum(datum, false)

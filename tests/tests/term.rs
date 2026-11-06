@@ -335,3 +335,56 @@ fn datetime_term(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 }
+
+/// Postgres distinguishes TIME '24:00:00' from TIME '00:00:00'. The search index must too
+/// (see https://github.com/paradedb/paradedb/issues/7168).
+#[rstest]
+fn time_24_00_term_distinct_from_midnight(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE time24_repro(id integer PRIMARY KEY, body text NOT NULL, t time NOT NULL);
+    INSERT INTO time24_repro VALUES
+      (1, 'midnight', TIME '00:00:00'),
+      (2, 'last', TIME '23:59:59.999999'),
+      (3, 'endofday', TIME '24:00:00');
+    CREATE INDEX time24_repro_idx ON time24_repro USING paradedb (id, body, t);
+    ANALYZE time24_repro;
+    "#
+    .execute(&mut conn);
+
+    // Heap equality baseline: Postgres itself keeps them distinct.
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM time24_repro WHERE t = TIME '24:00:00' ORDER BY id".fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(3,)]);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM time24_repro WHERE t = TIME '00:00:00' ORDER BY id".fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    for enable_custom_scan in ["off", "on"] {
+        format!("SET paradedb.enable_custom_scan = {enable_custom_scan};").execute(&mut conn);
+
+        let rows: Vec<(i32,)> = r#"
+        SELECT id FROM time24_repro
+        WHERE id @@@ paradedb.term('t', TIME '24:00:00')
+        ORDER BY id
+        "#
+        .fetch_collect(&mut conn);
+        assert_eq!(
+            rows,
+            vec![(3,)],
+            "TIME '24:00:00' term with custom_scan={enable_custom_scan}"
+        );
+
+        let rows: Vec<(i32,)> = r#"
+        SELECT id FROM time24_repro
+        WHERE id @@@ paradedb.term('t', TIME '00:00:00')
+        ORDER BY id
+        "#
+        .fetch_collect(&mut conn);
+        assert_eq!(
+            rows,
+            vec![(1,)],
+            "TIME '00:00:00' term with custom_scan={enable_custom_scan}"
+        );
+    }
+}

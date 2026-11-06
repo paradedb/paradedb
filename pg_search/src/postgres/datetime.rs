@@ -301,7 +301,12 @@ impl From<pgrx::datum::Time> for PostgresDateTime {
 }
 impl From<PostgresDateTime> for pgrx::datum::Time {
     fn from(value: PostgresDateTime) -> Self {
-        Self::modular_from_raw(value.into_inner())
+        let micros = value.into_inner();
+        // Prefer try_from so TIME '24:00:00' (exactly ONE_DAY_MICROS / USECS_PER_DAY)
+        // is preserved. modular_from_raw rem_euclid-maps that value to midnight.
+        // Fall back to modular for values outside 0..=ONE_DAY_MICROS (e.g. timestamps
+        // being reduced to a time-of-day).
+        Self::try_from(micros).unwrap_or_else(|_| Self::modular_from_raw(micros))
     }
 }
 impl From<pgrx::datum::TimeWithTimeZone> for PostgresDateTime {
@@ -648,5 +653,24 @@ mod tests {
     fn user_supplied_infinity_is_not_parsed_as_a_date() {
         assert!(PostgresDateTime::try_from("infinity").is_err());
         assert!(PostgresDateTime::try_from("-infinity").is_err());
+    }
+
+    #[pg_test]
+    fn time_24_00_is_distinct_from_midnight_through_postgres_datetime() {
+        // Postgres stores TIME '24:00:00' as USECS_PER_DAY. It must not collapse to midnight.
+        let end_of_day = pgrx::datum::Time::try_from(ONE_DAY_MICROS).unwrap();
+        assert_eq!(end_of_day.into_inner(), ONE_DAY_MICROS);
+
+        let as_pg_dt = PostgresDateTime::from(end_of_day);
+        assert_eq!(as_pg_dt.into_inner(), ONE_DAY_MICROS);
+
+        let round_tripped: pgrx::datum::Time = as_pg_dt.into();
+        assert_eq!(round_tripped.into_inner(), ONE_DAY_MICROS);
+
+        let midnight = pgrx::datum::Time::try_from(0).unwrap();
+        let midnight_dt = PostgresDateTime::from(midnight);
+        let midnight_back: pgrx::datum::Time = midnight_dt.into();
+        assert_eq!(midnight_back.into_inner(), 0);
+        assert_ne!(round_tripped.into_inner(), midnight_back.into_inner());
     }
 }

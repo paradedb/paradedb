@@ -28,7 +28,6 @@ use crate::postgres::merge::{
     warn_unsupported_vector_merge,
 };
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
-use crate::postgres::storage::block::MVCCEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
@@ -38,7 +37,6 @@ use pgrx::{
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use std::time::{Duration, Instant};
-use tantivy::index::SegmentId;
 
 static INTERVAL_MS: GucSetting<i32> = GucSetting::<i32>::new(1000);
 
@@ -185,7 +183,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
     let mut pass_context = pgrx::PgMemoryContexts::new("pg_search mutable sweep pass");
     let mut next_sweep = Instant::now();
     let mut interval = INTERVAL_MS.get();
-    let mut previous_counts: HashMap<pg_sys::Oid, HashMap<SegmentId, usize>> = HashMap::default();
+    let mut previous_counts = HashMap::default();
     loop {
         reload();
         if INTERVAL_MS.get() != interval {
@@ -253,34 +251,25 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if !(*index.rd_rel).relam.is_paradedb_am() || !index.is_valid() {
                                 return None;
                             }
-                            let previous = previous_counts.get(&index.oid());
-                            let mut segment_counts = HashMap::default();
                             let mut idle_segments = HashMap::default();
                             MetaPage::open(&index).segment_metas().for_each(|_, entry| {
-                                if !entry.visible() {
-                                    return;
-                                }
-                                let id = entry.segment_id();
-                                let count = entry.num_docs();
-                                segment_counts.insert(id, count);
-                                if entry.is_mutable()
-                                    && entry.xmax() == pg_sys::InvalidTransactionId
-                                    && previous.and_then(|counts| counts.get(&id)) == Some(&count)
-                                {
-                                    idle_segments.insert(id, count);
+                                if entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId {
+                                    let key = (index.oid(), entry.segment_id());
+                                    let count = entry.num_docs();
+                                    current_counts.insert(key, count);
+                                    if previous_counts.get(&key) == Some(&count) {
+                                        idle_segments.insert(entry.segment_id(), count);
+                                    }
                                 }
                             });
-                            let idle_index = previous == Some(&segment_counts);
-                            current_counts.insert(index.oid(), segment_counts);
-                            (!idle_segments.is_empty() || idle_index)
-                                .then_some((index.oid(), idle_segments, idle_index))
+                            Some((index.oid(), idle_segments))
                         })
                         .collect::<Vec<_>>();
                     Some((indexes, current_counts))
                 });
                 let (indexes, current_counts) = indexes?;
                 pg_sys::pgstat_report_appname(c"pg_search mutable sweep".as_ptr());
-                for (index, idle_segments, idle_index) in indexes {
+                for (index, idle_segments) in indexes {
                     reload();
                     if INTERVAL_MS.get() == 0 {
                         break;
@@ -293,13 +282,12 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if VacuumSignal::new(index.oid()).wants_cancel() {
                                 return;
                             }
-                            if idle_index
-                                && [MergeSlotVariant::Small, MergeSlotVariant::Large]
-                                    .into_iter()
-                                    .all(|variant| MergeSlot::new(index.oid(), variant).is_available())
+                            if [MergeSlotVariant::Small, MergeSlotVariant::Large]
+                                .into_iter()
+                                .all(|variant| MergeSlot::new(index.oid(), variant).is_available())
                             {
                                 do_merge(&index, MergeStyle::Background)
-                                    .expect("should be able to schedule an idle background merge");
+                                    .expect("should be able to schedule a background merge");
                             }
                             if idle_segments.is_empty() {
                                 return;

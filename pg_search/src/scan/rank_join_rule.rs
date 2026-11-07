@@ -428,17 +428,17 @@ impl SubtreeScoreStats {
             return None;
         }
         let score_max = if is_score_sort {
-            let mut total = if base_has_score {
+            let base = if base_has_score {
                 base_query.estimate_max_score()
             } else {
                 0.0
             };
-            for q in disjunct_queries {
-                if !q.is_constant_score() {
-                    total += q.estimate_max_score();
-                }
-            }
-            total.max(1.0)
+            let disjunct_max = disjunct_queries
+                .iter()
+                .filter(|q| !q.is_constant_score())
+                .map(SearchQueryInput::estimate_max_score)
+                .fold(0.0_f64, f64::max);
+            base.hypot(disjunct_max).max(1.0)
         } else {
             1.0
         };

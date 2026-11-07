@@ -538,6 +538,9 @@ pub struct PgGucs {
     /// Enable range co-partitioning for joins whose indexes declare compatible `partition_by`
     /// fields.
     pub range_partitioned_join: bool,
+    /// Enable `RankJoinExec` and lower `paradedb.rank_join_min_rows` to `0` so small property-test
+    /// tables exercise `RankJoinExec`.
+    pub rank_join: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -694,7 +697,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 11]>()
+        any::<[bool; 12]>()
             .prop_map(|b| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
@@ -708,6 +711,7 @@ impl Arbitrary for PgGucs {
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
                     range_partitioned_join: b[10],
+                    rank_join: b[11],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -733,6 +737,7 @@ impl PgGucs {
             parallel_leader_participation: true,
             columnar_exec: false,
             range_partitioned_join: false,
+            rank_join: false,
         }
     }
 
@@ -761,6 +766,7 @@ impl PgGucs {
             parallel_leader_participation,
             columnar_exec,
             range_partitioned_join,
+            rank_join,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -816,6 +822,12 @@ impl PgGucs {
             "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
+        writeln!(gucs, "{verb} paradedb.enable_rank_join TO {rank_join};").unwrap();
+        if *rank_join {
+            writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO 0;").unwrap();
+        } else {
+            writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO DEFAULT;").unwrap();
+        }
         // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
         // (and MPP distributed execution) to be used on the small property-test tables.
         if *parallel_workers {

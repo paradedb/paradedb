@@ -305,24 +305,14 @@ WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
 
--- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) cliff with multi-branch OR on one side.
+-- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) with multi-branch OR on one side.
 --
--- Bug / design limitation in `SubtreeScoreStats::from_leaf_queries` (`scan/rank_join_rule.rs`)
--- and `SearchQueryInput::estimate_max_score` (`query/mod.rs`):
--- Each non-constant OR branch (whether lifted into `disjunct_queries` or inside a
--- `SearchQueryInput::Boolean.should` across multiple indexed text columns/terms) estimates
--- `max_score = 1.0`, and `score_max` sums those upper bounds across all branches on the leaf.
--- Gate 2 requires `min(delta_l_max, delta_r_max) / max(delta_l_max, delta_r_max) >= 0.20`.
---
--- As a result:
--- - 5 OR branches on `p` vs 1 branch on `u` gives `score_max(p) = 5.0` and ratio
---   `1.0 / 5.0 = 0.20 >= 0.20`, so `RankJoinExec` is chosen.
--- - 6 OR branches on `p` (e.g. a table with 6+ searchable text columns queried via OR)
---   vs 1 branch on `u` gives `score_max(p) = 6.0` and ratio `1.0 / 6.0 = 0.167 < 0.20`,
---   causing Gate 2 to reject `RankJoinExec` and fall back to `HashJoinExec` unless the user
---   artificially scales `paradedb.score(u.id)` in `ORDER BY`.
+-- Across `disjunct_queries` (`ScanMode::Disjunctive`) and `SearchQueryInput::Boolean.should`,
+-- a matching document only needs to satisfy one disjunct, so `score_max` takes the maximum
+-- branch scale rather than summing `1.0` per branch. Both 5 and 6+ unboosted OR branches
+-- on `p` paired with 1 branch on `u` pass Gate 2 and plan `RankJoinExec`.
 
--- 5 OR branches on `p` vs 1 on `u` (ratio 1/5 = 0.20) -> RankJoinExec
+-- 5 OR branches on `p` vs 1 on `u` -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -336,7 +326,7 @@ WHERE u.bio @@@ 'rust'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
--- 6 OR branches on `p` vs 1 on `u` (ratio 1/6 = 0.167 < 0.20) -> rejected by Gate 2 (HashJoinExec)
+-- 6 OR branches on `p` vs 1 on `u` -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -351,7 +341,7 @@ WHERE u.bio @@@ 'rust'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
 
--- Same 6 OR branches on `p`, but with a 2x weight on `u` in ORDER BY (ratio 2/6 = 0.333 >= 0.20) -> RankJoinExec
+-- Same 6 OR branches on `p` with a 2x weight on `u` in ORDER BY -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u

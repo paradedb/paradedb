@@ -151,7 +151,8 @@ pub unsafe fn term_with_operator(
         pg_sys::UUIDOID => make_query!(operator, field, uuid, pgrx::datum::Uuid, value),
 
         pg_sys::DATEOID => make_query!(operator, field, date, pgrx::datum::Date, value),
-        pg_sys::TIMEOID => make_query!(operator, field, time, pgrx::datum::Time, value),
+        // ExactTime preserves TIME '24:00:00'; pgrx Time::FromDatum collapses it to midnight.
+        pg_sys::TIMEOID => make_query!(operator, field, time, crate::postgres::datetime::ExactTime, value),
         pg_sys::TIMETZOID => make_query!(operator, field, time_with_time_zone, pgrx::datum::TimeWithTimeZone, value),
         pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value),
         pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value),

@@ -20,7 +20,7 @@ use crate::api::version::Version;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{ExactTime, PostgresDateTime};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::range::RangeToTantivyValue;
@@ -1058,6 +1058,14 @@ impl TryFrom<pgrx::datum::Time> for TantivyValue {
         Ok(TantivyValue(PdbOwnedValue::Date(PostgresDateTime::from(
             val,
         ))))
+    }
+}
+
+impl TryFrom<ExactTime> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(val: ExactTime) -> Result<Self, Self::Error> {
+        TantivyValue::try_from(val.0)
     }
 }
 

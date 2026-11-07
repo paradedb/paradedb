@@ -352,12 +352,12 @@ fn time_24_00_term_distinct_from_midnight(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // Heap equality baseline: Postgres itself keeps them distinct.
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM time24_repro WHERE t = TIME '24:00:00' ORDER BY id".fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM time24_repro WHERE t = TIME '24:00:00' ORDER BY id"
+        .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(3,)]);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM time24_repro WHERE t = TIME '00:00:00' ORDER BY id".fetch_collect(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM time24_repro WHERE t = TIME '00:00:00' ORDER BY id"
+        .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
     for enable_custom_scan in ["off", "on"] {

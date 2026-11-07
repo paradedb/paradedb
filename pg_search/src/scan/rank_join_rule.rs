@@ -242,7 +242,7 @@ impl PhysicalOptimizerRule for RankJoinRule {
                 let Some(k) = sort_exec.fetch() else {
                     return Ok(Transformed::no(node));
                 };
-                if !has_vector_order_by && (k == 0 || k > MAX_RANK_JOIN_K) {
+                if !has_vector_order_by && k == 0 {
                     return Ok(Transformed::no(node));
                 };
 
@@ -283,6 +283,107 @@ impl PhysicalOptimizerRule for RankJoinRule {
         }
 
         Ok(rewritten)
+    }
+}
+
+/// Reason why `RankJoinRule` declined to rewrite a score-ordered top-K join into `RankJoinExec`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum RankJoinDeclineReason {
+    /// `LIMIT + OFFSET` (`K`) exceeds `MAX_RANK_JOIN_K`.
+    LimitExceedsMax { k: usize, max_k: usize },
+    /// Cross-table `OR` leaf scan has a non-indexed heap filter alongside its tagged predicates.
+    DisjunctiveLeafHasHeapFilter { table: String },
+    /// Cross-table `OR` leaf scan combines its tagged predicates with a scored or disjunctive
+    /// per-table `base_query` that `RankJoinExec` cannot evaluate as a `0.0`-score filter.
+    DisjunctiveLeafBaseNotPushdownFilter { table: String },
+    /// Cross-table search join filter is not a pure `OR` disjunction covering all tagged predicates.
+    DisjunctiveFilterNotPureOr,
+    /// Cross-table `OR` join has a single-sided score `ORDER BY` that omits `pdb.score(...)`
+    /// from one or more joined sides.
+    DisjunctiveSingleSidedScoreSort,
+    /// Cross-table `OR` join has a score `ORDER BY` (e.g. a pure product `s_l * s_r`) that
+    /// does not remain positive when only one side matches.
+    DisjunctiveCombinerNotPositive,
+    /// Join operator or join type is not supported by `RankJoinExec`.
+    UnsupportedJoinType(JoinType),
+    /// Primary `ORDER BY` expression is not a supported monotonic score combination.
+    UnsupportedScoreExpression,
+    /// Join key cannot be routed to leaf `RA` index point lookups.
+    UnsupportedJoinKeys,
+    /// A scored leaf scan has only constant-score predicates (e.g. `pdb.all()`).
+    ConstantScoreLeaf { table: String },
+    /// Score contribution range on a two-sided score join is non-positive or non-finite.
+    DegenerateScoreRange,
+    /// Score contribution ratio between the two sides of a two-sided score join falls
+    /// below `SCORE_BALANCE_THRESHOLD`.
+    ScoreImbalance { ratio: f64, threshold: f64 },
+    /// Unscored (`RA`) input selectivity in a single-sided join falls below
+    /// `paradedb.rank_join_unscored_selectivity_threshold` and `lazy_sort` probe join also declined.
+    LowUnscoredSelectivity { selectivity: f64, threshold: f64 },
+}
+
+impl std::fmt::Display for RankJoinDeclineReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LimitExceedsMax { k, max_k } => write!(
+                f,
+                "LIMIT + OFFSET ({k}) exceeds maximum rank join threshold ({max_k})"
+            ),
+            Self::DisjunctiveLeafHasHeapFilter { table } => write!(
+                f,
+                "table \"{table}\" has a non-indexed filter alongside a cross-table OR predicate"
+            ),
+            Self::DisjunctiveLeafBaseNotPushdownFilter { table } => write!(
+                f,
+                "table \"{table}\" combines a cross-table OR predicate with a scored or disjunctive per-table predicate"
+            ),
+            Self::DisjunctiveFilterNotPureOr => write!(
+                f,
+                "cross-table search filter is not a pure OR disjunction across all joined tables"
+            ),
+            Self::DisjunctiveSingleSidedScoreSort => write!(
+                f,
+                "ORDER BY scores only one side of a cross-table OR join; include pdb.score() from all OR branches"
+            ),
+            Self::DisjunctiveCombinerNotPositive => write!(
+                f,
+                "ORDER BY score expression must be positive when only one branch of a cross-table OR matches"
+            ),
+            Self::UnsupportedJoinType(join_type) => {
+                write!(f, "{join_type} join is not supported by RankJoinExec")
+            }
+            Self::UnsupportedScoreExpression => write!(
+                f,
+                "ORDER BY expression is not a monotonic descending combination of pdb.score() columns"
+            ),
+            Self::UnsupportedJoinKeys => {
+                write!(f, "join key column does not support indexed point lookups")
+            }
+            Self::ConstantScoreLeaf { table } => write!(
+                f,
+                "scored table \"{table}\" has only constant-score predicates"
+            ),
+            Self::DegenerateScoreRange => {
+                write!(f, "non-positive or non-finite score range on join input")
+            }
+            Self::ScoreImbalance { ratio, threshold } => write!(
+                f,
+                "score contribution ratio ({ratio:.3}) is below balance threshold ({threshold:.2})"
+            ),
+            Self::LowUnscoredSelectivity {
+                selectivity,
+                threshold,
+            } => write!(
+                f,
+                "unscored input selectivity ({selectivity:.3}) is below paradedb.rank_join_unscored_selectivity_threshold ({threshold:.3})"
+            ),
+        }
+    }
+}
+
+fn record_decline(slot: &mut Option<RankJoinDeclineReason>, reason: RankJoinDeclineReason) {
+    if slot.is_none() {
+        *slot = Some(reason);
     }
 }
 
@@ -327,17 +428,17 @@ impl SubtreeScoreStats {
             return None;
         }
         let score_max = if is_score_sort {
-            let mut total = if base_has_score {
+            let base = if base_has_score {
                 base_query.estimate_max_score()
             } else {
                 0.0
             };
-            for q in disjunct_queries {
-                if !q.is_constant_score() {
-                    total += q.estimate_max_score();
-                }
-            }
-            total.max(1.0)
+            let disjunct_max = disjunct_queries
+                .iter()
+                .filter(|q| !q.is_constant_score())
+                .map(SearchQueryInput::estimate_max_score)
+                .fold(0.0_f64, f64::max);
+            base.hypot(disjunct_max).max(1.0)
         } else {
             1.0
         };
@@ -370,6 +471,7 @@ impl SubtreeScoreStats {
         left: Self,
         right: Self,
         min_rows: usize,
+        decline_out: &mut Option<RankJoinDeclineReason>,
     ) -> Option<Self> {
         let f_max_max = combiner.eval(InputScorePair {
             left: left.score_max,
@@ -389,9 +491,19 @@ impl SubtreeScoreStats {
             let delta_l = (f_max_max - f_min_max).abs();
             let delta_r = (f_max_max - f_max_min).abs();
             if delta_l <= 0.0 || delta_r <= 0.0 || !delta_l.is_finite() || !delta_r.is_finite() {
+                record_decline(decline_out, RankJoinDeclineReason::DegenerateScoreRange);
                 return None;
             }
-            if delta_l.min(delta_r) < SCORE_BALANCE_THRESHOLD * delta_l.max(delta_r) {
+            let min_delta = delta_l.min(delta_r);
+            let max_delta = delta_l.max(delta_r);
+            if min_delta < SCORE_BALANCE_THRESHOLD * max_delta {
+                record_decline(
+                    decline_out,
+                    RankJoinDeclineReason::ScoreImbalance {
+                        ratio: min_delta / max_delta,
+                        threshold: SCORE_BALANCE_THRESHOLD,
+                    },
+                );
                 return None;
             }
         }
@@ -408,7 +520,15 @@ impl SubtreeScoreStats {
             if min_matched < min_rows as u64 {
                 return None;
             }
-            if unscored_selectivity.0 < crate::gucs::rank_join_unscored_selectivity_threshold() {
+            let threshold = crate::gucs::rank_join_unscored_selectivity_threshold();
+            if unscored_selectivity.0 < threshold {
+                record_decline(
+                    decline_out,
+                    RankJoinDeclineReason::LowUnscoredSelectivity {
+                        selectivity: unscored_selectivity.0,
+                        threshold,
+                    },
+                );
                 return None;
             }
         }
@@ -491,37 +611,47 @@ fn try_rewrite_under_sort(
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let mut eager_fields = Vec::new();
     let mut rewritten_with_stats = None;
-    if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K {
-        if let Some(tagless_node) = try_elide_disjunctive_tags(node)? {
-            let join_mode = subtree_join_partition_mode(&tagless_node)?;
-            rewritten_with_stats = try_rewrite_scored_branch(
-                &tagless_node,
-                required_ordering,
-                &[],
-                ScoredBranchContext {
-                    min_rows,
-                    join_mode,
-                    field_sort_policy: FieldSortPolicy::Allowed,
-                    level: BranchLevel::RootJoin,
-                },
-                &mut eager_fields,
-            )?;
-        }
-        if rewritten_with_stats.is_none() {
-            eager_fields.clear();
-            let join_mode = subtree_join_partition_mode(node)?;
-            rewritten_with_stats = try_rewrite_scored_branch(
-                node,
-                required_ordering,
-                &[],
-                ScoredBranchContext {
-                    min_rows,
-                    join_mode,
-                    field_sort_policy: FieldSortPolicy::Allowed,
-                    level: BranchLevel::RootJoin,
-                },
-                &mut eager_fields,
-            )?;
+    let mut decline_reason = None;
+    if crate::gucs::enable_rank_join() {
+        if k > MAX_RANK_JOIN_K {
+            decline_reason = Some(RankJoinDeclineReason::LimitExceedsMax {
+                k,
+                max_k: MAX_RANK_JOIN_K,
+            });
+        } else {
+            if let Some(tagless_node) = try_elide_disjunctive_tags(node, &mut decline_reason)? {
+                let join_mode = subtree_join_partition_mode(&tagless_node)?;
+                rewritten_with_stats = try_rewrite_scored_branch(
+                    &tagless_node,
+                    required_ordering,
+                    &[],
+                    ScoredBranchContext {
+                        min_rows,
+                        join_mode,
+                        field_sort_policy: FieldSortPolicy::Allowed,
+                        level: BranchLevel::RootJoin,
+                    },
+                    &mut eager_fields,
+                    &mut decline_reason,
+                )?;
+            }
+            if rewritten_with_stats.is_none() {
+                eager_fields.clear();
+                let join_mode = subtree_join_partition_mode(node)?;
+                rewritten_with_stats = try_rewrite_scored_branch(
+                    node,
+                    required_ordering,
+                    &[],
+                    ScoredBranchContext {
+                        min_rows,
+                        join_mode,
+                        field_sort_policy: FieldSortPolicy::Allowed,
+                        level: BranchLevel::RootJoin,
+                    },
+                    &mut eager_fields,
+                    &mut decline_reason,
+                )?;
+            }
         }
     }
     if let Some((rewritten, root_stats)) = rewritten_with_stats {
@@ -558,7 +688,37 @@ fn try_rewrite_under_sort(
             crate::scan::deferred_placement_rule::make_fields_eager(rewritten, &eager_fields)?;
         return Ok(Some(rewritten));
     }
+    if let Some(reason) = decline_reason
+        && has_hash_join(node)
+        && primary_sort_references_score(node, required_ordering)
+        && (min_rows == 0 || !any_scan(node, |s| s.planner_estimated_rows() < min_rows as u64))
+    {
+        crate::postgres::planner_warnings::warn_rank_join_not_used(&reason.to_string());
+    }
     Ok(None)
+}
+
+/// Returns `true` when the primary sort expression in `ordering` (after unprojecting through any
+/// pass-through operators above the root join) references at least one `pdb.score(...)` column.
+fn primary_sort_references_score(
+    mut node: &Arc<dyn ExecutionPlan>,
+    ordering: &LexOrdering,
+) -> bool {
+    let mut current_ordering = ordering.clone();
+    while let Ok(Some(next_ordering)) = map_ordering_through_passthrough(node, &current_ordering) {
+        current_ordering = next_ordering;
+        node = node.children()[0];
+    }
+    let expr = if let Some(join) = node.downcast_ref::<HashJoinExec>()
+        && let Ok(Some(unproj)) = unproject_join_expr(join, &current_ordering[0].expr)
+    {
+        unproj
+    } else {
+        Arc::clone(&current_ordering[0].expr)
+    };
+    collect_columns(&expr)
+        .iter()
+        .any(|col| ScoreColumn::is_score_column(col.name()))
 }
 
 /// Returns `PartitionMode::Partitioned` iff every `HashJoinExec` in `node` is range
@@ -620,11 +780,15 @@ fn subtree_join_partition_mode(node: &Arc<dyn ExecutionPlan>) -> Result<Partitio
 /// and intermediate projections/joins, and leaf scans converted to `ScanMode::Disjunctive`.
 fn try_elide_disjunctive_tags(
     node: &Arc<dyn ExecutionPlan>,
+    decline_out: &mut Option<RankJoinDeclineReason>,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
+    if !any_scan(node, |s| matches!(s.scan_mode(), ScanMode::Tagged { .. })) {
+        return Ok(None);
+    }
     let mut elided_tags = None;
     let mut matched_tags = BTreeSet::new();
     let Some((stripped_plan, root_old_to_new)) =
-        strip_disjunctive_tags_from_plan(node, &mut elided_tags, &mut matched_tags)?
+        strip_disjunctive_tags_from_plan(node, &mut elided_tags, &mut matched_tags, decline_out)?
     else {
         return Ok(None);
     };
@@ -636,7 +800,14 @@ fn try_elide_disjunctive_tags(
         .iter()
         .copied()
         .eq((0..root_old_to_new.len()).map(Some));
-    Ok((all_tags_matched && schema_unchanged).then_some(stripped_plan))
+    if !all_tags_matched || !schema_unchanged {
+        record_decline(
+            decline_out,
+            RankJoinDeclineReason::DisjunctiveFilterNotPureOr,
+        );
+        return Ok(None);
+    }
+    Ok(Some(stripped_plan))
 }
 
 fn extract_pure_or_filter_columns(filter: &JoinFilter) -> Option<BTreeSet<String>> {
@@ -681,21 +852,25 @@ fn strip_disjunctive_tags_from_plan(
     node: &Arc<dyn ExecutionPlan>,
     elided_tags: &mut Option<BTreeSet<String>>,
     matched_tags: &mut BTreeSet<String>,
+    decline_out: &mut Option<RankJoinDeclineReason>,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, ColumnIndexMap)>> {
     if let Some(scan) = node.downcast_ref::<PgSearchScanPlan>() {
         let Some(tags) = elided_tags.as_ref() else {
             return Ok(None);
         };
-        let Some((new_scan, old_to_new)) = scan.with_elided_disjunctive_tags(tags, matched_tags)
-        else {
-            return Ok(None);
+        let (new_scan, old_to_new) = match scan.with_elided_disjunctive_tags(tags, matched_tags) {
+            Ok(pair) => pair,
+            Err(reason) => {
+                record_decline(decline_out, reason);
+                return Ok(None);
+            }
         };
         return Ok(Some((Arc::new(new_scan), old_to_new)));
     }
 
     if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
         let Some((new_input, child_old_to_new)) =
-            strip_disjunctive_tags_from_plan(proj.input(), elided_tags, matched_tags)?
+            strip_disjunctive_tags_from_plan(proj.input(), elided_tags, matched_tags, decline_out)?
         else {
             return Ok(None);
         };
@@ -725,23 +900,35 @@ fn strip_disjunctive_tags_from_plan(
 
     if let Some(join) = node.downcast_ref::<HashJoinExec>() {
         if *join.join_type() != JoinType::Inner || !is_hash_join_eligible(join) {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::UnsupportedJoinType(*join.join_type()),
+            );
             return Ok(None);
         }
         if elided_tags.is_none() {
             let Some(tags) = join.filter().and_then(extract_pure_or_filter_columns) else {
+                record_decline(
+                    decline_out,
+                    RankJoinDeclineReason::DisjunctiveFilterNotPureOr,
+                );
                 return Ok(None);
             };
             *elided_tags = Some(tags);
         } else if join.filter().is_some() {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::DisjunctiveFilterNotPureOr,
+            );
             return Ok(None);
         }
         let Some((new_left, left_map)) =
-            strip_disjunctive_tags_from_plan(join.left(), elided_tags, matched_tags)?
+            strip_disjunctive_tags_from_plan(join.left(), elided_tags, matched_tags, decline_out)?
         else {
             return Ok(None);
         };
         let Some((new_right, right_map)) =
-            strip_disjunctive_tags_from_plan(join.right(), elided_tags, matched_tags)?
+            strip_disjunctive_tags_from_plan(join.right(), elided_tags, matched_tags, decline_out)?
         else {
             return Ok(None);
         };
@@ -803,8 +990,12 @@ fn strip_disjunctive_tags_from_plan(
     }
 
     if is_passthrough_node(node) {
-        let Some((new_child, child_old_to_new)) =
-            strip_disjunctive_tags_from_plan(node.children()[0], elided_tags, matched_tags)?
+        let Some((new_child, child_old_to_new)) = strip_disjunctive_tags_from_plan(
+            node.children()[0],
+            elided_tags,
+            matched_tags,
+            decline_out,
+        )?
         else {
             return Ok(None);
         };
@@ -933,6 +1124,7 @@ fn try_rewrite_scored_branch(
     parent_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
     ctx: ScoredBranchContext,
     eager_fields: &mut Vec<PhysicalDeferredField>,
+    decline_out: &mut Option<RankJoinDeclineReason>,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
         let Some(child_key_sets) = map_key_sets_through_passthrough(node, parent_key_sets) else {
@@ -944,6 +1136,7 @@ fn try_rewrite_scored_branch(
             &child_key_sets,
             ctx,
             eager_fields,
+            decline_out,
         )?
         else {
             return Ok(None);
@@ -959,6 +1152,7 @@ fn try_rewrite_scored_branch(
         && let Some(scan) = node.downcast_ref::<PgSearchScanPlan>()
     {
         if !leaf_supports_key_sets(scan, parent_key_sets) {
+            record_decline(decline_out, RankJoinDeclineReason::UnsupportedJoinKeys);
             return Ok(None);
         }
         return Ok(try_rewrite_scored_leaf(
@@ -966,6 +1160,7 @@ fn try_rewrite_scored_branch(
             required_ordering,
             ctx.join_mode,
             ctx.field_sort_policy,
+            decline_out,
         ));
     }
 
@@ -973,6 +1168,10 @@ fn try_rewrite_scored_branch(
         return Ok(None);
     };
     if !is_hash_join_eligible(join) {
+        record_decline(
+            decline_out,
+            RankJoinDeclineReason::UnsupportedJoinType(*join.join_type()),
+        );
         return Ok(None);
     }
 
@@ -986,6 +1185,10 @@ fn try_rewrite_scored_branch(
         &left_schema,
         &right_schema,
     ) else {
+        record_decline(
+            decline_out,
+            RankJoinDeclineReason::UnsupportedScoreExpression,
+        );
         return Ok(None);
     };
 
@@ -995,7 +1198,13 @@ fn try_rewrite_scored_branch(
         JoinType::Inner => {}
         JoinType::LeftSemi if uses_left && !uses_right => {}
         JoinType::RightSemi if uses_right && !uses_left => {}
-        _ => return Ok(None),
+        other => {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::UnsupportedJoinType(other),
+            );
+            return Ok(None);
+        }
     }
     let has_disjunctive_scans = any_scan(node, PgSearchScanPlan::is_tagless_disjunctive);
 
@@ -1006,6 +1215,17 @@ fn try_rewrite_scored_branch(
     // (where a single-side match `(s_l > 0, 0)` would collapse to `0.0` or an unmatched
     // `(0, 0)` pair would evaluate to `> 0.0`).
     if has_disjunctive_scans && !decomposed.combiner.preserves_disjunctive_positivity() {
+        if !uses_left || !uses_right {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::DisjunctiveSingleSidedScoreSort,
+            );
+        } else {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::DisjunctiveCombinerNotPositive,
+            );
+        }
         return Ok(None);
     }
 
@@ -1022,6 +1242,7 @@ fn try_rewrite_scored_branch(
     let Some((left_key_sets, right_key_sets)) =
         route_join_key_sets(join, parent_key_sets, Some(&decomposed.combiner))?
     else {
+        record_decline(decline_out, RankJoinDeclineReason::UnsupportedJoinKeys);
         return Ok(None);
     };
 
@@ -1060,9 +1281,10 @@ fn try_rewrite_scored_branch(
             &left_key_sets,
             child_ctx,
             eager_fields,
+            decline_out,
         )?
     } else {
-        try_rewrite_unscored_branch(join.left(), &left_key_sets, ctx.join_mode)?
+        try_rewrite_unscored_branch(join.left(), &left_key_sets, ctx.join_mode, decline_out)?
     }) else {
         return Ok(None);
     };
@@ -1091,16 +1313,21 @@ fn try_rewrite_scored_branch(
             &right_key_sets,
             child_ctx,
             eager_fields,
+            decline_out,
         )?
     } else {
-        try_rewrite_unscored_branch(join.right(), &right_key_sets, ctx.join_mode)?
+        try_rewrite_unscored_branch(join.right(), &right_key_sets, ctx.join_mode, decline_out)?
     }) else {
         return Ok(None);
     };
 
-    let Some(combined_stats) =
-        SubtreeScoreStats::combine(&decomposed.combiner, left_stats, right_stats, ctx.min_rows)
-    else {
+    let Some(combined_stats) = SubtreeScoreStats::combine(
+        &decomposed.combiner,
+        left_stats,
+        right_stats,
+        ctx.min_rows,
+        decline_out,
+    ) else {
         return Ok(None);
     };
 
@@ -1335,13 +1562,18 @@ fn try_rewrite_unscored_branch(
     node: &Arc<dyn ExecutionPlan>,
     parent_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
     join_mode: PartitionMode,
+    decline_out: &mut Option<RankJoinDeclineReason>,
 ) -> Result<Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)>> {
     if parent_key_sets.is_empty() {
         return Ok(None);
     }
     if let Some(child_key_sets) = map_key_sets_through_passthrough(node, parent_key_sets) {
-        let Some((new_child, stats)) =
-            try_rewrite_unscored_branch(node.children()[0], &child_key_sets, join_mode)?
+        let Some((new_child, stats)) = try_rewrite_unscored_branch(
+            node.children()[0],
+            &child_key_sets,
+            join_mode,
+            decline_out,
+        )?
         else {
             return Ok(None);
         };
@@ -1350,21 +1582,26 @@ fn try_rewrite_unscored_branch(
     }
     if let Some(join) = node.downcast_ref::<HashJoinExec>() {
         if *join.join_type() != JoinType::Inner || !is_hash_join_eligible(join) {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::UnsupportedJoinType(*join.join_type()),
+            );
             return Ok(None);
         }
         let Some((left_key_sets, right_key_sets)) =
             route_join_key_sets(join, parent_key_sets, None)?
         else {
+            record_decline(decline_out, RankJoinDeclineReason::UnsupportedJoinKeys);
             return Ok(None);
         };
 
         let Some((new_left, left_stats)) =
-            try_rewrite_unscored_branch(join.left(), &left_key_sets, join_mode)?
+            try_rewrite_unscored_branch(join.left(), &left_key_sets, join_mode, decline_out)?
         else {
             return Ok(None);
         };
         let Some((new_right, right_stats)) =
-            try_rewrite_unscored_branch(join.right(), &right_key_sets, join_mode)?
+            try_rewrite_unscored_branch(join.right(), &right_key_sets, join_mode, decline_out)?
         else {
             return Ok(None);
         };
@@ -1407,6 +1644,7 @@ fn try_rewrite_unscored_branch(
         return Ok(None);
     };
     if !leaf_supports_key_sets(scan, parent_key_sets) {
+        record_decline(decline_out, RankJoinDeclineReason::UnsupportedJoinKeys);
         return Ok(None);
     }
     let (unscored_selectivity, tagged_selectivity) = match scan.scan_mode() {
@@ -1447,9 +1685,16 @@ fn try_rewrite_scored_leaf(
     required_ordering: &LexOrdering,
     join_mode: PartitionMode,
     field_sort_policy: FieldSortPolicy,
+    decline_out: &mut Option<RankJoinDeclineReason>,
 ) -> Option<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)> {
     let required_sort = &required_ordering[0];
-    let order_by = resolve_scan_order_by(scan, required_sort, field_sort_policy)?;
+    let Some(order_by) = resolve_scan_order_by(scan, required_sort, field_sort_policy) else {
+        record_decline(
+            decline_out,
+            RankJoinDeclineReason::UnsupportedScoreExpression,
+        );
+        return None;
+    };
     let stats = match scan.scan_mode() {
         ScanMode::Standard { .. } => SubtreeScoreStats::from_leaf_queries(
             order_by.is_score(),
@@ -1478,8 +1723,23 @@ fn try_rewrite_scored_leaf(
             disjunct_queries,
             scan.planner_estimated_rows(),
         ),
-        ScanMode::Tagged { .. } => None,
-    }?;
+        ScanMode::Tagged { .. } => {
+            record_decline(
+                decline_out,
+                RankJoinDeclineReason::DisjunctiveSingleSidedScoreSort,
+            );
+            return None;
+        }
+    };
+    let Some(stats) = stats else {
+        record_decline(
+            decline_out,
+            RankJoinDeclineReason::ConstantScoreLeaf {
+                table: scan.table_alias().to_string(),
+            },
+        );
+        return None;
+    };
     let (orderby_info, leaf_ordering) = if let Some(all_order_bys) =
         resolve_leaf_order_bys(scan, order_by.clone(), required_ordering)
     {

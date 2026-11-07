@@ -708,6 +708,23 @@ impl pdb::Query {
         }
     }
 
+    /// [`SearchQueryInput::is_pushdown_filter`] for one field's query: a term counts only on a
+    /// field `term_is_filter` accepts, a score adjustment never does, and the remaining forms
+    /// count when their score is constant (ranges, exists, term sets).
+    ///
+    /// [`SearchQueryInput::is_pushdown_filter`]: crate::query::SearchQueryInput::is_pushdown_filter
+    pub(crate) fn is_pushdown_filter(
+        &self,
+        field: &FieldName,
+        term_is_filter: &dyn Fn(&FieldName) -> bool,
+    ) -> bool {
+        match self {
+            pdb::Query::Term { .. } => term_is_filter(field),
+            pdb::Query::ScoreAdjusted { .. } => false,
+            _ => self.is_constant_score(),
+        }
+    }
+
     pub(crate) fn is_constant_score(&self) -> bool {
         match self {
             pdb::Query::All

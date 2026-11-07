@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- Added adaptive stopping for vector cluster probing. `paradedb.vector_cluster_max_probe` continues to control the router request and probe-work ceiling; `paradedb.vector_adaptive_probing` allows the scan to stop sooner when competitive-candidate admission decays.

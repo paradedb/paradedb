@@ -25,10 +25,10 @@ use pgrx::datum::ToIsoString;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::datum::{Datum, FromDatum, IntoDatum, UnboxDatum};
 use pgrx::nullable::Nullable;
+use pgrx::pg_sys;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
-use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;

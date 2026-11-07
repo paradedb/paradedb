@@ -976,6 +976,7 @@ impl SearchIndexReader {
             field,
             query.to_vec(),
             ProbeParams {
+                adaptive_probing: gucs::vector_adaptive_probing(),
                 max_probe_fraction: gucs::vector_cluster_max_probe(),
                 fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
                 router_rerank_factor: gucs::vector_router_rerank_factor(),
@@ -2520,6 +2521,7 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
+                        adaptive_probing: gucs::vector_adaptive_probing(),
                         max_probe_fraction: gucs::vector_cluster_max_probe(),
                         fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
                         router_rerank_factor: gucs::vector_router_rerank_factor(),

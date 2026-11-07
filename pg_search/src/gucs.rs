@@ -393,7 +393,23 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
+    VECTOR_ADAPTIVE_PROBING
+        .get()
+        .then_some(tantivy::vector::AdaptiveProbeParams::default())
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_adaptive_probing",
+        c"Stop vector probing early using admission-rate decay",
+        c"Uses the same routing and work budgets as fixed probing. May stop probing early after competitive-candidate admission decays.",
+        &VECTOR_ADAPTIVE_PROBING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
@@ -693,8 +709,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"IVF probe-work budget, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -745,7 +761,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
         c"Registered for compatibility; nothing reads it",
-        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
         &VECTOR_ROUTER_RECALL_TARGET,
         0.000001,
         1.0,
@@ -756,7 +772,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
         c"Registered for compatibility; nothing reads it",
-        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
@@ -1410,6 +1426,23 @@ mod tests {
                 diff
             );
         }};
+    }
+
+    #[pg_test]
+    fn test_adaptive_vector_probe_settings() {
+        Spi::run(
+            "RESET paradedb.vector_cluster_max_probe; SET paradedb.vector_adaptive_probing = on;",
+        )
+        .unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
+        assert!(vector_adaptive_probing().is_some());
+        Spi::run("SET paradedb.vector_cluster_max_probe = 0.005;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
+        assert!(vector_adaptive_probing().is_none());
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
     }
 
     #[pg_test]

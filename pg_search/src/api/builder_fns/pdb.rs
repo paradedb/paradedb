@@ -410,7 +410,9 @@ mod pdb {
     term_fn!(term_f64, f64);
     term_fn!(term_bool, bool);
     term_fn!(date, pgrx::datum::Date);
-    term_fn!(time, pgrx::datum::Time);
+    // ExactTime keeps TIME '24:00:00'; pgrx Time::FromDatum modular-wraps it to midnight.
+    // Fully-qualified path: #[builder_fn] emits a nested module that does not import ExactTime.
+    term_fn!(time, crate::postgres::datetime::ExactTime);
     term_fn!(timestamp, pgrx::datum::Timestamp);
     term_fn!(time_with_time_zone, pgrx::datum::TimeWithTimeZone);
     term_fn!(timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone);
@@ -446,7 +448,7 @@ mod pdb {
     term_set_fn!(term_set_f64, f64);
     term_set_fn!(term_set_bool, bool);
     term_set_fn!(term_set_date, pgrx::datum::Date);
-    term_set_fn!(term_set_time, pgrx::datum::Time);
+    term_set_fn!(term_set_time, crate::postgres::datetime::ExactTime);
     term_set_fn!(term_set_timestamp, pgrx::datum::Timestamp);
     term_set_fn!(term_set_time_with_time_zone, pgrx::datum::TimeWithTimeZone);
     term_set_fn!(

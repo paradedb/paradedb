@@ -1,0 +1,182 @@
+\i common/common_setup.sql
+
+-- A constant output column next to pdb.agg() must not make AggregateScan fail.
+-- https://github.com/paradedb/paradedb/issues/7028
+
+SET paradedb.enable_aggregate_custom_scan = on;
+SET paradedb.global_mutable_segment_rows = 0;
+
+DROP TABLE IF EXISTS issue_7028_logs CASCADE;
+CREATE TABLE issue_7028_logs (id int PRIMARY KEY, description text, score int);
+INSERT INTO issue_7028_logs VALUES
+  (1, 'error in application', 10),
+  (2, 'error in database', 20),
+  (3, 'warning message', 30),
+  (4, 'error in network', 40);
+CREATE TABLE issue_7028_outer (id int PRIMARY KEY);
+INSERT INTO issue_7028_outer VALUES (1), (2);
+CREATE INDEX issue_7028_logs_idx ON issue_7028_logs USING paradedb (id, description, score);
+ANALYZE issue_7028_logs;
+
+-- Control: pdb.agg() alone.
+EXPLAIN (COSTS OFF)
+SELECT pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+SELECT pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A constant before pdb.agg().
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'constant', pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+SELECT 'constant', pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A constant after pdb.agg(), and constants of other types including NULL.
+SELECT pdb.agg('{"value_count":{"field":"score"}}'), 42, NULL::text, true
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A constant next to a wrapped pdb.agg() goes through the wrapped projection.
+SELECT 'constant', jsonb_pretty(pdb.agg('{"value_count":{"field":"score"}}'))
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- Constants next to a grouping column and plain aggregates.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'bucket', score, COUNT(*), 7
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY score ORDER BY score;
+
+SELECT 'bucket', score, COUNT(*), 7
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY score ORDER BY score;
+
+-- No matching rows: the constant is still returned with the aggregate.
+SELECT 'constant', COUNT(*), pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'nomatch';
+
+-- Skew the per-score counts: 10 -> 3 rows, 20 -> 2 rows, 40 -> 1 row.
+INSERT INTO issue_7028_logs VALUES
+  (5, 'error in cache', 10),
+  (6, 'error in queue', 10),
+  (7, 'error in disk', 20);
+
+-- GROUP BY a constant by position.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'x' AS c, score, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY 1, 2 ORDER BY 2;
+
+SELECT 'x' AS c, score, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY 1, 2 ORDER BY 2;
+
+-- ORDER BY a constant first, with a LIMIT.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'x', score, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY score ORDER BY 1, score LIMIT 2;
+
+SELECT 'x', score, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY score ORDER BY 1, score LIMIT 2;
+
+-- A by-reference (jsonb) constant read by a Sort above the scan.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT * FROM (
+  SELECT '{"k":[1]}'::jsonb j, score, COUNT(*) n
+  FROM issue_7028_logs WHERE description @@@ 'error'
+  GROUP BY score
+) s ORDER BY n DESC, score;
+
+SELECT * FROM (
+  SELECT '{"k":[1]}'::jsonb j, score, COUNT(*) n
+  FROM issue_7028_logs WHERE description @@@ 'error'
+  GROUP BY score
+) s ORDER BY n DESC, score;
+
+-- HAVING still declines the scan; PostgreSQL computes the result.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'x', score, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY score HAVING COUNT(*) > 1 ORDER BY score;
+
+SELECT 'x', score, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error'
+GROUP BY score HAVING COUNT(*) > 1 ORDER BY score;
+
+-- Parameters and other row-independent expressions are evaluated at execution time, so they
+-- keep working in prepared statements, including once PostgreSQL switches to a generic plan.
+SET plan_cache_mode = force_generic_plan;
+PREPARE issue_7028_param(text, int) AS
+SELECT $1, $2 + 1, pdb.agg('{"value_count":{"field":"score"}}')
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+EXPLAIN (COSTS OFF, VERBOSE) EXECUTE issue_7028_param('first', 1);
+EXECUTE issue_7028_param('first', 1);
+EXECUTE issue_7028_param('second', 41);
+EXECUTE issue_7028_param(NULL, NULL);
+DEALLOCATE issue_7028_param;
+
+-- Default plan_cache_mode: the first five runs use custom plans, the sixth may use a generic one.
+RESET plan_cache_mode;
+PREPARE issue_7028_param(text) AS
+SELECT $1, pdb.agg('{"value_count":{"field":"score"}}') FROM issue_7028_logs WHERE description @@@ 'error';
+EXECUTE issue_7028_param('a');
+EXECUTE issue_7028_param('b');
+EXECUTE issue_7028_param('c');
+EXECUTE issue_7028_param('d');
+EXECUTE issue_7028_param('e');
+EXECUTE issue_7028_param('f');
+EXECUTE issue_7028_param('g');
+DEALLOCATE issue_7028_param;
+
+-- A stable non-Const expression is compiled once and evaluated per output row.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+SELECT length(now()::text) > 0, current_setting('server_version_num')::int > 0, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A volatile expression must be evaluated per row by PostgreSQL, not by the scan.
+EXPLAIN (COSTS OFF)
+SELECT random() < 2, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+-- A column-dependent expression that is not a grouping column does not take the path.
+EXPLAIN (COSTS OFF)
+SELECT score + 1, COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
+
+-- A constant next to a GROUP BY key that is not selected (the key is a resjunk target entry).
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY 2, score;
+SELECT 'x', pdb.agg('{"value_count":{"field":"score"}}') FROM issue_7028_logs
+WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'nomatch' GROUP BY score;
+SELECT 1 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT 'x', COUNT(*) FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SELECT 1 FROM issue_7028_logs WHERE description @@@ 'error' GROUP BY score ORDER BY score;
+SET paradedb.enable_aggregate_custom_scan = on;
+
+-- A correlated LATERAL reference arrives as a Param.
+SELECT o.id, l.oid, l.n FROM issue_7028_outer o CROSS JOIN LATERAL (
+  SELECT o.id AS oid, COUNT(*) n FROM issue_7028_logs WHERE description @@@ 'error'
+) l ORDER BY o.id;
+
+-- An uncorrelated scalar subquery is an InitPlan Param.
+SELECT (SELECT max(id) FROM issue_7028_outer), COUNT(*)
+FROM issue_7028_logs WHERE description @@@ 'error';
+
+DROP TABLE issue_7028_logs;
+DROP TABLE issue_7028_outer;
+
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.global_mutable_segment_rows;
+
+\i common/common_cleanup.sql

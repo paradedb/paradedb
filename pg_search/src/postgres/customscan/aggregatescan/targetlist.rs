@@ -37,6 +37,9 @@ pub enum TargetListEntry {
     // so we store the index of the grouping column in the GROUP BY list
     GroupingColumn(usize),
     Aggregate(AggregateType),
+    // a row-independent output column, such as `'label'` or a prepared-statement parameter in
+    // `SELECT 'label', pdb.agg(...)`; its value is computed by the output projection
+    Constant,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -59,14 +62,14 @@ impl TargetList {
     pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
         self.entries.iter().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-            TargetListEntry::GroupingColumn(_) => None,
+            TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => None,
         })
     }
 
     pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
         self.entries.iter_mut().filter_map(|entry| match entry {
             TargetListEntry::Aggregate(aggregate) => Some(aggregate),
-            TargetListEntry::GroupingColumn(_) => None,
+            TargetListEntry::GroupingColumn(_) | TargetListEntry::Constant => None,
         })
     }
 
@@ -190,6 +193,10 @@ impl CustomScanClause<AggregateScan> for TargetList {
                 }
 
                 entries.push(TargetListEntry::Aggregate(aggregate));
+            } else if unsafe { is_row_independent(expr) } {
+                // Does not depend on the aggregation, so every output row carries the same
+                // value. It is evaluated at execution time (a Param may be bound late).
+                entries.push(TargetListEntry::Constant);
             } else {
                 return Err("Expression is neither a grouping column nor a single Aggref".into());
             }
@@ -201,4 +208,17 @@ impl CustomScanClause<AggregateScan> for TargetList {
             uses_our_operator,
         })
     }
+}
+
+/// True if `expr` does not depend on the row or the aggregation: no column references, aggregates, window
+/// functions, set-returning functions or SubPlans, and not volatile. Uncorrelated scalar subqueries
+/// reach us as InitPlan Params and are accepted.
+unsafe fn is_row_independent(expr: *mut pg_sys::Expr) -> bool {
+    let node = expr.cast::<pg_sys::Node>();
+    !pg_sys::contain_var_clause(node)
+        && !pg_sys::contain_agg_clause(node)
+        && !pg_sys::contain_window_function(node)
+        && !pg_sys::contain_volatile_functions(node)
+        && !pg_sys::contain_subplans(node)
+        && !pg_sys::expression_returns_set(node)
 }

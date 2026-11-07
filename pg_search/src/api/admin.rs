@@ -581,7 +581,7 @@ fn vector_clusters(
     Ok(TableIterator::new(rows))
 }
 
-fn vector_export_indexes(index: IndexOid) -> anyhow::Result<IndexKind> {
+fn vector_export_indexes(index: IndexOid) -> anyhow::Result<IndexAccess> {
     let index = index.read();
     // SAFETY: the relation is open and locked above.
     let is_owner =
@@ -593,7 +593,7 @@ fn vector_export_indexes(index: IndexOid) -> anyhow::Result<IndexKind> {
             "must be owner of index to export vector clusters"
         );
     }
-    IndexKind::for_index(index.clone())
+    Ok(index)
 }
 
 /// Stored IVF centroids, keyed by partition index, segment, and cluster.
@@ -615,7 +615,8 @@ fn vector_cluster_centroids(
     >,
 > {
     let mut rows = Vec::new();
-    for index in vector_export_indexes(index)?.partitions() {
+    let index = vector_export_indexes(index)?;
+    for index in IndexKind::for_index(index.clone())?.partitions() {
         if !index.is_usable() {
             continue;
         }
@@ -662,7 +663,8 @@ fn vector_cluster_members(
     >,
 > {
     let mut rows = Vec::new();
-    for index in vector_export_indexes(index)?.partitions() {
+    let index = vector_export_indexes(index)?;
+    for index in IndexKind::for_index(index.clone())?.partitions() {
         if !index.is_usable() {
             continue;
         }

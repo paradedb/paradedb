@@ -2226,12 +2226,8 @@ pub fn assign_tagged_queries<'a>(
     for source in sources {
         let alias =
             RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-        // Deduplicate by `p.query` per source: `translate_join_level_expr` and
-        // `FilterExpr::SearchTag` resolve tag columns by query equality
-        // (`tq.query.as_ref() == &predicate.query`), so a duplicate `TaggedQuery`
-        // on the same source would never be referenced by the filter expression,
-        // would score twice in `BatchScanner`, and would prevent `RankJoinRule`
-        // from eliding all `local_queries` when DataFusion simplifies `tag_0 OR tag_0`.
+        // Deduplicate by `p.query` per source: tag columns resolve by query equality,
+        // so a duplicate is never referenced and scores twice.
         let mut unique_queries: Vec<(usize, &SearchQueryInput)> = Vec::new();
         for (global_idx, (plan_pos, p)) in predicates.iter().enumerate() {
             if *plan_pos == source.plan_position

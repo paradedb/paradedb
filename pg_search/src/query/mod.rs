@@ -545,8 +545,7 @@ impl SearchQueryInput {
     /// document and do not increase within-leaf score variation. Across `Boolean.should` (`OR`)
     /// branches, a matching document only needs to satisfy one disjunct (consistent with multi-term
     /// `ParseWithField` / `Match` queries, which return `1.0`), so `should` takes the maximum
-    /// branch scale; across `Boolean.must` (`AND`) branches, independent clause variations combine
-    /// in quadrature (`L2` norm).
+    /// branch scale; across `Boolean.must` (`AND`) branches, clause scores are summed.
     pub(crate) fn estimate_max_score(&self) -> f64 {
         match self {
             SearchQueryInput::Uninitialized | SearchQueryInput::Empty | SearchQueryInput::Null => {
@@ -566,17 +565,17 @@ impl SearchQueryInput {
                 query.as_deref().map_or(1.0, Self::estimate_max_score)
             }
             SearchQueryInput::Boolean { must, should, .. } => {
-                let must_sq_sum: f64 = must
+                let must_sum: f64 = must
                     .iter()
                     .filter(|q| !q.is_constant_score())
-                    .map(|q| q.estimate_max_score().powi(2))
+                    .map(Self::estimate_max_score)
                     .sum();
                 let should_max: f64 = should
                     .iter()
                     .filter(|q| !q.is_constant_score())
                     .map(Self::estimate_max_score)
                     .fold(0.0_f64, f64::max);
-                must_sq_sum.sqrt().hypot(should_max).max(1.0)
+                (must_sum + should_max).max(1.0)
             }
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
                 .iter()

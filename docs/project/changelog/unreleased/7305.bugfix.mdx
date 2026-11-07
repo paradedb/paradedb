@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed a backend crash when a `JoinScan` `SELECT` list combines `pdb.score()` with a scalar subquery (`InitPlan`) or prepared query parameter (`$1`), and added `EXPLAIN` `WARNING` diagnostics when `RankJoinExec` falls back to `HashJoinExec`.

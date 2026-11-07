@@ -2130,25 +2130,7 @@ unsafe fn add_vars_and_scores_to_tlist(
         }
 
         if let Some(var_ptr) = nodecast!(Var, T_Var, node) {
-            let varno = (*var_ptr).varno as pg_sys::Index;
-            let varattno = (*var_ptr).varattno;
-            if varno != 0 && varattno > 0 {
-                let already_present = tlist.iter_ptr().any(|te| {
-                    let te = &*te;
-                    if (*te.expr).type_ == pg_sys::NodeTag::T_Var {
-                        let existing = &*(te.expr as *mut pg_sys::Var);
-                        existing.varno as pg_sys::Index == varno && existing.varattno == varattno
-                    } else {
-                        false
-                    }
-                });
-                if !already_present {
-                    let resno = tlist.len() as pg_sys::AttrNumber + 1;
-                    let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Expr>();
-                    let te = pg_sys::makeTargetEntry(new_var, resno, std::ptr::null_mut(), true);
-                    tlist.push(te);
-                }
-            }
+            crate::postgres::utils::push_var_to_tlist_if_absent(var_ptr, tlist);
             return crate::postgres::node::WalkControl::SkipChildren;
         }
 
@@ -2351,22 +2333,18 @@ unsafe fn build_output_projection(
         }
     }
 
-    // `add_vars_and_scores_to_tlist` may have appended extra `Var` and `pdb.score()` entries
-    // after `scan_target_entries` to feed `pg_projected_resnos`. Appended `Var`s are populated
-    // via CTID heap fetch, whereas appended `Score` entries must be included in DataFusion's
-    // `output_projection` so `exec_custom_scan` can read the score column from the batch.
-    let has_appended_scores = private_data
+    // `add_vars_to_tlist` / `add_vars_and_scores_to_tlist` may have appended extra `Var` and
+    // `pdb.score()` entries after `scan_target_entries` for `custom_exprs` or `pg_projected_resnos`.
+    // Only extend `output_projection` through the last appended `Score` (so its `col_{idx + 1}`
+    // alias lines up with `output_columns[idx]`): projecting trailing `Var`s would add extra
+    // `NULL AS col_N` columns to DataFusion's `ProjectionExec` and `DISTINCT` `GROUP BY` keys.
+    let num_projected_columns = private_data
         .output_columns
-        .get(scan_target_entries.len()..)
-        .is_some_and(|cols| {
-            cols.iter()
-                .any(|c| matches!(c, privdat::OutputColumnInfo::Score { .. }))
+        .iter()
+        .rposition(|c| matches!(c, privdat::OutputColumnInfo::Score { .. }))
+        .map_or(scan_target_entries.len(), |last_score_idx| {
+            (last_score_idx + 1).max(scan_target_entries.len())
         });
-    let num_projected_columns = if has_appended_scores {
-        private_data.output_columns.len()
-    } else {
-        scan_target_entries.len()
-    };
 
     private_data.join_clause.output_projection = Some(
         private_data

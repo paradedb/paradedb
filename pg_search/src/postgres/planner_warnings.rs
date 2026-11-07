@@ -185,6 +185,11 @@ pub fn mark_contexts_successful<C: ToWarningContexts>(contexts: C) {
 }
 
 pub fn clear_planner_warnings() {
+    // Increment the planning cycle counter so multiple queries planned within a single
+    // top-level statement (e.g. SPI queries inside a SQL or PL/pgSQL function, which all
+    // share `GetCurrentStatementStartTimestamp()`) each get their own deduplication key,
+    // while multiple physical-plan builds for the same planned query (e.g. `exec_custom_scan`
+    // followed by `explain_custom_scan` during `EXPLAIN ANALYZE`) share one key.
     PLANNING_CYCLE_ID.with(|id| id.set(id.get().wrapping_add(1)));
     PLANNER_STATE.with(|state| {
         let mut state = state.borrow_mut();
@@ -193,28 +198,35 @@ pub fn clear_planner_warnings() {
     });
 }
 
-thread_local! {
-    /// Tracks whether the current execution is within an `EXPLAIN` without `ANALYZE`.
-    ///
-    /// When `paradedb.planner_warnings` is set to `error`, queries that cannot use
-    /// accelerated ParadeDB custom scans fail with an `ERROR`. However, running plain `EXPLAIN`
-    /// on those queries should still succeed so users can inspect the fallback execution plan
-    /// and diagnose optimization issues. When `IN_EXPLAIN` is `true`, `emit_planner_warnings()`
-    /// downgrades errors to `WARNING`s.
-    static IN_EXPLAIN: Cell<bool> = const { Cell::new(false) };
+/// Tracks whether the current thread is executing inside an `EXPLAIN` command, and whether
+/// `ANALYZE` is enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExplainMode {
+    /// Not inside an `EXPLAIN` command.
+    None,
+    /// Inside `EXPLAIN` without `ANALYZE`. `emit_planner_warnings()` downgrades
+    /// `paradedb.planner_warnings = 'error'` to `WARNING`s so users can inspect fallback plans.
+    PlanOnly,
+    /// Inside `EXPLAIN ANALYZE`, which executes the query and therefore enforces
+    /// `paradedb.planner_warnings = 'error'` on scan fallbacks, while still enabling
+    /// `EXPLAIN`-only `WARNING` diagnostics such as `warn_rank_join_not_used`.
+    Analyze,
 }
 
-/// An RAII guard that sets `IN_EXPLAIN` to `is_explain`, and restores
+thread_local! {
+    static EXPLAIN_MODE: Cell<ExplainMode> = const { Cell::new(ExplainMode::None) };
+}
+
+/// An RAII guard that sets `EXPLAIN_MODE` to `mode`, and restores
 /// the previous state when dropped (supporting nested utility statements and clean unwinds).
 pub struct ExplainGuard {
-    prev: bool,
+    prev: ExplainMode,
 }
 
 impl ExplainGuard {
-    /// Creates a new `ExplainGuard`. If `is_explain` is `true`, marks the thread-local
-    /// state as being inside an `EXPLAIN` query.
-    pub fn new(is_explain: bool) -> Self {
-        let prev = IN_EXPLAIN.with(|cell| cell.replace(is_explain));
+    /// Creates a new `ExplainGuard` that sets the thread-local `ExplainMode`.
+    pub fn new(mode: ExplainMode) -> Self {
+        let prev = EXPLAIN_MODE.with(|cell| cell.replace(mode));
         Self { prev }
     }
 }
@@ -223,13 +235,18 @@ impl ExplainGuard {
 // local, and the flag has to be reset when EXPLAIN raises too.
 impl Drop for ExplainGuard {
     fn drop(&mut self) {
-        IN_EXPLAIN.with(|cell| cell.set(self.prev));
+        EXPLAIN_MODE.with(|cell| cell.set(self.prev));
     }
 }
 
 /// Returns whether the current thread is planning an `EXPLAIN` without `ANALYZE`.
 pub fn is_in_explain() -> bool {
-    IN_EXPLAIN.with(|cell| cell.get())
+    EXPLAIN_MODE.with(|cell| cell.get() == ExplainMode::PlanOnly)
+}
+
+/// Returns whether the current thread is inside any `EXPLAIN` (with or without `ANALYZE`).
+pub fn is_in_any_explain() -> bool {
+    EXPLAIN_MODE.with(|cell| cell.get() != ExplainMode::None)
 }
 
 // EXPLAIN EXECUTE bypasses ExplainOneQuery_hook. Cover utility statements too,
@@ -269,8 +286,13 @@ unsafe extern "C-unwind" fn explain_process_utility_hook(
                 analyze = pg_sys::defGetBoolean(option);
             }
         }
+        let mode = if analyze {
+            ExplainMode::Analyze
+        } else {
+            ExplainMode::PlanOnly
+        };
         Some(ExplainUtilityGuard {
-            _explain: ExplainGuard::new(!analyze),
+            _explain: ExplainGuard::new(mode),
             invalidate: !analyze && crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Error,
         })
     } else {
@@ -298,7 +320,12 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
     query_env: *mut pg_sys::QueryEnvironment,
 ) {
     // ANALYZE executes the query, so it must enforce the same policy as SELECT.
-    let _explain_guard = ExplainGuard::new(!(*es).analyze);
+    let mode = if (*es).analyze {
+        ExplainMode::Analyze
+    } else {
+        ExplainMode::PlanOnly
+    };
+    let _explain_guard = ExplainGuard::new(mode);
 
     if let Some(prev_hook) = PREV_EXPLAIN_ONE_QUERY_HOOK {
         prev_hook(query, cursor_options, into, es, query_string, params, query_env);
@@ -524,15 +551,15 @@ pub fn warn_stale_visibility_map(table_name: &str) {
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
 }
 
-/// Warn (once per query planning/execution cycle, on the leader only) when `RankJoinRule`
-/// declines to rewrite a score-ordered top-K join into `RankJoinExec`.
+/// Emits a `WARNING` during `EXPLAIN` (once per query planning/execution cycle, on the leader
+/// only) when `RankJoinRule` declines to rewrite a score-ordered top-K join into `RankJoinExec`.
 ///
-/// Unlike scan-level planner warnings (`add_planner_warning`), this intentionally emits a
-/// standard `pgrx::warning!` even when `paradedb.planner_warnings = 'error'`: the query is
-/// still executed by a ParadeDB custom scan (`ParadeDB Join Scan`), and while `RankJoinExec`
-/// is highly beneficial for top-K join performance, it is not required for correct operation.
+/// Because the query still executes inside a `ParadeDB Join Scan` (`HashJoinExec`), this
+/// diagnostic only surfaces during `EXPLAIN` (and `EXPLAIN ANALYZE`) when
+/// `paradedb.planner_warnings` is not `'off'`, and does not raise an error in `'error'` mode.
 pub fn warn_rank_join_not_used(reason: &str) {
-    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+    if !is_in_any_explain() || crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off
+    {
         return;
     }
     if unsafe { pg_sys::ParallelWorkerNumber } != -1 {

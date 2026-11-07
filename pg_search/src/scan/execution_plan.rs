@@ -88,6 +88,7 @@ use crate::scan::pre_filter::{
     InListLinearFallback, PreFilter, collect_filters, try_dynamic_filter_pushdown,
 };
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
+use crate::scan::rank_join_rule::RankJoinDeclineReason;
 
 /// Ingredients needed to construct a Scanner for deferred search.
 #[derive(Clone)]
@@ -789,34 +790,25 @@ impl PgSearchScanPlan {
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
         matched_tags: &mut std::collections::BTreeSet<String>,
-    ) -> std::result::Result<
-        (Self, Vec<Option<usize>>),
-        crate::scan::rank_join_rule::RankJoinDeclineReason,
-    > {
+    ) -> std::result::Result<(Self, Vec<Option<usize>>), RankJoinDeclineReason> {
         let crate::scan::ScanMode::Tagged {
             base_query,
             local_queries,
         } = &self.scan_mode
         else {
-            return Err(
-                crate::scan::rank_join_rule::RankJoinDeclineReason::DisjunctiveFilterNotPureOr,
-            );
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
         };
         if local_queries.is_empty()
             || !local_queries
                 .iter()
                 .all(|tq| elided_tags.contains(&tq.tag_name))
         {
-            return Err(
-                crate::scan::rank_join_rule::RankJoinDeclineReason::DisjunctiveFilterNotPureOr,
-            );
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
         }
         if base_query.has_heap_filters() {
-            return Err(
-                crate::scan::rank_join_rule::RankJoinDeclineReason::DisjunctiveLeafHasHeapFilter {
-                    table: self.table_alias.clone(),
-                },
-            );
+            return Err(RankJoinDeclineReason::DisjunctiveLeafHasHeapFilter {
+                table: self.table_alias.clone(),
+            });
         }
         {
             let state = self
@@ -838,7 +830,7 @@ impl PgSearchScanPlan {
             };
             if !is_pushdown {
                 return Err(
-                    crate::scan::rank_join_rule::RankJoinDeclineReason::DisjunctiveLeafBaseNotPushdownFilter {
+                    RankJoinDeclineReason::DisjunctiveLeafBaseNotPushdownFilter {
                         table: self.table_alias.clone(),
                     },
                 );

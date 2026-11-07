@@ -1849,23 +1849,7 @@ impl RelNode {
     /// the tree and must be visited separately (see `JoinCSClause::visit_queries_mut`).
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
-            RelNode::Scan(source) => match &mut source.scan_info.mode {
-                crate::scan::ScanMode::Standard { query } => f(query),
-                crate::scan::ScanMode::Tagged {
-                    base_query,
-                    local_queries,
-                } => {
-                    f(base_query);
-                    for tq in local_queries {
-                        f(&mut tq.query);
-                    }
-                }
-                crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
-                    for q in disjunct_queries {
-                        f(q);
-                    }
-                }
-            },
+            RelNode::Scan(source) => source.scan_info.mode.queries_mut().for_each(f),
             RelNode::Join(j) => {
                 j.left.visit_queries_mut(f);
                 j.right.visit_queries_mut(f);
@@ -1886,23 +1870,7 @@ impl RelNode {
     /// just to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         match self {
-            RelNode::Scan(source) => match &source.scan_info.mode {
-                crate::scan::ScanMode::Standard { query } => f(query),
-                crate::scan::ScanMode::Tagged {
-                    base_query,
-                    local_queries,
-                } => {
-                    f(base_query);
-                    for tq in local_queries {
-                        f(&tq.query);
-                    }
-                }
-                crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
-                    for q in disjunct_queries {
-                        f(q);
-                    }
-                }
-            },
+            RelNode::Scan(source) => source.scan_info.mode.queries().for_each(f),
             RelNode::Join(j) => {
                 j.left.visit_queries(f);
                 j.right.visit_queries(f);

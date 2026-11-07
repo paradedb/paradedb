@@ -285,16 +285,30 @@ pub(crate) enum RaBaseFilter {
     /// Base query is `AllQuery` and the segment is unconstrained by partition bounds
     /// (every live document matches with base score `0.0`).
     MatchAll,
-    /// Segment requires evaluating `weight` (either a non-`All` base query, a `partially_included`
-    /// segment's `partition_bounds` range filter, or their conjunction).
-    /// `contributes_score` is `true` only when the underlying base query itself contributes a
-    /// BM25 score (`!unconstrained_is_match_all && need_scores`); it is `false` when `weight`
-    /// only enforces `partition_bounds` on an `AllQuery` base scan so the range filter's
-    /// non-scoring `ConstScorer` (`1.0`) is never added to the document score.
-    Filtered {
-        weight: Arc<LazyWeight>,
-        contributes_score: bool,
-    },
+    /// Segment requires evaluating the weight as a `0.0`-score filter (a `partially_included`
+    /// segment's `partition_bounds` on an `AllQuery` base, a disjunctive scan's base query, an
+    /// unscored base query, or their conjunction), so its non-scoring `ConstScorer` is never
+    /// added to the document score.
+    Filter(Arc<LazyWeight>),
+    /// Segment requires evaluating the weight, and the base query itself contributes its BM25
+    /// score (`!unconstrained_is_match_all && need_scores`).
+    Scored(Arc<LazyWeight>),
+}
+
+impl RaBaseFilter {
+    fn filter(&self) -> Option<&Arc<LazyWeight>> {
+        match self {
+            Self::Filter(weight) => Some(weight),
+            Self::MatchAll | Self::Scored(_) => None,
+        }
+    }
+
+    fn scored(&self) -> Option<&Arc<LazyWeight>> {
+        match self {
+            Self::Scored(weight) => Some(weight),
+            Self::MatchAll | Self::Filter(_) => None,
+        }
+    }
 }
 
 /// Reusable base query weights for Random Access (`RA`) point lookups in `lazy_sort` mode.
@@ -346,12 +360,76 @@ impl<'a> DisjunctScorer<'a> {
     }
 }
 
-/// Evaluates an [`RaBaseFilter::MatchAll`] segment when `score_threshold` does not prune the
-/// `0.0` base score, iterating `lookup_weight` directly and adding any [`DisjunctScorer`] score.
+/// Lazily initialized per-segment base filter for `RA` lookups.
+struct SegmentBaseFilter<'a> {
+    segment_reader: &'a SegmentReader,
+    weight: Option<&'a Arc<LazyWeight>>,
+    candidate_size: u32,
+    state: Option<(Box<dyn Scorer>, DocId)>,
+}
+
+impl<'a> SegmentBaseFilter<'a> {
+    fn new(
+        segment_reader: &'a SegmentReader,
+        weight: Option<&'a Arc<LazyWeight>>,
+        candidate_size: u32,
+    ) -> Self {
+        Self {
+            segment_reader,
+            weight,
+            candidate_size,
+            state: None,
+        }
+    }
+
+    fn matches(&mut self, target_doc: DocId) -> bool {
+        let Some(weight) = self.weight else {
+            return true;
+        };
+        // Non-`TermSetQuery` weights (such as `RangeQuery` or `BooleanQuery` from
+        // `and_query`) fall back to `Weight::scorer`, which positions the scorer at its first
+        // matching document (`scorer.doc()`) and records `last_seek_pos_opt` on any child
+        // `RangeDocSet`. Tracking `min_doc` avoids calling `seek_danger` with a `target_doc`
+        // below the scorer's current lower bound (which would underflow `new_seek -
+        // last_seek_pos` in `RangeDocSet::is_last_seek_distance_large`).
+        let (scorer, min_doc) = self.state.get_or_insert_with(|| {
+            let scorer = weight
+                .get()
+                .scorer_for_candidates_unpositioned(
+                    self.segment_reader,
+                    1.0,
+                    self.candidate_size.max(1),
+                )
+                .expect("base filter scorer should be constructable");
+            let first_doc = scorer.doc();
+            (scorer, first_doc)
+        });
+        if target_doc < *min_doc {
+            return false;
+        }
+        match scorer.seek_danger(target_doc) {
+            tantivy::SeekDangerResult::Found => {
+                *min_doc = target_doc.saturating_add(1);
+                true
+            }
+            tantivy::SeekDangerResult::SeekLowerBound(next_bound) => {
+                *min_doc = next_bound;
+                false
+            }
+        }
+    }
+}
+
+/// Evaluates an unscored-base segment (`RaBaseFilter::MatchAll` or `RaBaseFilter::Filter`) when
+/// `score_threshold` does not prune the `0.0` base score, iterating `lookup_weight` directly,
+/// probing any `base_filter_weight` lazily via `seek_danger`, and adding any [`DisjunctScorer`]
+/// score.
+#[allow(clippy::too_many_arguments)]
 fn collect_lookup_only_segment(
     segment_ord: SegmentOrdinal,
     segment_reader: &SegmentReader,
     lookup_weight: &dyn Weight,
+    base_filter_weight: Option<&Arc<LazyWeight>>,
     disjunct_weight: Option<&Arc<LazyWeight>>,
     score_threshold: Option<Score>,
     emitted_docs: &mut crate::api::HashSet<DocAddress>,
@@ -361,12 +439,20 @@ fn collect_lookup_only_segment(
     let mut lookup_scorer = lookup_weight
         .scorer(segment_reader, 1.0)
         .expect("lookup scorer should be constructable");
+    let mut base_filter = SegmentBaseFilter::new(
+        segment_reader,
+        base_filter_weight,
+        lookup_scorer.size_hint(),
+    );
     let mut disjunct_scorer = DisjunctScorer::new(segment_reader, disjunct_weight);
 
     let mut doc_id = lookup_scorer.doc();
     while doc_id != tantivy::TERMINATED {
         let addr = DocAddress::new(segment_ord, doc_id);
-        if alive_bitset.is_none_or(|b| b.is_alive(doc_id)) && !emitted_docs.contains(&addr) {
+        if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+            && !emitted_docs.contains(&addr)
+            && base_filter.matches(doc_id)
+        {
             let score = disjunct_scorer.score_for(doc_id);
             if score_threshold.is_none_or(|t| score > t) {
                 emitted_docs.insert(addr);
@@ -389,14 +475,16 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
     lookup_weight: &dyn Weight,
     disjunct_weight: Option<&Arc<LazyWeight>>,
     score_threshold: Option<Score>,
+    base_filter_weight: Option<&Arc<LazyWeight>>,
     emitted_docs: &mut crate::api::HashSet<DocAddress>,
     results: &mut Vec<(SearchIndexScore, DocAddress)>,
 ) {
     if driver.doc() == tantivy::TERMINATED {
         return;
     }
+    let candidate_size = driver.size_hint().max(1);
     let mut lookup_scorer = lookup_weight
-        .scorer_for_candidates_unpositioned(segment_reader, 1.0, driver.size_hint().max(1))
+        .scorer_for_candidates_unpositioned(segment_reader, 1.0, candidate_size)
         .expect("lookup scorer should be constructable");
     let first_lookup_doc = lookup_scorer.doc();
     if first_lookup_doc == tantivy::TERMINATED {
@@ -404,6 +492,8 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
     }
 
     let alive_bitset = segment_reader.alive_bitset();
+    let mut base_filter =
+        SegmentBaseFilter::new(segment_reader, base_filter_weight, candidate_size);
     let mut disjunct_scorer = DisjunctScorer::new(segment_reader, disjunct_weight);
 
     let mut doc_id = driver.doc();
@@ -414,7 +504,9 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
         match lookup_scorer.seek_danger(doc_id) {
             tantivy::SeekDangerResult::Found => {
                 let addr = DocAddress::new(segment_ord, doc_id);
-                if alive_bitset.is_none_or(|b| b.is_alive(doc_id)) && !emitted_docs.contains(&addr)
+                if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
+                    && !emitted_docs.contains(&addr)
+                    && base_filter.matches(doc_id)
                 {
                     let base_score = if driver_contributes_score {
                         driver.score()
@@ -1221,6 +1313,14 @@ impl SearchIndexReader {
         self.query.as_ref()
     }
 
+    /// Returns a reader matching the same documents as `self` but scoring each one `score`.
+    pub(crate) fn with_constant_score(&self, score: Score) -> Self {
+        let mut clone = self.clone();
+        let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
+        clone.query = Box::new(ConstScoreQuery::new(existing, score));
+        clone
+    }
+
     /// Pruning keeps deciding from the original query input, which stays correct because a
     /// further AND never makes a rejected segment match. The compiled query is kept as is: it may
     /// contain Params resolved with an execution ExprContext.
@@ -1260,6 +1360,9 @@ impl SearchIndexReader {
     /// When `replace_query` is true (i.e. `base_query` is `SearchQueryInput::All` and no
     /// additional filter was pushed into `self`), the union of `disjunct_queries` replaces
     /// the `AllQuery` directly so Tantivy can use Block-Max WAND over the disjunct postings.
+    /// Otherwise the union is intersected with the reader's query; when that query has a
+    /// constant score, tantivy still prunes the union with Block-Max WAND
+    /// (`SpecializedScorer::FilteredTermUnion`).
     pub(crate) fn with_disjunctive_sa_queries(
         &self,
         replace_query: bool,
@@ -1807,13 +1910,15 @@ impl SearchIndexReader {
             RaBaseFilter::MatchAll
         } else {
             let contributes_score = self.need_scores && disjunct_queries.is_empty();
-            RaBaseFilter::Filtered {
-                weight: Arc::new(LazyWeight::new(
-                    self.query().box_clone(),
-                    contributes_score,
-                    self.searcher.clone(),
-                )),
+            let weight = Arc::new(LazyWeight::new(
+                self.query().box_clone(),
                 contributes_score,
+                self.searcher.clone(),
+            ));
+            if contributes_score {
+                RaBaseFilter::Scored(weight)
+            } else {
+                RaBaseFilter::Filter(weight)
             }
         };
         let constrained = range_target.map(|(segments, partition_bounds)| {
@@ -1822,17 +1927,17 @@ impl SearchIndexReader {
                 0.0,
             ));
             let filter = match &unconstrained {
-                RaBaseFilter::MatchAll => RaBaseFilter::Filtered {
-                    weight: Arc::new(LazyWeight::new(range_query, false, self.searcher.clone())),
-                    contributes_score: false,
-                },
-                RaBaseFilter::Filtered {
-                    weight: base_weight,
-                    contributes_score,
-                } => RaBaseFilter::Filtered {
-                    weight: Arc::new(base_weight.and_query(range_query)),
-                    contributes_score: *contributes_score,
-                },
+                RaBaseFilter::MatchAll => RaBaseFilter::Filter(Arc::new(LazyWeight::new(
+                    range_query,
+                    false,
+                    self.searcher.clone(),
+                ))),
+                RaBaseFilter::Filter(base) => {
+                    RaBaseFilter::Filter(Arc::new(base.and_query(range_query)))
+                }
+                RaBaseFilter::Scored(base) => {
+                    RaBaseFilter::Scored(Arc::new(base.and_query(range_query)))
+                }
             };
             (segments.clone(), filter)
         });
@@ -1927,87 +2032,87 @@ impl SearchIndexReader {
         emitted_docs: &mut crate::api::HashSet<DocAddress>,
         results: &mut Vec<(SearchIndexScore, DocAddress)>,
     ) {
-        match base_filter {
-            RaBaseFilter::MatchAll => {
-                // Base score is 0.0, so a non-negative strict `score > threshold` can only be
-                // satisfied by documents matching `disjunct_weight` above `threshold`.
-                if let Some(threshold) = score_threshold
-                    && threshold >= 0.0
-                {
-                    if let Some(dw) = disjunct_weight {
-                        let mut pruning_scorer = dw
-                            .get()
-                            .pruning_scorer(segment_reader, 1.0, threshold)
-                            .expect("pruning scorer should be constructable");
-                        intersect_scorer_with_lookup(
-                            segment_ord,
-                            segment_reader,
-                            pruning_scorer.as_mut(),
-                            true,
-                            lookup_weight,
-                            None,
-                            Some(threshold),
-                            emitted_docs,
-                            results,
-                        );
-                    }
-                    return;
-                }
-
-                collect_lookup_only_segment(
+        if let Some(base_weight) = base_filter.scored() {
+            // When `base_weight` is the sole score source, push `threshold` directly into its
+            // `PruningScorer` (Block-Max WAND).
+            if disjunct_weight.is_none()
+                && let Some(threshold) = score_threshold
+            {
+                let mut pruning_scorer = base_weight
+                    .get()
+                    .pruning_scorer(segment_reader, 1.0, threshold)
+                    .expect("pruning scorer should be constructable");
+                intersect_scorer_with_lookup(
                     segment_ord,
                     segment_reader,
+                    pruning_scorer.as_mut(),
+                    true,
+                    lookup_weight,
+                    None,
+                    Some(threshold),
+                    None,
+                    emitted_docs,
+                    results,
+                );
+            } else {
+                let mut base_scorer = base_weight
+                    .get()
+                    .scorer(segment_reader, 1.0)
+                    .expect("base scorer should be constructable");
+                intersect_scorer_with_lookup(
+                    segment_ord,
+                    segment_reader,
+                    base_scorer.as_mut(),
+                    true,
                     lookup_weight,
                     disjunct_weight,
                     score_threshold,
+                    None,
                     emitted_docs,
                     results,
                 );
             }
-            RaBaseFilter::Filtered {
-                weight: base_weight,
-                contributes_score,
-            } => {
-                // When `base_weight` is the sole score source, push `threshold` directly into its
-                // `PruningScorer` (Block-Max WAND).
-                if disjunct_weight.is_none()
-                    && *contributes_score
-                    && let Some(threshold) = score_threshold
-                {
-                    let mut pruning_scorer = base_weight
-                        .get()
-                        .pruning_scorer(segment_reader, 1.0, threshold)
-                        .expect("pruning scorer should be constructable");
-                    intersect_scorer_with_lookup(
-                        segment_ord,
-                        segment_reader,
-                        pruning_scorer.as_mut(),
-                        true,
-                        lookup_weight,
-                        None,
-                        Some(threshold),
-                        emitted_docs,
-                        results,
-                    );
-                } else {
-                    let mut base_scorer = base_weight
-                        .get()
-                        .scorer(segment_reader, 1.0)
-                        .expect("base scorer should be constructable");
-                    intersect_scorer_with_lookup(
-                        segment_ord,
-                        segment_reader,
-                        base_scorer.as_mut(),
-                        *contributes_score,
-                        lookup_weight,
-                        disjunct_weight,
-                        score_threshold,
-                        emitted_docs,
-                        results,
-                    );
-                }
-            }
+            return;
         }
+
+        // Base score is 0.0, so a non-negative strict `score > threshold` can only be
+        // satisfied by documents matching `disjunct_weight` above `threshold`. Driving from the
+        // base filter instead would probe the lookup once per base document, which a dense
+        // filter makes unaffordable.
+        if let Some(threshold) = score_threshold
+            && threshold >= 0.0
+        {
+            if let Some(dw) = disjunct_weight {
+                let mut pruning_scorer = dw
+                    .get()
+                    .pruning_scorer(segment_reader, 1.0, threshold)
+                    .expect("pruning scorer should be constructable");
+                intersect_scorer_with_lookup(
+                    segment_ord,
+                    segment_reader,
+                    pruning_scorer.as_mut(),
+                    true,
+                    lookup_weight,
+                    None,
+                    Some(threshold),
+                    base_filter.filter(),
+                    emitted_docs,
+                    results,
+                );
+            }
+            return;
+        }
+
+        collect_lookup_only_segment(
+            segment_ord,
+            segment_reader,
+            lookup_weight,
+            base_filter.filter(),
+            disjunct_weight,
+            score_threshold,
+            emitted_docs,
+            results,
+        );
     }
 
     /// Search all available index segments for matching documents using lazy checkout from the

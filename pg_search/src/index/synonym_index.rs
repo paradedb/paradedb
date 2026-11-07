@@ -19,17 +19,27 @@
 //! field is indexed with a [`SynonymRuleTokenizer`] over the column's own tokenizer, so each key
 //! of a rule is one term of the field.
 
+use std::sync::Arc;
+
 use crate::api::FieldName;
+use crate::index::fast_fields_helper::FFHelper;
+use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::synonym_rule_typoid;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
-use pgrx::{PgList, pg_sys};
-use tantivy::TantivyDocument;
+use anyhow::anyhow;
+use pgrx::{FromDatum, PgList, pg_sys};
+use tantivy::fastfield::AliveBitSet;
 use tantivy::schema::{Field, TextOptions, Value};
-use tantivy::synonyms::{SynonymRule, SynonymRuleTokenizer};
+use tantivy::synonyms::{
+    CompiledRule, KeyDocs, SegmentSynonyms, SynonymRule, SynonymRuleTokenizer, SynonymSource,
+};
 use tantivy::tokenizer::{TextAnalyzer, TokenizerManager};
+use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
 use tokenizers::SearchTokenizer;
 
 /// True when the one key column of the index reads a `pdb.synonym_rule` column, plain or through
@@ -150,5 +160,119 @@ impl RuleCheck {
                 check_rule(rule, &mut self.analyzer);
             }
         }
+    }
+}
+
+/// The rules of a synonym index, read through its table. A matched document's rule text comes
+/// from its heap row, fetched under the snapshot, and the same fetch says whether the rule is
+/// alive.
+pub struct HeapRuleSource {
+    segments: Vec<(SegmentSynonyms, Option<AliveBitSet>)>,
+    ctids: Arc<FFHelper>,
+    visibility: VisibilityChecker,
+    slot: *mut pg_sys::TupleTableSlot,
+    attnum: i32,
+    analyzer: TextAnalyzer,
+}
+
+impl HeapRuleSource {
+    /// A source over the segments of `reader`, an open reader of the synonym index `index`.
+    ///
+    /// # Safety
+    ///
+    /// `snapshot` must stay registered while the source is in use, and the caller must call
+    /// [`Self::close`] when it is done.
+    pub unsafe fn open(
+        index: &PgSearchRelation,
+        heaprel: &PgSearchRelation,
+        reader: &SearchIndexReader,
+        snapshot: pg_sys::Snapshot,
+    ) -> anyhow::Result<Self> {
+        let options = index.options();
+        let rule_field = options
+            .synonym_rule_field()
+            .ok_or_else(|| anyhow!("'{}' is not a synonym index", index.name()))?;
+        let field = reader
+            .schema()
+            .search_field(rule_field.as_ref())
+            .ok_or_else(|| anyhow!("synonym rule field `{rule_field}` is not in the index"))?
+            .field();
+        let attno = options
+            .attributes()
+            .get(&rule_field)
+            .and_then(|attr| attr.source.heap_attno())
+            .ok_or_else(|| anyhow!("synonym rule field `{rule_field}` reads no table column"))?;
+        let segments = reader
+            .segment_readers()
+            .iter()
+            .map(|segment_reader| {
+                Ok((
+                    SegmentSynonyms::open(segment_reader, field)?,
+                    segment_reader.alive_bitset().cloned(),
+                ))
+            })
+            .collect::<tantivy::Result<_>>()?;
+        let ctids = Arc::new(FFHelper::for_ctid(reader));
+        let visibility =
+            VisibilityChecker::with_rel_and_snap(heaprel, snapshot).with_ffhelper(ctids.clone());
+        let slot = unsafe {
+            pg_sys::MakeSingleTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple)
+        };
+        Ok(Self {
+            segments,
+            ctids,
+            visibility,
+            slot,
+            attnum: attno as i32 + 1,
+            analyzer: rule_analyzer(options, &rule_field),
+        })
+    }
+
+    /// Releases the slot and its buffer pin.
+    pub fn close(self) {
+        unsafe { pg_sys::ExecDropSingleTupleTableSlot(self.slot) };
+    }
+}
+
+impl SynonymSource for HeapRuleSource {
+    fn num_segments(&self) -> usize {
+        self.segments.len()
+    }
+
+    fn token_keys(&mut self, segment: usize, token: &str) -> tantivy::Result<Arc<[KeyDocs]>> {
+        Ok(self.segments[segment].0.token_keys(token)?.into())
+    }
+
+    fn alive_rules(
+        &mut self,
+        segment: usize,
+        doc: DocId,
+    ) -> tantivy::Result<Option<Arc<[CompiledRule]>>> {
+        // VACUUM marks a deleted rule in the bitset before Postgres reuses its ctid, so the bitset
+        // comes first and a reused ctid never reads another row's rule.
+        if self.segments[segment]
+            .1
+            .as_ref()
+            .is_some_and(|alive| !alive.is_alive(doc))
+        {
+            return Ok(None);
+        }
+        let Some(ctid) = self.ctids.ctid(segment as SegmentOrdinal).as_u64(doc) else {
+            return Ok(None);
+        };
+        let (slot, attnum) = (self.slot, self.attnum);
+        let text = self.visibility.exec_if_visible(ctid, slot, |_| unsafe {
+            let mut isnull = false;
+            let datum = pg_sys::slot_getattr(slot, attnum, &mut isnull);
+            String::from_datum(datum, isnull)
+        });
+        let Some(text) = text else {
+            return Ok(None);
+        };
+        let rules: Vec<CompiledRule> = text
+            .iter()
+            .filter_map(|line| CompiledRule::from_line(line, &mut self.analyzer))
+            .collect();
+        Ok(Some(rules.into()))
     }
 }

@@ -17,19 +17,14 @@
 
 #[pgrx::pg_schema]
 pub mod pdb {
-    use std::sync::Arc;
-
-    use crate::index::fast_fields_helper::FFHelper;
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
-    use crate::index::synonym_index::rule_analyzer;
+    use crate::index::synonym_index::{HeapRuleSource, rule_analyzer};
     use crate::postgres::access::IndexOid;
-    use crate::postgres::heap::VisibilityChecker;
     use crate::postgres::index::is_partitioned_index;
     use anyhow::{Result, anyhow};
     use pgrx::prelude::*;
-    use tantivy::SegmentOrdinal;
-    use tantivy::synonyms::{SynonymExpander, SynonymRule};
+    use tantivy::synonyms::{SynonymRule, expand};
 
     /// The check of the `pdb.synonym_rule` domain. It raises instead of returning false, so the
     /// error says which rule failed and why.
@@ -85,21 +80,12 @@ pub mod pdb {
         }
 
         let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-        let field = reader
-            .schema()
-            .search_field(rule_field.as_ref())
-            .ok_or_else(|| anyhow!("synonym rule field `{rule_field}` is not in the index"))?
-            .field();
-        // A deleted rule stays in its segment until `VACUUM`, so each matched rule is checked
-        // against the heap.
-        let mut visibility = VisibilityChecker::with_rel_and_snap(index.heap(), unsafe {
-            pg_sys::GetActiveSnapshot()
-        })
-        .with_ffhelper(Arc::new(FFHelper::for_ctid(&reader)));
-        let expander = SynonymExpander::new(reader.segment_readers(), field, analyzer)?;
-        let expansions = expander.expand_with(&tokens, |segment, doc| {
-            visibility.check_doc(segment as SegmentOrdinal, doc)
-        })?;
+        let mut source = unsafe {
+            HeapRuleSource::open(&index, index.heap(), &reader, pg_sys::GetActiveSnapshot())?
+        };
+        let expansions = expand(&tokens, &mut source);
+        source.close();
+        let expansions = expansions?;
 
         let mut position = 0;
         let rows = expansions

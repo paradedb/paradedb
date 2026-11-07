@@ -179,7 +179,7 @@ impl VectorQuantizationConfig {
 
 impl SearchFieldConfig {
     /// The options of the rule field of a synonym index. A lookup needs only the documents of a
-    /// key, and it reads the rule text back from the column.
+    /// key, and it reads the rule text from the table row, so the field has no column.
     pub fn set_synonym_rule_options(&mut self) {
         if let SearchFieldConfig::Text {
             indexed,
@@ -194,7 +194,7 @@ impl SearchFieldConfig {
         } = self
         {
             *indexed = true;
-            *fast = true;
+            *fast = false;
             *fieldnorms = false;
             *pnorms = false;
             *record = IndexRecordOption::Basic;

@@ -655,6 +655,30 @@ impl SearchIndexSchema {
             .is_some_and(|f| !f.field_type().is_numeric())
     }
 
+    /// Whether a `pdb::Query::Term` on `name` has a constant BM25 score across all matching
+    /// documents, allowing `RankJoinExec` to treat it as a `0.0`-score filter while preserving
+    /// the same row ranking as `HashJoinExec`.
+    pub fn is_term_filter_field(&self, name: impl AsRef<str>) -> bool {
+        let Some(f) = self.search_field(name) else {
+            return false;
+        };
+        if f.is_tokenized_text() || f.is_json() {
+            return false;
+        }
+        let varies_by_length_or_freq = f.field_entry().has_fieldnorms()
+            || f.field_entry()
+                .field_type()
+                .get_index_record_option()
+                .is_some_and(|opt| opt != tantivy::schema::IndexRecordOption::Basic);
+        if !varies_by_length_or_freq {
+            return true;
+        }
+        !self
+            .categorized_fields()
+            .iter()
+            .any(|(cf, data)| cf.field() == f.field() && data.is_array)
+    }
+
     pub fn fields(&self) -> impl Iterator<Item = (Field, &FieldEntry)> {
         self.schema.fields()
     }
@@ -989,6 +1013,12 @@ impl SearchField {
                         == SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()))
             })
             .unwrap_or(false)
+    }
+
+    /// A text field whose tokenizer splits values, so a term matches part of a value rather
+    /// than one whole value.
+    pub fn is_tokenized_text(&self) -> bool {
+        self.is_text() && !self.is_keyword() && !self.is_numeric_bytes()
     }
 
     /// Whether this field's `.stats` min/max order the way query values compare, so a

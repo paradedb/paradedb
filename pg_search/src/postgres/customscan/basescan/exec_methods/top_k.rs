@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use arrow_array::{Float32Array, RecordBatch, UInt64Array};
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::ExecutionPlan;
-use tokio::runtime::Runtime;
 
 use crate::aggregate::exec::AggregationExec;
 use crate::api::version::VersionInfo;
@@ -38,11 +37,11 @@ use crate::postgres::customscan::basescan::projections::window_agg::WindowAggreg
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::mpp::interrupt::block_on_next;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::heap::VisibilityChecker;
 use crate::scan::execution_plan::{
     LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan,
-    ScanState, ScannerConfig, TopKSelectivity, UnsafeSendSync,
+    ScanState, ScannerConfig, TopKSelectivity,
 };
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -72,12 +71,12 @@ pub struct TopKScanExecState {
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
 
-    runtime: Option<Runtime>,
     stream: Option<SendableRecordBatchStream>,
     telemetry: Option<LazySortTelemetry>,
     pending_aggregations: Option<(PreparedAggregations, AggregationLimitsGuard)>,
     current_record_batch: Option<RecordBatch>,
     current_batch_row_idx: usize,
+    runtime: Option<PgTokioRuntime>,
     did_query: bool,
     found: usize,
 }
@@ -245,13 +244,14 @@ impl TopKScanExecState {
 
         self.pending_aggregations = prepared.map(|p| (p, agg_limits));
 
-        let telemetry: LazySortTelemetry =
-            Arc::new(Mutex::new(UnsafeSendSync(LazySortTelemetryState {
+        let telemetry: LazySortTelemetry = Arc::new(Mutex::new(
+            crate::postgres::customscan::mpp::MainThread::new(LazySortTelemetryState {
                 first_pull_aux_collector,
                 queries_executed: 0,
                 segment_info: Default::default(),
                 first_pull_aggregation: None,
-            })));
+            }),
+        ));
         self.telemetry = Some(Arc::clone(&telemetry));
 
         let search_reader = state.search_reader.as_ref().unwrap();
@@ -323,14 +323,16 @@ impl TopKScanExecState {
         let Some(ref telemetry) = self.telemetry else {
             return;
         };
-        let (queries_delta, segment_info, first_pull_aggregation) = {
-            let mut guard = telemetry.lock().unwrap();
-            (
-                std::mem::take(&mut guard.0.queries_executed),
-                std::mem::take(&mut guard.0.segment_info),
-                guard.0.first_pull_aggregation.take(),
-            )
-        };
+        let (queries_delta, segment_info, first_pull_aggregation) =
+            crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+                let mut guard = telemetry.lock().unwrap();
+                let telem = guard.get_mut(token);
+                (
+                    std::mem::take(&mut telem.queries_executed),
+                    std::mem::take(&mut telem.segment_info),
+                    telem.first_pull_aggregation.take(),
+                )
+            });
 
         for _ in 0..queries_delta {
             state.increment_query_count();
@@ -424,8 +426,7 @@ impl ExecMethod for TopKScanExecState {
 
         if self.runtime.is_none() {
             self.runtime = Some(
-                tokio::runtime::Builder::new_current_thread()
-                    .build()
+                PgTokioRuntime::new()
                     .expect("Failed to create tokio runtime for DataFusion stream execution"),
             );
         }
@@ -510,6 +511,7 @@ impl ExecMethod for TopKScanExecState {
         self.pending_aggregations = None;
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
+        self.runtime = None;
         self.found = 0;
 
         // Get window aggregates from state if available

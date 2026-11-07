@@ -2219,7 +2219,7 @@ fn match_query(
         .into_iter()
         .map(|term| {
             let query: Box<dyn TantivyQuery> = match (distance, prefix) {
-                (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
+                (0, false) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
                 (d, true) => Box::new(FuzzyTermQuery::new_prefix(term, d, transposition_cost_one)),
                 (d, false) => Box::new(FuzzyTermQuery::new(term, d, transposition_cost_one)),
             };
@@ -2260,7 +2260,7 @@ fn match_array_query(
             index_created_by_version,
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
-            (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
+            (0, false) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
             (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
                 term,
                 distance,

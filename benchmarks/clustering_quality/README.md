@@ -53,7 +53,9 @@ common benchmark PostgreSQL settings (12 GiB maintenance memory and shared buffe
 eight parallel workers), while setting pg_search’s segment target to eight and retaining all other index defaults.
 This run is based on pg_search main `30f4373d78efb1839741fe166a08e2d5c8361950`
 and its pinned Tantivy main `f5e4b7038bc44e0b4f08776e6bf12296ec935394`,
-with only read-only export diagnostics added to production code.
+with read-only export diagnostics and a compile fix for the rank-join
+`MainThread` accessor. The compile fix does not touch vector build or routing code;
+its complete diff is saved with the run artifacts.
 The manifest verifies persisted coarse vector partition metadata on every segment
 and records the actual segment count and router type.
 It saves artifacts without publishing a baseline or posting GitHub comments.

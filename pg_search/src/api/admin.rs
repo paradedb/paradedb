@@ -593,7 +593,7 @@ fn vector_export_indexes(index: IndexOid) -> anyhow::Result<IndexKind> {
             "must be owner of index to export vector clusters"
         );
     }
-    IndexKind::for_index(index)
+    IndexKind::for_index(index.clone())
 }
 
 /// Stored IVF centroids, keyed by partition index, segment, and cluster.

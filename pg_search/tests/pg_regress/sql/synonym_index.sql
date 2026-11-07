@@ -63,7 +63,8 @@ CREATE INDEX second_set_name_idx ON synonyms USING paradedb (set_name);
 EXPLAIN (COSTS OFF) SELECT set_name FROM synonyms WHERE set_name @@@ 'shop';
 SELECT set_name FROM synonyms WHERE set_name @@@ 'shop';
 
--- The function needs a synonym index.
+-- A rule column must be the only column of its index, and the function needs a synonym index.
+CREATE INDEX mixed_idx ON synonyms USING paradedb (set_name, rule);
 SELECT * FROM pdb.synonym_expansion('set_name_idx', 'red');
 
 DROP TABLE shop_synonyms, en_synonyms, bad_synonyms, synonyms;

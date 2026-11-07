@@ -521,23 +521,30 @@ impl BM25IndexOptions {
             return None;
         }
         if self.lazy.synonym_rule_field.borrow().is_none() {
-            // A tokenizer cast hides the domain in the field's types, so the type comes from the
-            // heap column the field reads.
-            let heaprelid = unsafe { (*(*self.indexrel).rd_index).indrelid };
-            let field = synonym_rule_typoid().and_then(|typoid| {
-                self.attributes()
-                    .iter()
-                    .find(|(_, attr)| {
-                        attr.source.heap_attno().is_some_and(|attno| {
-                            let attnum = (attno + 1) as pg_sys::AttrNumber;
-                            unsafe { pg_sys::get_atttype(heaprelid, attnum) == typoid }
-                        })
-                    })
-                    .map(|(name, _)| name.clone())
-            });
+            let field = self.synonym_rule_columns().into_iter().next();
             *self.lazy.synonym_rule_field.borrow_mut() = Some(field);
         }
         self.lazy.synonym_rule_field.borrow().clone().flatten()
+    }
+
+    /// The fields that read a `pdb.synonym_rule` column, in any index.
+    pub fn synonym_rule_columns(&self) -> Vec<FieldName> {
+        let Some(typoid) = synonym_rule_typoid() else {
+            return Vec::new();
+        };
+        // A tokenizer cast hides the domain in the field's types, so the type comes from the heap
+        // column the field reads.
+        let heaprelid = unsafe { (*(*self.indexrel).rd_index).indrelid };
+        self.attributes()
+            .iter()
+            .filter(|(_, attr)| {
+                attr.source.heap_attno().is_some_and(|attno| {
+                    let attnum = (attno + 1) as pg_sys::AttrNumber;
+                    unsafe { pg_sys::get_atttype(heaprelid, attnum) == typoid }
+                })
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     pub fn is_synonym_index(&self) -> bool {

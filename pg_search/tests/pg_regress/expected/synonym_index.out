@@ -135,7 +135,9 @@ SELECT set_name FROM synonyms WHERE set_name @@@ 'shop';
  shop
 (1 row)
 
--- The function needs a synonym index.
+-- A rule column must be the only column of its index, and the function needs a synonym index.
+CREATE INDEX mixed_idx ON synonyms USING paradedb (set_name, rule);
+ERROR:  the `pdb.synonym_rule` column `rule` must be the only column of its index
 SELECT * FROM pdb.synonym_expansion('set_name_idx', 'red');
 ERROR:  'set_name_idx' is not a synonym index
 DROP TABLE shop_synonyms, en_synonyms, bad_synonyms, synonyms;

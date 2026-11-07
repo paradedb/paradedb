@@ -237,6 +237,13 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
+    // A document of a synonym index is one rule, so a rule column next to other columns would
+    // mix rules with other fields.
+    if !options.is_synonym_index()
+        && let Some(column) = options.synonym_rule_columns().first()
+    {
+        panic!("the `pdb.synonym_rule` column `{column}` must be the only column of its index");
+    }
     if let Some(rule_field) = options.synonym_rule_field() {
         if options.attributes().len() != 1 {
             panic!("a synonym index has one column, the `pdb.synonym_rule` column `{rule_field}`");

@@ -5,6 +5,16 @@ ignore = [
   # Optional dependency of rust_decimal that we never enable, so it is in
   # Cargo.lock but unreachable from `cargo tree -i` on any target.
   "RUSTSEC-2026-0235",
+  # Arrow/Tantivy use bulk APIs; tokenizer streams create fresh contexts.
+  # None of our zstd callers use the affected stream `with_context` APIs.
+  "RUSTSEC-2026-0391",
+  # The optional zstd-safe `seekable` feature is not enabled.
+  "RUSTSEC-2026-0398",
+  # Decompression uses bulk/read APIs, not the affected write decoder or
+  # raw streaming decompression into an uninitialized Vec.
+  "RUSTSEC-2026-0403",
+  # The affected allocator shim is wasm32-only; PostgreSQL builds are native.
+  "RUSTSEC-2026-0410",
 ]
 
 # Unmaintained crates are warnings, not failures.

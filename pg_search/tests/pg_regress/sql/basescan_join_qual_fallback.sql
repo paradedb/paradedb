@@ -12,24 +12,12 @@ CREATE TABLE tags (id int PRIMARY KEY, doc_id int NOT NULL, label text NOT NULL)
 INSERT INTO tags SELECT i, ((i - 1) % 4) + 1, 'sheriff tag' FROM generate_series(1, 8) i;
 CREATE INDEX tags_bm25 ON tags USING paradedb (id, doc_id, label);
 
--- The heap-filter call in the plan embeds the index OID, which changes on
--- every database creation; mask it so the plan is stable.
-CREATE FUNCTION explain_rls_fallback(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
-DECLARE
-    line text;
-BEGIN
-    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF, TIMING OFF) ' || query LOOP
-        RETURN NEXT regexp_replace(line, '"oid":\d+', '"oid":N', 'g');
-    END LOOP;
-END;
-$$;
-
 --------------------------------------------------------------------------------
 -- Part 1: wrong results, no RLS involved.
 -- `COALESCE(d.org_id = 1, false)` restricts docs to org 1, so only docs 3 and 4
 -- may appear. Expected: (3,3),(3,7),(4,4),(4,8).
 --------------------------------------------------------------------------------
-SELECT explain_rls_fallback($$
+SELECT explain_redact_oid($$
 SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE (d.body @@@ 'sheriff' OR t.label @@@ 'tag')
@@ -80,7 +68,7 @@ SET LOCAL ROLE rls_drop_user;
 SELECT id FROM docs ORDER BY id;
 
 
-SELECT explain_rls_fallback($$
+SELECT explain_redact_oid($$
 SELECT d.id, t.id, pdb.score(d.id) > 0 AS scored
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
@@ -99,7 +87,7 @@ BEGIN;
 SET LOCAL app.org_id = '1';
 SET LOCAL ROLE rls_drop_user;
 
-SELECT explain_rls_fallback($$
+SELECT explain_redact_oid($$
 SELECT d.id, t.id
 FROM docs d JOIN tags t ON t.doc_id = d.id
 WHERE d.body @@@ 'sheriff' OR t.label @@@ 'tag'
@@ -145,4 +133,3 @@ DROP TABLE docs CASCADE;
 DROP TABLE tags CASCADE;
 DROP TABLE visible_orgs;
 DROP ROLE rls_drop_user;
-DROP FUNCTION explain_rls_fallback(text);

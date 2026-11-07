@@ -125,8 +125,10 @@ impl ScanTelemetry {
                         | "routing_ns"
                         | "exact_scan_ns"
                         | "result_assembly_ns"
-                        | "rerank_fetch_ns"
-                        | "rerank_score_ns"
+                        | "exact_fetch_ns"
+                        | "exact_score_ns"
+                        | "locate_ns"
+                        | "centroid_ns"
                 ) || (name.starts_with("layer") && name.ends_with("_scan_ns"))
                     || (name.starts_with("boundary") && name.ends_with("_ns"));
                 if is_stage {
@@ -237,6 +239,12 @@ mod tests {
             segment_id,
             json!({
                 "layer0_scored": 10,
+                "routing_kind": "quantized_stacked",
+                "routing_approximate_members_scored": 24,
+                "routing_approximate_pruned": 18,
+                "routing_exact_scored": 6,
+                "routing_exact_pruned": 3,
+                "routing_candidate_count": 3,
                 "layer0_scan_ns": 20,
                 "work_charged": 1.25,
                 "segment_rows": 100,
@@ -248,6 +256,12 @@ mod tests {
             segment_id,
             json!({
                 "layer0_scored": 7,
+                "routing_kind": "quantized_stacked",
+                "routing_approximate_members_scored": 16,
+                "routing_approximate_pruned": 12,
+                "routing_exact_scored": 4,
+                "routing_exact_pruned": 2,
+                "routing_candidate_count": 2,
                 "layer0_scan_ns": 30,
                 "work_charged": 0.75,
                 "segment_rows": 80,
@@ -258,6 +272,12 @@ mod tests {
 
         let value = &telemetry.segment_info()[&segment_id];
         assert_eq!(value["layer0_scored"], 17);
+        assert_eq!(value["routing_kind"], "quantized_stacked");
+        assert_eq!(value["routing_approximate_members_scored"], 40);
+        assert_eq!(value["routing_approximate_pruned"], 30);
+        assert_eq!(value["routing_exact_scored"], 10);
+        assert_eq!(value["routing_exact_pruned"], 5);
+        assert_eq!(value["routing_candidate_count"], 5);
         assert_eq!(value["layer0_scan_ns"], 50);
         assert_eq!(value["work_charged"], 2.0);
         assert_eq!(value["segment_rows"], 100);

@@ -52,11 +52,26 @@ unsafe extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
-/// Implements Drop that skips cleanup during panic unwinding or process exit.
+pub(crate) fn vacuum_delay_point() {
+    unsafe {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        pg_sys::vacuum_delay_point();
+        #[cfg(not(any(feature = "pg15", feature = "pg16", feature = "pg17")))]
+        pg_sys::vacuum_delay_point(false);
+    }
+}
+
+/// Implements `Drop` for a Postgres resource that must be cleaned up on the Postgres main thread,
+/// skipping cleanup during panic unwinding or process exit.
 ///
-/// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
-/// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
-/// which results in SIGABRT. This macro ensures cleanup is skipped during unwinding.
+/// Because panics on the Postgres main thread are used to propagate PostgreSQL errors via pgrx, it
+/// is almost never safe to interact with PostgreSQL APIs during panic unwinding - doing so can
+/// cause a double-panic which results in SIGABRT. This macro also enforces that the destructor runs
+/// on the Postgres main thread (printing via `eprintln!` so an off-main-thread drop during
+/// unwinding never double-panics, panicking in debug builds when not unwinding, and skipping the
+/// body in release builds). Types that can be dropped on background threads must wrap their inner
+/// Postgres resource in `crate::postgres::customscan::mpp::MainThread` or forward their cleanup
+/// payload via `crate::postgres::customscan::mpp::drop_on_main_thread` from a plain `impl Drop`.
 ///
 /// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
 /// when the transaction is aborted due to the error.
@@ -84,6 +99,20 @@ macro_rules! impl_safe_drop {
     ([$($generics:tt)*] $ty:ty, |$self:ident| $body:block) => {
         impl<$($generics)*> Drop for $ty {
             fn drop(&mut $self) {
+                if !$crate::postgres::customscan::mpp::interrupt::is_main_thread() {
+                    eprintln!(
+                        "BUG: Drop for {} ran off the Postgres main thread",
+                        stringify!($ty)
+                    );
+                    #[cfg(debug_assertions)]
+                    if !std::thread::panicking() {
+                        panic!(
+                            "BUG: Drop for {} ran off the Postgres main thread",
+                            stringify!($ty)
+                        );
+                    }
+                    return;
+                }
                 if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
                 }
@@ -179,12 +208,6 @@ pub(crate) fn proc_exit_in_progress() -> bool {
 #[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
 
-// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
-// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
-// these are never actually shared across threads in our PostgreSQL context.
-unsafe impl Send for ExprContextGuard {}
-unsafe impl Sync for ExprContextGuard {}
-
 impl ExprContextGuard {
     /// Creates a new standalone expression context
     pub fn new() -> Self {
@@ -199,8 +222,9 @@ impl ExprContextGuard {
 
 impl_safe_drop!(ExprContextGuard, |self| {
     unsafe {
-        let is_commit = pg_sys::IsTransactionState();
-        pg_sys::FreeExprContext(self.0, is_commit);
+        if IsTransactionState() && !self.0.is_null() {
+            pg_sys::FreeExprContext(self.0, true);
+        }
     }
 });
 
@@ -209,6 +233,39 @@ impl Default for ExprContextGuard {
         Self::new()
     }
 }
+
+/// RAII guard that ensures an active snapshot is set for the life of the guard.
+///
+/// Most callers (ordinary DML, queries, VACUUM, background merge workers) already run with an
+/// active snapshot. The logical-replication apply worker, however, applies remote changes and runs
+/// pre-commit cleanup without pushing one or having an active portal, while operations like SPI
+/// queries, expression planning (`RelationGetIndexExpressions` -> `eval_const_expressions`), and
+/// out-of-line TOAST detoasting (`get_toast_snapshot`) require an active snapshot. This guard
+/// pushes the transaction snapshot only when the caller lacks an active snapshot, and pops it on
+/// normal scope exit.
+///
+/// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
+/// active-snapshot stack; popping again here would underflow it, so the drop implementation
+/// uses `impl_safe_drop!` to skip cleanup while unwinding.
+pub struct ActiveSnapshotGuard {
+    pushed: bool,
+}
+
+impl ActiveSnapshotGuard {
+    pub fn ensure() -> Self {
+        let pushed = unsafe { !pg_sys::ActiveSnapshotSet() };
+        if pushed {
+            unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        }
+        Self { pushed }
+    }
+}
+
+impl_safe_drop!(ActiveSnapshotGuard, |self| {
+    if self.pushed {
+        unsafe { pg_sys::PopActiveSnapshot() };
+    }
+});
 
 /// Recursively sort all object keys in JSON for deterministic output
 pub fn sort_json_keys(value: &mut serde_json::Value) {
@@ -299,6 +356,15 @@ mod tests {
             let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
             prop_assert_eq!(us, pg);
         });
+    }
+
+    #[pg_test]
+    fn convert_pg_date_string_test() {
+        use crate::postgres::utils::convert_pg_date_string;
+        use pgrx::PgBuiltInOids;
+
+        let dt = convert_pg_date_string(PgBuiltInOids::DATEOID.into(), "2024-01-01");
+        assert!(!dt.is_infinity());
     }
 }
 
@@ -392,7 +458,10 @@ pub enum FieldSource {
     Heap { attno: usize },
 
     /// Expression index (scalar result)
-    Expression { att_idx: usize },
+    Expression {
+        att_idx: usize,
+        attno: Option<usize>,
+    },
 
     /// Field extracted from a composite type
     CompositeField {
@@ -414,15 +483,10 @@ impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
     /// column's value as it is, so it names that column; a computed expression or a
     /// composite field has no single column to read back.
-    pub fn heap_attno(&self, index: &PgSearchRelation) -> Option<usize> {
+    pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),
-            FieldSource::Expression { att_idx } => {
-                let expr = index.index_expressions().get_ptr(att_idx)?;
-                let var = unsafe { nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast())) }?;
-                let varattno = unsafe { (*var).varattno };
-                (varattno > 0).then(|| (varattno - 1) as usize)
-            }
+            FieldSource::Expression { attno, .. } => attno,
             FieldSource::CompositeField { .. } => None,
         }
     }
@@ -512,7 +576,7 @@ pub unsafe fn resolve_field_value(
 ) -> (pg_sys::Datum, bool) {
     match source {
         FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
-        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::Expression { att_idx, .. } => expr_results[*att_idx],
         FieldSource::CompositeField {
             expression_idx,
             field_idx,
@@ -635,26 +699,7 @@ pub fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::No
 
 /// Identifies if the function identified by `funcid` is `pg_catalog.unnest(anyarray)`.
 pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
-    use std::sync::Once;
-    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static UNNEST_OID_ONCE: Once = Once::new();
-
-    unsafe {
-        UNNEST_OID_ONCE.call_once(|| {
-            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pg_catalog.unnest(anyarray)".into_datum()],
-            ) {
-                UNNEST_OID = oid;
-            }
-        });
-
-        if funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid {
-            return true;
-        }
-
-        false
-    }
+    funcid.to_u32() == pg_sys::F_UNNEST_ANYARRAY
 }
 
 /// Create a text Const node from a string
@@ -712,10 +757,14 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
+                let node = expression.cast();
                 let source = FieldSource::Expression {
                     att_idx: expression_idx,
+                    attno: nodecast!(Var, T_Var, strip_tokenizer_cast(node))
+                        .map(|var| (*var).varattno)
+                        .filter(|&attno| attno > 0)
+                        .map(|attno| (attno - 1) as usize),
                 };
-                let node = expression.cast();
 
                 let typoid = pg_sys::exprType(node);
                 let mut attname = None;
@@ -1066,7 +1115,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDate
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
                 .expect("must be valid postgres date format");
-            PostgresDateTime::from(d)
+            PostgresDateTime::try_from(d).expect("date out of range")
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
@@ -1480,6 +1529,59 @@ pub fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
         }
     }
     node
+}
+
+/// Recursively strips all `PlaceHolderVar` wrappers anywhere inside `node`.
+///
+/// PostgreSQL 15 does not have a `readfuncs.c` reader for `PLACEHOLDERVAR`, so any expression
+/// tree serialized via `nodeToString` (for later `stringToNode` deserialization) must have
+/// nested `PlaceHolderVar` nodes (such as those introduced by `paradedb.placeholder_support`
+/// around `pdb.score(...)` in join/aggregate queries) unwrapped to their `phexpr` first.
+pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn contains_phv_walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_PlaceHolderVar {
+            return true;
+        }
+        pg_sys::expression_tree_walker(node, Some(contains_phv_walker), context)
+    }
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn strip_phv_mutator(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
+        if let Some(phv) = crate::nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) {
+            return strip_phv_mutator((*phv).phexpr.cast(), context);
+        }
+
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let fnptr = strip_phv_mutator as *const ();
+            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(strip_phv_mutator), context)
+        }
+    }
+
+    if !contains_phv_walker(node, std::ptr::null_mut()) {
+        return node;
+    }
+    strip_phv_mutator(node, std::ptr::null_mut())
 }
 
 /// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`

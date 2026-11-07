@@ -77,7 +77,7 @@ def export(conn, engine, count, dim, output):
         conn.execute("LOCK TABLE items IN SHARE MODE")
         if engine == "pg_search":
             centers = conn.execute("""
-                SELECT index_oid::text, segno, cluster_id, centroid
+                SELECT index_oid::text, segno, cluster_id, centroid, vector_partitioned
                 FROM paradedb.vector_cluster_centroids('pdb_clusters', 'emb')
                 ORDER BY index_oid, segno, cluster_id
             """).fetchall()
@@ -90,7 +90,7 @@ def export(conn, engine, count, dim, output):
                 SELECT segno, cluster_sizes FROM paradedb.vector_clusters('pdb_clusters', 'emb')
             """).fetchall()
             segment_counts = {}
-            for _, segment, _, _ in centers:
+            for _, segment, _, _, _ in centers:
                 if segment in segment_counts:
                     continue
                 matches = [
@@ -167,7 +167,13 @@ def export(conn, engine, count, dim, output):
             row_ids=row_ids,
             cluster_keys=np.asarray(list(mapping), dtype=str),
         )
-        return raw, labels, sizes, row_ids
+        metadata = {}
+        if engine == "pg_search":
+            metadata = {
+                "segments": len(segment_counts),
+                "vector_partitioned_segments": sorted({c[1] for c in centers if c[4]}),
+            }
+        return raw, labels, sizes, row_ids, metadata
 
 
 def evaluate(
@@ -274,6 +280,7 @@ def main():
     parser.add_argument("--dataset-name", help="Label for reports")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--schema", default=f"clustering_quality_{time.time_ns()}")
+    parser.add_argument("--target-segment-count", type=int)
     parser.add_argument(
         "--rows",
         type=int,
@@ -290,6 +297,8 @@ def main():
         parser.error("--rows must be at least 10")
     if args.nearest_sample_rows < 0:
         parser.error("Invalid diagnostic sample size")
+    if args.target_segment_count is not None and args.target_segment_count < 1:
+        parser.error("--target-segment-count must be positive")
     if args.dataset.is_dir():
         vectors = np.load(args.dataset / "vectors.npy", mmap_mode="r")
         queries = unit_rows(np.load(args.dataset / "queries.npy", mmap_mode="r"))
@@ -335,7 +344,12 @@ def main():
         "queries": len(queries),
         "top_k": 10,
         "schema": args.schema,
-        "index_configuration": "extension defaults; no index options or extension GUC overrides",
+        "index_configuration": (
+            f"extension defaults except pg_search target_segment_count={args.target_segment_count}; no extension GUC overrides"
+            if args.target_segment_count is not None
+            else "extension defaults; no index options or extension GUC overrides"
+        ),
+        "target_segment_count": args.target_segment_count,
         "training": "native default sampling and refinement, independently for each extension",
         "nearest_diagnostic_seed": 0,
         "assignment": "actual stored memberships exported from the built indexes; never reassigned",
@@ -384,6 +398,8 @@ def main():
         for engine in ["pg_search", "vectorsearch"]:
             if engine == "pg_search":
                 statement = "CREATE INDEX pdb_clusters ON items USING paradedb (id, emb vector_cosine_ops)"
+                if args.target_segment_count is not None:
+                    statement += f" WITH (target_segment_count={args.target_segment_count})"
             else:
                 statement = "CREATE INDEX prism_clusters ON items USING prism (emb vec32_cosine_ops)"
             print(f"Building {engine}...", flush=True)
@@ -395,9 +411,14 @@ def main():
             conn.execute(statement)
             seconds = time.monotonic() - started
             print(f"Exporting {engine} stored clusters", flush=True)
-            raw, labels, counts, row_ids = export(
+            raw, labels, counts, row_ids, metadata = export(
                 conn, engine, len(vectors), vectors.shape[1], args.output
             )
+            if engine == "pg_search":
+                manifest["pg_search_export"] = metadata
+                if args.target_segment_count is not None and args.target_segment_count > 1:
+                    if len(metadata["vector_partitioned_segments"]) != metadata["segments"]:
+                        raise ValueError("Expected stored vector partition metadata on every segment")
             print(
                 f"Evaluating {engine}: {len(raw):,} clusters, {len(labels):,} memberships",
                 flush=True,
@@ -434,11 +455,17 @@ def main():
         manifest["vectorsearch_reloptions"] = conn.execute(
             "SELECT reloptions FROM pg_class WHERE oid='prism_clusters'::regclass"
         ).fetchone()[0]
-        if manifest["pg_search_reloptions"] or manifest["vectorsearch_reloptions"]:
-            raise ValueError("Expected default index options")
+        expected_options = (
+            [f"target_segment_count={args.target_segment_count}"]
+            if args.target_segment_count is not None
+            else None
+        )
+        if manifest["pg_search_reloptions"] != expected_options or manifest["vectorsearch_reloptions"]:
+            raise ValueError("Unexpected index options")
         manifest["pg_search_vector_info"] = conn.execute("""
             SELECT segno, vector_format, vector_num_vectors::bigint, vector_num_centroids::bigint,
-                   quantized, layers, bytes_per_row
+                   quantized, layers, bytes_per_row, vector_router, vector_router_levels,
+                   vector_total_rows::bigint
             FROM paradedb.vector_info('pdb_clusters', 'emb')
         """).fetchall()
     np.savez(args.output / "curves.npz", **curves)

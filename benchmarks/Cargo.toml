@@ -23,12 +23,13 @@ sqlx = { version = "0.9.0", features = [
 tokio = { version = "1.53.2", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.6"
-duckdb = { version = "1.10506.0", features = ["bundled"] }
+duckdb = { version = "1.10506.1", features = ["bundled"] }
 distrs = "0.2.3"
+regex = "1.13.1"
 
 [dev-dependencies]
 approx = "0.5.1"
-rstest = "0.27.0"
+rstest = "0.28.0"
 
 [lib]
 name = "paradedb"

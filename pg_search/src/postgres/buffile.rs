@@ -21,8 +21,9 @@
 use pgrx::PgMemoryContexts;
 use pgrx::pg_sys;
 use std::ffi::c_void;
+use std::io;
 use std::os::raw::c_int;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Returns `file`'s current `(fileno, offset)` position.
@@ -105,23 +106,18 @@ pub struct BufFileReleaseGuard {
     released: AtomicBool,
 }
 
-// SAFETY: `owner` is only ever compared, never dereferenced, and registration, the
-// callback, and `Drop` all run on the backend thread that created the guard.
-unsafe impl Send for BufFileReleaseGuard {}
-unsafe impl Sync for BufFileReleaseGuard {}
-
 impl BufFileReleaseGuard {
-    /// Registers a release callback for the current resource owner. The `Arc` pins the
+    /// Registers a release callback for the current resource owner. The `Rc` pins the
     /// callback argument's address; the callback is unregistered when the last clone drops.
-    pub fn register() -> Arc<Self> {
-        let guard = Arc::new(Self {
+    pub fn register() -> Rc<Self> {
+        let guard = Rc::new(Self {
             owner: unsafe { pg_sys::CurrentResourceOwner },
             released: AtomicBool::new(false),
         });
         unsafe {
             pg_sys::RegisterResourceReleaseCallback(
                 Some(Self::on_release),
-                Arc::as_ptr(&guard).cast_mut().cast::<c_void>(),
+                Rc::as_ptr(&guard).cast_mut().cast::<c_void>(),
             );
         }
         guard
@@ -165,8 +161,79 @@ impl Drop for BufFileReleaseGuard {
         unsafe {
             pg_sys::UnregisterResourceReleaseCallback(
                 Some(Self::on_release),
-                std::ptr::from_mut(self).cast::<c_void>(),
+                std::ptr::from_mut(self).cast(),
             );
         }
+    }
+}
+
+pub(crate) trait TempFileHandle: Copy {
+    unsafe fn close(self);
+}
+
+impl TempFileHandle for *mut pg_sys::BufFile {
+    unsafe fn close(self) {
+        unsafe { pg_sys::BufFileClose(self) };
+    }
+}
+
+impl TempFileHandle for pg_sys::File {
+    unsafe fn close(self) {
+        unsafe { pg_sys::FileClose(self) };
+    }
+}
+
+struct DeferredTempFileClose<H: TempFileHandle + 'static> {
+    handle: H,
+    poisoned: AtomicBool,
+    release_guard: Rc<BufFileReleaseGuard>,
+}
+
+// We intentionally do NOT use `impl_safe_drop!` here because the release and poison
+// guards also cover errors caught before drop and resource release before Rust cleanup.
+impl<H: TempFileHandle + 'static> Drop for DeferredTempFileClose<H> {
+    fn drop(&mut self) {
+        if !self.poisoned.load(Ordering::Relaxed) && self.release_guard.may_close() {
+            unsafe { self.handle.close() };
+        }
+    }
+}
+
+/// Owns a PostgreSQL temporary file and prevents reuse or close after failed I/O or release.
+///
+/// The inner handle and destructor are wrapped in [`crate::postgres::customscan::mpp::MainThread`]
+/// so the file can only be accessed inside [`crate::postgres::customscan::mpp::run_on_main_thread`]
+/// and is always closed on the creating backend's main thread.
+pub(crate) struct TempFileOwner<H: TempFileHandle + 'static> {
+    inner: crate::postgres::customscan::mpp::MainThread<DeferredTempFileClose<H>>,
+}
+
+impl<H: TempFileHandle + 'static> TempFileOwner<H> {
+    pub fn new(handle: H, release_guard: Rc<BufFileReleaseGuard>) -> Self {
+        assert_eq!(release_guard.owner(), unsafe {
+            pg_sys::CurrentResourceOwner
+        });
+        Self {
+            inner: crate::postgres::customscan::mpp::MainThread::new(DeferredTempFileClose {
+                handle,
+                poisoned: AtomicBool::new(false),
+                release_guard,
+            }),
+        }
+    }
+
+    pub fn with<T>(&self, action: impl FnOnce(H) -> io::Result<T>) -> io::Result<T> {
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+            let inner = self.inner.get(token);
+            if !inner.release_guard.may_close() || inner.poisoned.swap(true, Ordering::Relaxed) {
+                return Ok(Err(io::Error::other(
+                    "PostgreSQL temporary file is no longer usable",
+                )));
+            }
+            let result = action(inner.handle);
+            inner.poisoned.store(result.is_err(), Ordering::Relaxed);
+            Ok(result)
+        })
+        .unwrap_or_else(|df_err| Err(io::Error::other(df_err.to_string())))
     }
 }

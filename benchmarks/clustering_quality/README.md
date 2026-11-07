@@ -16,10 +16,10 @@ python compare.py --url 'postgresql:///cluster_exports' \
   --dataset /path/to/dataset.npz --output /path/to/new-results-directory
 ```
 
-Both indexes use their native defaults, with cosine distance and no `WITH`
-options. Sampling, cluster count, segment count, refinement, quantization, and
+Both indexes use their native defaults with cosine distance. The optional
+`--target-segment-count 8` sets only pg_search’s `target_segment_count` reloption. Sampling, cluster count, refinement, quantization, and
 replication remain each extension's own choices. The runner verifies that extension
-GUCs equal their boot defaults and that both index catalogs have no reloptions.
+GUCs equal their boot defaults and that the index catalogs have only the explicitly requested segment option.
 PostgreSQL memory and worker settings are inherited from the same server and
 recorded in the manifest, alongside resolved PRISM settings and pg_search segment
 metadata. Native training limits remain in effect; training budgets are not matched.
@@ -50,7 +50,12 @@ restores the published Cohere 10m heap snapshot from
 exports all embeddings with binary COPY, and reads the published 100-query fixture.
 `prepare_cohere.py` can also export an existing local heap. The cloud run uses the
 common benchmark PostgreSQL settings (12 GiB maintenance memory and shared buffers,
-eight parallel workers), while leaving both extensions' index settings at defaults.
+eight parallel workers), while setting pg_search’s segment target to eight and retaining all other index defaults.
+This run is based on pg_search main `30f4373d78efb1839741fe166a08e2d5c8361950`
+and its pinned Tantivy main `f5e4b7038bc44e0b4f08776e6bf12296ec935394`,
+with only read-only export diagnostics added to production code.
+The manifest verifies persisted coarse vector partition metadata on every segment
+and records the actual segment count and router type.
 It saves artifacts without publishing a baseline or posting GitHub comments.
 
 The output contains raw centroid arrays and parallel `row_ids` / `labels` arrays
@@ -83,7 +88,7 @@ quality differences.
 
 ```sql
 SELECT * FROM paradedb.vector_cluster_centroids('my_pdb_index', 'emb');
--- index_oid, segno, cluster_id, centroid real[]
+-- index_oid, segno, cluster_id, centroid real[], vector_partitioned boolean
 SELECT * FROM paradedb.vector_cluster_members('my_pdb_index', 'emb');
 -- index_oid, segno, cluster_id, heap_tid
 

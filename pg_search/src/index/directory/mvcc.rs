@@ -20,7 +20,7 @@ use crate::api::{HashMap, HashSet};
 use crate::index::reader::io_stats::Trace;
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::buffile::{BufFileReleaseGuard, create_temp_buffile};
+use crate::postgres::buffile::{self, BufFileReleaseGuard, TempFileOwner};
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
@@ -31,9 +31,11 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::ActiveSnapshotGuard;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt::{Debug, Display};
@@ -65,42 +67,36 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 /// owner and temporary-file accounting, so it is removed on normal close,
 /// transaction abort, backend exit, or process failure. It never enters the
 /// immutable segment-component map.
-struct PgTempFile {
-    file: *mut pg_sys::BufFile,
-    release_guard: Arc<BufFileReleaseGuard>,
+pub(super) struct PgTempFile {
+    file: TempFileOwner<*mut pg_sys::BufFile>,
 }
 
 impl PgTempFile {
-    fn create() -> Self {
+    pub(super) fn create() -> Self {
         let release_guard = BufFileReleaseGuard::register();
-        let file = unsafe { create_temp_buffile() };
+        let file = unsafe { buffile::create_temp_buffile() };
         Self {
-            file,
-            release_guard,
+            file: TempFileOwner::new(file, release_guard),
         }
     }
 }
 
 impl Read for PgTempFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Ok(unsafe { pg_sys::BufFileRead(self.file, buf.as_mut_ptr().cast(), buf.len()) })
+        self.file
+            .with(|file| Ok(unsafe { buffile::buffile_read(file, buf) }))
     }
 }
 
 impl Write for PgTempFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unsafe {
-            #[cfg(feature = "pg15")]
-            pg_sys::BufFileWrite(self.file, buf.as_ptr() as *mut std::ffi::c_void, buf.len());
-            #[cfg(not(feature = "pg15"))]
-            pg_sys::BufFileWrite(self.file, buf.as_ptr().cast(), buf.len());
-        }
-        Ok(buf.len())
+        self.file.with(|file| {
+            unsafe { buffile::buffile_write(file, buf) };
+            Ok(buf.len())
+        })
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        // BufFileSeek flushes pending writes before the read phase. There is
-        // no independent BufFile flush API.
         Ok(())
     }
 }
@@ -113,25 +109,10 @@ impl Seek for PgTempFile {
                 "PostgreSQL quantization spill files support rewind only",
             ));
         }
-        let result = unsafe {
-            pg_sys::BufFileSeek(self.file, 0, 0, 0 /* SEEK_SET */)
-        };
-        if result != 0 {
-            return Err(io::Error::other(format!(
-                "BufFileSeek rewind failed with status {result}"
-            )));
-        }
-        Ok(0)
-    }
-}
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `may_close` already refuses the
-// close while unwinding, after the owner released the file, and outside a transaction.
-impl Drop for PgTempFile {
-    fn drop(&mut self) {
-        if self.release_guard.may_close() {
-            unsafe { pg_sys::BufFileClose(self.file) }
-        }
+        self.file.with(|file| {
+            unsafe { buffile::buffile_seek(file, 0, 0, 0) }.map_err(io::Error::other)?;
+            Ok(0)
+        })
     }
 }
 
@@ -330,9 +311,24 @@ impl SegmentView {
 pub enum MvccSatisfies {
     /// Replay exactly the given view; see [`SegmentView`].
     ParallelWorker(SegmentView),
+    /// Read only the largest segment visible to the active snapshot (preferring non-empty
+    /// persisted segments over mutable segments), for estimates.
+    ///
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will maintain index-wide summary
+    /// statistics for query estimation, replacing single-segment sampling.
     LargestSegment,
+    /// Read all segments visible to the active snapshot.
     Snapshot,
+    /// Read all non-retired segments, regardless of snapshot visibility,
+    /// so VACUUM can find dead CTIDs.
     Vacuum,
+    /// Materialize and merge frozen mutable segments using only the CTIDs that
+    /// survived VACUUM's deletion callback, without fetching dead heap tuples.
+    VacuumMerge {
+        live_ctids: HashMap<SegmentId, Vec<u64>>,
+    },
+    /// Read non-retired segments eligible for merging. Mutable segments must be
+    /// frozen unless mutable segments have been disabled on the index.
     Mergeable,
 }
 
@@ -445,6 +441,7 @@ impl MVCCDirectory {
             MvccSatisfies::LargestSegment => "largest segment",
             MvccSatisfies::Snapshot => "snapshot",
             MvccSatisfies::Vacuum => "vacuum",
+            MvccSatisfies::VacuumMerge { .. } => "vacuum merge",
             MvccSatisfies::Mergeable => "mergeable",
         }
     }
@@ -543,25 +540,28 @@ impl MVCCDirectory {
                 }
                 let file_handle = directory
                     .get_or_init(|| {
-                        let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
-                            let heaprel = self
-                                .indexrel
-                                .heap_relation()
-                                .expect("Should have a heap relation.");
-                            HeapFetchState::new(&heaprel)
-                        });
-                        let expression_state = self
-                            .expression_state
-                            .get_or_init(|| ExpressionState::new(&self.indexrel));
-                        index_memory_segment(
-                            &self.indexrel,
-                            &tantivy_meta,
-                            &meta,
-                            heap_fetch_state,
-                            expression_state,
-                            &self.mvcc_style,
-                        )
-                        .expect("Failed to index mutable segment.")
+                        crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+                            let _snapshot_guard = ActiveSnapshotGuard::ensure();
+                            let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
+                                let heaprel = self
+                                    .indexrel
+                                    .heap_relation()
+                                    .expect("Should have a heap relation.");
+                                HeapFetchState::new(&heaprel)
+                            });
+                            let expression_state = self
+                                .expression_state
+                                .get_or_init(|| ExpressionState::new(&self.indexrel));
+                            index_memory_segment(
+                                &self.indexrel,
+                                &tantivy_meta,
+                                &meta,
+                                heap_fetch_state,
+                                expression_state,
+                                &self.mvcc_style,
+                            )
+                            .expect("Failed to index mutable segment.")
+                        })
                     })
                     .get_file_handle(path)
                     .map_err(|err| match err {
@@ -579,12 +579,16 @@ impl MVCCDirectory {
 
     /// Drop the pins that are held on the specified [`SegmentId`]s.
     ///
+    /// This includes the pages that the cached readers of their files keep pinned.
+    ///
     /// # Safety
     ///
     /// This does not remove the segments themselves from being accessible by Tantivy, which means
     /// that attempts to use these segments after dropping their pins will likely lead to incorrect
     /// behavior.  It is the callers responsibility to ensure this does not happen.
     pub(crate) unsafe fn drop_pins(&mut self, segment_ids: &[SegmentId]) -> tantivy::Result<()> {
+        // Lock `readers` first, as `get_file_handle` does.
+        let mut readers = self.readers.lock();
         let all_entries = self.all_entries.lock();
         let mut pin_cushion = self.pin_cushion.lock();
         let pin_cushion = pin_cushion
@@ -595,6 +599,12 @@ impl MVCCDirectory {
                 TantivyError::SystemError(format!("segment {segment_id} not found in pin cushion"))
             })?;
             pin_cushion.remove(entry.pintest_blockno());
+
+            let (LoadedSegmentMetaEntry::Persisted { meta, .. }
+            | LoadedSegmentMetaEntry::Memory { meta, .. }) = entry;
+            for path in meta.get_component_paths() {
+                readers.remove(&path);
+            }
         }
 
         Ok(())
@@ -622,17 +632,16 @@ impl MVCCDirectory {
             .collect()
     }
 
-    /// Return the [`SegmentMetaEntry`] for a single loaded segment.
-    ///
-    /// Unlike [`Self::all_entries`], this avoids cloning the entire metadata map when only one
-    /// entry is needed.
-    pub(crate) fn segment_meta_entry(&self, segment_id: &SegmentId) -> Option<SegmentMetaEntry> {
+    /// Return the live document count in this directory's materialized view.
+    pub(crate) fn segment_num_docs(&self, segment_id: &SegmentId) -> Option<usize> {
         self.all_entries
             .lock()
             .get(segment_id)
             .map(|entry| match entry {
-                LoadedSegmentMetaEntry::Persisted { meta, .. }
-                | LoadedSegmentMetaEntry::Memory { meta, .. } => *meta,
+                LoadedSegmentMetaEntry::Persisted { meta, .. } => meta.num_docs(),
+                LoadedSegmentMetaEntry::Memory { tantivy_meta, .. } => {
+                    tantivy_meta.num_docs() as usize
+                }
             })
     }
 
@@ -817,8 +826,8 @@ impl Directory for MVCCDirectory {
         save_settings(&self.indexrel, &meta.index_settings)
             .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
 
-        // If there were no new segments, skip the rest of the work
-        if meta.segments.is_empty() {
+        // An empty replacement still needs to retire the previous segments.
+        if meta.segments.is_empty() && previous_meta.segments.is_empty() {
             return Ok(());
         }
 
@@ -872,7 +881,8 @@ impl Directory for MVCCDirectory {
                     let all_entries: HashMap<_, _> = loaded
                         .entries
                         .into_iter()
-                        .map(|entry| {
+                        .zip(&loaded.meta.segments)
+                        .map(|(entry, tantivy_meta)| {
                             let lsme = match entry.content {
                                 SegmentMetaEntryContent::Immutable(content) => {
                                     LoadedSegmentMetaEntry::Persisted {
@@ -883,7 +893,7 @@ impl Directory for MVCCDirectory {
                                 SegmentMetaEntryContent::Mutable(content) => {
                                     LoadedSegmentMetaEntry::Memory {
                                         meta: entry,
-                                        tantivy_meta: entry.as_tantivy().track(inventory),
+                                        tantivy_meta: tantivy_meta.clone(),
                                         entry: content,
                                         directory: Arc::new(OnceLock::default()),
                                     }
@@ -991,8 +1001,11 @@ impl Directory for MVCCDirectory {
     }
 
     fn wants_cancel(&self) -> bool {
+        // The merger's SIGTERM handler sets `ProcDiePending`, so a fast shutdown has to stop
+        // the loops that poll here too, not only a query cancel.
         unsafe {
             pg_sys::QueryCancelPending != 0
+                || pg_sys::ProcDiePending != 0
                 || !pg_sys::IsTransactionState()
                 || pg_sys::IsAbortedTransactionBlockState()
         }
@@ -1056,48 +1069,17 @@ pub fn index_memory_segment(
     use crate::postgres::heap::HeapDocFetcher;
     use pgrx::PgTupleDesc;
 
-    /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
-    /// detoasting performed while materializing a mutable segment.
-    ///
-    /// Most callers of [`index_memory_segment`] (ordinary DML, queries, VACUUM, background merge
-    /// workers) already run with an active snapshot. The logical-replication apply worker, however,
-    /// applies remote changes without pushing one, and `pg_detoast_datum` on an out-of-line TOAST
-    /// value requires a snapshot (`get_toast_snapshot` errors otherwise). This guard pushes the
-    /// transaction snapshot only when the caller lacks one, and pops it on normal scope exit.
-    ///
-    /// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
-    /// active-snapshot stack; popping again here would underflow it, so the drop implementation
-    /// uses `impl_safe_drop!` to skip cleanup while unwinding.
-    struct ActiveSnapshotGuard {
-        pushed: bool,
-    }
-
-    impl ActiveSnapshotGuard {
-        unsafe fn ensure() -> Self {
-            let pushed = !pg_sys::ActiveSnapshotSet();
-            if pushed {
-                pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
-            }
-            Self { pushed }
-        }
-    }
-
-    crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
-        if self.pushed {
-            unsafe {
-                pg_sys::PopActiveSnapshot();
-            }
-        }
-    });
-
-    // Ensure an active snapshot for the heap fetches, detoasting, and expression evaluation
-    // below. Held until this function returns so it covers the entire materialization loop.
-    let _snapshot_guard = unsafe { ActiveSnapshotGuard::ensure() };
-
     let directory = RamDirectory::create();
-    let ctids = segment
-        .mutable_snapshot(indexrel)
-        .map_err(|e| anyhow::anyhow!("Could not snapshot mutable segment: {e}"))?;
+    let ctids = match mvcc_style {
+        MvccSatisfies::VacuumMerge { live_ctids } => {
+            Cow::Borrowed(live_ctids[&segment.segment_id()].as_slice())
+        }
+        _ => Cow::Owned(
+            segment
+                .mutable_snapshot(indexrel)
+                .map_err(|e| anyhow::anyhow!("Could not snapshot mutable segment: {e}"))?,
+        ),
+    };
 
     let mut writer = SerialIndexWriter::in_memory(
         indexrel,
@@ -1125,7 +1107,9 @@ pub fn index_memory_segment(
         MvccSatisfies::Snapshot
         | MvccSatisfies::ParallelWorker(_)
         | MvccSatisfies::LargestSegment => true,
-        MvccSatisfies::Vacuum | MvccSatisfies::Mergeable => false,
+        MvccSatisfies::Vacuum | MvccSatisfies::VacuumMerge { .. } | MvccSatisfies::Mergeable => {
+            false
+        }
     };
 
     let mut fetcher = HeapDocFetcher::new(
@@ -1138,13 +1122,23 @@ pub fn index_memory_segment(
         query_visible,
     );
 
-    for ctid in ctids {
+    let mut per_row_context = pgrx::PgMemoryContexts::new("pg_search mutable materialization");
+    for (i, &ctid) in ctids.iter().enumerate() {
+        if i % 100 == 0 && matches!(mvcc_style, MvccSatisfies::VacuumMerge { .. }) {
+            crate::postgres::utils::vacuum_delay_point();
+        }
         // A ctid with nothing to index becomes an empty document: the segment must contain
         // every ctid in the mutable snapshot.
-        let doc = unsafe { fetcher.fetch_doc(ctid) }.unwrap_or_else(tantivy::TantivyDocument::new);
-        writer.insert(doc, ctid, || {
-            unreachable!("No limits configured: should not finalize.")
-        })?;
+        unsafe {
+            per_row_context.switch_to(|context| -> anyhow::Result<()> {
+                let doc = fetcher.fetch_doc(ctid).unwrap_or_default();
+                writer.insert(doc, ctid, || {
+                    unreachable!("No limits configured: should not finalize.")
+                })?;
+                context.reset();
+                Ok(())
+            })?;
+        }
     }
 
     writer.finalize_nocommit()?.expect(

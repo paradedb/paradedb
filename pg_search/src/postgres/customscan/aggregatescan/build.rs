@@ -31,11 +31,12 @@ use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, restrict_info};
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::node::NodeExt;
 use crate::postgres::search_operator_relations;
-use crate::postgres::utils::sort_json_keys;
+use crate::postgres::utils::{missing_partial_index_predicate, sort_json_keys};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
@@ -275,7 +276,7 @@ impl AggregateCSClause {
     }
 
     pub fn can_use_doc_count(&self, agg: &AggregateType) -> bool {
-        self.has_groupby() && !self.has_filter() && matches!(agg, AggregateType::CountAny { .. })
+        self.has_groupby() && !self.has_filter() && agg.can_use_doc_count()
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
@@ -476,15 +477,23 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         )
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
-        let targetlist = TargetList::from_pg(args, heap_rti, index)?;
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
+        let index = context
+            .indexrel
+            .as_ref()
+            .expect("should always have an index here");
+        // A query that doesn't imply a partial index's predicate can't use this
+        // index at all, whatever the targetlist holds, so this decides before the
+        // clauses below report a narrower reason for the same decline.
+        let (restrict_info, _) = restrict_info(args.input_rel());
+        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
+            return Err("query does not imply the partial index predicate".into());
+        }
+
+        let targetlist = TargetList::from_pg(args, context)?;
         // OrderBy is optional - if we can't extract it but there IS a sort clause,
         // use unpushable() to remember that ordering exists
-        let orderby = match OrderByClause::from_pg(args, heap_rti, index) {
+        let orderby = match OrderByClause::from_pg(args, context) {
             Ok(o) => o,
             Err(_) => {
                 let has_sort_clause = unsafe {
@@ -497,15 +506,16 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 }
             }
         };
-        // LimitOffset is optional - returns None when there is no LIMIT clause.
-        let limit_offset = LimitOffset::from_parse(args.root().parse);
-        let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
+        // `None` without a LIMIT, or when a DISTINCT or window stage above the
+        // grouping needs every bucket.
+        let limit_offset = args.grouping_limit_offset();
+        let quals = SearchQueryClause::from_pg(args, context)?;
 
         // The planner can simplify the operator out of the quals, so the query as written counts too.
         if !gucs::enable_custom_scan_without_operator()
             && !quals.uses_our_operator()
             && !targetlist.uses_our_operator()
-            && !unsafe { search_operator_relations::applies_to(args.root, heap_rti) }
+            && !unsafe { search_operator_relations::applies_to(args.root, context.heap_rti) }
         {
             return Err(CustomScanBuildError::NotInteresting);
         }
@@ -530,11 +540,12 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
     }
 }
 
-/// Returns true when the query has ORDER BY on any aggregate + LIMIT.
-/// These queries are routed to DataFusion instead of Tantivy because:
+/// Returns true when the query has ORDER BY with an aggregate among its keys
+/// + LIMIT. These queries are routed to DataFusion instead of Tantivy because:
 /// - Tantivy's max_buckets (65000) silently drops groups beyond that limit,
 ///   which could exclude groups that belong in the top-K.
-/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K).
+/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K),
+///   over the whole key list.
 ///
 /// This is a lightweight parse-tree check used before building the full
 /// AggregateCSClause — it only looks at the sort clause structure.
@@ -543,24 +554,20 @@ pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHoo
     if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
         return false;
     }
-    // Must have a LIMIT for TopK to matter
-    if (*parse).limitCount.is_null() {
+    // Must have a plain count LIMIT for TopK to matter
+    if (*parse).limitCount.is_null()
+        || (*parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES
+    {
         return false;
     }
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-    if sort_clauses.len() != 1 {
-        return false;
-    }
-    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
-        return false;
-    };
-    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    // The sort expression must BE an aggregate — not merely contain one.
-    let Some(aggref) = sort_expr.find_single_node::<pg_sys::Aggref>() else {
-        return false;
-    };
-    aggref as *mut pg_sys::Node == sort_expr
+    sort_clauses.iter_ptr().any(|sort_clause_ptr| {
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        // The sort expression must BE an aggregate — not merely contain one.
+        sort_expr
+            .find_single_node::<pg_sys::Aggref>()
+            .is_some_and(|aggref| aggref as *mut pg_sys::Node == sort_expr)
+    })
 }
 
 /// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)
@@ -636,7 +643,9 @@ unsafe fn detect_aggregate_orderby(
     // in a group are NULL. Tantivy treats NULL sums as 0 / omits them,
     // which differs from Postgres's NULL semantics. This causes groups
     // to be mis-ordered or pruned, so we bail out for non-COUNT targets.
-    if agg.can_use_doc_count() {
+    // `COUNT(group_key)` reads 0 on the NULL bucket, but Tantivy ranks
+    // that bucket by its `doc_count`.
+    if matches!(agg, AggregateType::CountAny { .. }) {
         return Some(AggregateOrderBy {
             target: AggregateMetricTarget::Count,
             direction,

@@ -439,6 +439,175 @@ ORDER BY score DESC, documents.id ASC, files.id ASC, pages.id ASC
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 8: RankJoinExec (2-way and 3-way joins with rank_join_min_rows = 0)
+-- =============================================================================
+SET paradedb.rank_join_min_rows = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+
+-- Force small lazy_sort window to verify queries metric > 1
+SET paradedb.max_topk_chunk_size = 2;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY score DESC
+LIMIT 10;
+
+RESET paradedb.max_topk_chunk_size;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
+ORDER BY pdb_score DESC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS pdb_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+  AND pages.content ||| 'vector'
+ORDER BY pdb_score DESC
+LIMIT 10;
+
+-- 8b: 2-way cross-table disjunctive join (ScanMode::Tagged with SA + RA point lookups)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+
+-- 8c: 3-way cross-table disjunctive join (cascading SA + RA point lookups across nested RankJoinExec)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(pages.id) AS page_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       pages.id AS page_id,
+       paradedb.score(documents.id) AS doc_score,
+       paradedb.score(files.id) AS file_score,
+       paradedb.score(pages.id) AS page_score,
+       paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+JOIN pages ON pages."fileId" = files.id
+WHERE documents.content ||| 'search'
+   OR files.content ||| 'search'
+   OR pages.content ||| 'search'
+ORDER BY score DESC
+LIMIT 10;
+
+-- 8d: 2-way single-sided score-sorted join (NRJN: SA on files, RA-only on documents)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(files.id) AS file_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY paradedb.score(files.id) DESC, documents.id ASC
+LIMIT 10;
+
+SELECT documents.id AS doc_id,
+       files.id AS file_id,
+       paradedb.score(files.id) AS file_score
+FROM documents
+JOIN files ON documents.id = files."documentId"
+WHERE documents.content ||| 'postgres'
+  AND files.content ||| 'index'
+ORDER BY paradedb.score(files.id) DESC, documents.id ASC
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -446,6 +615,7 @@ DROP TABLE IF EXISTS pages CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 
+RESET paradedb.rank_join_min_rows;
 RESET max_parallel_workers;
 RESET max_parallel_workers_per_gather;
 RESET parallel_leader_participation;

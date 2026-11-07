@@ -37,6 +37,12 @@ module RailsSnippetHarness
     self.table_name = "mock_items_geo"
   end
 
+  class MockItemPath < ApplicationRecord
+    include ParadeDB::Model
+
+    self.table_name = "mock_items_paths"
+  end
+
   class Order < ApplicationRecord
     include ParadeDB::Model
 
@@ -62,3 +68,4 @@ MockItem = RailsSnippetHarness::MockItem
 Order = RailsSnippetHarness::Order
 
 MockItemGeo = RailsSnippetHarness::MockItemGeo
+MockItemPath = RailsSnippetHarness::MockItemPath

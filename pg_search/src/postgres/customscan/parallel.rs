@@ -24,7 +24,7 @@ use crate::postgres::ParallelScanState;
 pub use crate::scan::info::RowEstimate;
 
 use crate::aggregate::AggregateRequest;
-use crate::api::operator::estimate_selectivity_and_cost;
+use crate::api::operator::{SelectivityAndCost, estimate_selectivity_and_cost};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY;
 use crate::postgres::rel::PgSearchRelation;
@@ -42,6 +42,8 @@ pub(crate) enum WorkerDecisionReason {
     /// Prunable primarily score-DESC ordering: Block-WAND keeps serial scoring sublinear (#4664), so
     /// workers would only add overhead.
     BlockWandPrunable,
+    /// Unfiltered vector TopK shares its router budget and threshold across segments.
+    UnfilteredVectorTopK,
     /// Costable scan, no effective LIMIT: pg_search offered both paths and let PostgreSQL choose. (A
     /// costable scan with no workers to split across also lands here -- it just emits serial.)
     CostModel,
@@ -61,6 +63,7 @@ impl std::fmt::Display for WorkerDecisionReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::BlockWandPrunable => "Prunable top-K",
+            Self::UnfilteredVectorTopK => "Unfiltered vector TopK",
             Self::CostModel => "Cost model",
             Self::CostModelLimited => "Cost model (LIMIT)",
             Self::PerSegment => "Per-segment",
@@ -120,7 +123,7 @@ pub(crate) fn aggregate_nworkers(
 ) -> (usize, Option<ParallelCost>) {
     unsafe {
         let nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
-            .min(reader.segment_readers().len())
+            .min(reader.segment_pruning_estimate().candidate_segments)
             .saturating_sub(usize::from(pg_sys::parallel_leader_participation));
         let Some(workers) = NonZeroUsize::new(
             clamp_to_gather_limits(nworkers).min(pg_sys::max_worker_processes as usize),
@@ -138,8 +141,11 @@ pub(crate) fn aggregate_nworkers(
             return (nworkers, None);
         };
         let total_rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
-        let (selectivity, Some(cost)) =
-            estimate_selectivity_and_cost(index, query.clone(), Some(reader))
+        let SelectivityAndCost {
+            selectivity,
+            query_cost: Some(cost),
+            ..
+        } = estimate_selectivity_and_cost(index, query.clone(), Some(reader))
         else {
             return (nworkers, None);
         };
@@ -168,10 +174,11 @@ pub(crate) fn aggregate_nworkers(
         let mut visibility_map_words = 0u64;
         if fast_count && solve_mvcc && crate::gucs::enable_visibility_map_shortcuts() {
             let view = reader.segment_view();
-            for (segment, entry) in reader.segment_readers().iter().zip(view.entries()) {
-                if !matches!(entry.docs, SegmentViewDocs::Immutable { .. })
-                    || segment.num_docs() == 0
-                {
+            let entries = view.entries();
+            for (ord, segment) in reader.candidate_segment_readers() {
+                let entry = &entries[ord as usize];
+                let num_docs = entry.max_doc().saturating_sub(entry.num_deleted_docs());
+                if !matches!(entry.docs, SegmentViewDocs::Immutable { .. }) || num_docs == 0 {
                     continue;
                 }
                 let Ok(Some(blocks)) = SearchIndexReader::block_bounds(segment) else {
@@ -181,9 +188,7 @@ pub(crate) fn aggregate_nworkers(
                     continue;
                 }
                 let (first, last) = (u64::from(*blocks.start()), u64::from(*blocks.end()));
-                if last - first + 1
-                    < BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(segment.num_docs())
-                {
+                if last - first + 1 < BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY * u64::from(num_docs) {
                     visibility_map_words += last / 32 - first / 32 + 1;
                 }
             }

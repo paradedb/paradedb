@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Aggregate Scan now answers `COUNT(col) ... GROUP BY col` for text, boolean and JSON columns from each group's document count instead of computing a separate metric, which speeds up grouped counts such as `SELECT name, COUNT(name) ... GROUP BY name` (#6707).

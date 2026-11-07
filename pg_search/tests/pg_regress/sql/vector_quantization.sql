@@ -2,9 +2,13 @@ SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
+SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 1.0;
 SET paradedb.vector_stats = on;
+
+SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
+    = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
 
 CREATE FUNCTION quant_fixture_vector(d integer, n integer)
 RETURNS vector
@@ -73,7 +77,7 @@ CREATE TABLE q_cal_unquantized (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_cal_unquantized_idx ON q_cal_unquantized
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":false}}'
+    quantization = '0'
 );
 INSERT INTO q_cal_unquantized
 SELECT g, quant_fixture_vector(64, g) FROM generate_series(1, 100) g;
@@ -94,7 +98,7 @@ CREATE TABLE q_explicit_below_floor (id integer PRIMARY KEY, vec vector(63));
 CREATE INDEX q_explicit_below_floor_idx ON q_explicit_below_floor
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":true}}'
+    quantization = '[1,1]'
 );
 DROP TABLE q_explicit_below_floor;
 
@@ -107,12 +111,22 @@ CREATE TABLE q_schedule_validation (id integer PRIMARY KEY, vec vector(64));
 CREATE INDEX q_too_many_layers_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,1,1,1]}}}'
+    quantization = '[1,1,1,1]'
 );
+CREATE INDEX q_zero_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[0,0]');
+CREATE INDEX q_wide_layer_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[5]');
+CREATE INDEX q_empty_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '[]');
+CREATE INDEX q_json_layers_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (quantization = '{"layers":[1,1]}');
+CREATE INDEX q_legacy_fields_idx ON q_schedule_validation
+USING paradedb (id, vec vector_cosine_ops) WITH (vector_fields = '{"vec":{"quantization":false}}');
 CREATE INDEX q_grid_first_idx ON q_schedule_validation
 USING paradedb (id, vec vector_cosine_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[4]}}}'
+    quantization = '[4]'
 );
 DROP TABLE q_schedule_validation;
 
@@ -245,7 +259,7 @@ FROM segment_info, jsonb_each(segment_info.value) AS segment,
      unnest(ARRAY['layer0_reads', 'layer0_bytes_read', 'layer0_storage_blocks',
                   'layer0_sign_word_fallbacks', 'layer1_reads', 'layer1_bytes_read',
                   'layer1_storage_blocks', 'layer1_sign_word_fallbacks',
-                  'rerank_reads', 'rerank_bytes_read', 'rerank_storage_blocks']) AS required(key);
+                  'exact_reads', 'exact_bytes_read', 'exact_storage_blocks']) AS required(key);
 
 SELECT * FROM paradedb.vector_estimator_info(NULL, 'vec');
 SELECT * FROM paradedb.vector_estimator_info('q_cosine_idx', NULL);
@@ -291,25 +305,31 @@ SELECT
         AS layer0_populated,
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
-        AND (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
-            = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
         AS layer0_selection_accounted,
     (jsonb_path_query_first(value, '$.**.layer0_survivors') #>> '{}')::bigint
         < (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
         AS layer0_filtered,
-    (jsonb_path_query_first(value, '$.**.rerank_rows') #>> '{}')::bigint > 0
-        AS rerank_populated,
+    (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint > 0
+        AS exact_populated,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint > 0
         AS routing_flat,
-    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NOT NULL
-        AS bound_flat,
+    jsonb_path_query_first(value, '$.**.bound_armed_count') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bounds_skips') IS NULL
+        AND jsonb_path_query_first(value, '$.**.bound_armed_probe_sum') IS NULL
+        AS no_radii,
     jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_hits')) = 'number'
         AND jsonb_typeof(jsonb_path_query_first(value, '$.**.buffer_reads')) = 'number'
         AS io_flat,
-    (jsonb_path_query_first(value, '$.**.rerank_blocks_fetched') #>> '{}')::bigint > 0
-        AS rerank_io_flat
+    (jsonb_path_query_first(value, '$.**.exact_fetch_buffer_hits') #>> '{}')::bigint
+        + (jsonb_path_query_first(value, '$.**.exact_fetch_buffer_reads') #>> '{}')::bigint > 0
+        AS exact_io_flat
 FROM segment_info;
 
+-- The same rows without a paradedb index: Postgres scans and sorts them exhaustively.
+CREATE TEMP TABLE q_cosine_oracle AS SELECT * FROM q_cosine;
+
+-- 50 of 200 documents match: the segment locates them, scoring each match once.
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
@@ -321,23 +341,83 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
-        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
-        AS filtered_scores_only_eligible,
-    (jsonb_path_query_first(value, '$.**.eligible_charged') #>> '{}')::bigint
+    jsonb_path_query_first(value, '$.**.access_path') #>> '{}' AS access_path,
+    (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint AS located_matches,
+    (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint = 0
+        AS located_prunes_nothing,
+    (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.located_clusters') #>> '{}')::bigint
+        AS located_rows_every_located_cluster,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint
+        AS located_scores_every_match,
+    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.pruned_dead') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.located_matches') #>> '{}')::bigint
+        AS located_visits_accounted
+FROM segment_info;
+
+SELECT
+    ARRAY(
+        SELECT id FROM q_cosine
+        WHERE id @@@ paradedb.range('id', int4range(1, 51, '[)'))
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) = ARRAY(
+        SELECT id FROM q_cosine_oracle
+        WHERE id >= 1 AND id < 51
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) AS located_matches_exhaustive;
+
+-- 120 of 200 documents match, well above the probe budget's rows: the segment routes, and
+-- admission scores and charges only rows that pass the filter. Skipping a cluster whose rows all
+-- fail the filter is asserted in tantivy's filtered_empty_cluster_skips_band_reads.
+SET paradedb.vector_cluster_max_probe = 0.25;
+WITH plan AS (
+    SELECT quant_explain(
+        'SELECT id FROM q_cosine '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 121, ''[)'')) '
+        'ORDER BY vec <=> quant_fixture_vector(768, 0), id LIMIT 10'
+    ) AS value
+), segment_info AS (
+    SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
+    FROM plan
+)
+SELECT
+    jsonb_path_query_first(value, '$.**.access_path') #>> '{}' AS access_path,
+    (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
-        AS filtered_charges_only_eligible,
+        AS filtered_scores_only_eligible,
     (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint > 0
         AS filtered_prunes_at_admission,
-    (jsonb_path_query_first(value, '$.**.clusters_skipped_empty') #>> '{}')::bigint > 0
-        AS filtered_skips_empty_clusters
+    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint
+        = (jsonb_path_query_first(value, '$.**.pruned_filter') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.pruned_dead') #>> '{}')::bigint
+            + (jsonb_path_query_first(value, '$.**.candidates_scored') #>> '{}')::bigint
+        AS filtered_visits_accounted
 FROM segment_info;
+
+SELECT
+    ARRAY(
+        SELECT id FROM q_cosine
+        WHERE id @@@ paradedb.range('id', int4range(1, 121, '[)'))
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) = ARRAY(
+        SELECT id FROM q_cosine_oracle
+        WHERE id >= 1 AND id < 121
+        ORDER BY vec <=> quant_fixture_vector(768, 0), id
+        LIMIT 10
+    ) AS routed_matches_exhaustive;
+SET paradedb.vector_cluster_max_probe = 1.0;
+DROP TABLE q_cosine_oracle;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    quantization = '[1,4]',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '400kb',
@@ -364,7 +444,7 @@ CREATE TABLE q_odd (id integer PRIMARY KEY, vec vector(100));
 CREATE INDEX q_odd_idx ON q_odd
 USING paradedb (id, vec vector_l2_ops)
 WITH (
-    vector_fields = '{"vec":{"quantization":{"layers":[1,4]}}}',
+    quantization = '[1,4]',
     target_segment_count = 1,
     mutable_segment_rows = 0,
     layer_sizes = '50kb',
@@ -450,7 +530,7 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.exact_rows_read') #>> '{}')::bigint = 32
+    (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint = 32
         AS flat_reads_every_row,
     (jsonb_path_query_first(value, '$.**.routing_visited_count') #>> '{}')::bigint = 0
         AND (jsonb_path_query_first(value, '$.**.postings_row') #>> '{}')::bigint = 0
@@ -486,6 +566,7 @@ RESET paradedb.vector_stats;
 DROP FUNCTION quant_explain_has_segment_info();
 
 RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_adaptive_probing;
 RESET paradedb.vector_clustering_threshold;
 
 DROP TABLE q_cosine;

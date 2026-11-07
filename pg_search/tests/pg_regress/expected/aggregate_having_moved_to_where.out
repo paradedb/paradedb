@@ -341,11 +341,11 @@ WHERE id @@@ paradedb.all()
 GROUP BY account_id, kind
 HAVING length(kind) = 1 AND kind <> 'b'
 ORDER BY account_id, kind;
-                                                                                                                                  QUERY PLAN                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on having_items
    Index: having_items_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"b"}}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(length(kind) = 1)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"b"}}]}}]}},"always_filters":[{"heap_filter":"(length(kind) = 1)"}]}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: account_id, kind
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"kind","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"account_id","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}

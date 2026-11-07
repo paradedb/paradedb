@@ -435,7 +435,7 @@ pub struct CategorizedFieldData {
     pub is_json: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SearchIndexSchema {
     schema: Schema,
     bm25_options: BM25IndexOptions,
@@ -546,6 +546,40 @@ impl SearchIndexSchema {
             .get_field_type(&FieldName::from(name.as_ref()))
     }
 
+    pub fn search_field_with_data(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Option<(SearchField, CategorizedFieldData)> {
+        let search_field = self.search_field(name)?;
+        let data = self
+            .categorized_fields()
+            .iter()
+            .find(|(sf, _)| sf == &search_field)
+            .map(|(_, d)| d.clone())?;
+        Some((search_field, data))
+    }
+
+    /// `attno` is the 1-based attno
+    pub fn search_field_with_data_by_attno(
+        &self,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<(SearchField, CategorizedFieldData)> {
+        if attno < 0 {
+            return None;
+        }
+        let attno = (attno - 1) as usize;
+        let fields = self.categorized_fields();
+        let matches =
+            |(_, d): &&(SearchField, CategorizedFieldData)| d.source.heap_attno() == Some(attno);
+        // A column indexed both plainly and through a tokenizer cast: prefer the plain one.
+        fields
+            .iter()
+            .filter(matches)
+            .find(|(_, d)| matches!(d.source, FieldSource::Heap { .. }))
+            .or_else(|| fields.iter().find(matches))
+            .cloned()
+    }
+
     /// The field type and declared scale of `name` when the column is NUMERIC,
     /// else `None`. Legacy indexes that store NUMERIC as F64 land in the `None`
     /// arm too: their column data really is `Float64`, so the native aggregates
@@ -619,6 +653,30 @@ impl SearchIndexSchema {
     pub fn supports_tantivy_aggregate(&self, name: impl AsRef<str>) -> bool {
         self.search_field(name)
             .is_some_and(|f| !f.field_type().is_numeric())
+    }
+
+    /// Whether a `pdb::Query::Term` on `name` has a constant BM25 score across all matching
+    /// documents, allowing `RankJoinExec` to treat it as a `0.0`-score filter while preserving
+    /// the same row ranking as `HashJoinExec`.
+    pub fn is_term_filter_field(&self, name: impl AsRef<str>) -> bool {
+        let Some(f) = self.search_field(name) else {
+            return false;
+        };
+        if f.is_tokenized_text() || f.is_json() {
+            return false;
+        }
+        let varies_by_length_or_freq = f.field_entry().has_fieldnorms()
+            || f.field_entry()
+                .field_type()
+                .get_index_record_option()
+                .is_some_and(|opt| opt != tantivy::schema::IndexRecordOption::Basic);
+        if !varies_by_length_or_freq {
+            return true;
+        }
+        !self
+            .categorized_fields()
+            .iter()
+            .any(|(cf, data)| cf.field() == f.field() && data.is_array)
     }
 
     pub fn fields(&self) -> impl Iterator<Item = (Field, &FieldEntry)> {
@@ -822,6 +880,11 @@ impl SearchField {
         self.field_entry.is_fast()
     }
 
+    /// returns the search field type only if that type is numeric
+    pub fn numeric_field_type(&self) -> Option<SearchFieldType> {
+        self.field_type.is_numeric().then(|| self.field_type())
+    }
+
     pub fn is_numeric_fast(&self) -> bool {
         match self.field_entry.field_type() {
             FieldType::I64(options) => options.is_fast(),
@@ -950,6 +1013,12 @@ impl SearchField {
                         == SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()))
             })
             .unwrap_or(false)
+    }
+
+    /// A text field whose tokenizer splits values, so a term matches part of a value rather
+    /// than one whole value.
+    pub fn is_tokenized_text(&self) -> bool {
+        self.is_text() && !self.is_keyword() && !self.is_numeric_bytes()
     }
 
     /// Whether this field's `.stats` min/max order the way query values compare, so a

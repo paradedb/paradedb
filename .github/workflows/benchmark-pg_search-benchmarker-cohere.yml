@@ -1,4 +1,4 @@
-name: Cohere 10m Default Cluster Comparison
+name: Cohere 10m Main Eight-Segment Cluster Comparison
 
 on:
   workflow_dispatch:
@@ -18,13 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: paradedb/tantivy
-          ref: 39b7f0e7ad74a81a089defa67d84e008b75c5c00
+          ref: 32a0a1791dcd5fa8cd03bdf1617d3a3dba615978
           path: .cluster-export-deps/tantivy
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
         id: private-source
@@ -40,6 +42,7 @@ jobs:
           ref: e9284639954aba09130688c20e20759f94f4c24e
           path: .cluster-export-deps/pg_vectorsearch
           token: ${{ steps.private-source.outputs.token }}
+          fetch-depth: 2
           persist-credentials: false
       - uses: ./.github/actions/setup-pg-search-build-environment
         with:
@@ -62,7 +65,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: cohere-10m-default-clusters
+          name: cohere-10m-main-eight-segment-clusters
           path: benchmark-artifacts/
           compression-level: 1
           retention-days: 14

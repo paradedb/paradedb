@@ -30,7 +30,6 @@
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lockfree_object_pool::MutexObjectPool;
@@ -216,9 +215,11 @@ pub fn retry_transient<T>(
         let witness = PauseWitness::take(pause_source());
         let mut conn = pool.pull();
         let attempt = op(&mut conn);
-        observe_schedule();
         let (kind, err) = match attempt {
-            Attempt::Done(value) => return Ok(value),
+            Attempt::Done(value) => {
+                retry.note_resolved();
+                return Ok(value);
+            }
             Attempt::Transient(kind, err) => (kind, err),
         };
         match kind {
@@ -239,61 +240,50 @@ pub fn retry_transient<T>(
     }
 }
 
-/// Counters describing the fault schedule this timeline actually experienced, so its shape can be
-/// asserted rather than trusted.
-static LAST_PAUSED: AtomicBool = AtomicBool::new(false);
-static QUIET_PERIODS_COMPLETED: AtomicUsize = AtomicUsize::new(0);
-static FAULTS_BEFORE_ANY_QUIET: AtomicUsize = AtomicUsize::new(0);
-
-/// Samples the pause state after every attempt — not just failing ones, since a fault-free window
-/// is exactly when nothing fails — and asserts the schedule alternates: faults, a quiet window,
-/// faults again.
-fn observe_schedule() {
-    let paused = pause_source().current().is_some();
-    let was_paused = LAST_PAUSED.swap(paused, Ordering::Relaxed);
-
-    if paused && !was_paused {
-        dst::assert_reachable!("qgen: the recovery-liveness command paused faults");
-    }
-    if !paused && was_paused {
-        QUIET_PERIODS_COMPLETED.fetch_add(1, Ordering::Relaxed);
-        dst::assert_reachable!("qgen: returned to unbounded retry after a fault-free window");
-    }
-
-    // Faults must not be paused everywhere: some case has to complete under uninterrupted chaos.
-    dst::assert_sometimes!(
-        QUIET_PERIODS_COMPLETED.load(Ordering::Relaxed) == 0
-            && FAULTS_BEFORE_ANY_QUIET.load(Ordering::Relaxed) > 0,
-        "qgen: a case completed while faults had never been paused",
-        &serde_json::json!({})
-    );
-}
-
-fn note_fault() {
-    if QUIET_PERIODS_COMPLETED.load(Ordering::Relaxed) == 0 {
-        FAULTS_BEFORE_ANY_QUIET.fetch_add(1, Ordering::Relaxed);
-    } else if FAULTS_BEFORE_ANY_QUIET.load(Ordering::Relaxed) > 0 {
-        dst::assert_reachable!("qgen: faults resumed after surviving a fault-free window");
-    }
-}
-
-/// Tracks one continuous transient fault against the declared pause. The pause state is re-read
-/// on every failure and the clock restarts whenever it changes, so a poke landing mid-fault
-/// starts a fresh recovery window: it asks "can you recover within the window from *now*".
+/// Per-operation state for retrying one continuous transient fault against the declared [`Pause`].
+///
+/// A fresh [`FaultRetry`] is created for each retryable operation ([`retry_transient`] or
+/// `tolerate_transient_setup!`) and dropped once the operation resolves. Keeping this state
+/// scoped to a single operation (matching `stressgres::fault_tolerance::tolerate_transient`)
+/// means quiet periods that occur while the database is healthy do not affect later fault
+/// episodes.
+///
+/// On each transient failure ([`FaultRetry::record`]), the current [`Pause`] is re-read from
+/// [`PauseSource`]. Whenever the pause state changes (such as a recovery poke landing mid-fault
+/// or expiring), `down_since` and `backoff` reset so the grace window is measured from when the
+/// pause was first observed ("can you recover within `pause.window` from now?"), rather than
+/// from when the fault began.
+///
+/// Together with [`FaultRetry::note_resolved`], this emits the three DST coverage checks for the
+/// retry loop: that transient faults are retried, that a recovery poke sometimes narrows the
+/// grace window during an active fault, and that operations resolve after riding out a fault.
 #[derive(Default)]
 pub(crate) struct FaultRetry {
+    /// When the current continuous failure under `last_pause` began.
     down_since: Option<std::time::Instant>,
+    /// The [`Pause`] observed on the previous failed attempt of this operation, if any.
     last_pause: Option<Option<Pause>>,
+    /// Sleep duration for the next retry, doubled on each attempt up to [`MAX_BACKOFF`].
     backoff: Option<Duration>,
+    /// Whether this operation has hit at least one transient fault.
+    rode_out_fault: bool,
 }
 
 impl FaultRetry {
+    /// Records that the operation resolved after riding out at least one transient fault.
+    pub(crate) fn note_resolved(&self) {
+        if self.rode_out_fault {
+            dst::assert_reachable!(
+                "qgen: made forward progress after riding out a transient database fault"
+            );
+        }
+    }
+
     /// Records a transient failure of `what`, then sleeps so the caller can retry. Returns `Err`
     /// only once a declared pause's window has elapsed continuously — i.e. only while faults are
     /// healed.
     pub(crate) fn record(&mut self, what: &str, err: &dyn std::fmt::Display) -> Result<(), String> {
         let pause = pause_source().current();
-        note_fault();
 
         // A poke landing mid-fault is the only path where the liveness check can actually fail;
         // assert it happens at all.
@@ -323,6 +313,7 @@ impl FaultRetry {
         }
 
         dst::assert_reachable!("qgen: retried a transient database fault");
+        self.rode_out_fault = true;
         eprintln!("{what}: transient database fault, retrying: {err}");
         let backoff = self.backoff.unwrap_or(INITIAL_BACKOFF);
         std::thread::sleep(backoff);

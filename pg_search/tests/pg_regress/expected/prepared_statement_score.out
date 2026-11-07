@@ -332,8 +332,8 @@ LIMIT 10;
 -- Should return shoes with rating > 3
 EXPLAIN (COSTS OFF)
 EXECUTE test_complex('shoes', 3, 0);
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
@@ -344,7 +344,7 @@ EXECUTE test_complex('shoes', 3, 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}},{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > $2)"}]}},"always_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_complex('shoes', 3, 0);
@@ -357,8 +357,8 @@ EXECUTE test_complex('shoes', 3, 0);
 -- Should return NO results (filter $3 = 1 fails)
 EXPLAIN (COSTS OFF)
 EXECUTE test_complex('shoes', 3, 1);
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
@@ -369,7 +369,7 @@ EXECUTE test_complex('shoes', 3, 1);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}},{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > $2)"}]}},"always_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_complex('shoes', 3, 1);
@@ -380,8 +380,8 @@ EXECUTE test_complex('shoes', 3, 1);
 -- Should return shoes with rating > 2
 EXPLAIN (COSTS OFF)
 EXECUTE test_complex('shoes', 2, 0);
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
@@ -392,7 +392,7 @@ EXECUTE test_complex('shoes', 2, 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.match_disjunction('description'::paradedb.fieldname, $1))"}}},{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(rating > $2)"}]}},"always_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_complex('shoes', 2, 0);

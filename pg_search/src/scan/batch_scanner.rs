@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::{
-    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, list_item_field,
-    ords_to_bytes_array, ords_to_string_array,
+    FFHelper, FFType, FieldCardinality, FieldDelivery, WhichFastField, ords_to_bytes_array,
+    ords_to_string_array,
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::{VisibilityChecker, VisibilityCtids, VisibilityMask};
@@ -44,9 +44,10 @@ const MAX_BATCH_SIZE: usize = 128_000;
 /// batch size, since we are not fetching string dictionaries during the scan phase.
 const DEFERRED_BATCH_SIZE: usize = 8_192;
 
-/// Compact `ids` and `memoized_columns` in-place based on a boolean mask.
+/// Compact `ids` (and optional `orig_indices`) and `memoized_columns` in-place based on a boolean mask.
 fn compact_with_mask(
     ids: &mut Vec<DocId>,
+    mut orig_indices: Option<&mut Vec<usize>>,
     memoized_columns: &mut [Option<ArrayRef>],
     mask: &BooleanArray,
 ) {
@@ -54,17 +55,23 @@ fn compact_with_mask(
         return;
     }
 
-    // Compact ids.
+    // Compact ids (and optional orig_indices).
     let mut write_idx = 0;
     for (read_idx, valid) in mask.iter().enumerate() {
         if valid == Some(true) {
             if read_idx != write_idx {
                 ids[write_idx] = ids[read_idx];
+                if let Some(orig) = orig_indices.as_deref_mut() {
+                    orig[write_idx] = orig[read_idx];
+                }
             }
             write_idx += 1;
         }
     }
     ids.truncate(write_idx);
+    if let Some(orig) = orig_indices {
+        orig.truncate(write_idx);
+    }
 
     // Compact memoized columns
     for opt_col in memoized_columns {
@@ -96,13 +103,13 @@ fn ensure_column_fetched(
                 FieldCardinality::Scalar => {
                     column.fetch_values_or_ords_to_arrow(ids, *search_field_type)
                 }
-                // TODO: https://github.com/paradedb/paradedb/issues/6164 (late materialization for array columns)
                 FieldCardinality::List => {
                     column.fetch_array_values_or_ords_to_arrow(ids, *search_field_type)
                 }
             });
         }
         WhichFastField::Score(_)
+        | WhichFastField::VectorScore(_)
         | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)
@@ -165,7 +172,9 @@ pub struct Scanner {
     /// Deferred columns (by `which_fast_fields` index) whose term ordinals this scan resolves
     /// itself, so they leave the scan as State 1 in doc order instead of as doc addresses.
     fetch_ordinals_in_scan: Vec<bool>,
-    /// Rows entering the pre-materialization filter stage (after visibility).
+    /// Candidate rows reaching the pre-materialization filter stage (before visibility checks),
+    /// counted on every batch even when no active `PreFilter` is present (e.g. while a dynamic
+    /// filter is still `lit(true)`).
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
@@ -189,13 +198,13 @@ struct ActiveTagScorer {
 
 impl ActiveTagScorer {
     /// Evaluates this tag scorer against a batch of `ids` (within `start_doc..=end_doc`),
-    /// accumulating BM25 scores into `scores` and populating `memoized_columns` if this
-    /// `MatchTag` column is requested.
+    /// accumulating BM25 scores into `scores` (when `Some`) and populating `memoized_columns`
+    /// if this `MatchTag` column is requested.
     fn evaluate_batch(
         &mut self,
         ids: &[DocId],
         end_doc: DocId,
-        scores: &mut [Score],
+        mut scores: Option<&mut [Score]>,
         which_fast_fields: &[WhichFastField],
         memoized_columns: &mut [Option<ArrayRef>],
     ) {
@@ -233,7 +242,9 @@ impl ActiveTagScorer {
                 if let Some(b) = builder.as_mut() {
                     b.set_bit(id_idx, true);
                 }
-                scores[id_idx] += tag_scorer.score();
+                if let Some(scores) = scores.as_mut() {
+                    scores[id_idx] += tag_scorer.score();
+                }
                 tag_scorer.advance();
                 id_idx += 1;
             } else {
@@ -295,7 +306,7 @@ impl Scanner {
 
         let batch_size = batch_size_hint
             .unwrap_or(default_batch_size)
-            .min(default_batch_size);
+            .clamp(1, default_batch_size);
 
         let defer_visibility = which_fast_fields
             .iter()
@@ -344,6 +355,29 @@ impl Scanner {
             .push(TaggedMatchQuery { tag_name, weight });
     }
 
+    /// Compiles and registers any `ScanMode::Tagged` match queries on this scanner.
+    pub fn register_tagged_queries(
+        &mut self,
+        scan_mode: &crate::scan::ScanMode,
+        reader: &crate::index::reader::index::SearchIndexReader,
+        need_scores: bool,
+    ) -> datafusion::common::Result<()> {
+        if let crate::scan::ScanMode::Tagged { local_queries, .. } = scan_mode {
+            for tq in local_queries {
+                let weight = reader
+                    .compile_match_weight(&tq.query, need_scores)
+                    .map_err(|e| {
+                        datafusion::common::DataFusionError::Internal(format!(
+                            "Failed to compile match weight for tag {}: {e}",
+                            tq.tag_name
+                        ))
+                    })?;
+                self.add_tagged_query(tq.tag_name.clone(), weight);
+            }
+        }
+        Ok(())
+    }
+
     fn ensure_segment_tag_scorers(&mut self, segment_ord: SegmentOrdinal) {
         if self.current_segment_ord != Some(segment_ord) {
             self.active_tag_scorers.clear();
@@ -363,9 +397,9 @@ impl Scanner {
         }
     }
 
-    /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
+    /// Override the batch size. Clamped to `1..=MAX_BATCH_SIZE`.
     pub(crate) fn set_batch_size(&mut self, size: usize) {
-        self.batch_size = size.min(MAX_BATCH_SIZE);
+        self.batch_size = size.clamp(1, MAX_BATCH_SIZE);
     }
 
     /// Returns whether score threshold pushdown into the underlying Tantivy segment scorer
@@ -392,6 +426,7 @@ impl Scanner {
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+        debug_assert!(self.batch_size > 0);
         let can_pushdown = self.can_pushdown_score_threshold();
         // Collect a batch of ids for a single segment.
         loop {
@@ -402,9 +437,22 @@ impl Scanner {
                 self.score_threshold_pushed = true;
             }
 
+            let Some((first_score, first_id)) = scorer_iter.next() else {
+                // This segment was completely empty or exhausted: remove it and move to the next.
+                self.search_results.current_segment_pop();
+                continue;
+            };
+            debug_assert_eq!(first_id.segment_ord, segment_ord);
+
             // Collect a batch of ids/scores for this segment.
-            let mut scores = Vec::with_capacity(self.batch_size);
-            let mut ids = Vec::with_capacity(self.batch_size);
+            let cap = self
+                .batch_size
+                .min(scorer_iter.remaining_docs_upper_bound(first_id.doc_id));
+            let mut scores = Vec::with_capacity(cap);
+            let mut ids = Vec::with_capacity(cap);
+            scores.push(first_score);
+            ids.push(first_id.doc_id);
+
             while ids.len() < self.batch_size {
                 let Some((score, id)) = scorer_iter.next() else {
                     // No more results for the current segment: remove it.
@@ -417,42 +465,46 @@ impl Scanner {
                 ids.push(id.doc_id);
             }
 
-            if ids.is_empty() {
-                // This segment was completely empty: move to the next.
-                continue;
-            }
-
             return Some((segment_ord, scores, ids));
         }
     }
 
-    /// Populates `memoized_columns` for requested `MatchTag` and `Score` fields.
+    /// Populates `memoized_columns` for requested `MatchTag`, `Score`, and `VectorScore` fields.
     ///
-    /// For tagged scans, evaluating each match tag mutates `scores` by accumulating
-    /// the matched tag's BM25 score onto the base query score in-place for each row.
+    /// For tagged scans with a BM25 `Score` column, evaluating each match tag mutates `scores`
+    /// by accumulating the matched tag's BM25 score onto the base query score in-place for each row.
     fn populate_scores_for_batch(
         &mut self,
         ids: &[DocId],
         mut scores: Vec<Score>,
         memoized_columns: &mut [Option<ArrayRef>],
     ) {
+        let has_bm25_score = self.which_fast_fields.iter().any(|ff| ff.is_score());
+        let has_vector_score = self.which_fast_fields.iter().any(|ff| ff.is_vector_score());
+        // `SearchIndexScore` only carries a single `f32` score per document (either BM25 or
+        // vector similarity; see <https://github.com/paradedb/paradedb/issues/7141>), so a single
+        // leaf scan must never request both `Score` and `VectorScore`.
+        assert!(
+            !(has_bm25_score && has_vector_score),
+            "Scanner cannot populate both BM25 Score and VectorScore on the same table scan"
+        );
         if !self.active_tag_scorers.is_empty() && !ids.is_empty() {
             let end_doc = *ids.last().unwrap();
             for active_tag in &mut self.active_tag_scorers {
                 active_tag.evaluate_batch(
                     ids,
                     end_doc,
-                    &mut scores,
+                    has_bm25_score.then_some(scores.as_mut_slice()),
                     &self.which_fast_fields,
                     memoized_columns,
                 );
             }
         }
 
-        if self.which_fast_fields.iter().any(|ff| ff.is_score()) {
+        if has_bm25_score || has_vector_score {
             let scores_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
             for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if ff.is_score() {
+                if ff.is_score() || ff.is_vector_score() {
                     memoized_columns[idx] = Some(scores_array.clone());
                 }
             }
@@ -462,7 +514,7 @@ impl Scanner {
     /// Fetch the next batch of results, applying visibility checks and
     /// pre-materialization filters.
     ///
-    /// `pre_filters` are applied after visibility checks but *before* column
+    /// `pre_filters` are applied before visibility checks and column
     /// materialization, allowing string-column filters (including dynamically
     /// generated lexicographical thresholds) to operate natively on cheap
     /// term ordinals rather than requiring expensive dictionary lookups.
@@ -471,9 +523,139 @@ impl Scanner {
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
-    ) -> Option<Batch> {
-        pgrx::check_for_interrupts!();
-        let (segment_ord, scores, mut ids) = self.try_get_batch_ids()?;
+    ) -> datafusion::common::Result<Option<Batch>> {
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return Err(crate::postgres::customscan::mpp::interrupted());
+        }
+        let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
+            return Ok(None);
+        };
+        Ok(Some(self.materialize_segment_batch(
+            segment_ord,
+            scores,
+            ids,
+            None,
+            ffhelper,
+            visibility,
+            pre_filters,
+        )))
+    }
+
+    /// Materializes a Top-K window of `(SearchIndexScore, DocAddress)` hits across segments into
+    /// a single `RecordBatch` preserving the input Top-K row ordering.
+    ///
+    /// Hits are grouped by segment and sorted by `DocId` for sequential fast-field reads,
+    /// visibility checks, and pre-filter evaluation, then interleaved back into Top-K order.
+    /// Returns `Ok(None)` if `results` is empty or if all rows in the window are filtered out.
+    pub(crate) fn materialize_topk_window(
+        &mut self,
+        results: &[(
+            crate::index::reader::index::SearchIndexScore,
+            tantivy::DocAddress,
+        )],
+        ffhelper: &Arc<FFHelper>,
+        visibility: &mut VisibilityChecker,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+        schema: &SchemaRef,
+    ) -> datafusion::common::Result<Option<RecordBatch>> {
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return Err(crate::postgres::customscan::mpp::interrupted());
+        }
+        if results.is_empty() {
+            return Ok(None);
+        }
+        // Consecutive SA windows or RA lookups on a single-segment index can revisit the same
+        // `segment_ord` with smaller `DocId`s than the previous window; reset `current_segment_ord`
+        // so forward-only `ActiveTagScorer`s are re-instantiated from DocId 0 for each window.
+        self.current_segment_ord = None;
+
+        let num_segments = ffhelper.num_segments();
+        let mut slot_by_orig_idx: Vec<Option<(usize, usize)>> = vec![None; results.len()];
+        let mut seg_batches: Vec<RecordBatch> = Vec::new();
+
+        let doc_addresses = results
+            .iter()
+            .enumerate()
+            .map(|(orig_idx, (_, doc_addr))| (orig_idx, *doc_addr));
+
+        crate::index::fast_fields_helper::for_each_segment(
+            num_segments,
+            doc_addresses,
+            |segment_ord, rows| {
+                let mut orig_indices = Vec::with_capacity(rows.len());
+                let mut ids = Vec::with_capacity(rows.len());
+                let mut scores = Vec::with_capacity(rows.len());
+                for (orig_idx, doc_id) in rows {
+                    orig_indices.push(orig_idx);
+                    ids.push(doc_id);
+                    scores.push(results[orig_idx].0.bm25);
+                }
+                let batch = self.materialize_segment_batch(
+                    segment_ord,
+                    scores,
+                    ids,
+                    Some(&mut orig_indices),
+                    ffhelper,
+                    visibility,
+                    pre_filters,
+                );
+                if batch.num_rows > 0 {
+                    let seg_batch_idx = seg_batches.len();
+                    for (row_in_seg, &orig_idx) in orig_indices.iter().enumerate() {
+                        slot_by_orig_idx[orig_idx] = Some((seg_batch_idx, row_in_seg));
+                    }
+                    seg_batches.push(batch.to_record_batch(schema));
+                }
+                Ok(())
+            },
+        )
+        .expect("segment iteration should succeed");
+
+        let interleave_indices: Vec<(usize, usize)> =
+            slot_by_orig_idx.into_iter().flatten().collect();
+        if interleave_indices.is_empty() {
+            return Ok(None);
+        }
+
+        if seg_batches.len() == 1
+            && interleave_indices
+                .iter()
+                .enumerate()
+                .all(|(i, &(b, r))| b == 0 && r == i)
+        {
+            return Ok(seg_batches.pop());
+        }
+
+        let num_rows = interleave_indices.len();
+        let columns: Vec<ArrayRef> = (0..schema.fields().len())
+            .map(|col_idx| {
+                let col_refs: Vec<&dyn Array> = seg_batches
+                    .iter()
+                    .map(|rb| rb.column(col_idx).as_ref())
+                    .collect();
+                compute::interleave(&col_refs, &interleave_indices)
+                    .expect("Failed to interleave segment column")
+            })
+            .collect();
+
+        let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
+        Ok(Some(
+            RecordBatch::try_new_with_options(schema.clone(), columns, &options)
+                .expect("Failed to create RecordBatch"),
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn materialize_segment_batch(
+        &mut self,
+        segment_ord: SegmentOrdinal,
+        scores: Vec<Score>,
+        mut ids: Vec<DocId>,
+        mut orig_indices: Option<&mut Vec<usize>>,
+        ffhelper: &Arc<FFHelper>,
+        visibility: &mut VisibilityChecker,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
+    ) -> Batch {
         self.ensure_segment_tag_scorers(segment_ord);
 
         // Memoize fetched columns to avoid redundant fetches.
@@ -491,8 +673,9 @@ impl Scanner {
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
+        let before = ids.len();
+        self.pre_filter_rows_scanned += before;
         if let Some(pre_filters) = pre_filters {
-            let before = ids.len();
             for pre_filter in pre_filters.filters {
                 if ids.is_empty() {
                     break;
@@ -516,9 +699,13 @@ impl Scanner {
                         ids.len(),
                     )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-                compact_with_mask(&mut ids, &mut memoized_columns, &mask);
+                compact_with_mask(
+                    &mut ids,
+                    orig_indices.as_deref_mut(),
+                    &mut memoized_columns,
+                    &mask,
+                );
             }
-            self.pre_filter_rows_scanned += before;
             self.pre_filter_rows_pruned += before - ids.len();
         }
 
@@ -527,6 +714,7 @@ impl Scanner {
             visibility,
             segment_ord,
             &mut ids,
+            orig_indices,
             &mut memoized_columns,
         );
 
@@ -553,7 +741,9 @@ impl Scanner {
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
                 WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
-                WhichFastField::Score(_) => Some(memoized_columns[ff_index].clone().unwrap()),
+                WhichFastField::Score(_) | WhichFastField::VectorScore(_) => {
+                    Some(memoized_columns[ff_index].clone().unwrap())
+                }
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
                     for _ in 0..ids.len() {
@@ -602,52 +792,13 @@ impl Scanner {
                 } => {
                     let col_array = memoized_columns[ff_index].clone().unwrap();
                     match ffhelper.column(segment_ord, ff_index) {
+                        // No column in this segment: `to_record_batch` fills typed NULLs.
                         FFType::Junk => None,
-                        FFType::Text(str_column) => {
-                            let list_array = col_array
-                                .as_any()
-                                .downcast_ref::<arrow_array::ListArray>()
-                                .expect("Expected ListArray for Array Text ordinals");
-                            let ords_array = list_array
-                                .values()
-                                .as_any()
-                                .downcast_ref::<UInt64Array>()
-                                .expect("Expected UInt64Array for inner ordinals");
-                            let string_views = ords_to_string_array(str_column.clone(), ords_array)
-                                .expect("Failed to lookup ordinals");
-                            let field = list_item_field(arrow_schema::DataType::Utf8View);
-                            let final_list = arrow_array::ListArray::try_new(
-                                field,
-                                list_array.offsets().clone(),
-                                string_views,
-                                list_array.nulls().cloned(),
-                            )
-                            .expect("Failed to build ListArray with strings");
-                            Some(Arc::new(final_list) as ArrayRef)
-                        }
-                        FFType::Bytes(bytes_column) => {
-                            let list_array = col_array
-                                .as_any()
-                                .downcast_ref::<arrow_array::ListArray>()
-                                .expect("Expected ListArray for Array Bytes ordinals");
-                            let ords_array = list_array
-                                .values()
-                                .as_any()
-                                .downcast_ref::<UInt64Array>()
-                                .expect("Expected UInt64Array for inner ordinals");
-                            let byte_views = ords_to_bytes_array(bytes_column.clone(), ords_array)
-                                .expect("Failed to lookup ordinals");
-                            let field = list_item_field(arrow_schema::DataType::BinaryView);
-                            let final_list = arrow_array::ListArray::try_new(
-                                field,
-                                list_array.offsets().clone(),
-                                byte_views,
-                                list_array.nulls().cloned(),
-                            )
-                            .expect("Failed to build ListArray with bytes");
-                            Some(Arc::new(final_list) as ArrayRef)
-                        }
-                        _ => Some(col_array),
+                        column => Some(
+                            column
+                                .decode_list_ords(col_array)
+                                .expect("Failed to lookup ordinals"),
+                        ),
                     }
                 }
                 // A deferred column leaves as packed doc addresses (State 0) unless its term
@@ -691,20 +842,21 @@ impl Scanner {
             })
             .collect();
 
-        Some(Batch {
+        Batch {
             num_rows: ids.len(),
             fields,
-        })
+        }
     }
 
     /// Checks visibility and fetches the `ctid` column if needed, compacting `ids`
-    /// and `memoized_columns` in-place when invisible rows are encountered.
+    /// (and optional `orig_indices`) and `memoized_columns` in-place when invisible rows are encountered.
     fn fetch_ctids(
         &mut self,
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         segment_ord: SegmentOrdinal,
         ids: &mut Vec<DocId>,
+        orig_indices: Option<&mut Vec<usize>>,
         memoized_columns: &mut [Option<ArrayRef>],
     ) -> Option<ArrayRef> {
         if self.defer_visibility {
@@ -744,7 +896,12 @@ impl Scanner {
                 for maybe_visible_ctid in ctids_slice {
                     visibility_mask_builder.append_value(maybe_visible_ctid.is_some());
                 }
-                compact_with_mask(ids, memoized_columns, &visibility_mask_builder.finish());
+                compact_with_mask(
+                    ids,
+                    orig_indices,
+                    memoized_columns,
+                    &visibility_mask_builder.finish(),
+                );
             }
             Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         } else {
@@ -756,7 +913,7 @@ impl Scanner {
                 mask_builder.append_slice(mask);
                 let mask = BooleanArray::new(mask_builder.finish(), None);
 
-                compact_with_mask(ids, memoized_columns, &mask);
+                compact_with_mask(ids, orig_indices, memoized_columns, &mask);
             }
             None
         }

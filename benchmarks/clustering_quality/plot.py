@@ -76,6 +76,10 @@ configuration = (
     if "index_configuration" in manifest
     else "Full training set · no replication · PRISM leaf refinement off · one build each"
 )
+if manifest.get("target_segment_count") is not None:
+    configuration = (
+        f"pg_search target {manifest['target_segment_count']} segments · other index defaults · replicas included"
+    )
 fig.suptitle(
     f"Actual extension exports · {manifest['rows']:,} {dataset} vectors · {manifest['queries']} queries\n"
     f"{configuration}",

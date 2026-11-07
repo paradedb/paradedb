@@ -276,6 +276,73 @@ SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE
 FROM products;
 
 -- =====================================================================
+-- SECTION 8: Array Counts
+-- =====================================================================
+-- COUNT(array) counts non-NULL rows, including empty arrays and arrays whose
+-- elements are all NULL. Tantivy's value_count counts stored elements instead.
+CREATE TABLE count_array_test (id int PRIMARY KEY, ints int[], words text[]);
+INSERT INTO count_array_test VALUES
+    (1, '{3,1,1}', '{red,blue,red}'),
+    (2, '{}', '{}'),
+    (3, NULL, NULL),
+    (4, '{NULL,NULL}', '{NULL,NULL}'),
+    (5, '{NULL,3}', '{NULL,red}'),
+    (6, '{{1,2},{3,4}}', '{{red,blue},{green,red}}');
+CREATE INDEX count_array_test_idx ON count_array_test
+USING paradedb (id, ints, words) WITH (
+    text_fields = '{"words": {"fast": true, "tokenizer": {"type": "raw"}}}'
+);
+ANALYZE count_array_test;
+SET max_parallel_workers_per_gather = 0;
+RESET paradedb.max_term_agg_buckets;
+
+-- With the normal bucket cap, array counts must use PostgreSQL aggregation.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, COUNT(ints), COUNT(words) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+SELECT id, COUNT(ints), COUNT(words) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+
+SELECT COUNT(*), COUNT(ints), COUNT(words),
+       COUNT(ints) FILTER (WHERE id > 2)
+FROM count_array_test WHERE id @@@ pdb.all();
+SELECT COUNT(words) FROM count_array_test WHERE id @@@ pdb.all();
+
+-- Compare with PostgreSQL without aggregate pushdown.
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT id, COUNT(ints), COUNT(words) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+SELECT COUNT(*), COUNT(ints), COUNT(words),
+       COUNT(ints) FILTER (WHERE id > 2)
+FROM count_array_test WHERE id @@@ pdb.all();
+SELECT COUNT(words) FROM count_array_test WHERE id @@@ pdb.all();
+SET paradedb.enable_aggregate_custom_scan = on;
+
+-- Scalar counts still use the Tantivy aggregate path.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, COUNT(*), COUNT(id) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+SELECT id, COUNT(*), COUNT(id) FROM count_array_test
+WHERE id @@@ pdb.all() GROUP BY id ORDER BY id;
+
+-- Window counts must also count rows before LIMIT, not stored array elements.
+-- A supported COUNT(*) before the array counts must fall back with them.
+SELECT id, COUNT(*) OVER (), COUNT(ints) OVER (), COUNT(words) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+SELECT id, COUNT(words) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+
+-- Scalar window counts still use the Tantivy Top-K path.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT id, COUNT(*) OVER (), COUNT(id) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+SELECT id, COUNT(*) OVER (), COUNT(id) OVER ()
+FROM count_array_test WHERE id @@@ pdb.all() ORDER BY id LIMIT 2;
+
+DROP TABLE count_array_test;
+RESET max_parallel_workers_per_gather;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

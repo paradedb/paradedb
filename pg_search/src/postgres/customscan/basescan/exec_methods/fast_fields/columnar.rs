@@ -18,43 +18,24 @@
 use std::sync::Arc;
 
 use arrow_array::{Array, RecordBatch};
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::ExecutionPlan;
-use futures::StreamExt;
-use tokio::runtime::Runtime;
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField, build_arrow_schema};
 use crate::nodecast;
-use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::exec_methods::{
+    ExecMethod, ExecState, shared_task_context,
+};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 
 use pgrx::{IntoDatum, PgOid, PgTupleDesc, pg_sys};
-
-// ============================================================================
-// Synchronous stream polling utilities
-// ============================================================================
-
-/// Polls a stream for the next item synchronously using a tokio runtime.
-/// This properly handles `Poll::Pending` by driving the stream to completion,
-/// which is necessary for DataFusion operators that may buffer data across polls.
-///
-/// Uses the same tokio runtime pattern as JoinScan for consistency.
-fn poll_next_sync<S: futures::Stream + Unpin>(
-    runtime: &Runtime,
-    stream: &mut S,
-) -> Option<S::Item> {
-    // Check for query cancellation before blocking
-    pgrx::check_for_interrupts!();
-
-    // Use tokio runtime to drive the stream (same pattern as JoinScan)
-    runtime.block_on(async { stream.next().await })
-}
 
 struct Inner {
     heaprel: Option<PgSearchRelation>,
@@ -129,6 +110,18 @@ impl Inner {
 /// SET paradedb.enable_columnar_exec = false;
 /// ```
 pub struct ColumnarExecState {
+    /// The DataFusion stream producing RecordBatches (dropped before `runtime` and `inner`).
+    stream: Option<SendableRecordBatchStream>,
+
+    /// The current RecordBatch of fast field values
+    current_record_batch: Option<RecordBatch>,
+    current_batch_row_idx: usize,
+
+    /// Tokio runtime for driving async DataFusion streams synchronously.
+    /// Dropped after `stream` so background tasks are quiesced and deferred main-thread drops
+    /// are drained before `inner` (`ffhelper`, `heaprel`) is dropped.
+    runtime: Option<PgTokioRuntime>,
+
     /// Core functionality shared with other fast field execution methods
     inner: Inner,
 
@@ -137,17 +130,6 @@ pub struct ColumnarExecState {
 
     /// The batch size hint to use for this execution.
     batch_size_hint: Option<usize>,
-
-    /// Tokio runtime for driving async DataFusion streams synchronously.
-    /// Created once and reused (same pattern as JoinScan).
-    runtime: Option<Runtime>,
-
-    /// The DataFusion stream producing RecordBatches.
-    stream: Option<SendableRecordBatchStream>,
-
-    /// The current RecordBatch of fast field values
-    current_record_batch: Option<RecordBatch>,
-    current_batch_row_idx: usize,
 
     /// Column index for ctid in the RecordBatch
     ctid_column_idx: Option<usize>,
@@ -360,7 +342,6 @@ impl ColumnarExecState {
             build_arrow_schema(&self.scanner_fast_fields),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
-            None,
             Vec::new(),
             None,
             index_rel.oid().to_u32(),
@@ -371,8 +352,7 @@ impl ColumnarExecState {
         )
         .with_table_alias(index_rel.name());
 
-        let task_ctx = Arc::new(TaskContext::default());
-        match plan.execute(0, task_ctx) {
+        match plan.execute(0, shared_task_context()) {
             Ok(stream) => Some(stream),
             Err(e) => {
                 pgrx::error!("Failed to execute plan: {e}");
@@ -444,13 +424,11 @@ impl ExecMethod for ColumnarExecState {
     ///
     /// `true` if there are results to process, `false` otherwise
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        // Create tokio runtime on first use (same pattern as JoinScan).
-        // This is a single-threaded runtime used to drive DataFusion's async streams
-        // synchronously within PostgreSQL's execution model.
+        // Create Postgres-integrated Tokio runtime on first use (same pattern as JoinScan)
+        // to drive DataFusion's async streams while servicing main-thread Postgres FFI.
         if self.runtime.is_none() {
             self.runtime = Some(
-                tokio::runtime::Builder::new_current_thread()
-                    .build()
+                PgTokioRuntime::new()
                     .expect("Failed to create tokio runtime for DataFusion stream execution"),
             );
         }
@@ -460,7 +438,7 @@ impl ExecMethod for ColumnarExecState {
             // Scope the runtime borrow to avoid conflicts with mutable borrows below
             if let Some(stream) = &mut self.stream {
                 let runtime = self.runtime.as_ref().unwrap();
-                match poll_next_sync(runtime, stream) {
+                match block_on_next(runtime, stream) {
                     Some(Ok(batch)) => {
                         self.current_record_batch = Some(batch);
                         self.current_batch_row_idx = 0;
@@ -583,13 +561,15 @@ impl ExecMethod for ColumnarExecState {
     ///
     /// * `state` - The current scan state
     fn reset(&mut self, state: &mut BaseScanState) {
-        // Reset inner FastFieldExecState
-        self.inner.reset(state);
-
-        // Reset DataFusion stream state
+        // Drop the DataFusion stream and quiesce/drop the runtime before resetting `inner`
+        // (which drops `ffhelper`).
         self.stream = None;
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
+        self.runtime = None;
+
+        // Reset inner FastFieldExecState
+        self.inner.reset(state);
 
         // Reset statistics
         self.num_visible = 0;

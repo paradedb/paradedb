@@ -53,7 +53,34 @@ pub extern "C-unwind" fn end_custom_scan<CS: CustomScan>(node: *mut pg_sys::Cust
 #[pg_guard]
 pub extern "C-unwind" fn rescan_custom_scan<CS: CustomScan>(node: *mut pg_sys::CustomScanState) {
     let mut custom_state = wrap_custom_scan_state(node);
-    unsafe { CS::rescan_custom_scan(custom_state.as_mut()) }
+    // Unlike `ExecShutdownNode_walker` (which wraps `ExecShutdownCustomScan` in
+    // `InstrStartNode` / `InstrStopNode`), PostgreSQL's `ExecReScan` calls
+    // `InstrEndLoop(node->instrument)` and then invokes `ExecReScanCustomScan`
+    // directly. Propagate any buffer/WAL usage accumulated during `rescan_custom_scan`
+    // (such as joining MPP parallel workers) into this node's `Instrumentation`
+    // without flipping `running` before the next loop starts.
+    unsafe {
+        let instr = (*node).ss.ps.instrument;
+        let buf_start = pg_sys::pgBufferUsage;
+        let wal_start = pg_sys::pgWalUsage;
+        CS::rescan_custom_scan(custom_state.as_mut());
+        if !instr.is_null() {
+            if (*instr).need_bufusage {
+                pg_sys::BufferUsageAccumDiff(
+                    &raw mut (*instr).bufusage,
+                    &raw const pg_sys::pgBufferUsage,
+                    &buf_start,
+                );
+            }
+            if (*instr).need_walusage {
+                pg_sys::WalUsageAccumDiff(
+                    &raw mut (*instr).walusage,
+                    &raw const pg_sys::pgWalUsage,
+                    &wal_start,
+                );
+            }
+        }
+    }
 }
 
 /// Save the current scan position so that it can subsequently be restored by the RestrPosCustomScan

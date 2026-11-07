@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector indexes quantize the IVF router by default: new segments route each query through one-bit codes of the centroids and rerank the shortlisted centroids exactly. `vector_router_quantization = false` keeps full-precision routing; segments keep the router they were clustered with until the index is rebuilt.

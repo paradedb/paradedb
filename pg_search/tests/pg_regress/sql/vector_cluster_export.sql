@@ -10,7 +10,7 @@ FROM generate_series(1, 4096) g;
 
 CREATE INDEX cluster_export_idx ON cluster_export_rows USING paradedb (id, emb vector_l2_ops)
 WITH (target_segment_count=1, mutable_segment_rows=0, max_leaf_size=20, training_sample_ratio=1.0,
-      vector_fields='{"emb":{"quantization":false}}');
+      quantization='0');
 
 SELECT count(*)=4096 AND count(DISTINCT t.id)=4096 AS complete_memberships
 FROM paradedb.vector_cluster_members('cluster_export_idx', 'emb') m
@@ -26,7 +26,7 @@ LEFT JOIN paradedb.vector_cluster_centroids('cluster_export_idx', 'emb') c
 USING (index_oid, segno, cluster_id)
 WHERE c.centroid IS NULL;
 
-ALTER INDEX cluster_export_idx SET (vector_fields='{"emb":{"quantization":true}}');
+ALTER INDEX cluster_export_idx SET (quantization='[1,1]');
 REINDEX INDEX cluster_export_idx;
 SELECT bool_and(quantized) AS uses_quantized_storage
 FROM paradedb.vector_info('cluster_export_idx', 'emb');

@@ -123,8 +123,9 @@ Located in the `tests/` directory.
 Located in the `pg_search/src` directory.
 
 - **Purpose:** They are either:
-  - **Unit tests without Postgres** if they are not marked `#[pg_test]`.
-  - **Unit tests which run in Postgres as UDFs** if they are marked `#[pg_test]`. These use all of Postgres APIs via `pgrx`.
+  - **Unit tests without Postgres** (`#[test]` inside `#[cfg(test)] mod tests`). These run directly in the standalone test binary and must not reference any Postgres (`pgrx` / `pg_sys`) symbols, even transitively (for example via GUC readers, session builders, or plan codecs).
+  - **Unit tests which run in Postgres as UDFs** (`#[pg_test]` inside `#[cfg(any(test, feature = "pg_test"))] #[pgrx::pg_schema] mod tests`). These have access to Postgres APIs via `pgrx`.
+- **Troubleshooting missing symbol / linker errors:** If a plain `#[test]` transitively references Postgres backend symbols (such as `_BufferBlocks` or `_CurrentMemoryContext`), the standalone `cargo test` binary will fail to link on Linux or abort at startup on macOS with `dyld: symbol not found in flat namespace`. Prefer simplifying the test so it does not pull in `pgrx`/`pg_sys` symbols transitively; if the test genuinely needs Postgres, use `#[pg_test]` inside a `#[cfg(any(test, feature = "pg_test"))]` and `#[pgrx::pg_schema]` module.
 - **Running:** Run them with `cargo test -p pg_search -- a_specific_method_to_run`. There is no need to pre-install the extension for `#[pg_test]` annotated tests (the annotation automatically handles it).
 - **Details:** See [`pg_search/README.md`](pg_search/README.md#testing) for more details.
 

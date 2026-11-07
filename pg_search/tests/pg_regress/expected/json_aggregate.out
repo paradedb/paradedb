@@ -420,6 +420,10 @@ WHERE id @@@ paradedb.boolean(
        "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"exists\":{\"field\":\"metadata.category\"}},{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\"}}]}}}}",+
        "  Applies to Aggregates": "COUNT(*)",                                                                                                                                                           +
        "  Aggregate Definition": "{\"0\":{\"filter\":\"*\"}}",                                                                                                                                          +
+       "Segments": {                                                                                                                                                                                    +
+         "Included": 1,                                                                                                                                                                                 +
+         "Pruned": 0                                                                                                                                                                                    +
+       },                                                                                                                                                                                               +
        "Visibility": {                                                                                                                                                                                  +
          "Segments Skipped": 0,                                                                                                                                                                         +
          "Segments Checked": 1,                                                                                                                                                                         +

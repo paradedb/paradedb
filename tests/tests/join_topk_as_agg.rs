@@ -655,3 +655,280 @@ fn distinct_window_aggregates_in_topk_agg(#[case] mode: Mode, mut conn: PgConnec
     assert_eq!(postgres.len(), 10);
     assert_eq!(join_scan, postgres);
 }
+
+#[derive(Debug)]
+enum ParamMode {
+    Serial,
+    Mpp,
+    /// MPP is eligible but the single-segment tables leave nothing to distribute, so
+    /// `launch_mpp` declines and `exec_custom_scan` replans from the serial fallback
+    /// bytes. That replan has to bind the fetch too.
+    MppFallback,
+}
+
+/// Runs `query`, whose `$n` parameters have `types`, as a prepared statement under a
+/// generic plan, once per `(args, expected_rows)` in `executions`, and requires each
+/// to return the rows of the same query with `args` written in as literals. One
+/// generic plan serves every execution, so each binds its own fetch.
+///
+/// The generic plan must stay on the Top-K-aggregate path: a parameterized LIMIT or
+/// OFFSET is bound at execution, not a reason to fall back. EXPLAIN ANALYZE shows
+/// the plan that ran, so its Top-K call must carry a number for `k`, not the
+/// unbound `$n` text. Under MPP that plan may be the serial replan of a launch
+/// that fell short of workers, which has to bind `k` all the same.
+fn assert_generic_plan_agrees<T>(
+    conn: &mut PgConnection,
+    mode: &ParamMode,
+    types: &str,
+    query: &str,
+    executions: &[(&[&str], usize)],
+) where
+    T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
+        + PartialEq
+        + std::fmt::Debug
+        + Send
+        + Unpin,
+{
+    // A fresh name per call: sqlx caches statements by their SQL text, so an
+    // `EXECUTE` string repeated across calls would reuse the column types of a
+    // statement that was deallocated and prepared again with another query.
+    static NEXT_STATEMENT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let name = format!(
+        "tka_param_{}",
+        NEXT_STATEMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+
+    "SET plan_cache_mode = force_generic_plan".execute(conn);
+    format!("PREPARE {name}({types}) AS {query}").execute(conn);
+
+    for (args, expected_rows) in executions {
+        let execute = format!("EXECUTE {name}({})", args.join(", "));
+
+        let plan: Vec<String> =
+            format!("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) {execute}")
+                .fetch_scalar(conn);
+        let plan = plan.join("\n");
+        assert!(
+            plan.contains("Custom Scan (ParadeDB Join Scan)"),
+            "{execute}\n{plan}"
+        );
+        assert!(!plan.contains("WindowAggExec"), "{execute}\n{plan}");
+        let topk_lines: Vec<&str> = plan
+            .lines()
+            .filter(|line| line.contains("AggregateExec") && line.contains("topk_as_agg("))
+            .collect();
+        // A bound LIMIT 0 folds to an EmptyRelation before physical planning, so
+        // there is no aggregate to find; every other execution must run it.
+        if *expected_rows > 0 {
+            assert!(
+                !topk_lines.is_empty(),
+                "the generic plan must run the Top-K aggregate.\n{execute}\n{plan}"
+            );
+        }
+        assert!(
+            topk_lines.iter().all(|line| !line.contains('$')),
+            "k must be bound before execution.\n{execute}\n{plan}"
+        );
+
+        // Whether the plan distributes comes from plain EXPLAIN, which renders the
+        // planned shape without launching anything. EXPLAIN ANALYZE shows what ran,
+        // and a launch that cannot attach enough workers (other tests running in
+        // parallel hold them) replans serially. A source query that needs executor
+        // state leaves the physical plan out of plain EXPLAIN, so there is no shape
+        // to check.
+        let planned: Vec<String> =
+            format!("EXPLAIN (COSTS OFF, VERBOSE) {execute}").fetch_scalar(conn);
+        let planned = planned.join("\n");
+        let planned_topk = planned
+            .lines()
+            .any(|line| line.contains("AggregateExec") && line.contains("topk_as_agg("));
+        if planned_topk {
+            let has_partial = planned.contains("AggregateExec: mode=Partial");
+            match mode {
+                ParamMode::Mpp => assert!(has_partial, "{execute}\n{planned}"),
+                ParamMode::Serial | ParamMode::MppFallback => {
+                    assert!(!has_partial, "{execute}\n{planned}")
+                }
+            }
+        }
+
+        let generic: Vec<T> = (&execute).fetch(conn);
+
+        // Highest index first, so `$1` never rewrites the front of `$10`.
+        let literal_query = args
+            .iter()
+            .enumerate()
+            .rev()
+            .fold(query.to_string(), |q, (i, arg)| {
+                q.replace(&format!("${}", i + 1), arg)
+            });
+        let literal: Vec<T> = (&literal_query).fetch(conn);
+
+        assert_eq!(literal.len(), *expected_rows, "{literal_query}");
+        assert_eq!(generic, literal, "{execute}\n{query}");
+    }
+
+    format!("DEALLOCATE {name}").execute(conn);
+    "RESET plan_cache_mode".execute(conn);
+}
+
+/// A parameterized LIMIT and OFFSET under a generic plan (#6712). The planning-time
+/// plan carries the fetch as unbound text, and execution binds it once the
+/// parameters resolve, serially, on the MPP leader before the plan ships to
+/// workers, and in the MPP serial-fallback replan. The same query with the values
+/// written in is the oracle: its static fetch takes the path the other tests here
+/// already check.
+#[rstest]
+#[case::serial(ParamMode::Serial)]
+#[case::mpp(ParamMode::Mpp)]
+#[case::mpp_fallback(ParamMode::MppFallback)]
+fn parameterized_fetch_in_topk_agg(#[case] mode: ParamMode, mut conn: PgConnection) {
+    match mode {
+        ParamMode::Serial => SERIAL_SETUP.execute(&mut conn),
+        ParamMode::Mpp => MPP_SETUP.execute(&mut conn),
+        ParamMode::MppFallback => {
+            SERIAL_SETUP.execute(&mut conn);
+            r#"
+            SET paradedb.mpp_min_rows = 0;
+            SET paradedb.min_rows_per_worker = 0;
+            SET max_parallel_workers = 4;
+            SET max_parallel_workers_per_gather = 3;
+            SET parallel_tuple_cost = 0;
+            SET parallel_setup_cost = 0;
+            SET min_parallel_table_scan_size = 0;
+            SET min_parallel_index_scan_size = 0;
+            SET parallel_leader_participation = off;
+            "#
+            .execute(&mut conn);
+        }
+    }
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+
+    let pdb_agg = r#"
+        SELECT t1.id, t2.id, pdb.agg('{"avg": {"field": "qty"}}') OVER ()
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC, t2.id ASC
+    "#;
+    type PdbAggRow = (i32, i32, serde_json::Value);
+
+    // The issue's repro: a pdb.agg() window has no Postgres fallback, so before
+    // the fetch could be bound at execution this errored under a generic plan.
+    // Executions alternate values on the one plan, so a fetch kept from an earlier
+    // execution shows up as a wrong row count.
+    assert_generic_plan_agrees::<PdbAggRow>(
+        &mut conn,
+        &mode,
+        "int8",
+        &format!("{pdb_agg} LIMIT $1"),
+        &[(&["10"], 10), (&["3"], 3), (&["10"], 10)],
+    );
+
+    // OFFSET alone parameterized: k is the static LIMIT plus the bound OFFSET.
+    assert_generic_plan_agrees::<PdbAggRow>(
+        &mut conn,
+        &mode,
+        "int8",
+        &format!("{pdb_agg} OFFSET $1 LIMIT 10"),
+        &[(&["3"], 10), (&["0"], 10)],
+    );
+
+    // Both parameterized, including a zero LIMIT and an OFFSET past the end of
+    // the join, where the aggregate keeps nothing or everything and returns no rows.
+    assert_generic_plan_agrees::<PdbAggRow>(
+        &mut conn,
+        &mode,
+        "int8, int8",
+        &format!("{pdb_agg} OFFSET $2 LIMIT $1"),
+        &[
+            (&["10", "3"], 10),
+            (&["5", "20"], 5),
+            (&["0", "0"], 0),
+            (&["10", "100000"], 0),
+        ],
+    );
+
+    // SQL window aggregates in the same node.
+    assert_generic_plan_agrees::<(i32, i32, i64, i64)>(
+        &mut conn,
+        &mode,
+        "int8, int8",
+        r#"
+        SELECT t1.id, t2.id, COUNT(*) OVER (), SUM(t2.qty) OVER ()
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC, t2.id ASC
+        OFFSET $2 LIMIT $1
+        "#,
+        &[(&["10", "3"], 10), (&["4", "0"], 4)],
+    );
+
+    // DISTINCT folds into the same aggregate as the window aggregate.
+    assert_generic_plan_agrees::<(i32, i64)>(
+        &mut conn,
+        &mode,
+        "int8, int8",
+        r#"
+        SELECT DISTINCT t1.id, COUNT(*) OVER () AS total
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.id DESC
+        OFFSET $2 LIMIT $1
+        "#,
+        &[(&["10", "3"], 10), (&["2", "7"], 2)],
+    );
+
+    // A parameterized search input as well: `maybe_solve_and_rebake` rebakes the
+    // plan from the pristine clause at execution, which writes the unbound fetch
+    // again, so binding has to come after the rebake.
+    assert_generic_plan_agrees::<PdbAggRow>(
+        &mut conn,
+        &mode,
+        "int8, int8, text",
+        r#"
+        SELECT t1.id, t2.id, pdb.agg('{"avg": {"field": "qty"}}') OVER ()
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| $3
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC, t2.id ASC
+        OFFSET $2 LIMIT $1
+        "#,
+        &[(&["10", "3", "'val'"], 10)],
+    );
+
+    // With the GUC on, a query without window aggregates stays on the path too,
+    // with and without DISTINCT.
+    "SET paradedb.joinscan_force_topk_as_agg = on".execute(&mut conn);
+    assert_generic_plan_agrees::<(i32, i32, String, String)>(
+        &mut conn,
+        &mode,
+        "int8, int8",
+        r#"
+        SELECT t1.id, t2.id, t1.val, t2.val
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.id ASC, t2.id ASC
+        OFFSET $2 LIMIT $1
+        "#,
+        &[(&["10", "5"], 10), (&["3", "0"], 3)],
+    );
+    assert_generic_plan_agrees::<(Option<i32>, i32)>(
+        &mut conn,
+        &mode,
+        "int8",
+        r#"
+        SELECT DISTINCT t1.rating, t2.qty
+        FROM tka_t1 t1
+        JOIN tka_t2 t2 ON t1.id = t2.t1_id
+        WHERE t1.val ||| 'val'
+        ORDER BY t1.rating DESC NULLS FIRST, t2.qty ASC
+        LIMIT $1
+        "#,
+        &[(&["10"], 10), (&["4"], 4)],
+    );
+    "SET paradedb.joinscan_force_topk_as_agg = off".execute(&mut conn);
+}

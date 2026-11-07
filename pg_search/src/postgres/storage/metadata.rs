@@ -17,10 +17,10 @@
 
 use crate::api::version::{Version, parse_version_component};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{SegmentMetaEntry, block_number_is_valid};
-use crate::postgres::storage::buffer::{
-    Buffer, BufferManager, BufferMut, PinnedBuffer, init_new_buffer,
+use crate::postgres::storage::block::{
+    SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
 };
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer, init_new_buffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -98,6 +98,33 @@ pub struct MetaPage {
 }
 
 const METAPAGE: pg_sys::BlockNumber = 0;
+
+pub struct CleanupAdmission {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+struct LockReleaseOnMainThread {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+crate::impl_safe_drop!(LockReleaseOnMainThread, |self| {
+    if unsafe { crate::postgres::utils::IsTransactionState() } {
+        unsafe { pg_sys::LockRelease(&self.tag, self.mode, false) };
+    }
+});
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the lock tag
+// and mode to `drop_on_main_thread`, where `LockReleaseOnMainThread` uses `impl_safe_drop!`.
+impl Drop for CleanupAdmission {
+    fn drop(&mut self) {
+        crate::postgres::customscan::mpp::drop_on_main_thread(LockReleaseOnMainThread {
+            tag: self.tag,
+            mode: self.mode,
+        });
+    }
+}
 
 impl MetaPage {
     pub unsafe fn init(indexrel: &PgSearchRelation) {
@@ -230,6 +257,42 @@ impl MetaPage {
         MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
     }
 
+    /// `acquire_merge_lock` for VACUUM: waits for admitted mergers to drop their merge-page pins first.
+    ///
+    /// Keep `ambulkdelete` the only production caller. `LockBufferForCleanup` raises an ERROR when
+    /// a second backend waits on the same buffer, and VACUUM's self-conflicting table lock is what
+    /// keeps the waiter unique.
+    pub unsafe fn acquire_merge_lock_for_cleanup(&self) -> MergeLock {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        MergeLock::acquire_for_cleanup(self.bman.buffer_access().rel(), self.data.merge_lock)
+    }
+
+    /// Retains both VACUUM barriers before a merger can load segment metadata.
+    pub fn pin_merge(&self) -> MergePins {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        // A merger waiting for admission must not hold pins that VACUUM needs.
+        let cleanup_admission = self.cleanup_lock_for_reader();
+        MergePins {
+            _merge_barrier: self.bman.pinned_buffer(self.data.merge_lock),
+            _cleanup_admission: cleanup_admission,
+        }
+    }
+
+    /// Returns `None` if VACUUM blocks merge admission, so the sweep can try other indexes.
+    pub(crate) fn try_pin_merge(&self) -> Option<MergePins> {
+        unsafe {
+            let relation = self.bman.buffer_access().rel().as_ptr();
+            let blockno = self.cleanup_lock_blockno();
+            let mode = pg_sys::ShareLock as pg_sys::LOCKMODE;
+            if !pg_sys::ConditionalLockPage(relation, blockno, mode) {
+                return None;
+            }
+            let pins = self.pin_merge();
+            pg_sys::UnlockPage(relation, blockno, mode);
+            Some(pins)
+        }
+    }
+
     pub fn vacuum_list(&self) -> VacuumList {
         assert!(block_number_is_valid(self.data.active_vacuum_list));
         VacuumList::open(
@@ -301,6 +364,13 @@ impl MetaPage {
     }
 }
 
+/// Barriers a merger holds until publication. VACUUM waits on the merge-page pin before
+/// selecting segments and on cleanup admission before deactivating its exclusion list.
+pub struct MergePins {
+    _merge_barrier: PinnedBuffer,
+    _cleanup_admission: CleanupAdmission,
+}
+
 // legacy hardcoded page support for various index objects
 impl MetaPage {
     const LEGACY_CLEANUP_LOCK: pg_sys::BlockNumber = 1;
@@ -308,40 +378,39 @@ impl MetaPage {
     const LEGACY_SETTINGS_START: pg_sys::BlockNumber = 4;
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-    pub fn cleanup_lock_pinned(&self) -> PinnedBuffer {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
+    fn cleanup_admission(&self, mode: pg_sys::LOCKMODE) -> CleanupAdmission {
+        let blockno = self.cleanup_lock_blockno();
+        let lock_id = unsafe {
+            (*self.bman.buffer_access().rel().as_ptr())
+                .rd_lockInfo
+                .lockRelId
         };
-        self.bman.pinned_buffer(blockno)
+        let tag = pg_sys::LOCKTAG {
+            locktag_field1: lock_id.dbId.into(),
+            locktag_field2: lock_id.relId.into(),
+            locktag_field3: blockno,
+            locktag_field4: 0,
+            locktag_type: pg_sys::LockTagType::LOCKTAG_PAGE as u8,
+            locktag_lockmethodid: pg_sys::DEFAULT_LOCKMETHOD as u8,
+        };
+        unsafe { pg_sys::LockAcquire(&tag, mode, false, false) };
+        CleanupAdmission { tag, mode }
     }
 
-    pub fn cleanup_lock_shared(&self) -> Buffer {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
-        self.bman.get_buffer(blockno)
+    pub fn cleanup_lock_for_reader(&self) -> CleanupAdmission {
+        self.cleanup_admission(pg_sys::ShareLock as pg_sys::LOCKMODE)
     }
 
-    pub fn cleanup_lock_exclusive(&mut self) -> BufferMut {
-        let blockno = if self.data.cleanup_lock == 0 {
+    fn cleanup_lock_blockno(&self) -> pg_sys::BlockNumber {
+        if self.data.cleanup_lock == 0 {
             Self::LEGACY_CLEANUP_LOCK
         } else {
             self.data.cleanup_lock
-        };
-        self.bman.get_buffer_mut(blockno)
+        }
     }
 
-    pub fn cleanup_lock_for_cleanup(&mut self) -> BufferMut {
-        let blockno = if self.data.cleanup_lock == 0 {
-            Self::LEGACY_CLEANUP_LOCK
-        } else {
-            self.data.cleanup_lock
-        };
-        self.bman.get_buffer_for_cleanup(blockno)
+    pub fn cleanup_lock_for_vacuum(&self) -> CleanupAdmission {
+        self.cleanup_admission(pg_sys::ExclusiveLock as pg_sys::LOCKMODE)
     }
 
     pub fn schema_bytes(&self) -> LinkedBytesList {
@@ -393,6 +462,50 @@ impl MetaPage {
         LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
     }
 
+    pub(crate) unsafe fn freeze_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
+        self.freeze_mutable_segments_matching(|_| true)
+    }
+
+    pub(crate) unsafe fn freeze_mutable_segments_matching(
+        &self,
+        eligible: impl Fn(&SegmentMetaEntry) -> bool,
+    ) -> Vec<SegmentMetaEntry> {
+        let eligible = |entry: &SegmentMetaEntry| {
+            entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId && eligible(entry)
+        };
+        let mut metas = self.segment_metas();
+        if !metas.list(None).iter().any(&eligible) {
+            return Vec::new();
+        }
+
+        let mut frozen = metas.atomically();
+        let mut entries = frozen
+            .list(None)
+            .into_iter()
+            .filter(&eligible)
+            .collect::<Vec<_>>();
+        for entry in &mut entries {
+            frozen
+                .update_item(
+                    |candidate| candidate.segment_id() == entry.segment_id(),
+                    |candidate| {
+                        let SegmentMetaEntryContent::Mutable(content) = &mut candidate.content
+                        else {
+                            unreachable!();
+                        };
+                        content.frozen = true;
+                    },
+                )
+                .expect("mutable segment should exist while freezing");
+            let SegmentMetaEntryContent::Mutable(content) = &mut entry.content else {
+                unreachable!();
+            };
+            content.frozen = true;
+        }
+        frozen.commit();
+        entries
+    }
+
     // Note that this value is read when not under a share lock, so there's no guarantee that it hasn't
     // been updated and this value is stale
     pub fn ambulkdelete_epoch(&self) -> u32 {
@@ -428,6 +541,46 @@ mod tests {
     use super::*;
     use pgrx::datum::TimestampWithTimeZone;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn merger_barriers_preserve_admission_without_content_locks() {
+        Spi::run(
+            "CREATE TABLE merger_barriers (id bigint, body text); \
+             CREATE INDEX merger_barriers_idx ON merger_barriers USING paradedb (id, body);",
+        )
+        .unwrap();
+        let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'merger_barriers_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+        let mut metadata = MetaPage::open(&indexrel);
+        let pins = metadata.pin_merge();
+        let admission_held = "SELECT EXISTS (SELECT FROM pg_locks \
+            WHERE pid = pg_backend_pid() AND locktype = 'page' \
+            AND relation = 'merger_barriers_idx'::regclass AND mode = 'ShareLock' AND granted)";
+        assert_eq!(Spi::get_one::<bool>(admission_held).unwrap(), Some(true));
+
+        unsafe {
+            let holdoff = pg_sys::InterruptHoldoffCount;
+            assert_eq!(holdoff, 0);
+            let buffer = pins._merge_barrier.pg_buffer();
+            assert!(pg_sys::ConditionalLockBuffer(buffer));
+            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+            drop(metadata.acquire_merge_lock());
+            let holdoff = pg_sys::InterruptHoldoffCount;
+            assert_eq!(holdoff, 0);
+        }
+        drop(pins);
+        assert_eq!(Spi::get_one::<bool>(admission_held).unwrap(), Some(false));
+
+        let merge_lock = unsafe { metadata.acquire_merge_lock_for_cleanup() };
+        assert!(unsafe { merge_lock.merge_list().list().is_empty() });
+        let sentinel = metadata.pin_ambulkdelete_sentinel();
+        drop(merge_lock);
+        drop(metadata.cleanup_lock_for_vacuum());
+        drop(sentinel);
+        assert_eq!(unsafe { pg_sys::InterruptHoldoffCount }, 0);
+    }
 
     #[pg_test]
     fn created_by_version_is_stamped_at_index_build() {

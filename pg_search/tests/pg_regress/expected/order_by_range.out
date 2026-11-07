@@ -395,7 +395,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 -- must not be mistaken for a sort on `nr`. It stays a Postgres Sort.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM range_items WHERE title ||| 'doc' ORDER BY lower(nr) LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -410,7 +410,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 (9 rows)
 
 SELECT id, lower(nr) FROM range_items WHERE title ||| 'doc' ORDER BY lower(nr), id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: range_items)
  id |    lower     
 ----+--------------
  13 |     -0.00001
@@ -424,11 +424,15 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
 -- Cross-segment merge. Within a segment, a `numrange` bound compares by term
 -- ordinal; ordinals are not comparable across segments, so the key has to be
 -- resolved to bytes before segments are merged. Several batched inserts build
--- several segments to exercise that path.
+-- several segments to exercise that path. Each insert makes its own immutable
+-- segment and the background merger stays off this index, so the segment count
+-- the parallel check below depends on cannot change under the test.
 -- =============================================================================
 CREATE TABLE range_segments (id SERIAL PRIMARY KEY, title TEXT, nr NUMRANGE, tzr TSTZRANGE);
 CREATE INDEX range_segments_idx ON range_segments
-USING paradedb (id, title, nr, tzr);
+USING paradedb (id, title, nr, tzr)
+WITH (background_layer_sizes = '0');
+SET paradedb.global_mutable_segment_rows = 0;
 DO $$
 BEGIN
     FOR batch IN 0..5 LOOP
@@ -450,6 +454,7 @@ BEGIN
         FROM generate_series(batch * 500 + 1, (batch + 1) * 500) i;
     END LOOP;
 END $$;
+RESET paradedb.global_mutable_segment_rows;
 SELECT count(*) > 1 AS has_multiple_segments FROM paradedb.index_info('range_segments_idx');
  has_multiple_segments 
 -----------------------

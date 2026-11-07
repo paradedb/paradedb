@@ -35,7 +35,6 @@ use std::sync::Arc;
 
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::utils::expr::COUNT_STAR_EXPANSION;
 use datafusion::common::{
     Column, DFSchema, DataFusionError, Result, TableReference, internal_datafusion_err,
     internal_err, plan_err,
@@ -44,8 +43,8 @@ use datafusion::functions::expr_fn::get_field;
 use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::expr_rewriter::unalias;
 use datafusion::logical_expr::{
-    AggregateUDF, Expr, LogicalPlan, LogicalPlanBuilder, LogicalPlanBuilderOptions, SortExpr,
-    WindowFunctionDefinition, col,
+    AggregateUDF, Expr, ExprFunctionExt, LogicalPlan, LogicalPlanBuilder,
+    LogicalPlanBuilderOptions, SortExpr, WindowFunctionDefinition, col,
 };
 use datafusion::optimizer::{Optimizer, OptimizerRule};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -54,17 +53,15 @@ use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-use super::planning::get_source_attno_by_name;
 use super::window_func::{
     SqlWindowAggDef, SupportedWindowAggType, WINDOW_SENTINEL_VARNO, WindowAggColumn, WindowAggDef,
     WindowAggIndex,
 };
-use crate::api::{NullTestKind, OrderByFeature, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature};
 use crate::gucs;
-use crate::index::fast_fields_helper::{FFHelper, FieldCardinality, WhichFastField};
-use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    numeric_avg_func_with_args, numeric_sum_func_with_args,
-};
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+use crate::postgres::customscan::aggregatescan::datafusion_exec::FilterExprExecContext;
+use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::datafusion::memory::{build_runtime_env, create_memory_pool};
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::pdb_agg;
 use crate::postgres::customscan::datafusion::topk_agg::{
@@ -72,7 +69,9 @@ use crate::postgres::customscan::datafusion::topk_agg::{
 };
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias, ScoreColumn,
+    VectorScoreColumn,
 };
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -82,9 +81,12 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, CombinedMapper, PredicateTranslator, apply_join_level_filter,
     apply_relnode_unnest, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, make_source_unnested_col, translate_pg_node_string,
+    make_source_score_col, make_source_unnested_col, make_source_vector_score_col,
+    translate_pg_node_string,
 };
-use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
+use crate::postgres::customscan::joinscan::privdat::{
+    LogicalPlanMode, OutputColumnInfo, PrivateData,
+};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::{PgSearchTableProvider, VisibilityMode};
@@ -185,18 +187,11 @@ fn numeric_fast_field_type(
     rti: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<SearchFieldType> {
-    join_clause.plan.output_sources().iter().find_map(|source| {
-        let mapped = source.map_var(rti, attno)?;
-        let field_info = source.scan_info.fields.iter().find(|f| f.attno == mapped)?;
-        match &field_info.field {
-            WhichFastField::Named {
-                field_type: ft,
-                cardinality: FieldCardinality::Scalar,
-                ..
-            } if ft.is_numeric() => Some(*ft),
-            _ => None,
-        }
-    })
+    join_clause
+        .plan
+        .output_sources()
+        .iter()
+        .find_map(|source| source.numeric_field_type(source.map_var(rti, attno)?))
 }
 
 /// Adapter that lets `PredicateTranslator` resolve Vars against a `JoinCSClause`.
@@ -307,15 +302,15 @@ impl QueryPlanner for PgSearchQueryPlanner {
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
-    /// Keeps the relation open and locked during the scan.
-    /// The relation is closed/unlocked when this struct is dropped.
-    pub _heaprel: PgSearchRelation,
+    /// Fast-field helper for resolving deferred CTIDs in batch at the top of the plan.
+    pub ffhelper: Option<Arc<FFHelper>>,
     pub visibility_checker: VisibilityChecker,
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
     /// Index of the CTID column for this relation in the result RecordBatch.
     pub ctid_col_idx: Option<usize>,
-    /// Fast-field helper for resolving deferred CTIDs in batch at the top of the plan.
-    pub ffhelper: Option<Arc<FFHelper>>,
+    /// Keeps the relation open and locked during the scan.
+    /// Declared last so it closes after `ffhelper` and `visibility_checker` are dropped.
+    pub _heaprel: PgSearchRelation,
 }
 
 crate::impl_safe_drop!(RelationState, |self| {
@@ -330,6 +325,25 @@ crate::impl_safe_drop!(RelationState, |self| {
 /// The execution state for the JoinScan.
 #[derive(Default)]
 pub struct JoinScanState {
+    // === DataFusion Execution State (dropped first, before manifests/relations) ===
+    pub datafusion_stream: Option<datafusion::execution::SendableRecordBatchStream>,
+    pub current_batch: Option<arrow_array::RecordBatch>,
+    pub batch_index: usize,
+
+    /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
+    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
+
+    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
+    /// on first exec after runtime expressions are resolved and the built plan's stages are
+    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
+    /// `Inactive` on the serial path.
+    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+
+    /// Tokio runtime dropped after `datafusion_stream`, `physical_plan`, and `mpp` so any
+    /// background tasks are aborted and their deferred main-thread drops are drained before
+    /// `source_manifests`, `relations`, and `window_agg_ctx` are torn down.
+    pub runtime: Option<crate::postgres::customscan::mpp::interrupt::PgTokioRuntime>,
+
     /// The join clause from planning.
     pub join_clause: JoinCSClause,
 
@@ -345,18 +359,6 @@ pub struct JoinScanState {
     /// PrivateData::custom_exprs_string.
     pub custom_exprs_string: Option<String>,
 
-    /// Map of source index (in plan.sources()) to relation execution state.
-    pub relations: crate::api::HashMap<usize, RelationState>,
-
-    /// Result tuple slot.
-    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
-
-    // === DataFusion State ===
-    pub datafusion_stream: Option<datafusion::execution::SendableRecordBatchStream>,
-    pub runtime: Option<tokio::runtime::Runtime>,
-    pub current_batch: Option<arrow_array::RecordBatch>,
-    pub batch_index: usize,
-
     /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.
     /// Populated from PrivateData during create_custom_scan_state.
     pub output_columns: Vec<OutputColumnInfo>,
@@ -367,8 +369,8 @@ pub struct JoinScanState {
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
 
-    /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
-    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
+    /// Whether `logical_plan` was baked for serial or MPP execution.
+    pub logical_plan_mode: LogicalPlanMode,
 
     /// Per-phase MPP launch timing, filled during exec when the query runs distributed, for
     /// `EXPLAIN ANALYZE`. `None` when the query ran serially (no launch).
@@ -391,11 +393,11 @@ pub struct JoinScanState {
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
 
-    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
-    /// on first exec after runtime expressions are resolved and the built plan's stages are
-    /// committed (#5667: the plan comes first; workers spawn only after it exists). Stays
-    /// `Inactive` on the serial path.
-    pub mpp: crate::postgres::customscan::mpp::launch::MppLifecycle,
+    /// Map of source index (in plan.sources()) to relation execution state.
+    pub relations: crate::api::HashMap<usize, RelationState>,
+
+    /// Result tuple slot.
+    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
 
     /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
     /// scan may still use DataFusion, but it must never launch MPP producer workers.
@@ -428,10 +430,10 @@ impl JoinScanState {
     /// row's stale plan.
     pub fn reset(&mut self) {
         self.datafusion_stream = None;
-        self.runtime = None;
         self.current_batch = None;
         self.batch_index = 0;
         self.physical_plan = None;
+        self.runtime = None;
         self.output_batch_col_indices.clear();
 
         self.window_agg_datums.get_mut().clear();
@@ -451,7 +453,7 @@ impl JoinScanState {
             // unconditionally (`.expect("Logical plan is required")`) before
             // maybe_solve_and_rebake's gate is checked, so nulling it out would panic. Restoring
             // join_clause above is what makes that gate see unsolved expressions again and
-            // re-run rebake_for_mpp, which overwrites logical_plan with the freshly-resolved
+            // re-run rebake_logical_plan, which overwrites logical_plan with the freshly-resolved
             // bytes before it's read.
         }
     }
@@ -488,6 +490,91 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
     state.optimizer().optimize(planted, &state, |_, _| {})
 }
 
+static BASE_SESSION_STATE: std::sync::LazyLock<datafusion::execution::SessionState> =
+    std::sync::LazyLock::new(|| {
+        use super::visibility_filter::VisibilityFilterOptimizerRule;
+        use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
+        use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
+        let mut builder = SessionStateBuilder::new().with_default_features();
+
+        builder
+            .aggregate_functions()
+            .get_or_insert_with(Vec::new)
+            .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
+        builder
+            .scalar_functions()
+            .get_or_insert_with(Vec::new)
+            .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
+
+        let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
+        let propagate_empty_pos = optimizer_rules
+            .iter()
+            .position(|r| r.name() == "propagate_empty_relation")
+            .expect("propagate_empty_relation optimizer rule not found");
+        optimizer_rules[propagate_empty_pos] = Arc::new(PropagateEmptyUnnestRule);
+
+        let pos = optimizer_rules
+            .iter()
+            .position(|r| r.name() == "optimize_projections")
+            .expect("optimize_projections optimizer rule not found");
+        // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
+        // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below
+        // barriers have unused columns projected out before `VisibilityFilterNode` is inserted (working around
+        // DataFusion dropping `projection_beneficial` across extension nodes).
+        // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
+        // above `VisibilityFilterNode`.
+        optimizer_rules.insert(
+            pos,
+            Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
+        );
+        optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
+        optimizer_rules.push(Arc::new(
+            super::range_partitioning_rule::RangePartitioningRule::new(),
+        ));
+        builder = builder.with_optimizer_rules(optimizer_rules);
+
+        builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
+
+        let mut physical_rules =
+            datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
+        let co_partitioned_rule =
+            Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
+        let rank_join_rule = Arc::new(crate::scan::rank_join_rule::RankJoinRule::new());
+        let pos = physical_rules
+            .iter()
+            .position(|r| r.name() == "EnsureRequirements")
+            .expect("EnsureRequirements physical optimizer rule not found");
+        physical_rules.insert(pos, co_partitioned_rule);
+        physical_rules.insert(pos + 1, rank_join_rule);
+        builder = builder.with_physical_optimizer_rules(physical_rules);
+
+        // Placement reads the final join sides and modes, so it follows the co-partitioning
+        // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
+        builder
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::deferred_placement_rule::DeferredPlacementRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::segmented_topk_rule::SegmentedTopKRule,
+            ))
+            .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+            .with_physical_optimizer_rule(Arc::new(
+                crate::scan::filter_passthrough_exec::UnwrapFilterPassthroughRule,
+            ))
+            .build()
+    });
+
+/// Pre-initializes [`BASE_SESSION_STATE`] in `postmaster` during `_PG_init` so forked backends
+/// inherit the built function registries and optimizer rule lists via copy-on-write.
+pub fn init_base_session_state() {
+    std::sync::LazyLock::force(&BASE_SESSION_STATE);
+}
+
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - `PgSearchQueryPlanner`
@@ -497,81 +584,35 @@ pub fn optimize_logical_plan(df: DataFrame) -> Result<LogicalPlan> {
 /// session's rules, and visibility before it, so ctid lineage is analyzed while DeferredCtid
 /// columns are still present in the logical plan.
 pub fn build_base_session(mut config: SessionConfig) -> SessionStateBuilder {
-    // Disable round-robin repartitioning: ParadeDB uses a single-threaded executor per
-    // worker process. Partitioning is used exclusively for MPP task distribution, never for
-    // intra-task CPU parallelization.
     config
         .options_mut()
         .optimizer
         .enable_round_robin_repartition = false;
 
-    use super::visibility_filter::VisibilityFilterOptimizerRule;
-    use crate::scan::propagate_empty_unnest_rule::PropagateEmptyUnnestRule;
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
-
-    let mut builder = SessionStateBuilder::new()
-        .with_config(config)
-        .with_default_features();
-
+    let mut builder =
+        SessionStateBuilder::new_from_existing(BASE_SESSION_STATE.clone()).with_config(config);
+    // Reset `catalog_list` so `builder.build()` creates a fresh per-session catalog rather than
+    // sharing `BASE_SESSION_STATE`'s catalog across queries that call `register_source_table`.
+    *builder.catalog_list() = None;
     builder
-        .aggregate_functions()
-        .get_or_insert_with(Vec::new)
-        .extend(crate::postgres::customscan::datafusion::all_pg_search_udafs());
-    builder
-        .scalar_functions()
-        .get_or_insert_with(Vec::new)
-        .extend(crate::postgres::customscan::datafusion::all_pg_search_udfs());
-
-    let mut optimizer_rules = datafusion::optimizer::optimizer::Optimizer::default().rules;
-    let pos = optimizer_rules
-        .iter()
-        .position(|r| r.name() == "optimize_projections")
-        .expect("optimize_projections optimizer rule not found");
-    // TODO(https://github.com/apache/datafusion/issues/25642): Run an initial pass of
-    // `OptimizeProjections` before `VisibilityFilterOptimizerRule` so that joins below barriers
-    // have unused columns projected out before `VisibilityFilterNode` is inserted (working around
-    // DataFusion dropping `projection_beneficial` across extension nodes).
-    // The second pass of `OptimizeProjections` (at `pos + 2`) then prunes any unused `ctid_*` columns
-    // above `VisibilityFilterNode`.
-    optimizer_rules.insert(
-        pos,
-        Arc::new(datafusion::optimizer::optimize_projections::OptimizeProjections::new()),
-    );
-    optimizer_rules.insert(pos + 1, Arc::new(VisibilityFilterOptimizerRule::new()));
-    optimizer_rules.push(Arc::new(
-        super::range_partitioning_rule::RangePartitioningRule::new(),
-    ));
-    optimizer_rules.push(Arc::new(PropagateEmptyUnnestRule));
-    builder = builder.with_optimizer_rules(optimizer_rules);
-
-    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
-
-    let mut physical_rules =
-        datafusion::physical_optimizer::optimizer::PhysicalOptimizer::default().rules;
-    let co_partitioned_rule = Arc::new(super::range_partitioning_rule::RangeCoPartitionedJoinRule);
-    let pos = physical_rules
-        .iter()
-        .position(|r| r.name() == "EnsureRequirements")
-        .expect("EnsureRequirements physical optimizer rule not found");
-    physical_rules.insert(pos, co_partitioned_rule);
-    builder = builder.with_physical_optimizer_rules(physical_rules);
-
-    // Placement reads the final join sides and modes, so it follows the co-partitioning
-    // flip; the resolver rule follows it because placement rebuilds the fetch nodes.
-    builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_placement_rule::DeferredPlacementRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::deferred_aggregate_rule::DeferredAggregateRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
-/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
-pub fn create_datafusion_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
+/// Applies ParadeDB's optimizer GUC settings (`hash_join_inlist_pushdown_max_size`,
+/// `hash_join_inlist_pushdown_max_distinct_values`, `hash_join_single_partition_threshold_rows`,
+/// `hash_join_single_partition_threshold`, `enable_topk_dynamic_filter_pushdown`, and
+/// `enable_round_robin_repartition = false`) to a DataFusion [`SessionConfig`].
+///
+/// Called both when constructing the leader's session context and when initializing each MPP
+/// worker's base `SessionState` in `worker::worker_base_session_state`, because operators such as
+/// `HashJoinExec` read `hash_join_inlist_pushdown_max_*` from the worker's
+/// `TaskContext::session_config()` at execution time.
+pub fn apply_paradedb_session_config(config: &mut SessionConfig) {
+    // Disable round-robin repartitioning: ParadeDB uses partitioning exclusively for MPP task
+    // distribution across worker processes, never for intra-task round-robin repartitioning.
+    config
+        .options_mut()
+        .optimizer
+        .enable_round_robin_repartition = false;
 
     // Configure dynamic filter pushdown thresholds from our GUCs
     config
@@ -604,32 +645,31 @@ pub fn create_datafusion_session_context() -> SessionContext {
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+}
 
-    let mut builder = build_base_session(config);
+/// Creates a DataFusion [`SessionContext`] with visibility filtering, late materialization,
+/// `PgSearchQueryPlanner`, topk dynamic filtering, range partitioning, and post-optimization filter pushdown.
+pub fn create_datafusion_session_context() -> SessionContext {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    apply_paradedb_session_config(&mut config);
 
-    builder = builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::segmented_topk_rule::SegmentedTopKRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-
+    let builder = build_base_session(config);
     SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
 /// Returns a LogicalPlan that can be serialized with datafusion_proto.
 ///
-/// `force_serial`: bake every source with `mpp_source_idx = None` regardless of
-/// `mpp_is_active()`. See `bake_logical_plan`'s doc comment for why this exists.
+/// `mode`: whether to bake sources with MPP `source_idx` (`LogicalPlanMode::Mpp`) or `None`
+/// (`LogicalPlanMode::Serial`).
 pub async fn build_joinscan_logical_plan(
     join_clause: &JoinCSClause,
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
-    force_serial: bool,
+    mode: LogicalPlanMode,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     let ctx = create_datafusion_session_context();
-    let is_parallel = !force_serial && crate::postgres::customscan::mpp::glue::mpp_is_active();
-    let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, is_parallel).await?;
+    let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs, mode).await?;
     optimize_logical_plan(df)
 }
 
@@ -725,7 +765,7 @@ pub fn clone_task_context_with_config(
 /// `build_clause_df` and pass it down by reference.
 struct RelNodeBuildCtx<'a> {
     ctx: &'a SessionContext,
-    is_parallel: bool,
+    mode: LogicalPlanMode,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     custom_expr_idx: &'a std::cell::Cell<usize>,
@@ -756,16 +796,10 @@ fn build_relnode_df<'a>(
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let is_parallel = rctx.is_parallel;
 
-                let mut df = build_source_df(
-                    rctx.ctx,
-                    source,
-                    plan_position,
-                    rctx.join_clause,
-                    is_parallel,
-                )
-                .await?;
+                let mut df =
+                    build_source_df(rctx.ctx, source, plan_position, rctx.join_clause, rctx.mode)
+                        .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
@@ -843,7 +877,7 @@ fn build_clause_df<'a>(
     join_clause: &'a JoinCSClause,
     private_data: &'a PrivateData,
     custom_exprs: *mut pg_sys::List,
-    is_parallel: bool,
+    mode: LogicalPlanMode,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         let plan_sources = join_clause.plan.sources();
@@ -873,7 +907,7 @@ fn build_clause_df<'a>(
         let custom_expr_idx = std::cell::Cell::new(0);
         let rctx = RelNodeBuildCtx {
             ctx,
-            is_parallel,
+            mode,
             join_clause,
             translated_exprs: &translated_exprs,
             custom_expr_idx: &custom_expr_idx,
@@ -889,25 +923,23 @@ fn build_clause_df<'a>(
         // `distinct_col_map` as before. In non-DISTINCT, the output projection
         // resolves the original names
         //
-        // When a query's fetch is statically known, a query with window aggregates always
-        // will take this path: they are computed in that same aggregate node (see
-        // `apply_topk_as_agg`). If the fetch is not statically known, the fallback
-        // path can still compute sql window functions
+        // When a query has a LIMIT, a query with window aggregates always takes this
+        // path: they are computed in that same aggregate node (see `apply_topk_as_agg`).
+        // A parameterized LIMIT or OFFSET leaves k unbound here, and execution binds it
+        // (`bind_topk_agg_fetch`). Without a LIMIT, which only reaches here in a
+        // subquery, there is no k, and the fallback path computes SQL window functions
         //
         // Otherwise DISTINCT is a GROUP BY and the sort is its own step.
         let (df, distinct_col_map, path_taken) = if (gucs::joinscan_force_topk_as_agg()
             || !join_clause.window_aggs.is_empty())
-            && let Some(fetch) = join_clause
-                .limit_offset
-                .as_ref()
-                .and_then(|lo| lo.static_fetch())
+            && let Some(lo) = &join_clause.limit_offset
         {
             let (df, distinct_col_map) =
-                apply_topk_as_agg(df, join_clause, &private_data.output_columns, fetch)?;
+                apply_topk_as_agg(df, join_clause, &private_data.output_columns, lo)?;
             (df, distinct_col_map, PathTaken::TopKAsAgg)
         } else {
-            // if no static offset + k is known (so this branch is taken), we can still compute sql
-            // window functions. (pdb.agg() window functions are rejected elsewhere)
+            // Without a LIMIT (or with neither window aggregates nor the GUC) there is no
+            // Top-K aggregate, but SQL window functions can still be computed here.
             let df = apply_sql_window_functions(df, join_clause)?;
 
             let (df, distinct_col_map) =
@@ -1261,7 +1293,9 @@ struct FinalizedTopKAgg {
 }
 
 /// The Top-K (and the DISTINCT, when there is one) as a single aggregate over the
-/// projection, returning `fetch` rows in ORDER BY order.
+/// projection, returning its `LIMIT + OFFSET` rows in ORDER BY order. A parameterized
+/// LIMIT or OFFSET leaves the aggregate's k unbound until execution binds it (see
+/// `bind_topk_agg_fetch`).
 ///
 /// DISTINCT and non-DISTINCT take the same path: the columns the aggregate must
 /// carry are the output projection's expressions either way, which is what
@@ -1281,7 +1315,7 @@ fn apply_topk_as_agg(
     df: DataFrame,
     join_clause: &JoinCSClause,
     output_columns: &[OutputColumnInfo],
-    fetch: usize,
+    limit_offset: &LimitOffset,
 ) -> Result<(DataFrame, DistinctColMap)> {
     let Some((distinct_key_exprs, distinct_col_map)) = distinct_key_exprs(join_clause)? else {
         return internal_err!("Bug: Unable to build distinct key expressions for topk aggregate");
@@ -1314,7 +1348,7 @@ fn apply_topk_as_agg(
     let topk_agg = topk_as_agg(
         &finalized.topk_payload_list,
         finalized.rebased_sort_exprs,
-        fetch,
+        limit_offset,
         &finalized.ctid_positions,
         join_clause.has_distinct,
     );
@@ -1586,38 +1620,48 @@ fn resolve_orderby_feature(
                     })
             }
         }
-        OrderByFeature::ScoreSum { rtis } => {
-            let score_cols: Result<Vec<Expr>> = rtis
-                .iter()
-                .map(|rti| {
-                    if !distinct_col_map.is_empty() {
-                        resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
-                            DataFusionError::Plan(format!(
-                                "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
-                            ))
-                        })
-                    } else {
-                        join_clause
-                            .plan
-                            .output_sources()
-                            .iter()
-                            .find(|s| s.scan_info.heap_rti == *rti)
-                            .map(|source| make_source_score_col(source))
-                            .ok_or_else(|| {
+        OrderByFeature::ScoreSum { expr, .. } => {
+            fn build_score_order_expr(
+                expr: &crate::api::ScoreOrderExpr,
+                join_clause: &JoinCSClause,
+                distinct_col_map: &DistinctColMap,
+            ) -> Result<Expr> {
+                match expr {
+                    crate::api::ScoreOrderExpr::Score { rti } => {
+                        if !distinct_col_map.is_empty() {
+                            resolve_distinct_col(distinct_col_map, true, *rti, 0).ok_or_else(|| {
                                 DataFusionError::Plan(format!(
-                                    "JoinScan: could not find source for score sum RTI {rti}"
+                                    "JoinScan: could not resolve DISTINCT score column for RTI {rti} in score sum"
                                 ))
                             })
+                        } else {
+                            join_clause
+                                .plan
+                                .output_sources()
+                                .iter()
+                                .find(|s| s.scan_info.heap_rti == *rti)
+                                .map(|source| make_source_score_col(source))
+                                .ok_or_else(|| {
+                                    DataFusionError::Plan(format!(
+                                        "JoinScan: could not find source for score sum RTI {rti}"
+                                    ))
+                                })
+                        }
                     }
-                })
-                .collect();
-
-            score_cols?
-                .into_iter()
-                .reduce(|acc, col_expr| acc + col_expr)
-                .ok_or_else(|| {
-                    DataFusionError::Plan("JoinScan: empty RTI list in ScoreSum".to_string())
-                })
+                    crate::api::ScoreOrderExpr::Constant(c) => {
+                        Ok(datafusion::prelude::lit(*c as f32))
+                    }
+                    crate::api::ScoreOrderExpr::Add(l, r) => {
+                        Ok(build_score_order_expr(l, join_clause, distinct_col_map)?
+                            + build_score_order_expr(r, join_clause, distinct_col_map)?)
+                    }
+                    crate::api::ScoreOrderExpr::Mul(l, r) => {
+                        Ok(build_score_order_expr(l, join_clause, distinct_col_map)?
+                            * build_score_order_expr(r, join_clause, distinct_col_map)?)
+                    }
+                }
+            }
+            build_score_order_expr(expr, join_clause, distinct_col_map)
         }
         OrderByFeature::Field { name, rti } => {
             if !distinct_col_map.is_empty() {
@@ -1659,9 +1703,17 @@ fn resolve_orderby_feature(
         OrderByFeature::NullTest { .. } => {
             unreachable!("NullTest is handled by apply_sort directly")
         }
-        OrderByFeature::VectorDistance { .. } => {
-            unimplemented!("Vector distance ORDER BY is not supported in JoinScan")
-        }
+        OrderByFeature::VectorDistance { rti, .. } => join_clause
+            .plan
+            .output_sources()
+            .iter()
+            .find(|s| s.scan_info.heap_rti == *rti)
+            .map(|source| make_source_vector_score_col(source))
+            .ok_or_else(|| {
+                DataFusionError::Plan(format!(
+                    "JoinScan: could not find source for vector ORDER BY RTI {rti}"
+                ))
+            }),
     }
 }
 
@@ -1682,7 +1734,8 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         let WindowAggDef::Sql(sql) = &info.agg_def else {
             continue;
         };
-        let expr = window_expr(sql, join_clause)?;
+        let mut expr = window_expr(sql, join_clause)?;
+        expr = maybe_apply_filter_to_expr(expr, info.filter.as_ref(), &join_clause.plan)?;
         if matches!(expr, Expr::WindowFunction(_)) {
             window_exprs.push(expr.alias(index.as_col_name()));
         } else {
@@ -1697,6 +1750,40 @@ fn apply_sql_window_functions(mut df: DataFrame, join_clause: &JoinCSClause) -> 
         return Ok(df);
     }
     df.window(window_exprs)
+}
+
+fn maybe_apply_filter_to_expr(
+    expr: Expr,
+    filter: Option<&FilterExpr>,
+    plan: &RelNode,
+) -> Result<Expr> {
+    let Some(f) = filter else {
+        return Ok(expr);
+    };
+    let filter = f
+        .to_datafusion(&FilterExprExecContext {
+            targetlist: None,
+            plan: Some(plan),
+        })
+        .ok_or(DataFusionError::Internal(
+            "couldn't convert window function predicate to a datafusion predicate".to_string(),
+        ))?;
+    let expr = match expr {
+        Expr::AggregateFunction(_) => expr.filter(filter).build()?,
+        Expr::WindowFunction(mut wf) => {
+            wf.params.filter = Some(Box::new(filter));
+            Expr::WindowFunction(wf)
+        }
+        // the only other non-aggregate shape we expect is the constant shape from
+        // `lower_sql_window_agg`.
+        Expr::Literal(l, m) => Expr::Literal(l, m),
+        other => {
+            return internal_err!(
+                "Found unexpected expression shape {other:?} when applying filter"
+            );
+        }
+    };
+    Ok(expr)
 }
 
 /// The extracted window aggregates, each paired with its `window_agg_N` column
@@ -1723,10 +1810,11 @@ fn window_agg_aggregate_exprs(join_clause: &JoinCSClause) -> Result<SeparatedWin
         if join_clause.window_aggs.canonical_index(index) != index {
             continue;
         }
-        let e = match &info.agg_def {
+        let mut e = match &info.agg_def {
             WindowAggDef::Sql(sql) => aggregate_expr(sql, join_clause)?,
             WindowAggDef::PdbAgg(request) => pdb_agg(request, &join_clause.plan)?,
         };
+        e = maybe_apply_filter_to_expr(e, info.filter.as_ref(), &join_clause.plan)?;
         match unalias(e.clone()) {
             Expr::AggregateFunction(_) => exprs.push((index.as_col_name(), e)),
             Expr::Literal(_, _) => consts.push((index.as_col_name(), e)),
@@ -1753,8 +1841,6 @@ fn lower_sql_window_agg(
     info: &SqlWindowAggDef,
     join_clause: &JoinCSClause,
 ) -> Result<LoweredSqlWindowAgg> {
-    use datafusion::functions_aggregate::{average, count, min_max, sum};
-
     let col_expr = match info.col_info() {
         Some(ci) => match resolve_var_to_df_col(join_clause, ci.rti, ci.attno) {
             Some(ce) => Some(ce),
@@ -1782,45 +1868,7 @@ fn lower_sql_window_agg(
         None => None,
     };
     let numeric_field = numeric_window_field(info.agg_type(), info.arg_field_type())?;
-
-    // Match only basic aggregate functions. Missing and filters are not supported in global window
-    // functions
-    //
-    // Numeric fields require special handling for SUM/AVG. They route to scaled-Int64 or
-    // decimal-bytes UDAFs. The Numeric64 UDAFs take the scale as a plan literal so it survives
-    // plan serialization for parallel and MPP execution; decimal-bytes values are self-describing.
-    let (udaf, args) = match info.agg_type() {
-        SupportedWindowAggType::Sum => {
-            let ce = col_expr.expect("should always have a column expression for SUM");
-            match numeric_field {
-                Some(field_type) => numeric_sum_func_with_args(ce, field_type),
-                None => (sum::sum_udaf(), vec![ce]),
-            }
-        }
-        SupportedWindowAggType::Avg => {
-            let ce = col_expr.expect("should always have a column expression for AVG");
-            match numeric_field {
-                Some(field_type) => numeric_avg_func_with_args(ce, field_type),
-                None => (average::avg_udaf(), vec![ce]),
-            }
-        }
-        SupportedWindowAggType::Min => (
-            min_max::min_udaf(),
-            vec![col_expr.expect("should always have a column expression for MIN")],
-        ),
-        SupportedWindowAggType::Max => (
-            min_max::max_udaf(),
-            vec![col_expr.expect("should always have a column expression for MAX")],
-        ),
-        SupportedWindowAggType::Count => (
-            count::count_udaf(),
-            vec![col_expr.expect("should always have a column expression for COUNT")],
-        ),
-        SupportedWindowAggType::CountStar => (
-            count::count_udaf(),
-            vec![datafusion::logical_expr::lit(COUNT_STAR_EXPANSION)],
-        ),
-    };
+    let (udaf, args) = info.agg_type().udaf_with_args(col_expr, numeric_field)?;
     Ok(LoweredSqlWindowAgg::Call(udaf, args))
 }
 
@@ -1889,7 +1937,23 @@ fn apply_sort(
     }
 
     let sort_exprs = build_sort_exprs(join_clause, distinct_col_map)?;
-    df.sort(sort_exprs)
+    // When LIMIT/OFFSET is parameterized, `df.limit(...)` is deferred until execution
+    // (`bind_runtime_limit_offset`). Seed `Sort.fetch` with the planning estimate so
+    // logical barrier/reduction rules (`VisibilityFilterOptimizerRule`,
+    // `LateMaterializationRule`) and unbound `EXPLAIN (GENERIC_PLAN)` (`RankJoinRule`)
+    // see a Top-K `Sort`; `bind_runtime_limit_offset` replaces `Sort.fetch` with the
+    // resolved `skip + fetch` whenever parameter values are bound (`EXPLAIN EXECUTE` and
+    // execution).
+    let parameterized_fetch = join_clause
+        .limit_offset
+        .as_ref()
+        .filter(|lo| lo.has_any_param())
+        .map(|lo| (lo.planning_estimate().max(0.0) as usize).max(1));
+    let (state, plan) = df.into_parts();
+    let sorted = LogicalPlanBuilder::from(plan)
+        .sort_with_limit(sort_exprs, parameterized_fetch)?
+        .build()?;
+    Ok(DataFrame::new(state, sorted))
 }
 
 fn build_sort_exprs(
@@ -1916,15 +1980,14 @@ fn build_sort_exprs(
             other => resolve_orderby_feature(other, join_clause, distinct_col_map)?,
         };
 
-        let asc = matches!(
-            info.direction,
-            SortDirection::AscNullsFirst | SortDirection::AscNullsLast
-        );
-        let nulls_first = matches!(
-            info.direction,
-            SortDirection::AscNullsFirst | SortDirection::DescNullsFirst
-        );
-        sort_exprs.push(expr.sort(asc, nulls_first));
+        if info.is_vector_distance() {
+            // Vector similarity scores produced by `SearchIndexReader::search_top_k_in_segments`
+            // are higher for closer vectors (smaller distance), so ascending vector distance
+            // corresponds to descending similarity score (`DESC NULLS LAST`).
+            sort_exprs.push(expr.sort(false, false));
+        } else {
+            sort_exprs.push(expr.sort(info.direction.is_asc(), info.direction.is_nulls_first()));
+        }
     }
 
     Ok(sort_exprs)
@@ -2087,7 +2150,7 @@ fn build_source_df<'a>(
     source: &'a JoinSource,
     plan_position: usize,
     join_clause: &'a JoinCSClause,
-    is_parallel: bool,
+    mode: LogicalPlanMode,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
@@ -2117,7 +2180,8 @@ fn build_source_df<'a>(
             required_early: &mut crate::api::HashSet<String>,
         ) {
             required_early.insert(name.to_string());
-            let attno = unsafe { get_source_attno_by_name(source, name) };
+            let context = source.to_source_context();
+            let attno = context.get_attno_by_name(name);
             if let Some(attno) = attno
                 && let Some(registered) = source.column_name(attno)
                 && registered != name
@@ -2154,10 +2218,9 @@ fn build_source_df<'a>(
         // replication so every worker sees the full build side. The MPP
         // per-source claim counter goes on top of that and PG-parallel doesn't
         // want it.
-        let source_idx = if is_parallel && crate::postgres::customscan::mpp::glue::mpp_is_active() {
-            Some(plan_position)
-        } else {
-            None
+        let source_idx = match mode {
+            LogicalPlanMode::Mpp => Some(plan_position),
+            LogicalPlanMode::Serial => None,
         };
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), source_idx);
@@ -2230,6 +2293,7 @@ fn build_source_df<'a>(
             RelationAlias::new(source.scan_info.alias.as_deref()).display(plan_position);
 
         provider.set_score_alias(&ScoreColumn::new(&display_alias).to_string());
+        provider.set_vector_score_alias(&VectorScoreColumn::new(&display_alias).to_string());
         provider.configure_deferred_outputs(
             &required_early,
             VisibilityMode::Deferred { plan_position },

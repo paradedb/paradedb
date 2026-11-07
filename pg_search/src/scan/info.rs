@@ -123,14 +123,26 @@ pub struct TaggedQuery {
 /// Execution mode for a scan, encapsulating its search query.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ScanMode {
-    /// Standard scan executing its own query.
+    /// Standard scan executing its own query (`SA` and `RA` both filter and score by `query`).
     Standard { query: Box<SearchQueryInput> },
-    /// Scan participating in predicate tagging (e.g. in a disjunctive search join).
+    /// Scan participating in predicate tagging (e.g. in a disjunctive `HashJoinExec`).
+    /// Filters by `base_query` and emits boolean `__{alias}_tag_{i}` columns for `local_queries`.
     Tagged {
         /// Base query (e.g. non-search restrictions like `w.year >= 2024`, or `All`).
         base_query: Box<SearchQueryInput>,
         /// The single-table search predicates lifted from this scan, if any.
         local_queries: Vec<TaggedQuery>,
+    },
+    /// Scan participating in a tagless disjunctive `RankJoinExec`.
+    /// `SA` filters by `base_query` and scores by the union of `disjunct_queries`, while `RA`
+    /// matches `base_query` and scores by `disjunct_queries` (`0.0` when no disjunct matches).
+    /// `base_query` is a `0.0`-score filter and never contributes. No tag columns are emitted.
+    Disjunctive {
+        /// Constant-score filter answered by the index (e.g. a row-level security policy on an
+        /// indexed column), or `All`.
+        base_query: Box<SearchQueryInput>,
+        /// Local disjunct search queries from the cross-table `OR`.
+        disjunct_queries: Vec<SearchQueryInput>,
     },
 }
 
@@ -155,6 +167,18 @@ impl ScanMode {
         }
     }
 
+    /// Creates a tagless disjunctive scan mode for `RankJoinExec` with a base filter and local
+    /// disjuncts.
+    pub fn disjunctive(
+        base_query: SearchQueryInput,
+        disjunct_queries: Vec<SearchQueryInput>,
+    ) -> Self {
+        Self::Disjunctive {
+            base_query: Box::new(base_query),
+            disjunct_queries,
+        }
+    }
+
     /// Returns a new `ScanMode` with the base or standard query replaced.
     pub fn with_base_query(self, base_query: SearchQueryInput) -> Self {
         match self {
@@ -165,6 +189,12 @@ impl ScanMode {
                 base_query: Box::new(base_query),
                 local_queries,
             },
+            Self::Disjunctive {
+                disjunct_queries, ..
+            } => Self::Disjunctive {
+                base_query: Box::new(base_query),
+                disjunct_queries,
+            },
         }
     }
 
@@ -172,21 +202,81 @@ impl ScanMode {
     pub fn query(&self) -> &SearchQueryInput {
         match self {
             Self::Standard { query } => query,
-            Self::Tagged { base_query, .. } => base_query,
+            Self::Tagged { base_query, .. } | Self::Disjunctive { base_query, .. } => base_query,
         }
+    }
+
+    /// Every query of this scan mode: the base or primary query, then the local queries.
+    pub fn queries(&self) -> impl Iterator<Item = &SearchQueryInput> {
+        let (first, rest): (_, Box<dyn Iterator<Item = &SearchQueryInput> + '_>) = match self {
+            Self::Standard { query } => (query, Box::new(std::iter::empty())),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => (
+                base_query,
+                Box::new(local_queries.iter().map(|tq| &*tq.query)),
+            ),
+            Self::Disjunctive {
+                base_query,
+                disjunct_queries,
+            } => (base_query, Box::new(disjunct_queries.iter())),
+        };
+        std::iter::once(&**first).chain(rest)
+    }
+
+    /// Mutable counterpart of [`Self::queries`].
+    pub fn queries_mut(&mut self) -> impl Iterator<Item = &mut SearchQueryInput> {
+        let (first, rest): (_, Box<dyn Iterator<Item = &mut SearchQueryInput> + '_>) = match self {
+            Self::Standard { query } => (query, Box::new(std::iter::empty())),
+            Self::Tagged {
+                base_query,
+                local_queries,
+            } => (
+                base_query,
+                Box::new(local_queries.iter_mut().map(|tq| &mut *tq.query)),
+            ),
+            Self::Disjunctive {
+                base_query,
+                disjunct_queries,
+            } => (base_query, Box::new(disjunct_queries.iter_mut())),
+        };
+        std::iter::once(&mut **first).chain(rest)
     }
 
     /// Whether any query in this scan mode requires a tokenizer.
     pub fn needs_tokenizer(&self) -> bool {
-        match self {
-            Self::Standard { query } => query.needs_tokenizer(),
-            Self::Tagged {
-                base_query,
-                local_queries,
-            } => {
-                base_query.needs_tokenizer()
-                    || local_queries.iter().any(|tq| tq.query.needs_tokenizer())
-            }
+        self.queries().any(|q| q.needs_tokenizer())
+    }
+
+    /// Whether any query in this scan mode contains runtime `PostgresExpression` nodes.
+    pub fn has_postgres_expressions(&self) -> bool {
+        self.queries().any(|q| q.has_postgres_expressions())
+    }
+
+    /// Whether any query in this scan mode contains parameterized heap filters.
+    pub fn has_parameters(&self) -> bool {
+        self.queries().any(|q| q.has_parameters())
+    }
+
+    /// Initialize runtime `PostgresExpression` nodes in this scan mode against `planstate`.
+    pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        for q in self.queries_mut() {
+            q.init_postgres_expressions(planstate);
+        }
+    }
+
+    /// Solve all runtime `PostgresExpression` and parameterized heap filters in this scan mode.
+    /// Resets `ecxt_per_tuple_memory` once up front, then solves each query with the no-reset
+    /// variant (rule 2 in `solve_expr.rs`).
+    pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        assert!(
+            !expr_context.is_null(),
+            "expr_context was never initialized"
+        );
+        unsafe { pg_sys::MemoryContextReset((*expr_context).ecxt_per_tuple_memory) };
+        for q in self.queries_mut() {
+            q.solve_postgres_expressions_no_reset(expr_context);
         }
     }
 }
@@ -222,14 +312,14 @@ pub struct ScanInfo {
     /// The estimator substitutes the total when the query carries a Postgres expression or a
     /// heap filter it cannot evaluate at plan time; consumers that need a match count (the MPP
     /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
-    #[serde(default)]
     pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,
     /// Whether rows are checked against the heap for snapshot visibility. Only a
     /// `pdb.agg()` query can ask for anything but the default.
-    #[serde(default)]
     pub mvcc_visibility: MvccVisibility,
+    /// Vector distance `ORDER BY` pushed down to this scan, if any.
+    pub vector_order_by: Option<crate::api::OrderByInfo>,
 }
 
 impl ScanInfo {
@@ -253,6 +343,7 @@ impl ScanInfo {
             estimate_from_total_docs: false,
             segment_count: 0,
             mvcc_visibility: MvccVisibility::default(),
+            vector_order_by: None,
         }
     }
 

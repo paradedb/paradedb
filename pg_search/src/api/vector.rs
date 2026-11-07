@@ -19,19 +19,27 @@
 
 use crate::index::reader::index::SearchIndexReader;
 use crate::index::reader::open_vector_field;
-use crate::postgres::catalog::{OidExt, is_pgvector_oid};
+use crate::postgres::access::IndexOid;
+#[cfg(feature = "pg_test")]
+use crate::postgres::catalog::OidExt;
+use crate::postgres::catalog::is_pgvector_oid;
+#[cfg(any(test, feature = "pg_test"))]
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
 use anyhow::{Context, Result, ensure};
 #[cfg(feature = "pg_test")]
 use pgrx::JsonB;
-use pgrx::prelude::*;
-use pgrx::{AnyArray, PgRelation, Spi, pg_sys};
 #[cfg(feature = "pg_test")]
-use tantivy::vector::{
+use pgrx::PgRelation;
+use pgrx::prelude::*;
+use pgrx::{AnyArray, Spi, pg_sys};
+#[cfg(feature = "pg_test")]
+use tantivy::vector::diagnostics::{
     VectorAuditMoments, VectorErrorAuditMeasurements, VectorErrorConeAuditMeasurements,
 };
-use tantivy::vector::{VectorEstimatorMeasurements, VectorEstimatorQuery, VectorEstimatorSource};
+use tantivy::vector::diagnostics::{
+    VectorEstimatorMeasurements, VectorEstimatorQuery, VectorEstimatorSource,
+};
 
 const MAX_ESTIMATOR_QUERIES: usize = 256;
 const ESTIMATOR_SAMPLE_ROWS: usize = 1_000;
@@ -129,7 +137,7 @@ AS 'MODULE_PATHNAME', 'vector_estimator_info_internal_wrapper';
 "#
 )]
 fn vector_estimator_info_internal(
-    index: Option<PgRelation>,
+    index: Option<IndexOid>,
     field: Option<String>,
     queries: Option<AnyArray>,
 ) -> Result<
@@ -147,16 +155,9 @@ fn vector_estimator_info_internal(
 > {
     let index = index.context("index must not be NULL")?;
     let field = field.context("field must not be NULL")?;
-    let index_oid = index.oid();
-    drop(index);
-
-    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    // Preserve the catalog-only parent diagnostic before opening index data.
     reject_partitioned_index(index.oid(), PartitionedIndexOperation::EstimatorInfo)?;
-    ensure!(
-        unsafe { pg_sys::get_rel_relkind(index.oid()) as u8 } == pg_sys::RELKIND_INDEX
-            && unsafe { (*index.rd_rel).relam.is_paradedb_am() },
-        "vector_estimator_info requires a ParadeDB index"
-    );
+    let index = index.read();
     ensure!(index.is_usable(), "index is not valid, ready, and live");
 
     let (search_reader, vector_field, vector_options) = open_vector_field(&index, &field)?;
@@ -672,12 +673,12 @@ fn vector_error_cone_audit_internal(
     Ok(TableIterator::new(exact_e_cone_audit_rows(&measurements)?))
 }
 
-/// Identifies segments whose stored metadata contains quantization layers.
+/// Whether the segment stores the field's vectors quantized.
 fn is_quantized(segment: &tantivy::SegmentReader, field: tantivy::schema::Field) -> Result<bool> {
-    Ok(matches!(
-        segment.vector_metadata(field)?.as_deref(),
-        Some(tantivy::vector::VectorColMetadata::Quantized { .. })
-    ))
+    Ok(segment
+        .vector_index(field)?
+        .info()?
+        .is_some_and(|info| info.quantized_layers.is_some()))
 }
 
 /// Requires a visible quantized segment and identifies Plain segments excluded from diagnostics.
@@ -689,14 +690,10 @@ fn ensure_quantized_segments(
     let mut quantized = false;
     let mut skipped = 0;
     for segment in reader.segment_readers() {
-        let metadata = segment.vector_metadata(field)?;
-        if matches!(
-            metadata.as_deref(),
-            Some(tantivy::vector::VectorColMetadata::Quantized { .. })
-        ) {
-            quantized = true;
-        } else if metadata.is_some() {
-            skipped += 1;
+        match segment.vector_index(field)?.info()? {
+            Some(info) if info.quantized_layers.is_some() => quantized = true,
+            Some(_) => skipped += 1,
+            None => {}
         }
     }
     if skipped > 0 {
@@ -1018,7 +1015,7 @@ fn distribution_summary(moments: &VectorAuditMoments, label: &str) -> Result<Dis
 
 #[cfg(feature = "pg_test")]
 fn gamma_diagnostics_json(
-    diagnostics: &tantivy::vector::VectorErrorDepthMeasurements,
+    diagnostics: &tantivy::vector::diagnostics::VectorErrorDepthMeasurements,
 ) -> Result<JsonB> {
     let stored = distribution_summary(&diagnostics.stored_gamma, "stored gamma")?;
     let raw = distribution_summary(&diagnostics.raw_gamma, "raw gamma")?;
@@ -1219,7 +1216,7 @@ pub(crate) mod test_support {
             INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
                 FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
             CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
-                WITH (vector_fields='{\"vec\":{\"quantization\":{\"layers\":[1,4]}}}', target_segment_count=1);").unwrap();
+                WITH (quantization='[1,4]', target_segment_count=1);").unwrap();
         PgSearchRelation::open(
             Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
                 .unwrap()
@@ -1359,7 +1356,7 @@ mod tests {
     fn unsupported_vector_storage_names_index_and_reindex() {
         let indexrel = vector_metadata_fixture();
         Spi::run("SET max_parallel_workers_per_gather=0; SET enable_seqscan=off;").unwrap();
-        for version in [4, 3, 99] {
+        for version in [5, 3, 99] {
             replace_vector_version(&indexrel, version);
             let before = crate::index::reader::io_stats::vector_buffer_reads();
             let plan = Spi::get_one::<pgrx::Json>(
@@ -1381,7 +1378,7 @@ mod tests {
                 Some(2048)
             );
             Spi::run("SELECT * FROM paradedb.vector_config('metadata_vectors_idx','vec')").unwrap();
-            if version != 4 {
+            if version != 5 {
                 expect_reindex(&vector_query());
                 expect_reindex("SELECT * FROM paradedb.vector_info('metadata_vectors_idx','vec')");
             }

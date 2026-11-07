@@ -29,7 +29,7 @@
 use std::sync::Arc;
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{FFHelper, FFType, for_each_segment};
+use crate::index::fast_fields_helper::{FFHelper, FFType, FieldCardinality, for_each_segment};
 use crate::scan::deferred_encode::{DeferredColumn, DeferredValue};
 use crate::scan::deferred_lookup::{
     LookupRebuildContext, PhysicalDeferredField, ffhelper_for, preserved_ordering,
@@ -101,6 +101,14 @@ impl TantivyFetchExec {
                     field.col_idx,
                     field.display_name,
                     input_field.data_type()
+                )));
+            }
+            // A row of a list holds many terms, and a fetch resolves one, so a list here
+            // would silently keep only its first value. The decode reads it whole instead.
+            if field.cardinality == FieldCardinality::List {
+                return Err(DataFusionError::Plan(format!(
+                    "TantivyFetchExec: column {} ('{}') is a list, which has no term ordinal to fetch",
+                    field.col_idx, field.display_name
                 )));
             }
         }
@@ -232,8 +240,11 @@ impl ExecutionPlan for TantivyFetchExec {
             use futures::StreamExt;
             while let Some(batch_res) = input_stream.next().await {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let result = batch_res
-                    .and_then(|batch| fetch_batch(batch, &fetch_fields, &ffhelpers));
+                let result = batch_res.and_then(|batch| {
+                    crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+                        fetch_batch(batch, &fetch_fields, &ffhelpers)
+                    })
+                });
                 timer.done();
 
                 yield result.record_output(&baseline_metrics)?;
@@ -357,4 +368,53 @@ fn fetch_term_ordinals(
     )?;
 
     Ok(deferred.with_term_ordinals(resolved))
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::index::fast_fields_helper::CanonicalColumn;
+    use crate::scan::deferred_encode::deferred_field;
+    use arrow_schema::Schema;
+    use datafusion::physical_plan::empty::EmptyExec;
+    use pgrx::prelude::*;
+
+    /// A fetch resolves one term per row, so a list must be refused rather than cut down to
+    /// the first of its values. Runs in the server because the node owns fast-field readers,
+    /// which link against it.
+    #[pg_test]
+    fn a_fetch_refuses_a_list() {
+        let input: Arc<dyn ExecutionPlan> =
+            Arc::new(EmptyExec::new(Arc::new(Schema::new(vec![deferred_field(
+                "tags",
+            )]))));
+        let field = |cardinality| PhysicalDeferredField {
+            col_idx: 0,
+            display_name: "tags".into(),
+            is_bytes: false,
+            cardinality,
+            canonical: CanonicalColumn {
+                indexrelid: 1,
+                ff_index: 0,
+            },
+            heap_rti: 1,
+            rebuild: None,
+        };
+        assert!(
+            TantivyFetchExec::new(
+                Arc::clone(&input),
+                vec![field(FieldCardinality::Scalar)],
+                HashMap::default()
+            )
+            .is_ok()
+        );
+        let err = TantivyFetchExec::new(
+            input,
+            vec![field(FieldCardinality::List)],
+            HashMap::default(),
+        )
+        .expect_err("a list has no term ordinal to fetch");
+        assert!(err.to_string().contains("is a list"), "{err}");
+    }
 }

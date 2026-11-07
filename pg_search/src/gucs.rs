@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::guc::GucEnum;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
@@ -69,9 +70,24 @@ static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>:
 /// Allows visibility proofs from segment bounds and heap-block document ranges.
 static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows pruning segments via `.stats` and `.fast` field bounds before estimation and execution.
+static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
+
+/// Recheck saved plans when their diagnostic policy changes, including SET LOCAL rollback.
+/// PostgreSQL calls assign hooks before updating the GUC's stored value.
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn assign_planner_warnings(
+    new_value: std::ffi::c_int,
+    _extra: *mut std::ffi::c_void,
+) {
+    if new_value != PLANNER_WARNINGS.get().to_ordinal() {
+        unsafe { pg_sys::ResetPlanCache() };
+    }
+}
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -87,6 +103,7 @@ static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
 static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+// TODO: `paradedb.enable_fast_field_exec` is unread since #2908; deprecate and remove it.
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -111,6 +128,11 @@ static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BU
 /// answer, so those keep the checks; large ones trade a negligible error margin
 /// for the scan.
 static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
+/// Minimum estimated number of dirty (non-all-visible) heap blocks across the table
+/// before emitting a once-per-statement warning when at least half of the scanned
+/// range is not all-visible in the visibility map. Set to 0 to disable.
+static VISIBILITY_MAP_WARNING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// The maximum response size in bytes for a window aggregate.
 static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
@@ -195,9 +217,22 @@ static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to enable or disable `RankJoinExec` (SA + RA Rank Join) for top-K scored joins.
+static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Minimum estimated matching rows on both join inputs required before `RankJoinRule`
+/// replaces a one-pass `HashJoinExec` with `RankJoinExec`. Set to 0 in tests to bypass
+/// the row-count floor.
+static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
+/// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0`.
+static RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD: GucSetting<f64> =
+    GucSetting::<f64>::new(crate::scan::rank_join_rule::UNSCORED_SELECTIVITY_THRESHOLD);
+
 /// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
 /// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
-/// a window query with a static fetch may take that path regardless.
+/// a window query with a LIMIT takes that path regardless.
 static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
@@ -233,27 +268,14 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// scale and the smallest winning one.
 static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 
-/// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
-/// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
-/// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
-/// DSM path, to avoid a later SIGBUS under overcommit), so the region size is a
-/// fixed per-query launch cost. The default keeps that cost inside Docker's
-/// default 64 MiB `/dev/shm` with room to spare: at N=4 it reserves ~32 MiB per
-/// query. Frames larger than a ring stream through it in chunks, so the size
-/// bounds backpressure granularity and launch cost, not what a query can carry.
-/// The runtime tuning reach is the reason it's a GUC instead of a `pub const`.
-///
-/// The inboxes already multiplex tagged frames from every stage; if this knob
-/// changes shape, the right user knob is more likely a per-query DSM cap than
-/// a raw per-inbox byte count.
+/// Per-query DSM ring budget divided across the `2 * W^2` SPSC byte rings in an MPP mesh with `W`
+/// producer workers (`mpp_queue_size / (2 * W^2)`, floored at `16 KiB` and rounded down to a power
+/// of two). With the default `8 MiB` setting, each ring is `1 MiB` at `W = 2`, `256 KiB` at
+/// `W = 3..=4`, `64 KiB` at `W = 8`, and `16 KiB` at `W = 16`, keeping the per-query DSM
+/// allocation bounded within Docker's default `64 MiB` `/dev/shm` across worker counts. Messages
+/// larger than a ring stream through it in chunks, so the size bounds backpressure granularity and
+/// launch cost, not what a query can carry.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
-
-/// Longest a worker fragment waits for its next partition-execution request with none
-/// of its partitions running. Consumers issue every request while building their
-/// streams, so the wait is normally over in milliseconds; a stall this long means a
-/// consumer stopped requesting and the fragment (and the leader waiting on it) would
-/// otherwise wait forever. `0` disables the guard.
-static MPP_REQUEST_TIMEOUT: GucSetting<i32> = GucSetting::<i32>::new(300);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -316,6 +338,22 @@ pub fn vector_cluster_max_probe() -> f32 {
     VECTOR_CLUSTER_MAX_PROBE.get() as f32
 }
 
+static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
+static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_router_rerank_factor() -> f32 {
+    VECTOR_ROUTER_RERANK_FACTOR.get() as f32
+}
+
+pub fn vector_router_min_beam_fraction() -> f32 {
+    VECTOR_ROUTER_MIN_BEAM_FRACTION.get() as f32
+}
+
+pub fn vector_router_aps() -> bool {
+    VECTOR_ROUTER_APS.get()
+}
+
 /// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
@@ -341,32 +379,11 @@ pub fn vector_stats() -> bool {
     VECTOR_STATS.get()
 }
 
-/// Recall target for the stacked IVF router's centroid ranking. Below `1.0`
-/// the router stops scanning its centroid lists once the estimated recall
-/// of the top clusters reaches the target (adaptive partition scanning);
-/// `1.0` ranks with the fixed per-level nprobe fractions instead. Tantivy
-/// ignores the target and uses the nprobe path above
-/// `APS_MAX_DIM` (128) dimensions, where the estimate is unreliable.
-static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> =
-    GucSetting::<f64>::new(tantivy::vector::ivf::DEFAULT_ROUTER_RECALL as f64);
+/// Registered for compatibility. Nothing reads it.
+static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// Returns the stacked IVF router's recall target.
-pub fn vector_router_recall_target() -> f32 {
-    VECTOR_ROUTER_RECALL_TARGET.get() as f32
-}
-
-/// Recall target for each segment's own cluster scan. Below `1.0` the probe
-/// loop stops once the estimated recall of the clusters covered so far
-/// reaches the target (adaptive partition scanning); `1.0` leaves
-/// `vector_cluster_max_probe` as the only bound. Tantivy applies it to
-/// stacked-router segments only and ignores it above `APS_MAX_DIM` (128)
-/// dimensions.
+/// Registered for compatibility. Nothing reads it.
 static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
-
-/// Returns the segment cluster scan's recall target.
-pub fn vector_recall_target() -> f32 {
-    VECTOR_RECALL_TARGET.get() as f32
-}
 
 /// Minimum merged-segment row count for IVF vector storage.
 static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
@@ -376,7 +393,23 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
+    VECTOR_ADAPTIVE_PROBING
+        .get()
+        .then_some(tantivy::vector::AdaptiveProbeParams::default())
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_adaptive_probing",
+        c"Stop vector probing early using admission-rate decay",
+        c"Uses the same routing and work budgets as fixed probing. May stop probing early after competitive-candidate admission decays.",
+        &VECTOR_ADAPTIVE_PROBING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
@@ -434,16 +467,31 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_enum_guc(
-        c"paradedb.planner_warnings",
-        c"Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used",
-        c"When set to 'warning' (default), logs a warning if a query expected to use an optimized \
-          scan (BaseScan / Top K, AggregateScan, or JoinScan) cannot. When set to 'error', raises \
-          an error instead. When set to 'off', suppresses checks and warnings.",
-        &PLANNER_WARNINGS,
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_segment_pruning",
+        c"Enable segment pruning from per-segment field statistics",
+        c"When disabled, queries do not prune segments via .stats or .fast bounds during planning or execution",
+        &ENABLE_SEGMENT_PRUNING,
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    unsafe {
+        GucRegistry::define_enum_guc_with_hooks(
+            c"paradedb.planner_warnings",
+            c"Controls ParadeDB planning and execution diagnostics",
+            c"When set to 'warning' (default), logs warnings about scan fallbacks, filter spills, \
+              and stale visibility maps. When set to 'error', raises an error instead, except \
+              during EXPLAIN without ANALYZE. When set to 'off', suppresses these diagnostics. \
+              Changing this setting invalidates cached plans.",
+            &PLANNER_WARNINGS,
+            GucContext::Userset,
+            GucFlags::default(),
+            None,
+            Some(assign_planner_warnings),
+            None,
+        );
+    }
 
     GucRegistry::define_enum_guc(
         c"paradedb.disjunction_pruning",
@@ -609,6 +657,17 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.visibility_map_warning_threshold",
+        c"Minimum number of dirty heap blocks before warning about a stale visibility map",
+        c"When a scan checks the visibility map and estimates at least this many non-all-visible heap blocks across the table (covering at least 50% of the scanned block range), emits a once-per-statement warning recommending VACUUM and autovacuum tuning. Set to 0 (or set paradedb.planner_warnings = 'off') to disable.",
+        &VISIBILITY_MAP_WARNING_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.max_window_aggregate_response_bytes",
         c"Maximum response size in bytes for a window aggregate.",
         c"The maximum response size in bytes for a window aggregate during a parallel scan. If this is exceeded, the query will be cancelled.",
@@ -632,8 +691,8 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.global_enable_background_merging",
-        c"Enable background merging",
-        c"Enable background merging",
+        c"Enable write-triggered background merging",
+        c"Periodic mutable sweeps are controlled separately by paradedb.mutable_sweep_interval",
         &GLOBAL_ENABLE_BACKGROUND_MERGING,
         GucContext::Sighup,
         GucFlags::default(),
@@ -650,8 +709,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"IVF probe-work budget, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -671,9 +730,38 @@ pub fn init() {
     );
 
     GucRegistry::define_float_guc(
+        c"paradedb.vector_router_rerank_factor",
+        c"Approximate candidates retained per requested centroid by quantized routing",
+        c"Retain ceil(factor * router_k) candidates before exact reranking. A factor of 1 removes padding but still reranks exactly. Does not widen list selection or change document probing budgets.",
+        &VECTOR_ROUTER_RERANK_FACTOR,
+        1.0,
+        16.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_min_beam_fraction",
+        c"Minimum fraction of each quantized router level's lists to open",
+        c"Query-time shortlist breadth. Full-precision routing retains its existing beam.",
+        &VECTOR_ROUTER_MIN_BEAM_FRACTION,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_router_aps",
+        c"Allow stacked routing to stop after quiet lists",
+        c"Applies to full-precision and quantized hierarchical routing.",
+        &VECTOR_ROUTER_APS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    // Registered so SHOW and pg_settings stay stable. Nothing reads these.
+    GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
-        c"Recall target for the stacked IVF router's (vector_router = 'ivf') centroid ranking in vector ORDER BY queries",
-        c"Below 1.0 the stacked router stops scanning its centroid lists once the estimated recall of the ranked clusters reaches this target (adaptive partition scanning); 1.0 ranks with the fixed per-level nprobe fractions. Ignored, and treated as 1.0, for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        c"Registered for compatibility; nothing reads it",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
         &VECTOR_ROUTER_RECALL_TARGET,
         0.000001,
         1.0,
@@ -683,8 +771,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
-        c"Recall target for each segment's cluster scan in vector ORDER BY queries",
-        c"Below 1.0 the probe loop stops once the estimated recall of the clusters scanned so far reaches this target (adaptive partition scanning); 1.0 leaves paradedb.vector_cluster_max_probe as the only bound. Applies only to segments built with vector_router = 'ivf', and is treated as 1.0 for vectors of more than 128 dimensions where the recall estimate is unreliable, and for inner product (vector_ip_ops) indexes.",
+        c"Registered for compatibility; nothing reads it",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
@@ -694,7 +782,7 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.max_scan_levels",
-        c"Maximum quantized vector layers scored before exact rerank",
+        c"Maximum quantized vector layers scored before exact scoring",
         c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
         &VECTOR_MAX_SCAN_LEVELS,
         0,
@@ -706,7 +794,7 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_stats",
         c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
-        c"Adds the Segment Info block with per-segment probe, layer, rerank, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
         &VECTOR_STATS,
         GucContext::Userset,
         GucFlags::default(),
@@ -771,7 +859,8 @@ pub fn init() {
         c"When 'auto' (default), the placement rule keeps the fetch with the decode unless the \
           rows reach it out of doc order or multiplied by a join, in which case the scan \
           resolves the term ordinals itself. 'on' keeps the fetch with the decode, wherever \
-          the decode runs; 'off' always runs it in the scan.",
+          the decode runs; 'off' always runs it in the scan. A list column has no fetch step \
+          of its own, so this setting does not apply to it.",
         &DEFER_COLUMN_FETCH,
         GucContext::Userset,
         GucFlags::default(),
@@ -783,7 +872,8 @@ pub fn init() {
         c"When 'auto' (default), the placement rule defers the decode to the point where the \
           string is consumed unless a join multiplies the rows on the way and nothing above \
           bounds them, in which case the scan decodes the column. 'on' always defers the \
-          decode; 'off' never defers a string column.",
+          decode; 'off' never defers a string column. A list column such as text[] follows \
+          this setting as a whole and is read and decoded in one step where it is consumed.",
         &DEFER_STRING_DECODE,
         GucContext::Userset,
         GucFlags::default(),
@@ -799,6 +889,40 @@ pub fn init() {
           Global thresholds are published progressively to the scanner \
           for early row pruning during collection.",
         &ENABLE_SEGMENTED_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_rank_join",
+        c"Enable RankJoinExec (SA + RA Rank Join) for top-K scored joins",
+        c"When enabled, top-K joins ordered by a monotonic score expression use \
+          RankJoinExec with lazy score-ordered (SA) and point-lookup (RA) scan streams.",
+        &ENABLE_RANK_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.rank_join_min_rows",
+        c"Minimum estimated matching rows on both join inputs for RankJoinExec",
+        c"Minimum estimated matching rows on both join inputs before RankJoinRule replaces \
+          a one-pass HashJoinExec with RankJoinExec. Set to 0 to bypass the size floor.",
+        &RANK_JOIN_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.rank_join_unscored_selectivity_threshold",
+        c"Minimum estimated selectivity on unscored (RA) join inputs for RankJoinExec",
+        c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
+          inputs of a single-sided (NRJN) join when paradedb.rank_join_min_rows > 0.",
+        &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -952,35 +1076,20 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
-        c"Per-inbox ring size for MPP shuffles",
-        c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
-          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Each query lays out \
-          one inbox per proc, so total DSM per query is about `N x mpp_queue_size`; \
-          at the default 8MB and N=4 that is ~32MB per query, within Docker's \
-          default 64MB /dev/shm. Frames larger than a ring stream through it in \
-          chunks. Lower this on memory-constrained boxes; raise it when shuffle \
-          batches routinely back up the ring.",
+        c"Queue size budget for MPP DSM SPSC byte rings",
+        c"Sets the per-query DSM ring budget divided across all 2 * W^2 SPSC rings in an MPP \
+          mesh (`mpp_queue_size / (2 * W^2)`, floored at 16kB and rounded down to a power of \
+          two). Accepts standard Postgres byte units (e.g. '64MB', '1GB', '512kB'). With the \
+          default 8MB setting, each ring is 1MB at W=2, 256kB at W=3..4, 64kB at W=8, and 16kB \
+          at W=16, keeping the per-query DSM allocation bounded within Docker's default 64MB \
+          /dev/shm across worker counts. Payloads larger than a ring stream through it in \
+          chunks. Lower this on memory-constrained boxes; raise it when shuffle batches \
+          routinely back up the ring.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
-    );
-
-    GucRegistry::define_int_guc(
-        c"paradedb.mpp_request_timeout",
-        c"Longest an MPP worker fragment waits for its next partition request",
-        c"Bounds how long an MPP worker fragment waits for the next partition-execution \
-          request while none of its partitions are running. Consumers issue every \
-          request while building their streams, so the wait is normally over in \
-          milliseconds; a stall this long means a consumer stopped requesting and the \
-          query would otherwise hang. Accepts standard Postgres time units. 0 disables \
-          the guard.",
-        &MPP_REQUEST_TIMEOUT,
-        0,
-        i32::MAX,
-        GucContext::Userset,
-        GucFlags::UNIT_S,
     );
 }
 
@@ -999,6 +1108,10 @@ pub fn enable_aggregate_custom_scan() -> bool {
 
 pub fn enable_visibility_map_shortcuts() -> bool {
     ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
+pub fn enable_segment_pruning() -> bool {
+    ENABLE_SEGMENT_PRUNING.get()
 }
 
 pub fn enable_bitmap_postings() -> bool {
@@ -1037,6 +1150,7 @@ pub fn enable_filter_pushdown() -> bool {
     ENABLE_FILTER_PUSHDOWN.get()
 }
 
+#[allow(dead_code)]
 pub fn is_fast_field_exec_enabled() -> bool {
     ENABLE_FAST_FIELD_EXEC.get()
 }
@@ -1159,6 +1273,10 @@ pub fn visibility_threshold() -> u64 {
     VISIBILITY_THRESHOLD.get().max(0) as u64
 }
 
+pub fn visibility_map_warning_threshold() -> u64 {
+    VISIBILITY_MAP_WARNING_THRESHOLD.get().max(0) as u64
+}
+
 pub fn max_term_agg_buckets() -> i32 {
     let v = MAX_TERM_AGG_BUCKETS.get();
     if v <= 0 {
@@ -1208,6 +1326,20 @@ pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
 }
 
+pub fn enable_rank_join() -> bool {
+    ENABLE_RANK_JOIN.get()
+}
+
+pub fn rank_join_min_rows() -> usize {
+    RANK_JOIN_MIN_ROWS.get().max(0) as usize
+}
+
+pub fn rank_join_unscored_selectivity_threshold() -> f64 {
+    RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD
+        .get()
+        .clamp(0.0, 1.0)
+}
+
 pub fn joinscan_force_topk_as_agg() -> bool {
     JOINSCAN_FORCE_TOPK_AS_AGG.get()
 }
@@ -1239,10 +1371,6 @@ pub fn mpp_min_rows() -> i32 {
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
-}
-
-pub fn mpp_request_timeout_secs() -> i32 {
-    MPP_REQUEST_TIMEOUT.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {
@@ -1298,6 +1426,23 @@ mod tests {
                 diff
             );
         }};
+    }
+
+    #[pg_test]
+    fn test_adaptive_vector_probe_settings() {
+        Spi::run(
+            "RESET paradedb.vector_cluster_max_probe; SET paradedb.vector_adaptive_probing = on;",
+        )
+        .unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
+        assert!(vector_adaptive_probing().is_some());
+        Spi::run("SET paradedb.vector_cluster_max_probe = 0.005;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
+        assert!(vector_adaptive_probing().is_none());
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
     }
 
     #[pg_test]

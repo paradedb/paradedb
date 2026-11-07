@@ -31,7 +31,9 @@
 
 // ---------------------------------------------------------------
 // Lock blocks
-// Two blocks are used as locks for merge and vacuum cleanup
+// The merge block provides the merge lock and initial VACUUM pin barrier.
+// The cleanup block is retained for its block number, which identifies the
+// shared/exclusive PAGE admission lock; its buffer is no longer pinned.
 // ---------------------------------------------------------------
 
 // +-------------------------------------------------------------+
@@ -102,6 +104,8 @@ mod avl;
 pub mod block;
 mod blocklist;
 pub mod buffer;
+#[cfg(feature = "pg_test")]
+pub(crate) mod coordination_test;
 pub mod custom_rmgr;
 pub mod fsm;
 pub mod linked_bytes;

@@ -15,20 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::PgSearchRelation;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{RestrictInfoType, restrict_info};
+use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::customscan::qual_inspect::{
     PlannerContext, QualExtractState, extract_quals, has_leaky_heap_filter,
+    optimize_quals_with_heap_expr,
 };
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::{filter_implied_predicates, missing_partial_index_predicate};
+use crate::postgres::utils::filter_implied_predicates;
 use crate::query::SearchQueryInput;
-use pgrx::pg_sys;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQueryClause {
@@ -60,11 +60,11 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         builder
     }
 
-    fn from_pg(
-        args: &Self::Args,
-        heap_rti: pg_sys::Index,
-        index: &PgSearchRelation,
-    ) -> Result<Self, CustomScanBuildError> {
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
+        let index = context
+            .indexrel
+            .as_ref()
+            .expect("should always have a valid index here");
         // We can't handle HAVING yet. PostgreSQL moves a HAVING condition that
         // has no aggregate to WHERE and drops a constant true one, but
         // `hasHavingQual` stays set. `havingQual` holds only what is left.
@@ -77,10 +77,6 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
             // for us to do anything.
             return Err("relation is a join".into());
-        }
-
-        if missing_partial_index_predicate(index.rd_indpred, &restrict_info) {
-            return Err("query does not imply the partial index predicate".into());
         }
 
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
@@ -116,7 +112,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             has_leaky_heap_filter(
                 args.root,
                 args.input_rel,
-                heap_rti,
+                context.heap_rti,
                 index,
                 &filtered_restrict_info,
             )
@@ -128,9 +124,9 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             );
         }
 
-        let quals = match extract_quals(
+        let mut quals = match extract_quals(
             &PlannerContext::from_planner(args.root),
-            heap_rti,
+            context.heap_rti,
             filtered_restrict_info.as_ptr().cast(),
             ri_type,
             index,
@@ -141,6 +137,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             Some(q) => q,
             None => return Err("could not extract search query from quals".into()),
         };
+        unsafe { optimize_quals_with_heap_expr(&mut quals) };
 
         Ok(SearchQueryClause {
             query: SearchQueryInput::from(&quals),

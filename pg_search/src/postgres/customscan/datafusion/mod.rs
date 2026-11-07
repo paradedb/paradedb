@@ -35,6 +35,7 @@ use datafusion::physical_plan::expressions::Literal;
 use std::sync::Arc;
 
 pub mod cardinality_agg;
+pub mod carry_value;
 pub mod explain;
 mod expr_translators;
 pub mod memory;
@@ -54,7 +55,10 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
         numeric_agg::numeric_bytes_sum_udaf(),
         numeric_agg::numeric_bytes_avg_udaf(),
         cardinality_agg::tantivy_cardinality_udaf(),
+        carry_value::carry_value_udaf(),
         pdb_agg_udaf::pdb_agg_udaf(),
+        pdb_agg_udaf::pdb_precombine_agg_udaf(),
+        pdb_agg_udaf::pdb_combine_agg_udaf(),
         topk_agg::topk_as_agg_udaf(),
     ]
 }

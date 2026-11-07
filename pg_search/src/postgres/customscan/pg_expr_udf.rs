@@ -37,10 +37,13 @@ use std::sync::OnceLock;
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::*;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
+use datafusion::logical_expr::{
+    ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility,
+};
 use pgrx::PgMemoryContexts;
 
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::debug_assert_single_document;
+use crate::postgres::types_arrow::udf_pg_type_to_arrow;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
@@ -90,9 +93,9 @@ pub struct PgExprUdf {
     /// Pre-computed DataFusion Signature (input types match Tantivy widening)
     #[serde(skip, default = "PgExprUdf::default_signature")]
     signature: Signature,
-    /// Lazily initialized PG expression evaluation state.
+    /// Lazily initialized PG expression evaluation state, bound to the Postgres main thread.
     #[serde(skip)]
-    initialized_state: OnceLock<PgExprState>,
+    initialized_state: OnceLock<crate::postgres::customscan::mpp::MainThread<PgExprState>>,
 }
 
 impl std::fmt::Debug for PgExprUdf {
@@ -124,7 +127,9 @@ impl std::hash::Hash for PgExprUdf {
 }
 
 /// Cached PostgreSQL expression evaluation state.
-/// Allocated in TopTransactionContext to survive across DataFusion batch boundaries.
+/// Allocated in TopTransactionContext to survive across DataFusion batch boundaries, and wrapped
+/// in [`crate::postgres::customscan::mpp::MainThread`] so it is only accessed or dropped on
+/// the Postgres main thread.
 struct PgExprState {
     expr_state: *mut pg_sys::ExprState,
     estate: *mut pg_sys::EState,
@@ -133,16 +138,13 @@ struct PgExprState {
     json_doc_datums: RefCell<HashMap<usize, (pg_sys::Datum, bool)>>,
 }
 
-// SAFETY: PgExprState is only accessed within a single DataFusion partition
-// (target_partitions=1). The raw pointers are not shared across threads.
-unsafe impl Send for PgExprState {}
-unsafe impl Sync for PgExprState {}
-
 crate::impl_safe_drop!(PgExprState, |self| {
     unsafe {
-        pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-        pg_sys::FreeExprContext(self.econtext, true);
-        pg_sys::FreeExecutorState(self.estate);
+        if crate::postgres::utils::IsTransactionState() {
+            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+            pg_sys::FreeExprContext(self.econtext, true);
+            pg_sys::FreeExecutorState(self.estate);
+        }
     }
 });
 
@@ -151,28 +153,21 @@ impl PgExprUdf {
         DataType::Utf8
     }
 
+    /// Inputs are decoded per-column in `populate_slot`, so accept any arg
+    /// types. `Nullary` covers UDFs over only constants (no input Vars),
+    /// which `VariadicAny` alone rejects.
     fn default_signature() -> Signature {
-        Signature::variadic_any(Volatility::Immutable)
+        Signature::one_of(
+            vec![TypeSignature::VariadicAny, TypeSignature::Nullary],
+            Volatility::Immutable,
+        )
     }
 
     /// Returns the Arrow `DataType` for a PG result type OID if `PgExprUdf`
     /// can evaluate it, or `None` if unsupported. This is the single gate for
     /// whether an expression can be UDF-wrapped.
-    ///
-    /// KEEP IN SYNC with the `eval_expr_to_arrow!` arms in
-    /// [`Self::invoke_with_args`] — every OID accepted here must have a
-    /// matching match arm there, and vice versa.
     pub fn get_result_type_to_arrow(oid: pg_sys::Oid) -> Option<DataType> {
-        match oid {
-            pg_sys::BOOLOID => Some(DataType::Boolean),
-            pg_sys::INT2OID => Some(DataType::Int16),
-            pg_sys::INT4OID => Some(DataType::Int32),
-            pg_sys::INT8OID => Some(DataType::Int64),
-            pg_sys::FLOAT4OID => Some(DataType::Float32),
-            pg_sys::FLOAT8OID => Some(DataType::Float64),
-            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => Some(DataType::Utf8),
-            _ => None,
-        }
+        udf_pg_type_to_arrow(oid)
     }
 
     /// Hash the expression structure and constant values separately so UDF names
@@ -213,32 +208,10 @@ impl PgExprUdf {
         format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash:08x}")
     }
 
-    /// Compute the DataFusion signature for the given inputs.
-    ///
-    /// A storage-encoded input's Arrow type is its encoding, not what
-    /// `pg_type_to_tantivy_arrow` derives from the PG type (e.g. a numeric
-    /// AVG blob is Binary and a scaled NUMERIC column is Int64 while their
-    /// `type_oid` is NUMERIC, which the plain mapping would coerce to
-    /// Utf8), so any such input switches the signature to variadic_any —
-    /// the per-input decode in `populate_slot` handles the actual types.
-    fn compute_signature(input_vars: &[InputVarInfo], input_decodes: &[InputDecode]) -> Signature {
-        if input_decodes
-            .iter()
-            .any(|d| !matches!(d, InputDecode::Plain))
-        {
-            return Signature::variadic_any(Volatility::Immutable);
-        }
-        let input_types: Vec<DataType> = input_vars
-            .iter()
-            .map(|v| types_arrow::pg_type_to_tantivy_arrow(v.type_oid))
-            .collect();
-        Signature::exact(input_types, Volatility::Immutable)
-    }
-
     /// Rebuild derived fields after deserialization.
     pub fn fixup_after_deserialize(&mut self) {
-        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);
-        self.signature = Self::compute_signature(&self.input_vars, &self.input_decodes);
+        self.return_type = types_arrow::udf_pg_type_to_arrow(self.result_type_oid)
+            .expect("should always be a valid type");
     }
 
     pub fn new(
@@ -247,12 +220,12 @@ impl PgExprUdf {
         input_vars: Vec<InputVarInfo>,
         input_decodes: Vec<InputDecode>,
         result_type_oid: pg_sys::Oid,
-    ) -> Self {
+    ) -> Option<Self> {
         debug_assert_eq!(input_vars.len(), input_decodes.len());
-        let return_type = types_arrow::pg_type_to_arrow(result_type_oid);
-        let signature = Self::compute_signature(&input_vars, &input_decodes);
+        let return_type = types_arrow::udf_pg_type_to_arrow(result_type_oid)?;
+        let signature = Self::default_signature();
 
-        Self {
+        Some(Self {
             name,
             pg_expr_string,
             input_vars,
@@ -261,40 +234,49 @@ impl PgExprUdf {
             return_type,
             signature,
             initialized_state: OnceLock::new(),
-        }
+        })
     }
 
     /// Lazily initialize PG expression state on first call.
-    unsafe fn get_or_init_state(&self) -> &PgExprState {
-        self.initialized_state.get_or_init(|| {
-            PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                let prepared =
-                    PreparedPgExpr::from_serialized(&self.pg_expr_string, &self.input_vars);
+    fn get_or_init_state(
+        &self,
+        token: crate::postgres::customscan::mpp::MainThreadToken,
+    ) -> &PgExprState {
+        self.initialized_state
+            .get_or_init(|| {
+                unsafe {
+                    PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                        let prepared =
+                            PreparedPgExpr::from_serialized(&self.pg_expr_string, &self.input_vars);
 
-                let tupdesc = build_tupdesc_for_inputs(&self.input_vars);
+                        let tupdesc = build_tupdesc_for_inputs(&self.input_vars);
 
-                // SAFETY: tupdesc is valid, TTSOpsVirtual is a static PG global.
-                let slot = pg_sys::MakeSingleTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
+                        // SAFETY: tupdesc is valid, TTSOpsVirtual is a static PG global.
+                        let slot =
+                            pg_sys::MakeSingleTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
 
-                let estate = pg_sys::CreateExecutorState();
-                let econtext = pg_sys::CreateExprContext(estate);
+                        let estate = pg_sys::CreateExecutorState();
+                        let econtext = pg_sys::CreateExprContext(estate);
 
-                // Use ecxt_innertuple because Var nodes are rewritten to INNER_VAR.
-                (*econtext).ecxt_innertuple = slot;
+                        // Use ecxt_innertuple because Var nodes are rewritten to INNER_VAR.
+                        (*econtext).ecxt_innertuple = slot;
 
-                // SAFETY: expr_node is a valid deserialized+rewritten Node.
-                let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
+                        // SAFETY: expr_node is a valid deserialized+rewritten Node.
+                        let expr_state =
+                            pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
 
-                let json_doc_datums = RefCell::new(HashMap::new());
-                PgExprState {
-                    expr_state,
-                    estate,
-                    econtext,
-                    slot,
-                    json_doc_datums,
+                        let json_doc_datums = RefCell::new(HashMap::new());
+                        crate::postgres::customscan::mpp::MainThread::new(PgExprState {
+                            expr_state,
+                            estate,
+                            econtext,
+                            slot,
+                            json_doc_datums,
+                        })
+                    })
                 }
             })
-        })
+            .get(token)
     }
 }
 
@@ -464,34 +446,36 @@ impl ScalarUDFImpl for PgExprUdf {
         Ok(self.return_type.clone())
     }
 
+    /// NOTE: This must be kept in sync with `types_arrow::pg_type_to_arrow`
     fn invoke_with_args(
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        // SAFETY: single-threaded access guaranteed by target_partitions=1.
-        let pg_state = unsafe { self.get_or_init_state() };
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+            let pg_state = self.get_or_init_state(token);
 
-        // A UDF over only constants has no input Vars — that's valid.
-        // ExecEvalExpr evaluates it with an empty slot.
+            // A UDF over only constants has no input Vars — that's valid.
+            // ExecEvalExpr evaluates it with an empty slot.
 
-        let n = args.number_rows;
-        let arg_values = &args.args;
+            let n = args.number_rows;
+            let arg_values = &args.args;
 
-        let arrow_array = eval_expr_to_arrow!(
-            self, n, pg_state, arg_values, &self.input_vars,
-            pg_sys::BOOLOID   => |d: pg_sys::Datum| d.value() != 0                    => BooleanBuilder::with_capacity(n),
-            pg_sys::INT2OID   => |d: pg_sys::Datum| d.value() as i16                  => Int16Builder::with_capacity(n),
-            pg_sys::INT4OID   => |d: pg_sys::Datum| d.value() as i32                  => Int32Builder::with_capacity(n),
-            pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
-            pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
-            pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
-            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
-                use pgrx::FromDatum;
-                String::from_datum(d, false).expect("non-null TEXT datum")
-            } => StringBuilder::with_capacity(n, n * 32),
-        );
+            let arrow_array = eval_expr_to_arrow!(
+                self, n, pg_state, arg_values, &self.input_vars,
+                pg_sys::BOOLOID   => |d: pg_sys::Datum| d.value() != 0                    => BooleanBuilder::with_capacity(n),
+                pg_sys::INT2OID   => |d: pg_sys::Datum| d.value() as i16                  => Int16Builder::with_capacity(n),
+                pg_sys::INT4OID   => |d: pg_sys::Datum| d.value() as i32                  => Int32Builder::with_capacity(n),
+                pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
+                pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
+                pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
+                pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
+                    use pgrx::FromDatum;
+                    String::from_datum(d, false).expect("non-null TEXT datum")
+                } => StringBuilder::with_capacity(n, n * 32),
+            );
 
-        Ok(ColumnarValue::Array(arrow_array))
+            Ok(ColumnarValue::Array(arrow_array))
+        })
     }
 }
 

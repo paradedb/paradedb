@@ -100,7 +100,7 @@ LIMIT 5;
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, ctid_1@4]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               PgSearchScan: table=p, segments=1, eager=[categories], tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (17 rows)
@@ -166,7 +166,7 @@ LIMIT 10;
      :                 CooperativeExec
      :                   PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :                 CooperativeExec
-     :                   PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                   PgSearchScan: table=b, segments=1, eager=[tags], dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (21 rows)
 
 SELECT
@@ -220,13 +220,14 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_1_tags@3 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, b]
      :       UnnestExec
-     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __p_0_tag_2@2 OR __b_1_tag_0@3, projection=[ctid_0@0, id@1, ctid_1@5, tags@6]
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"match":{"field":"title","value":"Mystery","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_2={"with_index":{"query":{"match":{"field":"title","value":"Empty","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(17 rows)
+     :         TantivyDecodeExec: decode=[tags]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __p_0_tag_1@1 OR __p_0_tag_2@2 OR __b_1_tag_0@3, projection=[ctid_0@0, id@1, ctid_1@5, tags@6]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_1={"with_index":{"query":{"match":{"field":"title","value":"Mystery","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, tag_2={"with_index":{"query":{"match":{"field":"title","value":"Empty","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
 
 SELECT
     p.id,
@@ -279,16 +280,17 @@ LIMIT 10;
      :       UnnestExec
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, p_0_categories@1 as p_0_categories, id@2 as id, regions@3 as s_2_regions, ctid_1@4 as ctid_1, ctid_2@5 as ctid_2]
      :           UnnestExec
-     :             ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, regions@3 as regions, ctid_1@4 as ctid_1, ctid_2@5 as ctid_2]
-     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(brand_id@1, id@3)], projection=[ctid_0@3, categories@4, id@5, regions@0, ctid_1@7, ctid_2@2]
-     :                 CooperativeExec
-     :                   PgSearchScan: table=s, segments=1, query="all"
-     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, id@4, ctid_1@7]
+     :             TantivyDecodeExec: decode=[regions]
+     :               ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, regions@3 as regions, ctid_1@4 as ctid_1, ctid_2@5 as ctid_2]
+     :                 HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(brand_id@1, id@3)], projection=[ctid_0@3, categories@4, id@5, regions@0, ctid_1@7, ctid_2@2]
      :                   CooperativeExec
-     :                     PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :                   CooperativeExec
-     :                     PgSearchScan: table=b, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(22 rows)
+     :                     PgSearchScan: table=s, segments=1, query="all"
+     :                   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, id@4, ctid_1@7]
+     :                     CooperativeExec
+     :                       PgSearchScan: table=p, segments=1, eager=[categories], tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                     CooperativeExec
+     :                       PgSearchScan: table=b, segments=1, dynamic_filters=2, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(23 rows)
 
 SELECT
     p.id,
@@ -343,13 +345,14 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[p, b]
      :       FilterExec: b_1_tags@3 = bestseller
      :         UnnestExec
-     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
-     :               CooperativeExec
-     :                 PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(18 rows)
+     :           TantivyDecodeExec: decode=[tags]
+     :             ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(19 rows)
 
 SELECT
     p.id,
@@ -397,13 +400,14 @@ LIMIT 10;
      :     VisibilityFilterExec: tables=[p, b]
      :       FilterExec: b_1_tags@3 = bestseller, projection=[ctid_0@0, id@1, ctid_1@2]
      :         UnnestExec
-     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
-     :               CooperativeExec
-     :                 PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(18 rows)
+     :           TantivyDecodeExec: decode=[tags]
+     :             ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, tags@3 as b_1_tags]
+     :               HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@2)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, ctid_1@3, tags@4]
+     :                 CooperativeExec
+     :                   PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :                 CooperativeExec
+     :                   PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(19 rows)
 
 SELECT
     p.id,
@@ -440,30 +444,29 @@ WHERE (
 GROUP BY t
 ORDER BY product_count DESC, t
 LIMIT 10;
-                                                                                                                                             QUERY PLAN                                                                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (count(DISTINCT p.id)) DESC, t.t
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: jlu_products_idx (p), jlu_brands_idx (b), jlu_stores_idx (s)
-               Group By: tags
-               Aggregates: COUNT(DISTINCT)(id)
-               DataFusion Physical Plan: 
-                 : AggregateExec: mode=Single, gby=[b_1_tags@1 as b_1_tags], aggr=[count(DISTINCT p_0.id) as agg_0]
-                 :   UnnestExec
-                 :     ProjectionExec: expr=[id@0 as id, tags@1 as b_1_tags]
-                 :       FilterExec: __p_0_tag_0@1 OR __b_1_tag_0@3 OR __s_2_tag_0@4, projection=[id@0, tags@2]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@0, id@3)], projection=[id@2, __p_0_tag_0@3, tags@4, __b_1_tag_0@6, __s_2_tag_0@1]
-                 :           CooperativeExec
-                 :             PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"store_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@2)], projection=[id@0, __p_0_tag_0@1, tags@2, id@3, __b_1_tag_0@5]
-                 :             CooperativeExec
-                 :               PgSearchScan: table=p, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                 :             CooperativeExec
-                 :               PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(21 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: jlu_products_idx (p), jlu_brands_idx (b), jlu_stores_idx (s)
+         Group By: tags
+         Aggregates: COUNT(DISTINCT)(id)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[agg_0@1 DESC, b_1_tags@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[b_1_tags@1 as b_1_tags], aggr=[count(DISTINCT p_0.id) as agg_0]
+           :     UnnestExec
+           :       ProjectionExec: expr=[id@0 as id, tags@1 as b_1_tags]
+           :         FilterExec: __p_0_tag_0@1 OR __b_1_tag_0@3 OR __s_2_tag_0@4, projection=[id@0, tags@2]
+           :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@0, id@3)], projection=[id@2, __p_0_tag_0@3, tags@4, __b_1_tag_0@6, __s_2_tag_0@1]
+           :             CooperativeExec
+           :               PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"store_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@2)], projection=[id@0, __p_0_tag_0@1, tags@2, id@3, __b_1_tag_0@5]
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=b, segments=1, eager=[tags], dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
 
 SELECT
     t AS tag,
@@ -486,6 +489,68 @@ LIMIT 10;
  home_theater |             1
 (2 rows)
 
+-- The unnested column alone as the sort key.
+EXPLAIN (COSTS OFF)
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
+)
+GROUP BY t
+ORDER BY t
+LIMIT 10;
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: jlu_products_idx (p), jlu_brands_idx (b), jlu_stores_idx (s)
+         Group By: tags
+         Aggregates: COUNT(DISTINCT)(id)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=10), expr=[b_1_tags@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[b_1_tags@1 as b_1_tags], aggr=[count(DISTINCT p_0.id) as agg_0]
+           :     UnnestExec
+           :       ProjectionExec: expr=[id@0 as id, tags@1 as b_1_tags]
+           :         FilterExec: __p_0_tag_0@1 OR __b_1_tag_0@3 OR __s_2_tag_0@4, projection=[id@0, tags@2]
+           :           HashJoinExec: mode=CollectLeft, join_type=Right, on=[(brand_id@0, id@3)], projection=[id@2, __p_0_tag_0@3, tags@4, __b_1_tag_0@6, __s_2_tag_0@1]
+           :             CooperativeExec
+           :               PgSearchScan: table=s, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"store_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@2)], projection=[id@0, __p_0_tag_0@1, tags@2, id@3, __b_1_tag_0@5]
+           :               CooperativeExec
+           :                 PgSearchScan: table=p, segments=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :               CooperativeExec
+           :                 PgSearchScan: table=b, segments=1, eager=[tags], dynamic_filters=1, visibility=eager, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(20 rows)
+
+SELECT
+    t AS tag,
+    count(DISTINCT p.id) AS product_count
+FROM jlu_products p
+JOIN jlu_brands b ON p.id = b.product_id
+LEFT JOIN jlu_stores s ON b.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+WHERE (
+    p.title ||| 'Smart'
+    OR b.brand_name ||| 'Electronics'
+    OR s.store_name ||| 'Electronics'
+)
+GROUP BY t
+ORDER BY t
+LIMIT 10;
+     tag      | product_count 
+--------------+---------------
+ bestseller   |             1
+ home_theater |             1
+(2 rows)
+
 -- =====================================================================
 -- TEST 7: Truncated TopK pushdown strictly respecting unnested sort order
 -- =====================================================================
@@ -499,8 +564,8 @@ CROSS JOIN LATERAL unnest(p.categories) AS c
 WHERE p.title ||| 'Smart'
 ORDER BY p.id, c ASC
 LIMIT 2;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (p INNER b) CROSS JOIN LATERAL UNNEST (categories)
    Join Cond: p.id = b.product_id
@@ -514,7 +579,7 @@ LIMIT 2;
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[ctid_0@0, categories@1, id@2, ctid_1@4]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               PgSearchScan: table=p, segments=1, eager=[categories], query={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -547,8 +612,8 @@ CROSS JOIN LATERAL unnest(p.categories) AS c
 WHERE p.title ||| 'Smart'
 ORDER BY c DESC
 LIMIT 3;
-                                                                                                               QUERY PLAN                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (p INNER b) CROSS JOIN LATERAL UNNEST (categories)
    Join Cond: p.id = b.product_id
@@ -562,7 +627,7 @@ LIMIT 3;
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], projection=[ctid_0@0, categories@1, id@2, ctid_1@4]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, query={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               PgSearchScan: table=p, segments=1, eager=[categories], query={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
 (16 rows)
@@ -610,13 +675,14 @@ LIMIT 10;
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST, b_1_tags@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[p, b], pruned=[b]
      :       UnnestExec
-     :         ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, tags@2 as b_1_tags, ctid_1@3 as ctid_1]
-     :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, tags@3, ctid_1@6]
-     :             CooperativeExec
-     :               PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Category","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :             CooperativeExec
-     :               PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Brand","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(17 rows)
+     :         TantivyDecodeExec: decode=[tags]
+     :           ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, tags@2 as b_1_tags, ctid_1@3 as ctid_1]
+     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, id@1, tags@3, ctid_1@6]
+     :               CooperativeExec
+     :                 PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Category","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Brand","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(18 rows)
 
 SELECT
     p.id,
@@ -683,6 +749,59 @@ LIMIT 5;
 (1 row)
 
 -- =====================================================================
+-- TEST 10b: CROSS JOIN LATERAL unnest on a table pruned by an Anti Join
+-- with chained LATERAL unnests and window aggregate (topk_as_agg)
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT
+    p.id,
+    p.title,
+    COUNT(*) OVER (),
+    t AS tag,
+    c AS category,
+    r AS region
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+JOIN jlu_stores s ON p.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+CROSS JOIN LATERAL unnest(p.categories) AS c
+CROSS JOIN LATERAL unnest(s.regions) AS r
+WHERE p.title ||| 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, s.id, t, c, r
+LIMIT 5 OFFSET 1;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: ((((p ANTI b) INNER s) CROSS JOIN LATERAL UNNEST (tags)) CROSS JOIN LATERAL UNNEST (categories)) CROSS JOIN LATERAL UNNEST (regions)
+   Join Cond: p.id = s.brand_id, p.id = b.product_id
+   Limit: 5
+   Offset: 1
+   Order By: p.id asc, s.id asc, tags asc, categories asc, regions asc
+   DataFusion Physical Plan: 
+     : EmptyExec
+(8 rows)
+
+SELECT
+    p.id,
+    p.title,
+    COUNT(*) OVER (),
+    t AS tag,
+    c AS category,
+    r AS region
+FROM jlu_products p
+LEFT JOIN jlu_brands b ON p.id = b.product_id
+JOIN jlu_stores s ON p.id = s.brand_id
+CROSS JOIN LATERAL unnest(b.tags) AS t
+CROSS JOIN LATERAL unnest(p.categories) AS c
+CROSS JOIN LATERAL unnest(s.regions) AS r
+WHERE p.title ||| 'Smart' AND b.product_id IS NULL
+ORDER BY p.id, s.id, t, c, r
+LIMIT 5 OFFSET 1;
+ id | title | count | tag | category | region 
+----+-------+-------+-----+----------+--------
+(0 rows)
+
+-- =====================================================================
 -- TEST 11: SELECT DISTINCT with CROSS JOIN LATERAL unnest + LIMIT
 -- =====================================================================
 EXPLAIN (COSTS OFF)
@@ -712,7 +831,7 @@ LIMIT 10;
      :         ProjectionExec: expr=[ctid_0@0 as ctid_0, categories@1 as p_0_categories, id@2 as id, ctid_1@3 as ctid_1]
      :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], filter=__p_0_tag_0@0 OR __b_1_tag_0@1, projection=[ctid_0@0, categories@1, id@2, ctid_1@6]
      :             CooperativeExec
-     :               PgSearchScan: table=p, segments=2, tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               PgSearchScan: table=p, segments=2, eager=[categories], tag_0={"with_index":{"query":{"match":{"field":"title","value":"Smart","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :             CooperativeExec
      :               PgSearchScan: table=b, segments=1, dynamic_filters=1, tag_0={"with_index":{"query":{"match":{"field":"brand_name","value":"Electronics","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (18 rows)

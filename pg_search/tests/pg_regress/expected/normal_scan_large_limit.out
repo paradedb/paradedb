@@ -1,0 +1,82 @@
+-- Tests that NormalScanExecState handles a pushed-down LIMIT larger than its
+-- internal batch size (8192). A text key tiebreak means only pdb.score() can be
+-- pushed down, so TopK is declined and the Normal scan receives the LIMIT.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.planner_warnings = 'off';
+DROP TABLE IF EXISTS normal_large_limit CASCADE;
+CREATE TABLE normal_large_limit (id TEXT PRIMARY KEY, body TEXT);
+INSERT INTO normal_large_limit
+SELECT 'k' || g, 'hello world ' || (g % 7) FROM generate_series(1, 20000) g;
+CREATE INDEX normal_large_limit_idx ON normal_large_limit USING bm25 (id, body);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.score(id) FROM normal_large_limit
+WHERE body @@@ 'hello'
+ORDER BY pdb.score(id) DESC, id DESC
+LIMIT 100000;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(id)) DESC, id DESC
+         ->  Custom Scan (ParadeDB Base Scan) on normal_large_limit
+               Table: normal_large_limit
+               Index: normal_large_limit_idx
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"hello","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- LIMIT just above the batch size
+SELECT count(*) FROM (
+    SELECT id, pdb.score(id) FROM normal_large_limit
+    WHERE body @@@ 'hello'
+    ORDER BY pdb.score(id) DESC, id DESC
+    LIMIT 12000
+) s;
+ count 
+-------
+ 12000
+(1 row)
+
+-- LIMIT above the number of matching rows
+SELECT count(*) FROM (
+    SELECT id, pdb.score(id) FROM normal_large_limit
+    WHERE body @@@ 'hello'
+    ORDER BY pdb.score(id) DESC, id DESC
+    LIMIT 100000
+) s;
+ count 
+-------
+ 20000
+(1 row)
+
+-- LIMIT near usize::MAX must not overflow the batch size computation
+SELECT count(*) FROM (
+    SELECT id, pdb.score(id) FROM normal_large_limit
+    WHERE body @@@ 'hello'
+    ORDER BY pdb.score(id) DESC, id DESC
+    LIMIT 9223372036854775807
+) s;
+ count 
+-------
+ 20000
+(1 row)
+
+DROP TABLE normal_large_limit CASCADE;
+RESET paradedb.planner_warnings;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

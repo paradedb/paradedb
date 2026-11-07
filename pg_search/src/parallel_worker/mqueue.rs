@@ -91,14 +91,23 @@ impl From<pg_sys::shm_mq_result::Type> for MessageQueueSendError {
 }
 
 pub struct MessageQueueSender {
+    // Declared before `handle` so Rust's field drop order runs `WorkerStatsGuard::drop`
+    // (`InstrEndParallelQuery`) before `MessageQueueHandle::drop` detaches the `shm_mq` and
+    // unblocks `ParallelProcessFinish::recv()` on the leader.
+    _stats: Option<crate::parallel_worker::WorkerStatsGuard>,
     handle: MessageQueueHandle,
 }
 
 impl MessageQueueSender {
     #[doc(hidden)]
-    pub(crate) unsafe fn new(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(crate) unsafe fn new(
+        seg: *mut pg_sys::dsm_segment,
+        mq: *mut pg_sys::shm_mq,
+        stats: Option<crate::parallel_worker::WorkerStatsGuard>,
+    ) -> Self {
         unsafe {
             Self {
+                _stats: stats,
                 handle: MessageQueueHandle::attach_sender(seg, mq),
             }
         }
@@ -186,23 +195,6 @@ impl MessageQueueReceiver {
             Self {
                 handle: MessageQueueHandle::attach_receiver(pcxt, mq),
             }
-        }
-    }
-
-    /// Wrap an already-acquired `shm_mq_handle` pointer directly. Used by
-    /// the MPP mesh where `shm_mq_attach` is called from a non-standard
-    /// layout (one `shm_mq_create` up front for every mesh slot, then each
-    /// participant attaches as sender or receiver separately).
-    ///
-    /// # Safety
-    /// `handle` must be a non-null `shm_mq_handle*` returned by a successful
-    /// `shm_mq_attach` call, and ownership of the handle (detach on drop) is
-    /// transferred into the returned receiver.
-    pub unsafe fn from_raw_handle(handle: *mut pg_sys::shm_mq_handle) -> Self {
-        Self {
-            handle: MessageQueueHandle {
-                handle: unsafe { NonNull::new_unchecked(handle) },
-            },
         }
     }
 

@@ -74,7 +74,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
@@ -108,7 +108,6 @@ mod tests {
             Some(partition),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             0,
@@ -124,9 +123,7 @@ mod tests {
         let mut row_count = 0;
 
         // Use a runtime to block on the stream
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         runtime.block_on(async {
             while let Some(batch) = stream.next().await {
                 let batch = batch.unwrap();
@@ -145,12 +142,15 @@ mod tests {
     fn test_fields() -> Vec<WhichFastField> {
         vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::InvalidOid)),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::InvalidOid),
+            ),
+            WhichFastField::eager_scalar(
                 "price".to_string(),
                 SearchFieldType::F64(pg_sys::InvalidOid),
             ),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
                 "quantity".to_string(),
                 SearchFieldType::I64(pg_sys::InvalidOid),
             ),
@@ -419,9 +419,7 @@ mod tests {
         );
 
         // Test full DataFusion flow
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
         runtime.block_on(async {
             let ctx = SessionContext::new();
@@ -725,7 +723,7 @@ mod tests {
             must_not.as_slice(),
             [SearchQueryInput::FieldedQuery {
                 field,
-                query: Query::Range {
+                query: Query::StoredRange {
                     lower_bound: Bound::Included(PdbOwnedValue::I64(10)),
                     upper_bound: Bound::Unbounded,
                 },
@@ -746,6 +744,113 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_range_partitioning_bounds_stay_in_stored_form() {
+        use crate::api::FieldName;
+        use crate::postgres::pdb_owned_value::PdbOwnedValue;
+        use crate::postgres::rel::PgSearchRelation;
+        use crate::query::numeric::numeric_value_to_decimal_bytes;
+        use crate::scan::range_partitioning::RangeSplitPoints;
+
+        let matching_ids = |reader: &SearchIndexReader| {
+            let fields = [WhichFastField::eager_scalar(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::INT4OID),
+            )];
+            let fast_fields = FFHelper::with_fields(reader, &fields);
+            let mut ids = reader
+                .search()
+                .map(|(_, doc_address)| {
+                    i64::try_from(
+                        fast_fields
+                            .value(0, doc_address)
+                            .expect("id should be a fast field"),
+                    )
+                    .expect("id should be stored as an I64")
+                })
+                .collect::<Vec<_>>();
+            ids.sort_unstable();
+            ids
+        };
+
+        Spi::run(
+            "CREATE TABLE numeric_partition_bounds_test (
+                id serial PRIMARY KEY,
+                amount numeric(10,2) NOT NULL
+            );
+            INSERT INTO numeric_partition_bounds_test (amount)
+            VALUES (1.22), (1.23), (4.55), (4.56);
+            CREATE INDEX numeric_partition_bounds_test_idx
+            ON numeric_partition_bounds_test USING paradedb (id, amount);",
+        )
+        .expect("create Numeric64 partition-bound fixture");
+
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid
+             FROM pg_class
+             WHERE relname = 'numeric_partition_bounds_test_idx'
+               AND relkind = 'i';",
+        )
+        .expect("look up test index")
+        .expect("test index should exist");
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        let split_points = RangeSplitPoints {
+            partition_by: FieldName::from("amount"),
+            points: vec![PdbOwnedValue::I64(123), PdbOwnedValue::I64(456)],
+        };
+        let build = split_points.build(3);
+
+        let p1 = build.partition_bounds(1);
+
+        let reader = SearchIndexReader::open(&index_rel, p1, false, MvccSatisfies::Snapshot)
+            .expect("open reader with stored partition bounds");
+        assert_eq!(matching_ids(&reader), vec![2, 3]);
+
+        Spi::run(
+            "CREATE TABLE numeric_bytes_partition_bounds_test (
+                id serial PRIMARY KEY,
+                amount numeric NOT NULL
+            );
+            INSERT INTO numeric_bytes_partition_bounds_test (amount)
+            VALUES (1.22), (1.23), (4.55), (4.56);
+            CREATE INDEX numeric_bytes_partition_bounds_test_idx
+            ON numeric_bytes_partition_bounds_test USING paradedb (id, amount);",
+        )
+        .expect("create NumericBytes partition-bound fixture");
+
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid
+             FROM pg_class
+             WHERE relname = 'numeric_bytes_partition_bounds_test_idx'
+               AND relkind = 'i';",
+        )
+        .expect("look up NumericBytes test index")
+        .expect("NumericBytes test index should exist");
+        let index_rel = PgSearchRelation::open(index_oid);
+        let index_created_by_version = index_rel.created_by_version();
+
+        let stored_numeric = |value: &str| {
+            numeric_value_to_decimal_bytes(
+                PdbOwnedValue::Str(value.to_owned()),
+                index_created_by_version,
+            )
+            .expect("encode NumericBytes split point")
+        };
+        let lower = stored_numeric("1.23");
+        let upper = stored_numeric("4.56");
+
+        let split_points = RangeSplitPoints {
+            partition_by: FieldName::from("amount"),
+            points: vec![lower.clone(), upper.clone()],
+        };
+        let p1 = split_points.build(3).partition_bounds(1);
+
+        let reader = SearchIndexReader::open(&index_rel, p1, false, MvccSatisfies::Snapshot)
+            .expect("open reader with stored NumericBytes partition bounds");
+        assert_eq!(matching_ids(&reader), vec![2, 3]);
+    }
+
+    #[pg_test]
     #[allow(deprecated)] // Exercises PgSearchScanPlan's DataFusion partition-statistics contract.
     fn test_range_partitioning_repartition() {
         let (heap_oid, index_oid) = get_relation_oids();
@@ -762,7 +867,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
@@ -804,7 +909,6 @@ mod tests {
             Some(partition),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             index_oid.into(),
@@ -914,6 +1018,35 @@ mod tests {
         assert_eq!(
             cross_range.split_points()[0].values(),
             &[ScalarValue::Int64(Some(10))]
+        );
+
+        // Stored NumericBytes split points are declared as BinaryView without
+        // altering their byte representation.
+        let binary_schema = Arc::new(Schema::new(vec![
+            Field::new(CTID_FIELD_NAME, DataType::UInt64, true),
+            Field::new("amount", DataType::BinaryView, true),
+        ]));
+        let first_bytes = vec![0x01, 0x00, 0xff];
+        let second_bytes = vec![0x02, 0x00, 0x00];
+        let binary_boundaries = RangePartitioning {
+            partition_by: FieldName::from("amount"),
+            split_points: vec![
+                PdbOwnedValue::Bytes(first_bytes.clone()),
+                PdbOwnedValue::Bytes(second_bytes.clone()),
+            ],
+        };
+        let binary_partitioning = binary_boundaries.to_datafusion(&binary_schema).unwrap();
+        assert_eq!(binary_partitioning.partition_count(), 3);
+        let Partitioning::Range(binary_range) = &binary_partitioning else {
+            panic!("expected range partitioning, got {binary_partitioning:?}");
+        };
+        assert_eq!(
+            binary_range.split_points()[0].values(),
+            &[ScalarValue::BinaryView(Some(first_bytes))]
+        );
+        assert_eq!(
+            binary_range.split_points()[1].values(),
+            &[ScalarValue::BinaryView(Some(second_bytes))]
         );
 
         // Value/column type mismatches decline rather than declare imprecisely.
@@ -1032,7 +1165,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         unsafe {
             pg_sys::CommandCounterIncrement();
@@ -1079,7 +1212,6 @@ mod tests {
                 Some(scan_state),
                 build_arrow_schema(&fields),
                 query,
-                None,
                 Vec::new(),
                 None,
                 index_oid.into(),
@@ -1140,8 +1272,9 @@ mod tests {
 
         // Dispatch must preserve the four global ranges even though this task-specialized
         // variant advertises one local partition to DataFusion.
+        let codec = crate::scan::physical_codec::PgSearchPhysicalExtensionCodec::default();
         let proto_converter = DefaultPhysicalProtoConverter {};
-        let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        let encoded = plan.encode_for_dispatch(&codec, &proto_converter).unwrap();
         let task_context = TaskContext::default();
         let decode = |bytes: &[u8], parallel_state| {
             PgSearchScanPlan::decode_for_dispatch(
@@ -1149,6 +1282,7 @@ mod tests {
                 parallel_state,
                 None,
                 &task_context,
+                &codec,
                 &proto_converter,
             )
         };
@@ -1192,7 +1326,9 @@ mod tests {
             crate::postgres::test_support::parallel_state_for_view(reader.segment_view());
         let mut stale_plan = (*plan).clone();
         stale_plan.partition_segments = Some(stale);
-        let stale_encoded = stale_plan.encode_for_dispatch(&proto_converter).unwrap();
+        let stale_encoded = stale_plan
+            .encode_for_dispatch(&codec, &proto_converter)
+            .unwrap();
         assert!(decode(&stale_encoded, Some(parallel_state)).is_err());
         let plan = decode(&encoded, Some(parallel_state)).unwrap();
         assert_eq!(
@@ -1214,9 +1350,7 @@ mod tests {
         // partition must not consume the assigned global partition's execution state.
         assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         let collect_ids = |plan: &Arc<dyn ExecutionPlan>, partition: usize| {
             let mut stream = plan
                 .execute(partition, Arc::new(TaskContext::default()))
@@ -1244,12 +1378,14 @@ mod tests {
         // The state is consumed exactly once.
         assert!(plan.execute(0, Arc::new(TaskContext::default())).is_err());
 
-        // A predicate on the partition column still prunes after dispatch. The worker opens
-        // statistics while sizing the plan in `PgSearchScanPlan::new`, then decides per
-        // segment during execution.
+        // A predicate on the partition column still prunes after dispatch. Decode reuses the
+        // leader's partition classification without opening statistics; execution then opens
+        // statistics and decides each searched segment against the predicate.
         let (filtered, _) = make_plan(range_query("id", 30, 40));
         let filtered = filtered.with_assigned_partition(1);
-        let filtered_encoded = filtered.encode_for_dispatch(&proto_converter).unwrap();
+        let filtered_encoded = filtered
+            .encode_for_dispatch(&codec, &proto_converter)
+            .unwrap();
         let opens_before_decode = STATS_OPENS.load(Relaxed);
         let worker = decode(&filtered_encoded, Some(parallel_state)).unwrap();
         assert_eq!(
@@ -1259,12 +1395,17 @@ mod tests {
                 .partition_segments,
             filtered.partition_segments
         );
-        assert!(
-            STATS_OPENS.load(Relaxed) > opens_before_decode,
-            "the worker must open statistics for its own predicate"
+        assert_eq!(
+            STATS_OPENS.load(Relaxed),
+            opens_before_decode,
+            "decode reuses the leader's classification without opening statistics"
         );
         let reads_before_execution = EMPIRICAL_READS.load(Relaxed);
         assert_eq!(collect_ids(&worker, 0), (30_i64..=40).collect::<Vec<_>>());
+        assert!(
+            STATS_OPENS.load(Relaxed) > opens_before_decode,
+            "the worker must open statistics for its own predicate during execution"
+        );
         assert!(
             EMPIRICAL_READS.load(Relaxed) > reads_before_execution,
             "execution must decide each searched segment against the predicate"

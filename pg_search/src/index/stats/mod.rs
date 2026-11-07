@@ -19,6 +19,7 @@
 //!
 //! Every immutable segment carries two facts about each fast field: the empirical `min` and
 //! `max` of the values it holds, and, after a partitioned build, the box the build assigned it.
+//! Vector partitions also carry their coarse centroid for global routing.
 //! A missing file or entry means "unknown", and a consumer must keep the segment.
 //!
 //! `plugin` writes and merges the file, `pruning` reads it for range partitioning. The types
@@ -34,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tantivy::directory::error::OpenReadError;
 use tantivy::directory::{CompositeFile, FileSlice};
 use tantivy::index::{Segment, SegmentReader};
-use tantivy::schema::Field;
+use tantivy::schema::{Field, FieldType};
 
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::{PdbOwnedValue, exact_scalar_wire};
@@ -55,6 +56,14 @@ pub(crate) use pruning::{
 
 const EMPIRICAL_IDX: usize = 0;
 const LOGICAL_IDX: usize = 1;
+const VECTOR_PARTITION_IDX: usize = 2;
+
+/// The build's coarse centroid, used for global vector routing.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VectorPartition<T> {
+    pub(crate) field: String,
+    pub(crate) centroid: Vec<T>,
+}
 
 /// Empirical `min`/`max` of one fast field within one segment. `nullable` is false only when
 /// every document holds exactly one value, so a segment without it may hide NULLs.
@@ -343,6 +352,49 @@ impl LogicalBounds {
 }
 
 impl EmpiricalStats {
+    /// Read a non-dictionary fast field's empirical statistics directly from a segment's `.fast`
+    /// header when `.stats` is absent (e.g., on indexes created before `.stats` existed).
+    ///
+    /// Dictionary-backed (`Str` and `Bytes`) columns are skipped so pruning never opens `.fast`
+    /// or a column dictionary for them.
+    pub(crate) fn from_fast_field(
+        reader: &SegmentReader,
+        field: &SearchField,
+    ) -> io::Result<Option<Self>> {
+        if matches!(
+            field.field_entry().field_type(),
+            FieldType::Str(_) | FieldType::Bytes(_)
+        ) {
+            return Ok(None);
+        }
+        let handles = reader
+            .fast_fields()
+            .dynamic_column_handles(field.field_name().as_ref())
+            .map_err(io::Error::other)?;
+        // A field spread over several typed columns has no single order to bound.
+        let [handle] = handles.as_slice() else {
+            return Ok(None);
+        };
+        let Some(stats) =
+            plugin::column_stats_without_dictionary(handle).map_err(io::Error::other)?
+        else {
+            return Ok(None);
+        };
+        stats.into_field_representation(field)
+    }
+
+    pub(crate) fn into_field_representation(self, field: &SearchField) -> io::Result<Option<Self>> {
+        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+            return Ok(Some(self));
+        }
+        self.into_dates().map(Some).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "datetime statistics do not decode as timestamps",
+            )
+        })
+    }
+
     /// Whether a value in `[min, max]` can fall in `[lower, upper)`. Bounds of a kind these
     /// statistics cannot be ranked against count as intersecting.
     pub(crate) fn intersects(
@@ -452,15 +504,7 @@ impl SegmentStats {
         let Some(stats) = self.empirical(field.field())? else {
             return Ok(None);
         };
-        if !matches!(field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
-            return Ok(Some(stats));
-        }
-        stats.into_dates().map(Some).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "datetime statistics do not decode as timestamps",
-            )
-        })
+        stats.into_field_representation(field)
     }
 
     /// Read the logical bounds assigned to a field by a partitioned build. These boundaries
@@ -470,6 +514,10 @@ impl SegmentStats {
         Ok(self
             .read::<LogicalWire>(field, LOGICAL_IDX)?
             .map(LogicalBounds::from))
+    }
+
+    pub(crate) fn vector_partition(&self, field: Field) -> io::Result<Option<Vec<f32>>> {
+        self.read(field, VECTOR_PARTITION_IDX)
     }
 
     fn read<T: DeserializeOwned>(&self, field: Field, idx: usize) -> io::Result<Option<T>> {

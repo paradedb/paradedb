@@ -4,11 +4,20 @@ set -euo pipefail
 repo="$(pwd)"
 task_root="${RUNNER_TEMP:?}/cohere-cluster-comparison"
 artifacts="$repo/benchmark-artifacts"
+pg_search_base=30f4373d78efb1839741fe166a08e2d5c8361950
+tantivy_base=f5e4b7038bc44e0b4f08776e6bf12296ec935394
 pg_bin=/usr/lib/postgresql/18/bin
 pg_data="$task_root/data"
 mkdir -p "$task_root/socket" "$artifacts"
 exec > >(tee "$artifacts/run.log") 2>&1
 trap '"$pg_bin/pg_ctl" -D "$pg_data" -m fast -w stop >/dev/null 2>&1 || true' EXIT
+git merge-base --is-ancestor "$pg_search_base" HEAD
+git -C .cluster-export-deps/tantivy merge-base --is-ancestor "$tantivy_base" HEAD
+git diff "$pg_search_base" -- pg_search/src > "$artifacts/pg-search-diagnostics.patch"
+git -C .cluster-export-deps/tantivy diff "$tantivy_base" -- src > "$artifacts/tantivy-diagnostics.patch"
+cat > "$artifacts/base-revisions.json" <<CONF
+{"pg_search_main":"$pg_search_base","tantivy_main":"$tantivy_base","target_segment_count":8}
+CONF
 
 mkdir -p "$task_root/backrest-log" "$task_root/backrest-spool"
 (
@@ -91,12 +100,23 @@ cp "$task_root/postgresql.conf" "$artifacts/postgresql.conf"
 url="host=$task_root/socket port=29926 dbname=postgres"
 "$pg_bin/psql" "$url" -X -v ON_ERROR_STOP=1 --single-transaction \
     -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+mkdir -p "$artifacts/regress"
+(
+    cd pg_search/tests/pg_regress
+    "$($pg_bin/pg_config --pkglibdir)/pgxs/src/test/regress/pg_regress" \
+        --use-existing --host="$task_root/socket" --port=29926 --dbname=postgres \
+        --inputdir=. --outputdir="$artifacts/regress" vector_cluster_export
+)
 aws s3 cp s3://paradedb-benchmark/datasets/cohere/v1/queries/cohere_queries.parquet \
     "$task_root/cohere_queries.parquet"
 "$py" benchmarks/clustering_quality/prepare_cohere.py --url "$url" \
     --queries "$task_root/cohere_queries.parquet" --output "$task_root/dataset" --expected-rows 10000000
 cp "$task_root/dataset/source.json" "$artifacts/dataset-source.json"
 "$py" benchmarks/clustering_quality/compare.py --url "$url" \
-    --dataset "$task_root/dataset" --dataset-name 'Cohere 10m' --output "$artifacts/results"
+    --dataset "$task_root/dataset" --dataset-name 'Cohere smoke test' --rows 16384 \
+    --target-segment-count 8 --output "$artifacts/smoke"
+"$py" benchmarks/clustering_quality/compare.py --url "$url" \
+    --dataset "$task_root/dataset" --dataset-name 'Cohere 10m' \
+    --target-segment-count 8 --output "$artifacts/results"
 "$py" benchmarks/clustering_quality/plot.py "$artifacts/results"
 df -h "$task_root" > "$artifacts/disk-final.txt"

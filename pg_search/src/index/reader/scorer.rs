@@ -64,7 +64,7 @@ impl LazyWeight {
         )
     }
 
-    fn get(&self) -> &dyn Weight {
+    pub(super) fn get(&self) -> &dyn Weight {
         self.weight
             .get_or_init(|| {
                 self.query
@@ -176,6 +176,15 @@ impl ScorerIter {
 
     pub fn set_threshold(&mut self, threshold: Score) {
         self.deferred.set_threshold(threshold);
+    }
+
+    /// Returns an upper bound on the number of documents this iterator can yield starting from
+    /// `from_doc` (inclusive) through the end of the segment.
+    pub fn remaining_docs_upper_bound(&self, from_doc: DocId) -> usize {
+        self.segment_reader
+            .max_doc()
+            .saturating_sub(from_doc)
+            .min(self.segment_reader.num_docs()) as usize
     }
 }
 

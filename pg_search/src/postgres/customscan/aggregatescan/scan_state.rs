@@ -27,6 +27,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, Filter
 use crate::postgres::customscan::bitmap_intersection::BitmapExec;
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::MppLaunchTiming;
+use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
 use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -50,6 +51,24 @@ pub enum ExecutionState {
 
 /// State for the DataFusion aggregate execution backend.
 pub struct DataFusionAggState {
+    /// DataFusion result stream (dropped first, before `physical_plan`, `mpp`, and `runtime`).
+    pub stream: Option<SendableRecordBatchStream>,
+    /// Current batch being consumed row-by-row.
+    pub current_batch: Option<RecordBatch>,
+    /// Row index within current_batch.
+    pub batch_row_idx: usize,
+    /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that
+    /// arrive over `coordinator_channel` into its display.
+    pub physical_plan: Option<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
+    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
+    /// on first exec once the built plan's stages are committed (#5667: the plan comes first;
+    /// workers spawn only after it exists). Stays `Inactive` on the serial path.
+    /// Applies only when parallel execution is enabled and the query qualifies (binary join +
+    /// supported aggregate).
+    pub mpp: MppLifecycle,
+    /// Tokio runtime for async DataFusion execution (dropped after `stream`, `physical_plan`,
+    /// and `mpp` so background tasks are quiesced and deferred drops are drained first).
+    pub runtime: Option<PgTokioRuntime>,
     /// The join tree.
     pub plan: RelNode,
     /// GROUP BY columns and aggregate functions.
@@ -66,17 +85,6 @@ pub struct DataFusionAggState {
     pub custom_scan_tlist: *mut pg_sys::List,
     /// HAVING clause filter applied after aggregation.
     pub having_filter: Option<FilterExpr>,
-    /// Tokio runtime for async DataFusion execution.
-    pub runtime: Option<tokio::runtime::Runtime>,
-    /// The executed physical plan, kept so EXPLAIN ANALYZE can merge the worker metrics that
-    /// arrive over the mesh into its display.
-    pub physical_plan: Option<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
-    /// DataFusion result stream.
-    pub stream: Option<SendableRecordBatchStream>,
-    /// Current batch being consumed row-by-row.
-    pub current_batch: Option<RecordBatch>,
-    /// Row index within current_batch.
-    pub batch_row_idx: usize,
     /// Mapping from `group_columns[i]` to its 0-based column index in DataFusion's
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
@@ -90,12 +98,6 @@ pub struct DataFusionAggState {
     /// Assembled `pdb.agg()` documents for each row of `current_batch`, which then
     /// holds the SQL-level rows only.
     pub pdb_agg_json: Option<Vec<Vec<serde_json::Value>>>,
-    /// Where MPP sits in its launch lifecycle for this scan: marked pending at begin, launched
-    /// on first exec once the built plan's stages are committed (#5667: the plan comes first;
-    /// workers spawn only after it exists). Stays `Inactive` on the serial path.
-    /// Applies only when parallel execution is enabled and the query qualifies (binary join +
-    /// supported aggregate).
-    pub mpp: MppLifecycle,
     /// Captured from PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK`. When false, this
     /// scan may still use DataFusion, but it must never launch MPP producer workers.
     pub parallel_mode_ok: bool,
@@ -128,12 +130,15 @@ pub struct WrappedAggregateProjection {
 
 #[derive(Default)]
 pub struct AggregateScanState {
+    pub state: ExecutionState,
+    /// DataFusion backend state. When `Some`, the DataFusion path is active
+    /// and the Tantivy-specific fields are unused. Declared before `source_manifests`,
+    /// `bitmap_cell`, `bitmap_exec`, and `indexrel` so streams/runtime drop first.
+    pub datafusion_state: Option<DataFusionAggState>,
+
     pub segment_pruning: SegmentPruningEstimate,
     pub visibility_stats: VisibilityStats,
     pub parallelism: Option<AggregateParallelism>,
-    pub state: ExecutionState,
-    pub indexrelid: pg_sys::Oid,
-    pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
     pub base_aggregate_clause: Option<AggregateCSClause>,
@@ -141,15 +146,6 @@ pub struct AggregateScanState {
     /// Separate from `ps_ExprContext`, which wrapped-aggregate projection resets per row: see the
     /// rules in `solve_expr.rs`. Unused on the DataFusion path.
     pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
-
-    /// Execution state for the child bitmap scan, if a bitmap intersection source was
-    /// harvested at plan time.
-    pub bitmap_exec: Option<BitmapExec>,
-    pub bitmap_cell: Option<BitmapCell>,
-
-    /// DataFusion backend state. When `Some`, the DataFusion path is active
-    /// and the Tantivy-specific fields above are unused.
-    pub datafusion_state: Option<DataFusionAggState>,
 
     /// Wrapped-aggregate projection state. `Some` only when the targetlist
     /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
@@ -160,6 +156,11 @@ pub struct AggregateScanState {
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
 
+    /// Execution state for the child bitmap scan, if a bitmap intersection source was
+    /// harvested at plan time.
+    pub bitmap_cell: Option<BitmapCell>,
+    pub bitmap_exec: Option<BitmapExec>,
+
     /// MPP-only: captured source manifests held by the leader. Serves two
     /// purposes (mirrors JoinScan):
     /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan`
@@ -168,6 +169,9 @@ pub struct AggregateScanState {
     ///    background merges don't recycle the canonical segments before
     ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
     pub source_manifests: Vec<SearchIndexManifest>,
+
+    pub indexrelid: pg_sys::Oid,
+    pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
 
     /// A collection of things needed for result-rewriting decisions that
     /// are expensive to look up.

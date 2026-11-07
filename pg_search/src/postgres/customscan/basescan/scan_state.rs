@@ -50,6 +50,12 @@ use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
 pub struct BaseScanState {
+    // Declared first so any DataFusion stream /PgTokioRuntime / Tantivy scorers inside
+    // `exec_method` drop before `visibility_checker`, `doc_from_heap_state`, `search_reader`,
+    // `bitmap_cell`, `bitmap_exec`, and `heaprel`/`indexrel`.
+    exec_method: UnsafeCell<Box<dyn ExecMethod>>,
+    exec_method_name: String,
+
     pub io_trace: Option<crate::index::reader::io_stats::Trace>,
     /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
     pub telemetry: ScanTelemetry,
@@ -70,6 +76,8 @@ pub struct BaseScanState {
     /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
     /// `solve_expr.rs`.
     pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
+    pub visibility_checker: Option<VisibilityChecker>,
+    pub doc_from_heap_state: Option<HeapFetchState>,
     pub search_reader: Option<SearchIndexReader>,
     /// Executor startup before `SearchIndexReader::open`; consumed into the
     /// reader's flat `scan_init_ns` metric on first execution.
@@ -85,13 +93,6 @@ pub struct BaseScanState {
 
     pub virtual_tuple_count: usize,
 
-    pub heaprelid: pg_sys::Oid,
-    pub heaprel: Option<PgSearchRelation>,
-    pub indexrel: Option<PgSearchRelation>,
-    pub indexrelid: pg_sys::Oid,
-    pub lockmode: pg_sys::LOCKMODE,
-
-    pub visibility_checker: Option<VisibilityChecker>,
     pub segment_count: usize,
     pub(super) worker_selection_reason: Option<WorkerDecisionReason>,
     pub quals: Option<Qual>,
@@ -125,17 +126,18 @@ pub struct BaseScanState {
 
     /// Execution state for the child bitmap scan, if a bitmap intersection source was
     /// harvested at plan time.
-    pub bitmap_exec: Option<BitmapExec>,
     pub bitmap_cell: Option<BitmapCell>,
-
-    pub doc_from_heap_state: Option<HeapFetchState>,
+    pub bitmap_exec: Option<BitmapExec>,
 
     // Window aggregate support
     pub window_aggregates: Vec<WindowAggregateInfo>,
     pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
 
-    exec_method: UnsafeCell<Box<dyn ExecMethod>>,
-    exec_method_name: String,
+    pub heaprelid: pg_sys::Oid,
+    pub heaprel: Option<PgSearchRelation>,
+    pub indexrel: Option<PgSearchRelation>,
+    pub indexrelid: pg_sys::Oid,
+    pub lockmode: pg_sys::LOCKMODE,
 }
 
 /// The projection that gives a row its score, snippets and window aggregates, and the placeholder

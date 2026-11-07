@@ -36,7 +36,7 @@ pub(crate) mod scan;
 mod schema;
 pub(crate) mod vector;
 
-pub mod gucs;
+pub(crate) mod gucs;
 pub mod parallel_worker;
 
 use self::postgres::customscan;
@@ -151,6 +151,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::build_logging::init();
     gucs::init();
     postgres::mutable_sweep::init();
+    postgres::customscan::mpp::wakeup::init_wakeup_pool();
+    postgres::customscan::joinscan::scan_state::init_base_session_state();
+    postgres::customscan::mpp::worker::init_worker_base_session_state();
     // A term dictionary walk is one tantivy call that runs for seconds on a big segment, and
     // pg_search's own checks sit between segments.
     tantivy_common::interrupt::set_interrupt_check(check_for_interrupts);
@@ -225,6 +228,12 @@ pub mod pg_test {
         vec![
             "shared_preload_libraries='pg_search'",
             "paradedb.mutable_sweep_interval=0",
+            // `cargo test` runs `#[pg_test]` functions concurrently across threads, and several
+            // tests (parallel index builds, MPP scans) spawn background workers simultaneously.
+            // Raise the cluster-wide worker pool above Postgres's default of 8 so concurrent
+            // `#[pg_test]` backends do not starve `LaunchParallelWorkers`.
+            "max_worker_processes=64",
+            "max_parallel_workers=64",
         ]
     }
 }

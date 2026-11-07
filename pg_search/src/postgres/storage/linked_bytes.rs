@@ -46,7 +46,12 @@ struct CacheEntry {
     block_bytes: OwnedBytes,
 }
 
-/// UnsafeCell-based cache. SAFETY: Postgres backends are single-threaded.
+/// `UnsafeCell`-based cache.
+///
+/// SAFETY: All Tantivy segment reads (including DataFusion operators, which enter
+/// `run_on_main_thread` at the batch boundary) execute exclusively on the single Postgres main
+/// thread, and `PinnedBuffer::drop` routes buffer unpinning through `drop_on_main_thread` if a
+/// reader is ever dropped from a background thread.
 struct UnsafeCache<T>(UnsafeCell<VecDeque<T>>);
 unsafe impl<T> Send for UnsafeCache<T> {}
 unsafe impl<T> Sync for UnsafeCache<T> {}
@@ -63,9 +68,13 @@ impl<T> UnsafeCache<T> {
     }
 
     #[inline(always)]
-    #[allow(clippy::mut_from_ref)] // SAFETY: Postgres backends are single-threaded.
+    #[allow(clippy::mut_from_ref)]
     unsafe fn get(&self) -> &mut VecDeque<T> {
-        &mut *self.0.get()
+        debug_assert!(
+            crate::postgres::customscan::mpp::interrupt::is_main_thread(),
+            "LinkedBytesList cache must only be accessed on the Postgres main thread"
+        );
+        unsafe { &mut *self.0.get() }
     }
 }
 
@@ -438,7 +447,7 @@ impl LinkedBytesList {
         let block_ord = offset / ITEM_SIZE;
         let local_offset = offset % ITEM_SIZE;
 
-        // SAFETY: Postgres backends are single-threaded.
+        // SAFETY: All Tantivy segment reads run on the single Postgres main thread.
         let cache = self.cache.get();
         // Redundant with rposition below, but ~0.2ms faster under saturation
         // because it avoids the closure + iterator overhead on the hot path.
@@ -509,7 +518,7 @@ impl LinkedBytesList {
     }
 
     unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
-        // SAFETY: Postgres backends are single-threaded.
+        // SAFETY: All Tantivy segment reads run on the single Postgres main thread.
         let cache = self.cache.get();
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
             // Cache hit: Arc clone, and promote to the back (LRU).

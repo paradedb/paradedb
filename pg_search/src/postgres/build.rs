@@ -592,10 +592,10 @@ mod tests {
 
         Spi::run(
             "CREATE TABLE centroid_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
-             CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body)
-                 WITH (vector_router_quantization = true);
+             CREATE INDEX centroid_quantized_idx ON centroid_settings USING paradedb (id, body);
              CREATE TABLE centroid_full_precision_settings (id BIGSERIAL PRIMARY KEY, body TEXT);
-             CREATE INDEX centroid_full_precision_idx ON centroid_full_precision_settings USING paradedb (id, body);",
+             CREATE INDEX centroid_full_precision_idx ON centroid_full_precision_settings USING paradedb (id, body)
+                 WITH (vector_router_quantization = false);",
         ).unwrap();
         let relation = |name: &str| {
             let oid = Spi::get_one::<pg_sys::Oid>(&format!("SELECT '{name}'::regclass::oid"))

@@ -759,8 +759,8 @@ fn top_k_completes_issue2511(mut conn: PgConnection) {
 
 #[rstest]
 fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
-    // Note: We use a very small mutable segment size to force multiple segments to be created.
     r#"
+        SET paradedb.global_mutable_segment_rows = 0;
         DROP TABLE IF EXISTS test;
         CREATE TABLE test (
             id SERIAL8 NOT NULL PRIMARY KEY,
@@ -768,7 +768,8 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING paradedb (id, message, severity) WITH (layer_sizes = '1GB, 1GB', mutable_segment_rows=1);
+        CREATE INDEX idxtest ON test USING paradedb (id, message, severity)
+            WITH (layer_sizes = '0', background_layer_sizes = '0');
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
@@ -785,7 +786,8 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         INSERT INTO test (message, severity) VALUES ('wine a', 6);
         INSERT INTO test (message, severity) VALUES ('cheese a', 7);
         ANALYZE test;
-    "#.execute(&mut conn);
+    "#
+    .execute(&mut conn);
 
     r#"
         SET enable_indexonlyscan to OFF;
@@ -813,14 +815,12 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         limit 10;
     "#.fetch_one::<(serde_json::Value, )>(&mut conn);
 
-    eprintln!("{plan:#?}");
-    let node = plan
-        .pointer("/0/Plan/Plans/0/Plans/0/Parallel Aware")
-        .unwrap();
-    let parallel_aware = node
-        .as_bool()
-        .expect("should have gotten the `Parallel Aware` node");
-    assert_eq!(parallel_aware, true);
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Parallel Aware")
+            .and_then(Value::as_bool),
+        Some(true),
+        "expected a parallel custom scan: {plan:#?}"
+    );
 }
 
 #[rstest]

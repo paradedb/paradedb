@@ -29,6 +29,7 @@ use std::time::Instant;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -53,6 +54,8 @@ use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::{Context, Result};
 use pgrx::pg_sys::BlockNumber;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{PgLogLevel, PgSqlErrorCode};
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::collector::sort_key::{
@@ -67,7 +70,8 @@ use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Sc
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
-    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSegment, VectorSimilarityFruit,
+    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorRoutingPlan,
+    VectorRoutingPlanProvider, VectorSegment, VectorSimilarityFruit,
 };
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
@@ -245,19 +249,16 @@ pub(crate) fn needs_rebuild(error: &tantivy::TantivyError) -> bool {
     )
 }
 
-/// Builds the PostgreSQL error for vector storage this build can't read without a rebuild.
-pub(crate) fn vector_format_error_report(
-    index_name: &str,
-    error: &tantivy::TantivyError,
-) -> Option<pgrx::pg_sys::panic::ErrorReport> {
-    needs_rebuild(error).then(|| {
-        pgrx::pg_sys::panic::ErrorReport::new(
-            pgrx::PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+fn report_vector_error(index_name: &str, error: &tantivy::TantivyError) {
+    if needs_rebuild(error) {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
             format!("index {index_name:?} has an unsupported vector storage format: {error}"),
             pgrx::function_name!(),
         )
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
-    })
+        .report(PgLogLevel::ERROR);
+    }
 }
 
 fn probe_stats_to_segment_info(
@@ -715,6 +716,7 @@ pub struct SearchIndexReader {
     directory: MVCCDirectory,
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
+    pub(crate) vector_routing_plan: Option<Arc<dyn VectorRoutingPlanProvider>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -762,6 +764,7 @@ impl Clone for SearchIndexReader {
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
+            vector_routing_plan: self.vector_routing_plan.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -921,25 +924,92 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+    pub(crate) fn vector_routing_plan(
+        &self,
+        name: &FieldName,
+        query: &[f32],
+        match_fraction: Option<f64>,
+    ) -> VectorRoutingPlan {
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let readers = self.candidate_segment_readers().collect::<Vec<_>>();
+        let centroids = readers
+            .iter()
+            .map(|(_, reader)| {
+                SegmentStats::of_reader(reader)
+                    .expect("segment stats should be readable")
+                    .and_then(|stats| {
+                        stats
+                            .vector_partition(field)
+                            .expect("partition centroid should be readable")
+                    })
+            })
+            .collect::<Vec<_>>();
+        let segments = readers
+            .iter()
+            .zip(&centroids)
+            .map(|(&(ordinal, reader), centroid)| VectorSegment {
+                ordinal,
+                reader,
+                partition_centroid: centroid.as_deref(),
+            })
+            .collect::<Vec<_>>();
+        let match_fraction = match_fraction.unwrap_or_else(|| {
+            let (matches, docs) =
+                readers
+                    .iter()
+                    .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
+                        let estimated = self
+                            .query
+                            .estimate_docs(reader)
+                            .ok()
+                            .flatten()
+                            .map_or(0, |estimate| estimate.live_docs(reader));
+                        (matches + estimated, docs + u64::from(reader.num_docs()))
+                    });
+            matches as f64 / docs.max(1) as f64
+        });
+        VectorRoutingPlan::build(
+            field,
+            query.to_vec(),
+            ProbeParams {
+                adaptive_probing: gucs::vector_adaptive_probing(),
+                max_probe_fraction: gucs::vector_cluster_max_probe(),
+                fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
+                router_rerank_factor: gucs::vector_router_rerank_factor(),
+                router_min_beam_fraction: gucs::vector_router_min_beam_fraction(),
+                router_aps: gucs::vector_router_aps(),
+                ..Default::default()
+            },
+            match_fraction,
+            &segments,
+            |ord| {
+                pgrx::check_for_interrupts!();
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(self.searcher.segment_reader(ord).segment_id());
+                }
+            },
+        )
+        .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+        .expect("global vector routing should succeed")
+    }
+
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
     /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub(crate) fn validate_vector_segments(&self) -> Result<()> {
-        let result = self.vector_segments_valid.get_or_init(|| {
-            self.searcher
-                .segment_readers()
-                .iter()
-                .try_for_each(SegmentReader::validate_vector_format)
-        });
-        match result {
-            Ok(()) => Ok(()),
-            Err(error) => match vector_format_error_report(self.index_rel.name(), error) {
-                Some(report) => {
-                    report.report(pgrx::PgLogLevel::ERROR);
-                    unreachable!("PostgreSQL ERROR reports do not return")
-                }
-                None => Err(error.clone().into()),
-            },
-        }
+        self.vector_segments_valid
+            .get_or_init(|| {
+                self.searcher
+                    .segment_readers()
+                    .iter()
+                    .try_for_each(SegmentReader::validate_vector_format)
+            })
+            .clone()
+            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+            .map_err(Into::into)
     }
 
     /// Returns the minimum and maximum heap block numbers represented in the segment.
@@ -988,8 +1058,7 @@ impl SearchIndexReader {
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
-        index.settings_mut().bitmap_postings.use_for_queries =
-            crate::gucs::enable_bitmap_postings();
+        index.settings_mut().bitmap_postings.use_for_queries = gucs::enable_bitmap_postings();
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -1197,6 +1266,7 @@ impl SearchIndexReader {
             directory,
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
+            vector_routing_plan: None,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2424,8 +2494,6 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
-                self.validate_vector_segments()
-                    .expect("vector segments must be readable");
                 if orderby_info[1..].iter().any(|o| o.is_score()) {
                     panic!(
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
@@ -2442,17 +2510,23 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                let max_scan_levels = crate::gucs::vector_max_scan_levels();
+                let routing_plan = self.vector_routing_plan.clone().or_else(|| {
+                    matches!(batching, SegmentBatching::PerSegment).then(|| {
+                        Arc::new(self.vector_routing_plan(name, &query_vector, Some(0.0)))
+                            as Arc<dyn VectorRoutingPlanProvider>
+                    })
+                });
+                let max_scan_levels = gucs::vector_max_scan_levels();
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
-                        adaptive_probing: crate::gucs::vector_adaptive_probing(),
-                        max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
-                        router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
-                        router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
-                        router_aps: crate::gucs::vector_router_aps(),
+                        adaptive_probing: gucs::vector_adaptive_probing(),
+                        max_probe_fraction: gucs::vector_cluster_max_probe(),
+                        fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
+                        router_rerank_factor: gucs::vector_router_rerank_factor(),
+                        router_min_beam_fraction: gucs::vector_router_min_beam_fraction(),
+                        router_aps: gucs::vector_router_aps(),
                         ..Default::default()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -2462,6 +2536,9 @@ impl SearchIndexReader {
                     ));
                 }
 
+                if let Some(plan) = routing_plan {
+                    collector = collector.with_routing_plan_provider(plan);
+                }
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
                 let mut tie_breaks = Vec::with_capacity(erased_features.len());
@@ -2937,7 +3014,7 @@ impl SearchIndexReader {
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
     /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
-        if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
+        if (gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
             || query_input.has_postgres_expressions()
             || query_input.has_parameters()
         {
@@ -3248,6 +3325,7 @@ impl SearchIndexReader {
                     .collect::<Vec<_>>();
                 collector
                     .collect_segments(weight.as_ref(), &segments, on_segment)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("vector collection should not fail")
             })
             .collect();
@@ -3444,6 +3522,7 @@ impl SearchIndexReader {
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("should be able to collect in segment");
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
@@ -3484,6 +3563,7 @@ impl SearchIndexReader {
                 };
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("should be able to collect in segment");
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
@@ -3521,7 +3601,7 @@ impl SearchIndexManifest {
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
-            .with_disjunction_pruning(crate::gucs::disjunction_pruning())
+            .with_disjunction_pruning(gucs::disjunction_pruning())
     } else {
         EnableScoring::disabled_from_searcher(searcher)
     }

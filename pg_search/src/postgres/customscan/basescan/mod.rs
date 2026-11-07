@@ -36,7 +36,7 @@ use cost::{
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::ptr::addr_of_mut;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
@@ -50,6 +50,7 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
+use crate::postgres::customscan::basescan::parallel::ParallelVectorRoutingPlan;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 
 use crate::postgres::customscan::basescan::projections::snippet::{
@@ -69,6 +70,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::mpp::MainThread;
 use crate::postgres::customscan::orderby::{
     PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
@@ -106,6 +108,7 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::VectorRoutingPlanProvider;
 
 use super::pullup::SourceContext;
 
@@ -173,7 +176,7 @@ impl BaseScan {
         let needs_tokenizer_manager =
             search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
-        let search_reader = SearchIndexReader::open_with_context(
+        let mut search_reader = SearchIndexReader::open_with_context(
             indexrel,
             search_query_input.clone(),
             need_scores,
@@ -197,6 +200,7 @@ impl BaseScan {
             state.custom_state().io_trace.clone(),
         )
         .expect("should be able to open the search index reader");
+        search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -1855,6 +1859,7 @@ impl CustomScan for BaseScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
+
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
                 "   TopK Order By",
@@ -2069,6 +2074,36 @@ impl CustomScan for BaseScan {
             .map(|stats| stats.enter());
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
+        }
+        // Build the leader's routing plan on first execution; workers wait for publication
+        // only when they need the plan, after evaluating their segment filters.
+        if state.custom_state().vector_routing_pending {
+            let parallel = state
+                .custom_state()
+                .parallel
+                .expect("parallel scan must be attached");
+            let area = parallel::query_area(state);
+            if parallel.is_leader() {
+                unsafe {
+                    state
+                        .custom_state_mut()
+                        .leader_publish_vector_routing_plan(area, false)
+                };
+            } else {
+                let plan: Option<Arc<dyn VectorRoutingPlanProvider>> =
+                    Some(Arc::new(ParallelVectorRoutingPlan {
+                        shared: MainThread::new((parallel.dsm_ptr(), area)),
+                        plan: OnceLock::new(),
+                    }));
+                let custom = state.custom_state_mut();
+                custom.vector_routing_plan = plan.clone();
+                custom.vector_routing_pending = false;
+                custom
+                    .search_reader
+                    .as_mut()
+                    .expect("search reader must be open")
+                    .vector_routing_plan = plan;
+            }
         }
 
         loop {

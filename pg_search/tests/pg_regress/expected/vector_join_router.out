@@ -1,0 +1,195 @@
+-- Global routing for parallel and serial vector joins.
+SET client_min_messages = WARNING;
+CREATE EXTENSION IF NOT EXISTS vector;
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+SET max_parallel_workers_per_gather = 2;
+SET max_parallel_workers = 8;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET paradedb.min_rows_per_worker = 0;
+SET paradedb.vector_clustering_threshold = 64;
+SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_stats = on;
+CREATE FUNCTION join_router_vector(n integer) RETURNS vector
+LANGUAGE SQL IMMUTABLE PARALLEL SAFE AS $$
+    SELECT ('[' || string_agg((((n * 31 + i * 17) % 101) - 50)::text, ',' ORDER BY i) || ']')::vector
+    FROM generate_series(1, 64) i
+$$;
+CREATE TABLE join_router_items (id integer PRIMARY KEY, category text, vec vector(64));
+CREATE INDEX join_router_idx ON join_router_items
+USING paradedb (id, (category::pdb.literal), vec vector_l2_ops)
+WITH (max_leaf_size = 16, training_sample_ratio = 1.0, mutable_segment_rows = 0,
+      target_segment_count = 1, layer_sizes = '100kb', background_layer_sizes = '0');
+DO $$
+BEGIN
+    FOR batch_start IN 1..2048 BY 256 LOOP
+        INSERT INTO join_router_items
+        SELECT g, CASE WHEN g <= 1024 THEN 'keep' ELSE 'other' END, join_router_vector(g)
+        FROM generate_series(batch_start, batch_start + 255) g;
+    END LOOP;
+END
+$$;
+DELETE FROM join_router_items WHERE id % 7 = 0;
+VACUUM ANALYZE join_router_items;
+CREATE TABLE join_router_oracle AS SELECT * FROM join_router_items;
+SELECT count(*) > 1 AND bool_and(vector_format = 'ivf') AS multiple_clustered_segments
+FROM paradedb.vector_info('join_router_idx', 'vec');
+ multiple_clustered_segments 
+-----------------------------
+ t
+(1 row)
+
+RESET enable_material;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_rank_join = off;
+SET paradedb.enable_range_partitioned_join = off;
+SET paradedb.mpp_min_rows = 0;
+SET max_parallel_maintenance_workers = 0;
+CREATE FUNCTION join_router_explain_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+    FOR r IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF, SUMMARY OFF) ' || q LOOP
+        RETURN NEXT r."QUERY PLAN";
+    END LOOP;
+END $$ LANGUAGE plpgsql;
+CREATE TABLE join_router_groups AS SELECT id FROM join_router_oracle;
+CREATE INDEX join_router_groups_idx ON join_router_groups
+USING paradedb (id) WITH (mutable_segment_rows = 0, target_segment_count = 3, partition_by = 'id');
+WARNING:  only 0 parallel workers were available for index build
+ANALYZE join_router_groups;
+SELECT bool_or(plan LIKE '%DistributedExec%') AS parallel_join,
+       bool_or(plan LIKE '%HashJoinExec%') AS hash_join,
+       bool_or(plan LIKE '%lazy_sort=%') AND bool_or(plan LIKE '%pdb.vector_score%') AS vector_probe,
+       bool_or(plan LIKE '%PgSearchScan: table=g,%query=%"range"%') AS join_filter_pushed_down
+FROM join_router_explain_lines(
+    'SELECT i.id FROM join_router_groups g JOIN join_router_items i ON g.id = i.id WHERE g.id @@@ pdb.all() AND g.id <= 1024 ORDER BY i.vec <-> join_router_vector(7), i.id LIMIT 7'
+) plan;
+ parallel_join | hash_join | vector_probe | join_filter_pushed_down 
+---------------+-----------+--------------+-------------------------
+ t             | t         | t            | t
+(1 row)
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE join_router_join(vector, integer) AS
+SELECT ARRAY(SELECT i.id FROM join_router_groups g JOIN join_router_items i ON g.id = i.id WHERE g.id @@@ pdb.all() AND g.id <= $2 ORDER BY i.vec <-> $1, i.id LIMIT 7)
+     = ARRAY(SELECT i.id FROM join_router_groups g JOIN join_router_oracle i ON g.id = i.id WHERE g.id <= $2 ORDER BY i.vec <-> $1, i.id LIMIT 7) AS join_matches_oracle;
+EXECUTE join_router_join(join_router_vector(7), 1024);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+EXECUTE join_router_join(join_router_vector(53), 1536);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+SET max_parallel_workers_per_gather = 0;
+EXECUTE join_router_join(join_router_vector(19), 1024);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+SET paradedb.enable_rank_join = on;
+SET paradedb.rank_join_min_rows = 0;
+SELECT bool_or(plan LIKE '%RankJoinExec%') AS rank_join
+FROM join_router_explain_lines(
+    'SELECT i.id FROM join_router_groups g JOIN join_router_items i ON g.id = i.id WHERE g.id @@@ pdb.all() ORDER BY i.vec <-> join_router_vector(41), i.id LIMIT 7'
+) plan;
+ rank_join 
+-----------
+ t
+(1 row)
+
+EXECUTE join_router_join(join_router_vector(41), 1536);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+SET max_parallel_workers_per_gather = 2;
+SET paradedb.enable_rank_join = off;
+SET paradedb.enable_range_partitioned_join = on;
+DROP INDEX join_router_idx;
+CREATE INDEX join_router_idx ON join_router_items
+USING paradedb (id, (category::pdb.literal), vec vector_l2_ops)
+WITH (max_leaf_size = 16, training_sample_ratio = 1.0, mutable_segment_rows = 0,
+      target_segment_count = 3, partition_by = 'id');
+WARNING:  only 0 parallel workers were available for index build
+SELECT count(*) > 1 AND bool_and(vector_format = 'ivf') AS multiple_clustered_join_segments
+FROM paradedb.vector_info('join_router_idx', 'vec');
+ multiple_clustered_join_segments 
+----------------------------------
+ t
+(1 row)
+
+SELECT bool_or(plan LIKE '%DistributedExec%') AS parallel_range_join,
+       bool_or(plan LIKE '%partition=id%') AS range_partitioned
+FROM join_router_explain_lines(
+    'SELECT i.id FROM join_router_groups g JOIN join_router_items i ON g.id = i.id WHERE g.id @@@ pdb.all() AND g.id <= 1024 ORDER BY i.vec <-> join_router_vector(7), i.id LIMIT 7'
+) plan;
+ parallel_range_join | range_partitioned 
+---------------------+-------------------
+ t                   | t
+(1 row)
+
+EXECUTE join_router_join(join_router_vector(7), 1024);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+EXECUTE join_router_join(join_router_vector(53), 1536);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+SET max_parallel_workers_per_gather = 0;
+EXECUTE join_router_join(join_router_vector(19), 1024);
+ join_matches_oracle 
+---------------------
+ t
+(1 row)
+
+DEALLOCATE join_router_join;
+DROP TABLE join_router_groups;
+DROP FUNCTION join_router_explain_lines(text);
+RESET max_parallel_maintenance_workers;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_rank_join;
+RESET paradedb.enable_range_partitioned_join;
+RESET paradedb.rank_join_min_rows;
+RESET paradedb.mpp_min_rows;
+DROP TABLE join_router_items, join_router_oracle;
+DROP FUNCTION join_router_vector(integer);
+RESET plan_cache_mode;
+RESET enable_material;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET paradedb.min_rows_per_worker;
+RESET paradedb.vector_clustering_threshold;
+RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_stats;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

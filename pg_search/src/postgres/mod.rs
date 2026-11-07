@@ -24,6 +24,7 @@ use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
+use crate::postgres::customscan::mpp::check_for_interrupts_or_cancel;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
@@ -33,6 +34,7 @@ use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
+use tantivy::vector::VectorRoutingPlan;
 
 pub mod access;
 mod build;
@@ -713,6 +715,10 @@ pub struct ParallelScanState {
     /// DSA area (`EState.es_query_dsa`); 0 until published. See [`Self::publish_query`].
     query: pg_sys::dsa_pointer,
     query_len: usize,
+    vector_routing_plan: pg_sys::dsa_pointer,
+    vector_routing_plan_len: usize,
+    vector_routing_ready: bool,
+    vector_routing_cv: ConditionVariable,
 
     /// Set by a worker that spills a DataFusion operator to disk. The leader reads it
     /// once, after joining the workers, and folds it into its own sticky flag.
@@ -770,6 +776,10 @@ impl ParallelScanState {
         self.bitmap_table = 0;
         self.query = 0;
         self.query_len = 0;
+        self.vector_routing_plan = 0;
+        self.vector_routing_plan_len = 0;
+        self.vector_routing_ready = false;
+        self.vector_routing_cv.init();
         self.spilled.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
@@ -1231,6 +1241,78 @@ impl ParallelScanState {
             );
         }
         self.query_len = query.len();
+    }
+
+    /// Leader-only publication; workers cannot probe until the plan is ready.
+    pub unsafe fn publish_vector_routing_plan(
+        &mut self,
+        area: *mut pg_sys::dsa_area,
+        plan: Option<&VectorRoutingPlan>,
+    ) -> anyhow::Result<()> {
+        unsafe {
+            if self.vector_routing_plan != 0 {
+                pg_sys::dsa_free(area, self.vector_routing_plan);
+            }
+            self.vector_routing_plan = 0;
+            self.vector_routing_plan_len = 0;
+            if let Some(plan) = plan {
+                let bytes = serde_cbor::to_vec(plan)?;
+                self.vector_routing_plan = pg_sys::dsa_allocate_extended(area, bytes.len(), 0);
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr(),
+                    pg_sys::dsa_get_address(area, self.vector_routing_plan).cast::<u8>(),
+                    bytes.len(),
+                );
+                self.vector_routing_plan_len = bytes.len();
+            }
+        }
+        {
+            let _lock = self.mutex.acquire();
+            self.vector_routing_ready = true;
+        }
+        self.vector_routing_cv.broadcast();
+        Ok(())
+    }
+
+    /// Workers wait here until the leader publishes the routing plan, then read it from shared memory.
+    pub unsafe fn vector_routing_plan(
+        &mut self,
+        area: *mut pg_sys::dsa_area,
+    ) -> anyhow::Result<Option<VectorRoutingPlan>> {
+        loop {
+            unsafe { pg_sys::ResetLatch(pg_sys::MyLatch) };
+            if check_for_interrupts_or_cancel() {
+                ConditionVariable::cancel_sleep();
+                anyhow::bail!("vector routing interrupted");
+            }
+            self.vector_routing_cv.prepare_to_sleep();
+            {
+                let _lock = self.mutex.acquire();
+                if self.vector_routing_ready {
+                    break;
+                }
+            }
+            // ConditionVariableSleep would swallow cancellation while Tokio holds interrupts.
+            unsafe {
+                pg_sys::WaitLatch(
+                    pg_sys::MyLatch,
+                    (pg_sys::WL_LATCH_SET | pg_sys::WL_EXIT_ON_PM_DEATH) as i32,
+                    -1,
+                    pg_sys::PG_WAIT_EXTENSION,
+                );
+            }
+        }
+        ConditionVariable::cancel_sleep();
+        if self.vector_routing_plan == 0 {
+            return Ok(None);
+        }
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                pg_sys::dsa_get_address(area, self.vector_routing_plan).cast::<u8>(),
+                self.vector_routing_plan_len,
+            )
+        };
+        Ok(Some(serde_cbor::from_slice(bytes)?))
     }
 
     /// Worker: the query the leader published for this round.

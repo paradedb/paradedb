@@ -36,7 +36,8 @@ use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::LazyLock;
-use tantivy::index::{IndexSortByField, Order};
+use tantivy::index::{Index, IndexSortByField, Order};
+use tantivy::query::QueryParser;
 
 use crate::api::tokenizers::{Typmod, type_is_alias, type_is_tokenizer};
 use crate::index::utils::load_index_schema;
@@ -490,6 +491,54 @@ impl SearchIndexSchema {
 
     pub fn index_search_tokenizer(&self) -> Option<SearchTokenizer> {
         self.bm25_options.search_tokenizer()
+    }
+
+    pub fn query_parser(&self, index: &Index) -> QueryParser {
+        let mut builder = Schema::builder();
+        for (_, entry) in self.fields() {
+            builder.add_field(self.with_search_tokenizer(entry));
+        }
+        QueryParser::new(
+            builder.build(),
+            self.fields().map(|(field, _)| field).collect(),
+            index.tokenizers().clone(),
+        )
+    }
+
+    fn with_search_tokenizer(&self, entry: &FieldEntry) -> FieldEntry {
+        let config = self
+            .bm25_options
+            .field_config_or_default(&entry.name().into());
+        let search_tokenizer = config.tokenizer().and(
+            config
+                .search_tokenizer()
+                .cloned()
+                .or_else(|| self.index_search_tokenizer()),
+        );
+        let Some(name) = search_tokenizer.map(|tokenizer| tokenizer.name()) else {
+            return entry.clone();
+        };
+        let field_type = match entry.field_type() {
+            FieldType::Str(options) => options.get_indexing_options().map(|indexing| {
+                FieldType::Str(
+                    options
+                        .clone()
+                        .set_indexing_options(indexing.clone().set_tokenizer(&name)),
+                )
+            }),
+            FieldType::JsonObject(options) => options.get_text_indexing_options().map(|indexing| {
+                FieldType::JsonObject(
+                    options
+                        .clone()
+                        .set_indexing_options(indexing.clone().set_tokenizer(&name)),
+                )
+            }),
+            _ => None,
+        };
+        field_type.map_or_else(
+            || entry.clone(),
+            |field_type| FieldEntry::new(entry.name().to_string(), field_type),
+        )
     }
 
     /// Convert sort_by configuration to Tantivy's IndexSortByField.

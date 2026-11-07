@@ -22,7 +22,7 @@ mod pdb {
     use std::collections::Bound;
 
     use crate::api::HashSet;
-    use crate::postgres::datetime::{ExactTime, PostgresDateTime};
+    use crate::postgres::datetime::PostgresDateTime;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
     use crate::query::pdb_query::pdb;

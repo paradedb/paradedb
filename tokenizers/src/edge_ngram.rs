@@ -129,9 +129,9 @@ pub struct EdgeNgramTokenStream<'a> {
     current_gram_chars: usize,
     // Whether we're currently emitting grams for a word
     in_word: bool,
-    // Position counter (increments per word)
+    // Position assigned to the next word, including words too short to emit grams for
     position: usize,
-    first_advance: bool,
+    current_word_position: usize,
 }
 
 impl Tokenizer for EdgeNgramTokenizer {
@@ -150,7 +150,7 @@ impl Tokenizer for EdgeNgramTokenizer {
             current_gram_chars: 0,
             in_word: false,
             position: 0,
-            first_advance: true,
+            current_word_position: 0,
         }
     }
 }
@@ -213,7 +213,7 @@ impl TokenStream for EdgeNgramTokenStream<'_> {
                     .push_str(&self.text[self.word_start..byte_end]);
                 self.token.offset_from = self.word_start;
                 self.token.offset_to = byte_end;
-                self.token.position = self.position;
+                self.token.position = self.current_word_position;
                 return true;
             }
 
@@ -222,15 +222,14 @@ impl TokenStream for EdgeNgramTokenStream<'_> {
                 return false;
             }
 
+            self.current_word_position = self.position;
+            self.position += 1;
+
             // Skip words shorter than min_gram
             if self.word_char_count < self.min_gram {
                 continue;
             }
 
-            if !self.first_advance {
-                self.position += 1;
-            }
-            self.first_advance = false;
             self.in_word = true;
             self.current_gram_chars = self.min_gram - 1; // will be incremented to min_gram on next loop
         }
@@ -290,7 +289,10 @@ mod tests {
     #[test]
     fn test_words_shorter_than_min_gram_skipped() {
         let mut tok = EdgeNgramTokenizer::new(3, 5, vec![TokenCharClass::Letter]).unwrap();
-        assert_eq!(collect_text(&mut tok, "I am here"), vec!["her", "here"]);
+        assert_eq!(
+            collect_tokens(&mut tok, "I am here"),
+            vec![("her".to_string(), 2), ("here".to_string(), 2)]
+        );
     }
 
     #[test]
@@ -348,6 +350,19 @@ mod tests {
                 ("wo".to_string(), 1),
                 ("wor".to_string(), 1),
                 ("worl".to_string(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_positions_include_skipped_short_words_between_ngrams() {
+        let mut tok = EdgeNgramTokenizer::new(2, 3, vec![TokenCharClass::Letter]).unwrap();
+        assert_eq!(
+            collect_tokens(&mut tok, "hi a world"),
+            vec![
+                ("hi".to_string(), 0),
+                ("wo".to_string(), 2),
+                ("wor".to_string(), 2),
             ]
         );
     }

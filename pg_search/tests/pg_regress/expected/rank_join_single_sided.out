@@ -576,23 +576,13 @@ WARNING:  RankJoinExec not used: score contribution ratio (0.010) is below balan
      :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
--- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) cliff with multi-branch OR on one side.
+-- 6d-multi: Gate 2 (`SCORE_BALANCE_THRESHOLD = 0.20`) with multi-branch OR on one side.
 --
--- Bug / design limitation in `SubtreeScoreStats::from_leaf_queries` (`scan/rank_join_rule.rs`)
--- and `SearchQueryInput::estimate_max_score` (`query/mod.rs`):
--- Each non-constant OR branch (whether lifted into `disjunct_queries` or inside a
--- `SearchQueryInput::Boolean.should` across multiple indexed text columns/terms) estimates
--- `max_score = 1.0`, and `score_max` sums those upper bounds across all branches on the leaf.
--- Gate 2 requires `min(delta_l_max, delta_r_max) / max(delta_l_max, delta_r_max) >= 0.20`.
---
--- As a result:
--- - 5 OR branches on `p` vs 1 branch on `u` gives `score_max(p) = 5.0` and ratio
---   `1.0 / 5.0 = 0.20 >= 0.20`, so `RankJoinExec` is chosen.
--- - 6 OR branches on `p` (e.g. a table with 6+ searchable text columns queried via OR)
---   vs 1 branch on `u` gives `score_max(p) = 6.0` and ratio `1.0 / 6.0 = 0.167 < 0.20`,
---   causing Gate 2 to reject `RankJoinExec` and fall back to `HashJoinExec` unless the user
---   artificially scales `paradedb.score(u.id)` in `ORDER BY`.
--- 5 OR branches on `p` vs 1 on `u` (ratio 1/5 = 0.20) -> RankJoinExec
+-- Across `disjunct_queries` (`ScanMode::Disjunctive`) and `SearchQueryInput::Boolean.should`,
+-- a matching document only needs to satisfy one disjunct, so `score_max` takes the maximum
+-- branch scale rather than summing `1.0` per branch. Both 5 and 6+ unboosted OR branches
+-- on `p` paired with 1 branch on `u` pass Gate 2 and plan `RankJoinExec`.
+-- 5 OR branches on `p` vs 1 on `u` -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -624,7 +614,7 @@ LIMIT 5;
      :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
--- 6 OR branches on `p` vs 1 on `u` (ratio 1/6 = 0.167 < 0.20) -> rejected by Gate 2 (HashJoinExec)
+-- 6 OR branches on `p` vs 1 on `u` -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -638,7 +628,6 @@ WHERE u.bio @@@ 'rust'
    OR p.title @@@ 'extra'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC, u.id ASC, p.id ASC
 LIMIT 5;
-WARNING:  RankJoinExec not used: Gate 2: score contribution ratio (0.167) is below balance threshold (0.20). To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -649,16 +638,16 @@ WARNING:  RankJoinExec not used: Gate 2: score contribution ratio (0.167) is bel
    Order By: pdb.score(u) + pdb.score(p) desc, u.id asc, p.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=5), expr=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+     :   GlobalLimitExec: skip=0, fetch=5
      :     VisibilityFilterExec: tables=[u, p]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, user_id@2)], filter=__u_0_tag_0@0 OR __p_1_tag_0@1 OR __p_1_tag_1@2 OR __p_1_tag_2@3 OR __p_1_tag_3@4 OR __p_1_tag_4@5 OR __p_1_tag_5@6, projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@4, ctid_1@5, id@7]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
      :         CooperativeExec
-     :           PgSearchScan: table=u, segments=2, tag_0={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=u, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=2, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, tag_1={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}}, tag_2={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}}, tag_3={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}}, tag_4={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}}, tag_5={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"extra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"ranking","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"fast","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"columnar","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"query","lenient":null,"conjunction_mode":null}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"extra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
--- Same 6 OR branches on `p`, but with a 2x weight on `u` in ORDER BY (ratio 2/6 = 0.333 >= 0.20) -> RankJoinExec
+-- Same 6 OR branches on `p` with a 2x weight on `u` in ORDER BY -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u

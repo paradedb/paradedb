@@ -2773,4 +2773,38 @@ mod tests {
         );
         assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
     }
+
+    // `PdbOwnedValue`'s serde reaches Postgres's date functions, so these can't be plain tests.
+    #[pg_test]
+    fn non_finite_floats_survive_json() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let json = serde_json::to_string(&PdbOwnedValue::F64(value)).unwrap();
+            assert!(json.contains(PDB_FLOAT_TAG), "not tagged: {json}");
+            let PdbOwnedValue::F64(decoded) = serde_json::from_str(&json).unwrap() else {
+                panic!("did not decode as a float: {json}");
+            };
+            assert_eq!(decoded.to_bits(), value.to_bits());
+        }
+    }
+
+    #[pg_test]
+    fn finite_floats_stay_plain_json_numbers() {
+        assert_eq!(
+            serde_json::to_string(&PdbOwnedValue::F64(1.5)).unwrap(),
+            "1.5"
+        );
+    }
+
+    #[pg_test]
+    fn float_tag_only_decodes_non_finite_values() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for text in ["1.5", "not a float"] {
+            let value: PdbOwnedValue =
+                serde_json::from_value(serde_json::json!({ PDB_FLOAT_TAG: text })).unwrap();
+            assert!(matches!(value, PdbOwnedValue::Object(_)), "{value:?}");
+        }
+    }
 }

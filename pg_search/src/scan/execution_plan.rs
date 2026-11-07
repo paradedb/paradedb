@@ -805,25 +805,27 @@ impl PgSearchScanPlan {
         {
             return None;
         }
-        let base_is_pushdown_filter =
-            crate::postgres::customscan::mpp::run_on_main_thread(|token| {
-                let state = self
-                    .state
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let schema = match &*state {
-                    ExecutionState::Shared { scan_state, .. }
-                    | ExecutionState::RangePartitioned { scan_state, .. } => {
-                        Some(scan_state.get(token).reader.schema())
-                    }
-                    ExecutionState::Uninitialized | ExecutionState::Consumed => None,
-                };
-                base_query.is_pushdown_filter(&|field| {
-                    schema.is_some_and(|s| s.is_term_filter_field(field.root()))
-                })
-            });
-        if !base_is_pushdown_filter {
-            return None;
+        {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let is_pushdown = match &*state {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => {
+                    crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+                        let schema = scan_state.get(token).reader.schema();
+                        base_query
+                            .is_pushdown_filter(&|field| schema.is_term_filter_field(field.root()))
+                    })
+                }
+                ExecutionState::Uninitialized | ExecutionState::Consumed => {
+                    base_query.is_pushdown_filter(&|_| false)
+                }
+            };
+            if !is_pushdown {
+                return None;
+            }
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
         let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();

@@ -1,0 +1,6 @@
+---
+header: performance
+---
+
+- Vector queries share a global routing plan across parallel workers.
+- `paradedb.vector_cluster_max_probe` now sets an absolute work budget in average-cluster units, with a default of `100`. Opening clusters and scoring rows consume the same cost-based budget; selective filters can visit more clusters. Update existing values to the desired absolute budget.

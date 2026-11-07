@@ -69,7 +69,9 @@ retaining more members cannot recover members in unopened lists.
    `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `pdbench search` loads the query vectors and sweeps
-   `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
+   `paradedb.vector_cluster_max_probe` in absolute cluster-work units separately
+   for each filter to r90/r95/r99. The sweep starts at 100 units and searches
+   between 1 and 1,000,000 units.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
    After the sweeps, CI downloads diagnostics from the latest successful main

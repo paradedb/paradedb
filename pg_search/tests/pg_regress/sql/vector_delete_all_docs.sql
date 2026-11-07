@@ -77,7 +77,7 @@ FROM paradedb.vector_info('delvec_idx', 'vec');
 
 -- Vector ORDER BY on the emptied field: no error, zero results. Exhaustive
 -- probing, so the empty result cannot be an artifact of probe pruning.
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 1000000000;
 SELECT count(*) AS vector_results
 FROM (
     SELECT id

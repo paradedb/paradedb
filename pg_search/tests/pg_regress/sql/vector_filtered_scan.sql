@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 0.1;
+SET paradedb.vector_cluster_max_probe = 4;
 SET paradedb.vector_stats = on;
 
 -- Integer coordinates in [-50, 50]: every squared L2 distance is an exact float, so the

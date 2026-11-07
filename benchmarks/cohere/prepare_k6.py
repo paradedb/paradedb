@@ -43,7 +43,9 @@ def operating_points(reports):
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
-                    not 0 < float(selected["value"]) <= 1
+                    not current["search"]["sweep"]["min"]
+                    <= float(selected["value"])
+                    <= current["search"]["sweep"]["max"]
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
@@ -74,7 +76,7 @@ def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
     lines = [
         (
-            "| Filter / recall target | max_probe | Achieved recall@10 "
+            "| Filter / recall target | max_probe (cluster-work units) | Achieved recall@10 "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|",
@@ -96,7 +98,8 @@ def summary(points):
             f"| `{point['name']}` | {probe} | {point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects max_probe separately for each filter and recall target on this index. "
+        "\npdbench selects the absolute max_probe work budget separately for each filter "
+        "and recall target on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

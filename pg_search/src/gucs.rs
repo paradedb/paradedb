@@ -330,12 +330,12 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Maximum fraction of each segment's IVF clusters probed by a vector query.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+/// Global IVF probe-work budget in average-cluster units.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(100.0);
 
-/// Returns the maximum IVF probe fraction.
-pub fn vector_cluster_max_probe() -> f32 {
-    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+/// Returns the global IVF probe-work budget.
+pub fn vector_cluster_max_probe() -> f64 {
+    VECTOR_CLUSTER_MAX_PROBE.get()
 }
 
 static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
@@ -709,11 +709,11 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"IVF probe-work budget, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Global IVF probe-work budget in average-cluster units for vector ORDER BY queries",
         c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
-        1.0,
+        1_000_000_000.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1434,15 +1434,15 @@ mod tests {
             "RESET paradedb.vector_cluster_max_probe; SET paradedb.vector_adaptive_probing = on;",
         )
         .unwrap();
-        assert_eq!(vector_cluster_max_probe(), 0.02);
+        assert_eq!(vector_cluster_max_probe(), 100.0);
         assert!(vector_adaptive_probing().is_some());
-        Spi::run("SET paradedb.vector_cluster_max_probe = 0.005;").unwrap();
-        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("SET paradedb.vector_cluster_max_probe = 25.0;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 25.0);
         Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
         assert!(vector_adaptive_probing().is_none());
-        assert_eq!(vector_cluster_max_probe(), 0.005);
+        assert_eq!(vector_cluster_max_probe(), 25.0);
         Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
-        assert_eq!(vector_cluster_max_probe(), 0.02);
+        assert_eq!(vector_cluster_max_probe(), 100.0);
     }
 
     #[pg_test]

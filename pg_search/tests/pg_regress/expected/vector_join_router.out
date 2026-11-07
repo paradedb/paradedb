@@ -13,7 +13,7 @@ SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0;
 SET paradedb.min_rows_per_worker = 0;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 1000000000;
 SET paradedb.vector_stats = on;
 CREATE FUNCTION join_router_vector(n integer) RETURNS vector
 LANGUAGE SQL IMMUTABLE PARALLEL SAFE AS $$

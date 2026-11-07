@@ -51,7 +51,7 @@ for engine, label, color in [
 axes[0].set(
     xlim=(0, 0.1),
     ylim=(0, 1.005),
-    xlabel="Mean fraction of posting rows scanned",
+    xlabel="Mean posting rows scanned / corpus rows",
     ylabel="Recall@10",
     title="Exact centroid order, stored memberships",
 )
@@ -78,7 +78,7 @@ configuration = (
 )
 if manifest.get("target_segment_count") is not None:
     configuration = (
-        f"pg_search target {manifest['target_segment_count']} segments · other index defaults · replicas included"
+        f"pg_search target {manifest['target_segment_count']} segments · other defaults · replicas counted · one build each"
     )
 fig.suptitle(
     f"Actual extension exports · {manifest['rows']:,} {dataset} vectors · {manifest['queries']} queries\n"

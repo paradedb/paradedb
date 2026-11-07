@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- Improved merge backpressure during sustained writes by counting all visible segments, including those already being merged, and performing one eligible foreground merge when the index exceeds four times its target segment count.

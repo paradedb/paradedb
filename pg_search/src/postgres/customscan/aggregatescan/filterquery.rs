@@ -38,7 +38,7 @@ use std::sync::Arc;
 use tantivy::TantivyError;
 use tantivy::aggregation::agg_req::AggregationVariants;
 use tantivy::aggregation::bucket::{FilterAggregation, QueryBuilder};
-use tantivy::query::{EnableScoring, Query, QueryParser, Weight};
+use tantivy::query::{EnableScoring, Query, Weight};
 use tantivy::schema::Schema;
 use tantivy::tokenizer::TokenizerManager;
 
@@ -121,12 +121,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
     let tantivy_query = query.into_tantivy_query(
         &schema,
         index_created_by_version,
-        &|| {
-            QueryParser::for_index(
-                reader.searcher().index(),
-                schema.fields().map(|(f, _)| f).collect(),
-            )
-        },
+        &|| schema.query_parser(reader.searcher().index()),
         reader.searcher(),
         index.oid(),
         index.heap_relation().map(|r| r.oid()),

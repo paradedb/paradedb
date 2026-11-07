@@ -306,7 +306,7 @@ impl Scanner {
 
         let batch_size = batch_size_hint
             .unwrap_or(default_batch_size)
-            .min(default_batch_size);
+            .clamp(1, default_batch_size);
 
         let defer_visibility = which_fast_fields
             .iter()
@@ -397,9 +397,9 @@ impl Scanner {
         }
     }
 
-    /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
+    /// Override the batch size. Clamped to `1..=MAX_BATCH_SIZE`.
     pub(crate) fn set_batch_size(&mut self, size: usize) {
-        self.batch_size = size.min(MAX_BATCH_SIZE);
+        self.batch_size = size.clamp(1, MAX_BATCH_SIZE);
     }
 
     /// Returns whether score threshold pushdown into the underlying Tantivy segment scorer
@@ -426,6 +426,7 @@ impl Scanner {
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
+        debug_assert!(self.batch_size > 0);
         let can_pushdown = self.can_pushdown_score_threshold();
         // Collect a batch of ids for a single segment.
         loop {
@@ -436,9 +437,22 @@ impl Scanner {
                 self.score_threshold_pushed = true;
             }
 
+            let Some((first_score, first_id)) = scorer_iter.next() else {
+                // This segment was completely empty or exhausted: remove it and move to the next.
+                self.search_results.current_segment_pop();
+                continue;
+            };
+            debug_assert_eq!(first_id.segment_ord, segment_ord);
+
             // Collect a batch of ids/scores for this segment.
-            let mut scores = Vec::with_capacity(self.batch_size);
-            let mut ids = Vec::with_capacity(self.batch_size);
+            let cap = self
+                .batch_size
+                .min(scorer_iter.remaining_docs_upper_bound(first_id.doc_id));
+            let mut scores = Vec::with_capacity(cap);
+            let mut ids = Vec::with_capacity(cap);
+            scores.push(first_score);
+            ids.push(first_id.doc_id);
+
             while ids.len() < self.batch_size {
                 let Some((score, id)) = scorer_iter.next() else {
                     // No more results for the current segment: remove it.
@@ -449,11 +463,6 @@ impl Scanner {
                 debug_assert_eq!(id.segment_ord, segment_ord);
                 scores.push(score);
                 ids.push(id.doc_id);
-            }
-
-            if ids.is_empty() {
-                // This segment was completely empty: move to the next.
-                continue;
             }
 
             return Some((segment_ord, scores, ids));
@@ -514,10 +523,14 @@ impl Scanner {
         ffhelper: &Arc<FFHelper>,
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
-    ) -> Option<Batch> {
-        pgrx::check_for_interrupts!();
-        let (segment_ord, scores, ids) = self.try_get_batch_ids()?;
-        Some(self.materialize_segment_batch(
+    ) -> datafusion::common::Result<Option<Batch>> {
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return Err(crate::postgres::customscan::mpp::interrupted());
+        }
+        let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
+            return Ok(None);
+        };
+        Ok(Some(self.materialize_segment_batch(
             segment_ord,
             scores,
             ids,
@@ -525,7 +538,7 @@ impl Scanner {
             ffhelper,
             visibility,
             pre_filters,
-        ))
+        )))
     }
 
     /// Materializes a Top-K window of `(SearchIndexScore, DocAddress)` hits across segments into
@@ -533,7 +546,7 @@ impl Scanner {
     ///
     /// Hits are grouped by segment and sorted by `DocId` for sequential fast-field reads,
     /// visibility checks, and pre-filter evaluation, then interleaved back into Top-K order.
-    /// Returns `None` if `results` is empty or if all rows in the window are filtered out.
+    /// Returns `Ok(None)` if `results` is empty or if all rows in the window are filtered out.
     pub(crate) fn materialize_topk_window(
         &mut self,
         results: &[(
@@ -544,10 +557,12 @@ impl Scanner {
         visibility: &mut VisibilityChecker,
         pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
         schema: &SchemaRef,
-    ) -> Option<RecordBatch> {
-        pgrx::check_for_interrupts!();
+    ) -> datafusion::common::Result<Option<RecordBatch>> {
+        if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+            return Err(crate::postgres::customscan::mpp::interrupted());
+        }
         if results.is_empty() {
-            return None;
+            return Ok(None);
         }
         // Consecutive SA windows or RA lookups on a single-segment index can revisit the same
         // `segment_ord` with smaller `DocId`s than the previous window; reset `current_segment_ord`
@@ -599,7 +614,7 @@ impl Scanner {
         let interleave_indices: Vec<(usize, usize)> =
             slot_by_orig_idx.into_iter().flatten().collect();
         if interleave_indices.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         if seg_batches.len() == 1
@@ -608,7 +623,7 @@ impl Scanner {
                 .enumerate()
                 .all(|(i, &(b, r))| b == 0 && r == i)
         {
-            return seg_batches.pop();
+            return Ok(seg_batches.pop());
         }
 
         let num_rows = interleave_indices.len();
@@ -624,10 +639,10 @@ impl Scanner {
             .collect();
 
         let options = RecordBatchOptions::new().with_row_count(Some(num_rows));
-        Some(
+        Ok(Some(
             RecordBatch::try_new_with_options(schema.clone(), columns, &options)
                 .expect("Failed to create RecordBatch"),
-        )
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]

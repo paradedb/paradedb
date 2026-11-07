@@ -69,13 +69,26 @@ impl HeapBufferPin {
     }
 }
 
-crate::impl_safe_drop!(HeapBufferPin, |self| {
+struct ReleaseHeapBufferOnMainThread(pg_sys::Buffer);
+
+crate::impl_safe_drop!(ReleaseHeapBufferOnMainThread, |self| {
     unsafe {
         if crate::postgres::utils::IsTransactionState() {
             pg_sys::ReleaseBuffer(self.0);
         }
     }
 });
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the inner
+// buffer pin to `drop_on_main_thread`, where `ReleaseHeapBufferOnMainThread` uses
+// `impl_safe_drop!`.
+impl Drop for HeapBufferPin {
+    fn drop(&mut self) {
+        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseHeapBufferOnMainThread(
+            self.0,
+        ));
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 struct DirtyBlockCount(u64);
@@ -242,16 +255,41 @@ impl Clone for VisibilityChecker {
     }
 }
 
-crate::impl_safe_drop!(VisibilityChecker, |self| {
+struct VisibilityCheckerCleanupOnMainThread {
+    vmbuff: pg_sys::Buffer,
+    scan: usize,
+    _heaprel: PgSearchRelation,
+}
+
+crate::impl_safe_drop!(VisibilityCheckerCleanupOnMainThread, |self| {
     unsafe {
         if crate::postgres::utils::IsTransactionState() {
             if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 pg_sys::ReleaseBuffer(self.vmbuff);
             }
-            pg_sys::table_index_fetch_end(self.scan);
+            if self.scan != 0 {
+                pg_sys::table_index_fetch_end(self.scan as *mut pg_sys::IndexFetchTableData);
+            }
         }
     }
 });
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the cleanup
+// payload to `drop_on_main_thread`, where `VisibilityCheckerCleanupOnMainThread` uses
+// `impl_safe_drop!`.
+impl Drop for VisibilityChecker {
+    fn drop(&mut self) {
+        let vmbuff = std::mem::replace(&mut self.vmbuff, pg_sys::InvalidBuffer as pg_sys::Buffer);
+        let scan = std::mem::replace(&mut self.scan, std::ptr::null_mut()) as usize;
+        crate::postgres::customscan::mpp::drop_on_main_thread(
+            VisibilityCheckerCleanupOnMainThread {
+                vmbuff,
+                scan,
+                _heaprel: self.heaprel.clone(),
+            },
+        );
+    }
+}
 
 /// The result of checking document visibility without materializing CTIDs.
 ///
@@ -1459,15 +1497,47 @@ impl HeapFetchState {
     }
 }
 
-crate::impl_safe_drop!(HeapFetchState, |self| {
+struct HeapFetchStateCleanupOnMainThread {
+    slot: usize,
+    virtual_slot: usize,
+    scan: usize,
+    _heaprel: PgSearchRelation,
+}
+
+crate::impl_safe_drop!(HeapFetchStateCleanupOnMainThread, |self| {
     unsafe {
         if crate::postgres::utils::IsTransactionState() {
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot.cast());
-            pg_sys::ExecDropSingleTupleTableSlot(self.virtual_slot);
-            pg_sys::table_index_fetch_end(self.scan);
+            if self.slot != 0 {
+                pg_sys::ExecDropSingleTupleTableSlot(self.slot as *mut pg_sys::TupleTableSlot);
+            }
+            if self.virtual_slot != 0 {
+                pg_sys::ExecDropSingleTupleTableSlot(
+                    self.virtual_slot as *mut pg_sys::TupleTableSlot,
+                );
+            }
+            if self.scan != 0 {
+                pg_sys::table_index_fetch_end(self.scan as *mut pg_sys::IndexFetchTableData);
+            }
         }
     }
 });
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the cleanup
+// payload to `drop_on_main_thread`, where `HeapFetchStateCleanupOnMainThread` uses
+// `impl_safe_drop!`.
+impl Drop for HeapFetchState {
+    fn drop(&mut self) {
+        let slot = std::mem::replace(&mut self.slot, std::ptr::null_mut()) as usize;
+        let virtual_slot = std::mem::replace(&mut self.virtual_slot, std::ptr::null_mut()) as usize;
+        let scan = std::mem::replace(&mut self.scan, std::ptr::null_mut()) as usize;
+        crate::postgres::customscan::mpp::drop_on_main_thread(HeapFetchStateCleanupOnMainThread {
+            slot,
+            virtual_slot,
+            scan,
+            _heaprel: self._heaprel.clone(),
+        });
+    }
+}
 
 /// A wrapper for expression evaluation state.
 #[derive(Debug)]

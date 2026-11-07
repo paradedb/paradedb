@@ -89,26 +89,40 @@ decimal-bytes = "0.6.0"
 bigdecimal = "0.4.11"
 paste = "1.0.15"
 typetag = "0.2"
-tokio = { version = "1.53.2", features = ["rt"] }
-tokio-util = "0.7"
+tokio = { version = "1.53.2", features = [
+  "rt",
+  "rt-multi-thread",
+  "net",
+  "time",
+  "sync",
+  "macros",
+] }
+tokio-stream = "0.1.17"
+tonic = "0.14.2"
+tower = "0.5.2"
+hyper-util = { version = "0.1.16", features = ["tokio"] }
+url = "2.5.4"
+libc = "0.2"
 bytes = { version = "1", features = ["serde"] }
 # Here and the equivalent in our datafusion-distributed fork will need to be updated in sync so that
 # both point to the same datafusion ref.
 datafusion = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
 datafusion-proto = { git = "https://github.com/paradedb/datafusion.git", branch = "paradedb.branch-55", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-10-27-165520", default-features = false }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed.git", tag = "snapshot-main-2026-11-06-220218", default-features = false, features = [
+  "grpc",
+] }
 futures = "0.3.34"
 async-stream = "0.3.6"
 prost = "0.14.3"
 
 # Selects the BLAS backend tantivy's SuperKMeans clusterer runs on: Accelerate on macOS, OpenBLAS elsewhere.
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "738408113432215334bcb086a94bff78be8e8fab", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "ec3c9befe84d8beb437111a8eb4876eebc58e7a3", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "738408113432215334bcb086a94bff78be8e8fab", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "ec3c9befe84d8beb437111a8eb4876eebc58e7a3", features = [
   "openblas",
 ] }
 

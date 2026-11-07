@@ -260,27 +260,37 @@ impl PostgresDateTime {
     }
 
     pub fn try_from_timestamp_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let ts = pgrx::datum::Timestamp::from_str(s)?;
+        let ts = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::Timestamp::from_str(s)
+        })?;
         Ok(Self::from(ts))
     }
 
     pub fn try_from_timestamptz_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let ts = pgrx::datum::TimestampWithTimeZone::from_str(s)?;
+        let ts = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::TimestampWithTimeZone::from_str(s)
+        })?;
         Ok(Self::from(ts))
     }
 
     pub fn try_from_date_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let date = pgrx::datum::Date::from_str(s)?;
+        let date = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::Date::from_str(s)
+        })?;
         Self::try_from(date)
     }
 
     pub fn try_from_time_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let time = pgrx::datum::Time::from_str(s)?;
+        let time = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::Time::from_str(s)
+        })?;
         Ok(Self::from(time))
     }
 
     pub fn try_from_timetz_str(s: &str) -> Result<Self, DateTimeConversionError> {
-        let time = pgrx::datum::TimeWithTimeZone::from_str(s)?;
+        let time = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::TimeWithTimeZone::from_str(s)
+        })?;
         Ok(Self::from(time))
     }
 
@@ -352,7 +362,9 @@ impl From<PostgresDateTime> for String {
             return "-infinity".to_string();
         }
         // append Z to make the output rfc3339-compliant
-        format!("{}Z", value.0.to_iso_string())
+        crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            format!("{}Z", value.0.to_iso_string())
+        })
     }
 }
 impl TryFrom<pgrx::datum::Date> for PostgresDateTime {

@@ -11,16 +11,23 @@ SET paradedb.vector_cluster_max_probe = 0.02;
 ```
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
-  The recall/latency driver: a ceiling on how much probe work a query may
-  spend, expressed as a fraction of each segment's clusters. For instance, at
-  the default value of `0.02`, at most 2% of a segment's cluster-scan work is
-  spent. Must be between `0.000001` and `1.0`, where `1.0` allows an
-  exhaustive scan.
+  Controls the probe-work budget as a fraction of each segment's capacity.
+  Must be between `0.000001` and `1.0`. The budget is checked between clusters
+  and subject to a minimum probe floor.
 
-Within the ceiling, clusters that provably cannot improve the current top-K
-are skipped automatically using per-cluster bounds stored in the index; this
-skipping never reduces recall, so raising the ceiling only ever improves it.
+The router's requested cluster count follows this budget and the filter's
+selectivity. Adaptive probing uses the same router request and work ceiling.
+A value of `1.0` allows probing the full index, but adaptive stopping can
+still end the scan early.
 
+</ParamField>
+
+<ParamField body="paradedb.vector_adaptive_probing" default="on">
+  Stop opening clusters early when competitive-candidate admission has
+  sufficiently decayed. This does not widen routing or change the work ceiling.
+  The stopping rule is a heuristic, so measure recall for your workload. Set to
+  `off` to probe until the work budget or the router's candidate list is
+  exhausted.
 </ParamField>
 
 <Note>

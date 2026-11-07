@@ -101,10 +101,7 @@ impl std::fmt::Debug for BitmapCell {
 
 impl std::fmt::Debug for BitmapCursorSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Private { .. } => f.write_str("BitmapCursorSource::Private"),
-            Self::Shared { .. } => f.write_str("BitmapCursorSource::Shared"),
-        }
+        f.write_str("BitmapCursorSource")
     }
 }
 
@@ -289,8 +286,14 @@ impl SharedPages {
 }
 
 /// Where cursors come from. Owned by the scan (behind an `Arc`) and outlives every
-/// cursor claimed from it.
-pub(crate) enum BitmapCursorSource {
+/// cursor claimed from it. Wrapped in [`crate::postgres::customscan::mpp::MainThread`] so
+/// it is soundly `Send + Sync` while confining all access and destruction to the Postgres main
+/// thread.
+pub(crate) struct BitmapCursorSource(
+    crate::postgres::customscan::mpp::MainThread<BitmapCursorSourceInner>,
+);
+
+enum BitmapCursorSourceInner {
     /// Serial: private iterators over the build owner's local TIDBitmap.
     Private {
         tbm: *mut pg_sys::TIDBitmap,
@@ -307,17 +310,15 @@ pub(crate) enum BitmapCursorSource {
     },
 }
 
-// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it.
-unsafe impl Send for BitmapCursorSource {}
-unsafe impl Sync for BitmapCursorSource {}
-
 impl BitmapCursorSource {
     pub(crate) fn private(tbm: *mut pg_sys::TIDBitmap) -> Self {
-        Self::Private {
-            tbm,
-            claims: Mutex::new(Vec::new()),
-            counters: Box::default(),
-        }
+        Self(crate::postgres::customscan::mpp::MainThread::new(
+            BitmapCursorSourceInner::Private {
+                tbm,
+                claims: Mutex::new(Vec::new()),
+                counters: Box::default(),
+            },
+        ))
     }
 
     /// Attach a published claim table as participant `slot` (the owner is slot 0,
@@ -327,16 +328,18 @@ impl BitmapCursorSource {
         table: pg_sys::dsa_pointer,
         slot: u32,
     ) -> Self {
-        Self::Shared {
-            area,
-            table,
-            slot,
-            pages: RefCell::new(SharedPages {
-                iter: std::ptr::null_mut(),
-                pages: Vec::new(),
-                drained: false,
-            }),
-        }
+        Self(crate::postgres::customscan::mpp::MainThread::new(
+            BitmapCursorSourceInner::Shared {
+                area,
+                table,
+                slot,
+                pages: RefCell::new(SharedPages {
+                    iter: std::ptr::null_mut(),
+                    pages: Vec::new(),
+                    drained: false,
+                }),
+            },
+        ))
     }
 
     /// Claim the `(consumer, segment)` stream and open its cursor.
@@ -352,8 +355,8 @@ impl BitmapCursorSource {
         consumer_id: u32,
         segment: SegmentId,
     ) -> BitmapCursor {
-        match self.as_ref() {
-            Self::Private {
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| match self.0.get(token) {
+            BitmapCursorSourceInner::Private {
                 tbm,
                 claims,
                 counters,
@@ -376,7 +379,7 @@ impl BitmapCursorSource {
                 };
                 cursor.claimed_from(self, StreamClaim::Private(consumer_id, segment))
             }
-            Self::Shared { area, table, .. } => unsafe {
+            BitmapCursorSourceInner::Shared { area, table, .. } => unsafe {
                 let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
                 let entry = shared_entry(header, consumer_id, segment).unwrap_or_else(|| {
                     pgrx::error!(
@@ -397,38 +400,45 @@ impl BitmapCursorSource {
                 let cursor = BitmapCursor::cached(&(*header).counters as *const CursorCounters);
                 cursor.claimed_from(self, StreamClaim::Shared(entry))
             },
-        }
+        })
     }
 
     /// Release the stream a dropped cursor held, so the next pass can claim it.
     fn release(&self, claim: StreamClaim) {
-        match (self, claim) {
-            (Self::Private { claims, .. }, StreamClaim::Private(consumer_id, segment)) => {
-                let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
-                claims.retain(|claim| *claim != (consumer_id, segment));
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            match (self.0.get(token), claim) {
+                (
+                    BitmapCursorSourceInner::Private { claims, .. },
+                    StreamClaim::Private(consumer_id, segment),
+                ) => {
+                    let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
+                    claims.retain(|claim| *claim != (consumer_id, segment));
+                }
+                (BitmapCursorSourceInner::Shared { .. }, StreamClaim::Shared(entry)) => unsafe {
+                    (*entry).live.store(0, Ordering::Release);
+                },
+                _ => unreachable!("a cursor releases the source it was claimed from"),
             }
-            (Self::Shared { .. }, StreamClaim::Shared(entry)) => unsafe {
-                (*entry).live.store(0, Ordering::Release);
-            },
-            _ => unreachable!("a cursor releases the source it was claimed from"),
-        }
+        });
     }
 
     /// Counter totals for EXPLAIN ANALYZE.
     pub(crate) fn counters(&self) -> (u64, u64, u64, u64) {
-        let c: &CursorCounters = match self {
-            Self::Private { counters, .. } => counters.as_ref(),
-            Self::Shared { area, table, .. } => unsafe {
-                let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
-                &(*header).counters
-            },
-        };
-        (
-            c.exact_pages.load(Ordering::Relaxed),
-            c.lossy_pages.load(Ordering::Relaxed),
-            c.recheck_pages.load(Ordering::Relaxed),
-            c.rejected_docs.load(Ordering::Relaxed),
-        )
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let c: &CursorCounters = match self.0.get(token) {
+                BitmapCursorSourceInner::Private { counters, .. } => counters.as_ref(),
+                BitmapCursorSourceInner::Shared { area, table, .. } => unsafe {
+                    let header = pg_sys::dsa_get_address(*area, *table).cast::<SharedHeader>();
+                    &(*header).counters
+                },
+            };
+            (
+                c.exact_pages.load(Ordering::Relaxed),
+                c.lossy_pages.load(Ordering::Relaxed),
+                c.recheck_pages.load(Ordering::Relaxed),
+                c.rejected_docs.load(Ordering::Relaxed),
+            )
+        })
     }
 }
 
@@ -542,10 +552,6 @@ pub(crate) struct BitmapCursor {
     last_ctid: u64,
 }
 
-// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it.
-unsafe impl Send for BitmapCursor {}
-unsafe impl Sync for BitmapCursor {}
-
 impl BitmapCursor {
     unsafe fn private(tbm: *mut pg_sys::TIDBitmap, counters: *const CursorCounters) -> Self {
         unsafe {
@@ -657,32 +663,34 @@ impl BitmapCursor {
     /// the cache ends there.
     unsafe fn next_cached_page(&mut self, next: usize) {
         let source = Arc::clone(&self.claim.as_ref().expect("a cached cursor has a source").0);
-        let BitmapCursorSource::Shared {
-            area,
-            table,
-            slot,
-            pages,
-        } = source.as_ref()
-        else {
-            unreachable!("a cached cursor comes from a shared source");
-        };
-        let mut pages = pages.borrow_mut();
-        if next == pages.pages.len() && !unsafe { pages.pull(*area, *table, *slot) } {
-            self.state = PageState::Exhausted;
-            return;
-        }
-        let page = &pages.pages[next];
-        let noffsets = page.offsets.len();
-        self.offsets[..noffsets].copy_from_slice(&page.offsets);
-        unsafe { self.count_page(page.lossy, page.recheck) };
-        self.state = PageState::Page {
-            block: page.block,
-            lossy: page.lossy,
-            recheck: page.recheck,
-            noffsets,
-            pos: 0,
-        };
-        self.iter = CursorIter::Cached { next: next + 1 };
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let BitmapCursorSourceInner::Shared {
+                area,
+                table,
+                slot,
+                pages,
+            } = source.0.get(token)
+            else {
+                unreachable!("a cached cursor comes from a shared source");
+            };
+            let mut pages = pages.borrow_mut();
+            if next == pages.pages.len() && !unsafe { pages.pull(*area, *table, *slot) } {
+                self.state = PageState::Exhausted;
+                return;
+            }
+            let page = &pages.pages[next];
+            let noffsets = page.offsets.len();
+            self.offsets[..noffsets].copy_from_slice(&page.offsets);
+            unsafe { self.count_page(page.lossy, page.recheck) };
+            self.state = PageState::Page {
+                block: page.block,
+                lossy: page.lossy,
+                recheck: page.recheck,
+                noffsets,
+                pos: 0,
+            };
+            self.iter = CursorIter::Cached { next: next + 1 };
+        });
     }
 
     #[cfg(feature = "pg18")]
@@ -752,12 +760,14 @@ impl BitmapCursor {
 
 crate::impl_safe_drop!(BitmapCursor, |self| {
     unsafe {
-        match self.iter {
-            #[cfg(not(feature = "pg18"))]
-            CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
-            #[cfg(feature = "pg18")]
-            CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
-            CursorIter::Cached { .. } => {}
+        if crate::postgres::utils::IsTransactionState() {
+            match self.iter {
+                #[cfg(not(feature = "pg18"))]
+                CursorIter::Private(iter) => pg_sys::tbm_end_iterate(iter),
+                #[cfg(feature = "pg18")]
+                CursorIter::Private(iter) => pg_sys::tbm_end_private_iterate(iter),
+                CursorIter::Cached { .. } => {}
+            }
         }
         if let Some((source, claim)) = self.claim.take() {
             source.release(claim);
@@ -767,10 +777,10 @@ crate::impl_safe_drop!(BitmapCursor, |self| {
 
 // The attached slot iterator is this process's own allocation, ended once the
 // last cursor is gone with the source.
-crate::impl_safe_drop!(BitmapCursorSource, |self| {
+crate::impl_safe_drop!(BitmapCursorSourceInner, |self| {
     if let Self::Shared { pages, .. } = self {
         let iter = pages.get_mut().iter;
-        if !iter.is_null() {
+        if !iter.is_null() && unsafe { crate::postgres::utils::IsTransactionState() } {
             unsafe { pg_sys::tbm_end_shared_iterate(iter) };
         }
     }

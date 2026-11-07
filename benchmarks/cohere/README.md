@@ -45,7 +45,7 @@ Router search policies can be adjusted at query time without rebuilding:
 
 | Setting                                    | Default | Effect                                                 |
 | ------------------------------------------ | ------: | ------------------------------------------------------ |
-| `paradedb.vector_router_rerank_factor`     |     1.0 | Fractional candidate multiplier before exact reranking |
+| `paradedb.vector_router_rerank_factor`     |     2.0 | Fractional candidate multiplier before exact reranking |
 | `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level   |
 | `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists            |
 
@@ -55,7 +55,7 @@ for `router_k = 3`. A factor of `1.0` removes padding but still computes exact
 scores, which document pruning and quantized distance estimation require.
 
 The beam setting leaves full-precision-only routing unchanged. Quantized routing
-defaults to a 50% beam floor with `router_k` retained members. Global routing
+defaults to a 50% beam floor with `2 * router_k` retained members. Global routing
 shares this beam and the padded shortlist across segments, including mixed raw
 and quantized routers and coarse partition centroids. It reranks retained
 quantized members before the global `router_k` selection.

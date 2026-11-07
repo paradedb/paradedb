@@ -25,7 +25,6 @@ use datafusion::logical_expr::{
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelExpr, JoinNode, JoinSource, JoinType as PgJoinType, LateralUnnestInfo, RelNode,
     RelationAlias, ScoreColumn, UnnestNode, VectorScoreColumn,
@@ -33,6 +32,7 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use crate::scan::ScanMode;
+use crate::schema::SearchFieldType;
 
 pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
@@ -798,12 +798,12 @@ pub struct CombinedMapper<'a> {
     pub lateral_unnests: &'a [LateralUnnestInfo],
 }
 
-impl<'a> ColumnMapper for CombinedMapper<'a> {
-    fn udf_input(
+impl<'a> CombinedMapper<'a> {
+    fn numeric_field_type(
         &self,
         varno: pg_sys::Index,
         varattno: pg_sys::AttrNumber,
-    ) -> Option<(Expr, InputDecode)> {
+    ) -> Option<SearchFieldType> {
         let (rti, attno) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             match self.output_columns.get((varattno - 1) as usize)? {
                 OutputColumnInfo::Var {
@@ -817,30 +817,10 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             (varno, varattno)
         };
         let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
-        let mapped_attno = source.map_var(rti, attno)?;
-        let field = &source
-            .scan_info
-            .fields
-            .iter()
-            .find(|f| f.attno == mapped_attno)?
-            .field;
-        match field {
-            WhichFastField::Named {
-                field_type,
-                cardinality: FieldCardinality::Scalar,
-                ..
-            } if field_type.is_numeric() => Some((
-                self.map_var(varno, varattno)?,
-                InputDecode::StorageEncoded {
-                    is_avg: false,
-                    field_type: Some(*field_type),
-                },
-            )),
-            _ => None,
-        }
+        source.numeric_field_type(source.map_var(rti, attno)?)
     }
 
-    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+    fn resolve_column(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
         let (rti, attno, is_score, unnested_info) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             let idx = (varattno - 1) as usize;
             match self.output_columns.get(idx)? {
@@ -905,6 +885,30 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                 .find(|s| s.contains_rti(unnest_info.source_rti.0))?;
             Some(make_source_unnested_col(s, &unnest_info.field_name))
         }
+    }
+}
+
+impl<'a> ColumnMapper for CombinedMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        // NUMERIC fast fields are storage-encoded, so native operators would read
+        // scaled integers. Refuse them so the `PgExprUdf` fallback decodes them.
+        if self.numeric_field_type(varno, varattno).is_some() {
+            return None;
+        }
+        self.resolve_column(varno, varattno)
+    }
+
+    fn udf_input(
+        &self,
+        varno: pg_sys::Index,
+        varattno: pg_sys::AttrNumber,
+    ) -> Option<(Expr, InputDecode)> {
+        let field_type = self.numeric_field_type(varno, varattno)?;
+        let decode = InputDecode::StorageEncoded {
+            is_avg: false,
+            field_type: Some(field_type),
+        };
+        Some((self.resolve_column(varno, varattno)?, decode))
     }
 }
 
@@ -1013,10 +1017,7 @@ mod tests {
         use datafusion::prelude::SessionContext;
         use std::sync::Arc;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
         runtime.block_on(async {
             let ctx = SessionContext::new();

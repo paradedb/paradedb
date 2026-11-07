@@ -48,13 +48,15 @@ use crate::index::reader::index::{
 };
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
-use crate::postgres::customscan::mpp::interrupt::{cancel_pending, interrupted};
+use crate::postgres::customscan::mpp::interrupt::{
+    check_for_cancel, check_for_interrupts_or_cancel,
+};
 use crate::postgres::customscan::parallel::checkout_segment_for_source;
 use crate::postgres::heap::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::scan::Scanner;
 use crate::scan::execution_plan::{
-    FilterStepMetrics, ScanStreamContext, ScannerConfig, UnsafeSendSync, build_filters,
+    FilterStepMetrics, ScanState, ScanStreamContext, ScannerConfig, build_filters,
 };
 use crate::scan::pre_filter::{
     InListLinearFallback, PreFilter, PreFilters, RankLookupPhysicalExpr,
@@ -137,7 +139,8 @@ pub struct LazySortTelemetryState {
     pub first_pull_aggregation: Option<(IntermediateAggregationResults, Option<usize>)>,
 }
 
-pub type LazySortTelemetry = Arc<Mutex<UnsafeSendSync<LazySortTelemetryState>>>;
+pub type LazySortTelemetry =
+    Arc<Mutex<crate::postgres::customscan::mpp::MainThread<LazySortTelemetryState>>>;
 
 /// Configures [`PgSearchScanPlan`](crate::scan::execution_plan::PgSearchScanPlan) for iterative,
 /// expanding-window Sorted Access (`SA`) and/or on-demand Random Access (`RA`) join-key point
@@ -158,7 +161,8 @@ pub type LazySortTelemetry = Arc<Mutex<UnsafeSendSync<LazySortTelemetryState>>>;
 ///   `SA` searches the union of positive-score queries (`with_disjunctive_sa_queries`) so
 ///   `0.0`-score documents are never visited by `SA`, while `RA` point lookups score `ra_weights`
 ///   directly on matched `DocId`s (returning `0.0` when a document satisfies `base_query` and the
-///   join key but none of `disjunct_queries`).
+///   join key but none of `disjunct_queries`). A non-`All` `base_query` is a `0.0`-score filter on
+///   both streams.
 #[derive(Clone)]
 pub struct LazySortConfig {
     /// Tantivy sort keys passed to `search_top_k_in_segments`.
@@ -244,10 +248,16 @@ impl TopKWindowCursor {
                 (0, true)
             }
             WindowStep::Retry { chunk_size } => {
-                let retry_scale = crate::gucs::topk_retry_scale_factor();
+                let (retry_scale, max_chunk_size) =
+                    crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+                        (
+                            crate::gucs::topk_retry_scale_factor(),
+                            crate::gucs::max_topk_chunk_size() as usize,
+                        )
+                    });
                 let next_chunk_size = (chunk_size * retry_scale as usize)
                     .max((self.initial_window * retry_scale as f64) as usize)
-                    .min(crate::gucs::max_topk_chunk_size() as usize);
+                    .min(max_chunk_size);
                 self.step = WindowStep::Retry {
                     chunk_size: next_chunk_size,
                 };
@@ -360,10 +370,15 @@ impl LazySegmentTarget {
                 all_segments_claimed,
             } => {
                 let aux_collector = if pull.is_first_pull {
-                    lazy_sort
-                        .telemetry
-                        .as_ref()
-                        .and_then(|t| t.lock().unwrap().0.first_pull_aux_collector.take())
+                    lazy_sort.telemetry.as_ref().and_then(|t| {
+                        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+                            t.lock()
+                                .unwrap()
+                                .get_mut(token)
+                                .first_pull_aux_collector
+                                .take()
+                        })
+                    })
                 } else {
                     None
                 };
@@ -406,7 +421,7 @@ impl LazySegmentTarget {
                         pull.window.limit.0,
                         pull.window.offset.0,
                     );
-                    if !cancel_pending()
+                    if !check_for_interrupts_or_cancel()
                         && let Some(aux) = aux_collector
                     {
                         res.aggregation_results = Some(Self::collect_unordered_aux_aggregation(
@@ -434,7 +449,7 @@ impl LazySegmentTarget {
                 reader
                     .segment_ids()
                     .into_iter()
-                    .take_while(|_| !cancel_pending()),
+                    .take_while(|_| !check_for_interrupts_or_cancel()),
             ),
             Some(ps) => {
                 let already_claimed = claimed_segments.borrow().clone();
@@ -443,9 +458,9 @@ impl LazySegmentTarget {
                 Box::new(
                     already_claimed
                         .into_iter()
-                        .take_while(|_| !cancel_pending())
+                        .take_while(|_| !check_for_interrupts_or_cancel())
                         .chain(std::iter::from_fn(move || {
-                            if done_for_iter.get() || cancel_pending() {
+                            if done_for_iter.get() || check_for_interrupts_or_cancel() {
                                 return None;
                             }
                             let maybe_seg =
@@ -477,14 +492,14 @@ impl LazySegmentTarget {
                 reader
                     .segment_ids()
                     .into_iter()
-                    .take_while(|_| !cancel_pending()),
+                    .take_while(|_| !check_for_interrupts_or_cancel()),
             ),
             Some(_) => Box::new(
                 claimed_segments
                     .borrow()
                     .clone()
                     .into_iter()
-                    .take_while(|_| !cancel_pending()),
+                    .take_while(|_| !check_for_interrupts_or_cancel()),
             ),
         };
         if let Some(vischeck) = aux.vischeck {
@@ -546,11 +561,21 @@ fn prepare_sa_and_ra(
     range_target: Option<&(PartitionSegments, SearchQueryInput)>,
 ) -> (SearchIndexReader, RaLookupWeights, bool) {
     let (sa_reader, is_disjunctive_sa, base_is_match_all, ra_disjunct_queries) = match scan_mode {
-        crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
+        crate::scan::ScanMode::Disjunctive {
+            base_query,
+            disjunct_queries,
+        } => {
             let has_disjuncts = !disjunct_queries.is_empty();
-            let replace_query = !pushed;
-            let sa = if has_disjuncts {
-                reader.with_disjunctive_sa_queries(replace_query, disjunct_queries)
+            let replace_query = matches!(base_query.as_ref(), SearchQueryInput::All) && !pushed;
+            // The reader was opened with the unwrapped base, so the `0.0` score is applied here.
+            // `RA` never scores the base when disjuncts exist (`prepare_ra_lookup_weights`), and
+            // `RankJoinExec` bounds `RA`-only partners at `0.0`, so `SA` must not score it either.
+            let sa = if has_disjuncts && replace_query {
+                reader.with_disjunctive_sa_queries(true, disjunct_queries)
+            } else if has_disjuncts {
+                reader
+                    .with_constant_score(0.0)
+                    .with_disjunctive_sa_queries(false, disjunct_queries)
             } else {
                 reader.clone()
             };
@@ -599,18 +624,20 @@ fn record_pull_telemetry(
 ) {
     queries.add(1);
     if let Some(ref telemetry) = lazy_sort.telemetry {
-        let mut guard = telemetry.lock().unwrap();
-        guard.0.queries_executed += 1;
-        if !top_k_search.segment_info.is_empty() {
-            guard
-                .0
-                .segment_info
-                .extend(std::mem::take(&mut top_k_search.segment_info));
-        }
-        if let Some(agg_result) = top_k_search.aggregation_results.take() {
-            guard.0.first_pull_aggregation =
-                Some((agg_result, segment_target.claimed_segment_count()));
-        }
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let mut guard = telemetry.lock().unwrap();
+            let telem = guard.get_mut(token);
+            telem.queries_executed += 1;
+            if !top_k_search.segment_info.is_empty() {
+                telem
+                    .segment_info
+                    .extend(std::mem::take(&mut top_k_search.segment_info));
+            }
+            if let Some(agg_result) = top_k_search.aggregation_results.take() {
+                telem.first_pull_aggregation =
+                    Some((agg_result, segment_target.claimed_segment_count()));
+            }
+        });
     }
 }
 
@@ -646,20 +673,18 @@ impl LazySortStreamState {
     /// Pushes static/completed dynamic filters into the index reader before the first pull,
     /// then initializes the segment target, `SA`/`RA` readers, batch materializer, and
     /// expanding-window cursor.
-    fn init(ctx: ScanStreamContext, lazy_sort: LazySortConfig) -> Result<Self> {
+    fn init(
+        ctx: ScanStreamContext,
+        lazy_sort: LazySortConfig,
+        token: crate::postgres::customscan::mpp::MainThreadToken,
+    ) -> Result<Self> {
         let ScanStreamContext {
-            source_idx,
-            planner_estimated_rows: _,
-            scanner_config,
-            ffhelper,
-            visibility,
-            mut reader,
+            mut scan_state,
             parallel_state,
             range_boundaries,
             assigned_partition_segments,
             target_partition,
             schema,
-            score_column_schema_idx,
             mut dynamic_filters,
             scan_fetched_fields,
             plan_metrics,
@@ -667,6 +692,20 @@ impl LazySortStreamState {
             rows_scanned,
             rows_pruned,
         } = ctx;
+
+        let ScanState {
+            source_idx,
+            planner_estimated_rows: _,
+            scanner_config,
+            ffhelper,
+            visibility,
+            mut reader,
+        } = scan_state.take(token).expect("ScanState initialized once");
+        let parallel_state = parallel_state.map(|p| *p.get(token));
+        let score_column_schema_idx = scanner_config
+            .which_fast_fields
+            .iter()
+            .position(|wff| wff.is_score());
 
         let queries = MetricBuilder::new(&plan_metrics).counter("queries", target_partition);
         let filter_metrics = FilterStepMetrics::init(
@@ -789,18 +828,21 @@ impl LazySortStreamState {
                 effective_ra_threshold,
                 &mut self.emitted_docs,
             );
+            check_for_cancel()?;
             self.queries.add(1);
             MetricBuilder::new(&self.plan_metrics)
                 .counter("ra_queries", self.target_partition)
                 .add(1);
             if !ra_results.is_empty() {
-                self.scanner.materialize_topk_window(
+                let batch = self.scanner.materialize_topk_window(
                     &ra_results,
                     &self.ffhelper,
                     &mut self.visibility,
                     pre_filters_wrapper.as_ref(),
                     &self.schema,
-                )
+                )?;
+                check_for_cancel()?;
+                batch
             } else {
                 None
             }
@@ -864,9 +906,7 @@ impl LazySortStreamState {
         let mut top_k_search =
             self.segment_target
                 .search_window(&self.sa_reader, &self.lazy_sort, pull);
-        if cancel_pending() {
-            return Err(interrupted());
-        }
+        check_for_cancel()?;
         record_pull_telemetry(
             &self.lazy_sort,
             &self.segment_target,
@@ -882,13 +922,15 @@ impl LazySortStreamState {
             .results
             .retain(|(_, doc_addr)| self.emitted_docs.insert(*doc_addr));
         let next_batch = if !top_k_search.results.is_empty() {
-            self.scanner.materialize_topk_window(
+            let batch = self.scanner.materialize_topk_window(
                 &top_k_search.results,
                 &self.ffhelper,
                 &mut self.visibility,
                 pre_filters_wrapper.as_ref(),
                 &self.schema,
-            )
+            )?;
+            check_for_cancel()?;
+            batch
         } else {
             None
         };
@@ -958,44 +1000,72 @@ pub(super) fn build_lazy_sort_stream(
     ctx: ScanStreamContext,
     lazy_sort: LazySortConfig,
 ) -> impl Stream<Item = Result<RecordBatch>> {
+    enum LazySortStep {
+        Yield(RecordBatch),
+        Continue,
+        Done,
+    }
+
+    let mut ctx_opt = Some(ctx);
     async_stream::try_stream! {
-        let mut state = LazySortStreamState::init(ctx, lazy_sort)?;
+        let mut state = crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+            let ctx = ctx_opt.take().expect("ScanStreamContext initialized once");
+            LazySortStreamState::init(ctx, lazy_sort, token)
+                .map(crate::postgres::customscan::mpp::MainThread::new)
+        })?;
 
         loop {
             // `block_on_next` holds interrupts while this stream runs, so the collector's
             // own check can't fire. Bail out instead and let the caller act on the interrupt
             // once `block_on` has returned.
-            if cancel_pending() {
-                Err::<(), DataFusionError>(interrupted())?;
-            }
+            check_for_cancel()?;
 
-            // 1. Service on-demand Random Access (`RA`) join-key point lookups from a parent
-            //    `RankJoinExec` without advancing the Sorted Access (`SA`) window cursor.
-            if let Some(lookup) = state.take_pending_ra_lookup() {
-                let batch = state.execute_ra_lookup(&lookup)?;
-                yield state.record_output(batch);
-                continue;
-            }
+            let step = crate::postgres::customscan::mpp::try_run_on_main_thread(
+                |token| -> Result<LazySortStep> {
+                    let state = state.get_mut(token);
 
-            // 2. Pull the next expanding Sorted Access (`SA`) Top-K window `[offset .. offset + limit)`.
-            //    When `SA` is exhausted, either stay alive to service future `RA` probes (signaling
-            //    `lit(false)` to the parent `RankJoinExec`) or terminate the stream.
-            let Some(pull) = state.next_sa_window() else {
-                if let Some(empty_batch) = state.handle_exhausted_sa() {
-                    yield state.record_output(empty_batch);
-                    continue;
-                }
-                break;
-            };
+                    // 1. Service on-demand Random Access (`RA`) join-key point lookups from a parent
+                    //    `RankJoinExec` without advancing the Sorted Access (`SA`) window cursor.
+                    if let Some(lookup) = state.take_pending_ra_lookup() {
+                        let batch = state.execute_ra_lookup(&lookup)?;
+                        check_for_cancel()?;
+                        return Ok(LazySortStep::Yield(state.record_output(batch)));
+                    }
 
-            // 3. Execute the `SA` Top-K search, deduplicate against previously emitted `SA`/`RA`
-            //    documents, and materialize surviving rows.
-            if let Some(batch) = state.execute_sa_window(&pull)? {
-                yield state.record_output(batch);
-            } else if state.should_terminate_after_empty_sa() {
-                break;
+                    // 2. Pull the next expanding Sorted Access (`SA`) Top-K window `[offset .. offset + limit)`.
+                    //    When `SA` is exhausted, either stay alive to service future `RA` probes (signaling
+                    //    `lit(false)` to the parent `RankJoinExec`) or terminate the stream.
+                    let Some(pull) = state.next_sa_window() else {
+                        return Ok(match state.handle_exhausted_sa() {
+                            Some(empty_batch) => {
+                                LazySortStep::Yield(state.record_output(empty_batch))
+                            }
+                            None => LazySortStep::Done,
+                        });
+                    };
+
+                    // 3. Execute the `SA` Top-K search, deduplicate against previously emitted `SA`/`RA`
+                    //    documents, and materialize surviving rows.
+                    let sa_batch = state.execute_sa_window(&pull)?;
+                    check_for_cancel()?;
+                    if let Some(batch) = sa_batch {
+                        Ok(LazySortStep::Yield(state.record_output(batch)))
+                    } else if state.should_terminate_after_empty_sa() {
+                        Ok(LazySortStep::Done)
+                    } else {
+                        Ok(LazySortStep::Continue)
+                    }
+                },
+            )?;
+
+            match step {
+                LazySortStep::Yield(batch) => yield batch,
+                LazySortStep::Continue => continue,
+                LazySortStep::Done => break,
             }
         }
-        state.finish();
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            state.get(token).finish();
+        });
     }
 }

@@ -1,0 +1,290 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
+
+//! A memory-bounded set of indexed values, used by the per-row query filter to answer
+//! "did this row's CTID match the query?" without materializing the whole result set in RAM.
+//!
+//! The set is built once (from the index search) and probed once per scan row. It stays in an
+//! in-memory hash set while it fits within `work_mem`; past that it spills to a temporary file:
+//! the keys are externally sorted (Postgres `tuplesort`, which itself spills), streamed to a
+//! `BufFile` as length-prefixed records, and probed by binary search over a small in-RAM **sparse**
+//! index (one entry per `INDEX_STRIDE` records). Both the sort and the record file live on disk and
+//! are bounded by `work_mem` / `temp_file_limit`; only the sparse index is resident, and it is
+//! `1/INDEX_STRIDE` the size of the key set.
+//!
+//! Keys are compared by the bytes of their `postcard` serialization. That order is arbitrary (not
+//! numeric), but it is *consistent* between the sort side (`bytea` `memcmp`) and the probe side
+//! (`[u8]` `Ord`), which is all binary-search membership needs.
+
+use crate::api::HashSet;
+use crate::gucs::WorkMem;
+use crate::postgres::buffile;
+use crate::postgres::tuplesort::Sorter;
+use crate::postgres::types::TantivyValue;
+use pgrx::pg_sys;
+use std::cell::Cell;
+use std::os::raw::c_int;
+
+/// One sparse-index entry per this many spilled records.
+const INDEX_STRIDE: usize = 1024;
+
+/// Serialize a key to the bytes used for both sorting and probing.
+fn key_bytes(value: &TantivyValue) -> Vec<u8> {
+    postcard::to_allocvec(value).expect("a TantivyValue should serialize")
+}
+
+/// A built, memory-bounded membership structure over indexed values.
+pub enum KeySet {
+    /// Every row matches (e.g. `pdb.all()`); no keys are stored.
+    All,
+    /// No row matches.
+    None,
+    /// Small enough to keep resident.
+    InMemory(HashSet<TantivyValue>),
+    /// Spilled to a temporary file, probed via a sparse in-RAM index.
+    Spilled(Box<Spilled>),
+}
+
+impl KeySet {
+    /// The current memory context must outlive the returned set.
+    pub fn build_from(values: impl IntoIterator<Item = TantivyValue>) -> Self {
+        let mut builder = KeySetBuilder::default();
+        for value in values {
+            pgrx::check_for_interrupts!();
+            builder.push(value);
+        }
+        builder.finish()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !matches!(self, Self::Spilled(spilled) if spilled.released.get())
+    }
+
+    /// Does `value` belong to the set?
+    pub fn contains(&self, value: &TantivyValue) -> bool {
+        match self {
+            KeySet::All => true,
+            KeySet::None => false,
+            KeySet::InMemory(set) => set.contains(value),
+            KeySet::Spilled(spilled) => spilled.contains(value),
+        }
+    }
+}
+
+/// Accumulates keys into an in-memory set, transparently spilling to an external sort once the
+/// resident size would exceed `work_mem`.
+struct KeySetBuilder {
+    budget: usize,
+    resident_bytes: usize,
+    in_memory: HashSet<TantivyValue>,
+    /// `Some` once we have started spilling; further keys go straight to the sort.
+    sort: Option<Sorter>,
+}
+
+impl Default for KeySetBuilder {
+    fn default() -> Self {
+        Self {
+            budget: WorkMem::Postgres.bytes(),
+            resident_bytes: 0,
+            in_memory: HashSet::default(),
+            sort: None,
+        }
+    }
+}
+
+impl KeySetBuilder {
+    fn push(&mut self, value: TantivyValue) {
+        if let Some(sort) = self.sort.as_mut() {
+            sort.put(&key_bytes(&value));
+            return;
+        }
+
+        // Rough resident-size estimate: the value plus hash-set slot overhead.
+        self.resident_bytes += key_bytes(&value).len() + 48;
+        self.in_memory.insert(value);
+
+        if self.resident_bytes > self.budget {
+            // Transition to spilling: move everything collected so far into the sorter. The caller
+            // detects the resulting `KeySet::Spilled` and warns once per scan.
+            let mut sort = Sorter::new(self.budget);
+            for v in self.in_memory.drain() {
+                sort.put(&key_bytes(&v));
+            }
+            self.sort = Some(sort);
+        }
+    }
+
+    fn finish(self) -> KeySet {
+        match self.sort {
+            None => KeySet::InMemory(self.in_memory),
+            Some(sort) => KeySet::Spilled(Spilled::from_sorter(sort)),
+        }
+    }
+}
+
+/// A spilled key set: a temp file of sorted length-prefixed records plus a sparse in-RAM index.
+///
+/// JOINs will need their own spill-to-disk support (see
+/// <https://github.com/paradedb/paradedb/issues/4064>); the `BufFile`/`Tuplesortstate`
+/// machinery here is a candidate for reuse.
+pub struct Spilled {
+    file: *mut pg_sys::BufFile,
+    resource_owner: pg_sys::ResourceOwner,
+    released: Cell<bool>,
+    index: Vec<IndexEntry>,
+    count: usize,
+}
+
+struct IndexEntry {
+    key: Vec<u8>,
+    fileno: c_int,
+    offset: pg_sys::off_t,
+}
+
+impl Spilled {
+    /// Drain the sorted keys into a `BufFile` + sparse index.
+    fn from_sorter(mut sorter: Sorter) -> Box<Self> {
+        unsafe {
+            sorter.performsort();
+
+            let file = pg_sys::BufFileCreateTemp(false);
+            let resource_owner = pg_sys::CurrentResourceOwner;
+
+            let mut index: Vec<IndexEntry> = Vec::new();
+            let mut count: usize = 0;
+            while let Some(bytes) = sorter.next_sorted() {
+                if count.is_multiple_of(INDEX_STRIDE) {
+                    let (fileno, offset) = buffile::buffile_tell(file);
+                    index.push(IndexEntry {
+                        key: bytes.to_vec(),
+                        fileno,
+                        offset,
+                    });
+                }
+
+                let len = bytes.len() as u32;
+                buffile::buffile_write(file, &len.to_ne_bytes());
+                buffile::buffile_write(file, bytes);
+                count += 1;
+            }
+
+            drop(sorter);
+
+            let mut spilled = Box::new(Spilled {
+                file,
+                resource_owner,
+                released: Cell::new(false),
+                index,
+                count,
+            });
+            pg_sys::RegisterResourceReleaseCallback(
+                Some(Self::release_resources),
+                std::ptr::from_mut(&mut *spilled).cast(),
+            );
+            spilled
+        }
+    }
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn release_resources(
+        phase: pg_sys::ResourceReleasePhase::Type,
+        _is_commit: bool,
+        _is_top_level: bool,
+        arg: *mut std::ffi::c_void,
+    ) {
+        let spilled = unsafe { &*arg.cast::<Spilled>() };
+        if phase == pg_sys::ResourceReleasePhase::RESOURCE_RELEASE_AFTER_LOCKS
+            && unsafe { pg_sys::CurrentResourceOwner } == spilled.resource_owner
+        {
+            spilled.released.set(true);
+        }
+    }
+
+    fn contains(&self, value: &TantivyValue) -> bool {
+        assert!(!self.released.get(), "spilled key set has been released");
+        if self.count == 0 {
+            return false;
+        }
+        let needle = key_bytes(value);
+
+        // Sparse index binary search: find the block whose first key is <= needle (an exact hit on
+        // a block-boundary key means the value is present).
+        let block = match self
+            .index
+            .binary_search_by(|e| e.key.as_slice().cmp(&needle))
+        {
+            Ok(_) => return true,
+            Err(0) => return false, // smaller than every key
+            Err(pos) => pos - 1,
+        };
+
+        // Scan forward from that block's offset, at most INDEX_STRIDE records, until we reach or
+        // pass the needle.
+        unsafe {
+            let entry = &self.index[block];
+            if buffile::buffile_seek(self.file, entry.fileno, entry.offset, 0 /* SEEK_SET */)
+                .is_err()
+            {
+                pgrx::error!("could not seek spilled key file to block {block}");
+            }
+            for _ in 0..INDEX_STRIDE {
+                let Some(rec) = self.read_record() else {
+                    return false;
+                };
+                match rec.as_slice().cmp(&needle) {
+                    std::cmp::Ordering::Equal => return true,
+                    std::cmp::Ordering::Greater => return false,
+                    std::cmp::Ordering::Less => continue,
+                }
+            }
+            false
+        }
+    }
+
+    /// Read one length-prefixed record at the current file position; `None` at EOF.
+    unsafe fn read_record(&self) -> Option<Vec<u8>> {
+        let mut len_buf = [0u8; 4];
+        let n = buffile::buffile_read(self.file, &mut len_buf);
+        if n == 0 {
+            return None;
+        }
+        let len = u32::from_ne_bytes(len_buf) as usize;
+        let mut buf = vec![0u8; len];
+        buffile::buffile_read_exact(self.file, &mut buf);
+        Some(buf)
+    }
+}
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the release callback points at
+// this value and has to be unregistered on every drop, and the close below already checks for
+// unwinding, for the owner having released the file, and for a transaction in progress.
+impl Drop for Spilled {
+    fn drop(&mut self) {
+        unsafe {
+            pg_sys::UnregisterResourceReleaseCallback(
+                Some(Self::release_resources),
+                std::ptr::from_mut(self).cast(),
+            );
+            // Abort processing drops this before the owner releases the file, and the
+            // close flushes a dirty tail that can raise again. The owner removes it.
+            if !self.released.get() && !std::thread::panicking() && pg_sys::IsTransactionState() {
+                pg_sys::BufFileClose(self.file);
+            }
+        }
+    }
+}

@@ -1,0 +1,978 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
+
+use std::cell::UnsafeCell;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
+use crate::customscan::CustomScanState;
+use crate::index::fast_fields_helper::FFHelper;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::basescan::cost::WorkerDecisionReason;
+use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
+use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
+use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
+use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+use crate::postgres::customscan::bitmap_intersection::BitmapExec;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::projections::{PlaceholderColumn, PlaceholderProjection};
+use crate::postgres::customscan::qual_inspect::Qual;
+use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::u64_to_item_pointer;
+use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::query::SearchQueryInput;
+use crate::query::tid_bitmap_stream::BitmapCell;
+use std::ptr::NonNull;
+
+use pgrx::heap_tuple::PgHeapTuple;
+use pgrx::{PgTupleDesc, pg_sys};
+use tantivy::index::SegmentId;
+use tantivy::snippet::SnippetGenerator;
+
+#[derive(Default)]
+pub struct BaseScanState {
+    // Declared first so any DataFusion stream /PgTokioRuntime / Tantivy scorers inside
+    // `exec_method` drop before `visibility_checker`, `doc_from_heap_state`, `search_reader`,
+    // `bitmap_cell`, `bitmap_exec`, and `heaprel`/`indexrel`.
+    exec_method: UnsafeCell<Box<dyn ExecMethod>>,
+    exec_method_name: String,
+
+    pub io_trace: Option<crate::index::reader::io_stats::Trace>,
+    /// Process-local EXPLAIN metrics (query counts, per-segment JSON, …).
+    pub telemetry: ScanTelemetry,
+    /// Set when this scan is parallel-aware (DSM attached).
+    pub parallel: Option<ParallelScanHandle>,
+
+    // Note: the range table index at execution time might be different from the one at planning time,
+    // so we need to use the one at execution time when creating the custom scan state.
+    // But, we also keep the planning RTI for the case when we need to use it for the `var_attname_lookup`
+    // because the `var_attname_lookup` is created based on the planning RTI.
+    // See https://www.postgresql.org/docs/current/custom-scan-plan.html
+    pub planning_rti: pg_sys::Index,
+    pub execution_rti: pg_sys::Index,
+
+    base_search_query_input: SearchQueryInput,
+    search_query_input: SearchQueryInput,
+    /// Where `search_query_input` is solved; `None` when the base query has nothing to solve.
+    /// Separate from `ps_ExprContext`, which `exec_custom_scan` resets per row: see the rules in
+    /// `solve_expr.rs`.
+    pub runtime_context: Option<NonNull<pg_sys::ExprContext>>,
+    pub visibility_checker: Option<VisibilityChecker>,
+    pub doc_from_heap_state: Option<HeapFetchState>,
+    pub search_reader: Option<SearchIndexReader>,
+    /// Executor startup before `SearchIndexReader::open`; consumed into the
+    /// reader's flat `scan_init_ns` metric on first execution.
+    pub executor_scan_init_ns: u64,
+    /// End-to-end CustomScan execution interval used to assign only the
+    /// residual around named nested stages to result assembly.
+    /// Whether the current execution is collecting stage timings for
+    /// `EXPLAIN ANALYZE`.  Timed queries leave the executor delivery path
+    /// uninstrumented.
+    pub explain_stage_accounting: bool,
+
+    pub targetlist_len: usize,
+
+    pub virtual_tuple_count: usize,
+
+    pub segment_count: usize,
+    pub(super) worker_selection_reason: Option<WorkerDecisionReason>,
+    pub quals: Option<Qual>,
+
+    pub need_scores: bool,
+    pub score_funcoids: [pg_sys::Oid; 2],
+
+    /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
+    /// targetlist was replaced with a NULL placeholder `Const` (see
+    /// `inject_vector_distance_placeholders`). The value is never read — the
+    /// TopK scan already provides the ordering and the column is junk-stripped
+    /// — so the placeholder just spares `ExecProject` from calling
+    /// `l2_distance(embedding, query)` and detoasting the heap vector. We track
+    /// it only so the projection path knows it must use `placeholders`.
+    pub vector_distance_placeholder: bool,
+
+    pub snippet_funcoids: [pg_sys::Oid; 2],
+    pub snippets_funcoids: [pg_sys::Oid; 2],
+    pub snippet_positions_funcoids: [pg_sys::Oid; 2],
+
+    pub snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>>,
+
+    pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
+    pub placeholders: Option<BasePlaceholders>,
+
+    // Store join-level search predicates for enhanced scoring/snippet generation
+    pub join_predicates: Option<SearchQueryInput>,
+
+    pub exec_method_type: ExecMethodType,
+    pub ambulkdelete_epoch: u32,
+
+    /// Execution state for the child bitmap scan, if a bitmap intersection source was
+    /// harvested at plan time.
+    pub bitmap_cell: Option<BitmapCell>,
+    pub bitmap_exec: Option<BitmapExec>,
+
+    // Window aggregate support
+    pub window_aggregates: Vec<WindowAggregateInfo>,
+    pub window_aggregate_results: Option<HashMap<usize, pg_sys::Datum>>,
+
+    pub heaprelid: pg_sys::Oid,
+    pub heaprel: Option<PgSearchRelation>,
+    pub indexrel: Option<PgSearchRelation>,
+    pub indexrelid: pg_sys::Oid,
+    pub lockmode: pg_sys::LOCKMODE,
+}
+
+/// The projection that gives a row its score, snippets and window aggregates, and the placeholder
+/// columns it reads them from.
+///
+/// One struct holds them, because the columns are valid only for the slot of this projection.
+pub struct BasePlaceholders {
+    pub projection: PlaceholderProjection,
+    pub score: PlaceholderColumn,
+    pub snippets: HashMap<SnippetType, Vec<PlaceholderColumn>>,
+    /// Indexed by target entry position.
+    pub window_aggs: HashMap<usize, PlaceholderColumn>,
+}
+
+impl CustomScanState for BaseScanState {
+    fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {
+        unsafe {
+            // SAFETY: inner_scan_state is always initialized and call to `init()` could never move `self`
+            (*self.exec_method.get()).init(self, cstate)
+        }
+    }
+}
+
+impl BaseScanState {
+    pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
+        self.lockmode = lockmode;
+        if self.heaprel.is_none() {
+            self.heaprel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
+                Some(PgSearchRelation::open(self.heaprelid))
+            } else {
+                Some(PgSearchRelation::with_lock(self.heaprelid, lockmode))
+            }
+        };
+
+        if self.indexrel.is_none() {
+            self.indexrel = if lockmode == pg_sys::NoLock as pg_sys::LOCKMODE {
+                Some(PgSearchRelation::open(self.indexrelid))
+            } else {
+                Some(PgSearchRelation::with_lock(self.indexrelid, lockmode))
+            }
+        };
+    }
+
+    pub fn set_base_search_query_input(&mut self, input: SearchQueryInput) {
+        self.base_search_query_input = input;
+    }
+
+    pub fn search_query_input(&self) -> &SearchQueryInput {
+        if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
+            panic!("search_query_input should be initialized");
+        }
+        &self.search_query_input
+    }
+
+    /// Get the original base search query input before any modifications
+    pub fn base_search_query_input(&self) -> &SearchQueryInput {
+        &self.base_search_query_input
+    }
+
+    /// Drop the active search results (whose scorers hold bitmap cursors),
+    /// keeping the selected exec method: `reset()` re-binds it to the rebuilt
+    /// reader after a rescan. Replacing the method here would leave the
+    /// default `UnknownScanStyle`, which panics on its next use. No reader means
+    /// the scan never executed: there are no scorers, and the exec method may
+    /// not even be bound yet.
+    pub fn reset_exec_results(&mut self) {
+        if self.search_reader.is_some() {
+            self.exec_method_mut().reset(self);
+        }
+    }
+
+    /// Drop the current exec method (and with it any search results whose
+    /// scorers hold bitmap cursors) before the bitmap machinery is torn down.
+    pub fn drop_exec_method(&mut self) {
+        self.exec_method = UnsafeCell::new(Default::default());
+        self.exec_method_name = String::new();
+    }
+
+    #[inline(always)]
+    pub fn assign_exec_method<T: ExecMethod + 'static>(
+        &mut self,
+        method: T,
+        updated_exec_method_type: Option<ExecMethodType>,
+    ) {
+        self.exec_method = UnsafeCell::new(Box::new(method));
+        self.exec_method_name = std::any::type_name::<T>().to_string();
+        if let Some(exec_method_type) = updated_exec_method_type {
+            self.exec_method_type = exec_method_type;
+        }
+    }
+
+    #[inline(always)]
+    pub fn exec_method<'a>(&self) -> &'a dyn ExecMethod {
+        let ptr = self.exec_method.get();
+        assert!(!ptr.is_null());
+        unsafe { ptr.as_ref().unwrap_unchecked().as_ref() }
+    }
+
+    #[inline(always)]
+    pub fn exec_method_mut<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
+        let ptr = self.exec_method.get();
+        assert!(!ptr.is_null());
+        unsafe { ptr.as_mut().unwrap_unchecked() }
+    }
+
+    pub fn exec_method_name(&self) -> &str {
+        &self.exec_method_name
+    }
+
+    pub fn query_to_json(&self) -> serde_json::Result<serde_json::Value> {
+        serde_json::to_value(&self.base_search_query_input)
+    }
+
+    pub fn parallel_scan_args(&self) -> ParallelScanArgs {
+        let segment_view = self
+            .search_reader
+            .as_ref()
+            .expect("search reader must be initialized to build parallel serialization data")
+            .segment_view();
+
+        let with_aggregates = !self.window_aggregates.is_empty();
+
+        ParallelScanArgs {
+            all_sources: vec![segment_view],
+            with_aggregates,
+            with_segment_info: true,
+        }
+    }
+
+    #[inline(always)]
+    pub fn need_scores(&self) -> bool {
+        self.need_scores
+            || self.base_search_query_input.need_scores()
+            || self
+                .quals
+                .as_ref()
+                .map(|quals| quals.contains_score_exprs())
+                .unwrap_or_default()
+    }
+
+    #[inline(always)]
+    pub fn need_snippets(&self) -> bool {
+        !self.snippet_generators.is_empty()
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn heaprel(&self) -> &PgSearchRelation {
+        self.heaprel
+            .as_ref()
+            .expect("BaseScanState: heaprel should be initialized")
+    }
+
+    #[inline(always)]
+    pub fn indexrel(&self) -> &PgSearchRelation {
+        self.indexrel
+            .as_ref()
+            .expect("BaseScanState: indexrel should be initialized")
+    }
+
+    #[inline(always)]
+    pub fn heaprelname(&self) -> &str {
+        self.heaprel().name()
+    }
+
+    #[inline(always)]
+    pub fn indexrelname(&self) -> &str {
+        self.indexrel().name()
+    }
+
+    #[inline(always)]
+    pub fn heaptupdesc(&self) -> pg_sys::TupleDesc {
+        self.heaprel().rd_att
+    }
+
+    #[inline(always)]
+    pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
+        self.visibility_checker.as_mut().unwrap()
+    }
+
+    pub fn make_snippet(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+        resolved_start_tag: &str,
+        resolved_end_tag: &str,
+    ) -> Option<String> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let mut snippet = generator.snippet(&text);
+        if matches!(snippet_type, SnippetType::SingleText(_, _, _)) {
+            snippet.set_snippet_prefix_postfix(resolved_start_tag, resolved_end_tag);
+        }
+
+        let html = snippet.to_html();
+        if html.trim().is_empty() {
+            None
+        } else {
+            Some(html)
+        }
+    }
+
+    pub fn make_snippets(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+        resolved_start_tag: &str,
+        resolved_end_tag: &str,
+    ) -> Option<Vec<String>> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let apply_tags = matches!(snippet_type, SnippetType::MultipleText(_, _, _, _));
+        let snippets: Vec<_> = generator
+            .snippets(&text)
+            .into_iter()
+            .flat_map(|mut snippet| {
+                if apply_tags {
+                    snippet.set_snippet_prefix_postfix(resolved_start_tag, resolved_end_tag);
+                }
+
+                let html = snippet.to_html();
+                if html.trim().is_empty() {
+                    None
+                } else {
+                    Some(html)
+                }
+            })
+            .collect();
+        Some(snippets)
+    }
+
+    pub fn get_snippet_positions(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+    ) -> Option<IntArray2D> {
+        let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
+        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let snippet = generator.snippet(&text);
+        let highlighted = snippet.highlighted();
+
+        if highlighted.is_empty() {
+            None
+        } else {
+            Some(IntArray2D(
+                highlighted
+                    .iter()
+                    .map(|span| vec![span.start as i32, span.end as i32])
+                    .collect(),
+            ))
+        }
+    }
+
+    pub fn limit(&self) -> Option<usize> {
+        match &self.exec_method_type {
+            ExecMethodType::TopK { limit_offset, .. } => limit_offset.static_fetch(),
+            _ => None,
+        }
+    }
+
+    pub fn orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
+        match &self.exec_method_type {
+            ExecMethodType::TopK { orderby_info, .. } => orderby_info,
+            _ => &None,
+        }
+    }
+
+    pub fn total_query_count(&self) -> usize {
+        self.telemetry.total_query_count()
+    }
+
+    pub fn query_count(&self) -> usize {
+        self.telemetry.query_count()
+    }
+
+    pub fn increment_query_count(&mut self) {
+        self.telemetry.record_query();
+        if let Some(parallel_state) = self.parallel_state() {
+            unsafe { (*parallel_state).increment_query_count() };
+        }
+    }
+
+    /// Merge per-segment JSON info. Last-write-wins per segment id (re-queries
+    /// replace rather than append).
+    pub fn accumulate_segment_info(&mut self, info: BTreeMap<SegmentId, serde_json::Value>) {
+        self.telemetry.accumulate_segment_info(info);
+    }
+
+    /// EXPLAIN-friendly view: segment short UUID → JSON value.
+    pub fn segment_info_for_explain(&self) -> BTreeMap<String, serde_json::Value> {
+        self.telemetry.segment_info_for_explain()
+    }
+
+    /// DSM pointer when this scan is parallel-aware.
+    pub fn parallel_state(&self) -> Option<*mut ParallelScanState> {
+        self.parallel.as_ref().map(|p| p.dsm_ptr())
+    }
+
+    /// Attach DSM for a parallel-aware scan.
+    ///
+    /// # Safety
+    /// `dsm` must point at a live [`ParallelScanState`] in DSM.
+    pub unsafe fn attach_parallel(&mut self, dsm: *mut ParallelScanState, role: ParallelRole) {
+        self.parallel = Some(ParallelScanHandle::new(dsm, role));
+    }
+
+    pub fn reset(&mut self) {
+        // Process-local state only. The shared parallel work queue must NOT be reset
+        // here: ReScan runs in the leader after parallel workers are launched, and a
+        // worker may have already claimed segments from the queue. Refilling it then
+        // hands those segments out a second time, duplicating rows (#5024). The
+        // shared queue is reset in `reinitialize_dsm_custom_scan`, which PostgreSQL
+        // runs before workers are launched.
+        self.telemetry.reset();
+        self.virtual_tuple_count = 0;
+        if self.visibility_checker.is_some() {
+            let mut checker = VisibilityChecker::with_rel_and_snap(self.heaprel(), unsafe {
+                pg_sys::GetActiveSnapshot()
+            });
+            if let Some(reader) = &self.search_reader {
+                checker.set_ffhelper(Arc::new(FFHelper::for_ctid(reader)));
+            }
+            self.visibility_checker = Some(checker);
+        }
+        if self.doc_from_heap_state.is_some() {
+            self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
+        }
+        self.window_aggregate_results = None;
+        self.exec_method_mut().reset(self);
+    }
+
+    /// Given a ctid and field name, get the corresponding value from the heap
+    ///
+    /// This function supports text, text[], and json/jsonb fields
+    unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
+        let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
+        let mut ipd = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(ctid, &mut ipd);
+
+        let state = self.doc_from_heap_state.as_ref().unwrap();
+
+        let mut call_again = false;
+        let mut all_dead = false;
+        if !state.fetch_tuple(
+            &mut ipd,
+            pg_sys::GetActiveSnapshot(),
+            &mut call_again,
+            &mut all_dead,
+        ) {
+            return None;
+        }
+
+        let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
+        let mut should_free = false;
+        let htup = pg_sys::ExecFetchSlotHeapTuple(state.slot(), true, &mut should_free);
+
+        let result = (|| {
+            let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut *htup);
+            let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
+
+            if pg_sys::type_is_array(attribute.type_oid().value()) {
+                // varchar[] and text[] are flattened into a single string
+                // to emulate Tantivy's default behavior for highlighting text arrays
+                Some(
+                    pgrx::htup::heap_getattr::<Vec<Option<String>>, _>(
+                        &pgrx::pgbox::PgBox::from_pg(htup),
+                        index,
+                        &tuple_desc,
+                    )
+                    .unwrap_or_default()
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                )
+            } else {
+                match (field.root(), field.path()) {
+                    (root, Some(path)) => {
+                        let pointer = format!("/{}", path.replace('.', "/"));
+                        let field = match attribute.type_oid().value() {
+                            pg_sys::JSONOID => {
+                                let json_value = heap_tuple
+                                    .get_by_name::<pgrx::datum::Json>(&root)
+                                    .unwrap_or_else(|_| {
+                                        panic!(
+                                            "doc_from_heap: should be able to read json field {root}"
+                                        )
+                                    })?
+                                    .0;
+                                json_value.pointer(&pointer).cloned()?
+                            }
+                            pg_sys::JSONBOID => {
+                                let json_value = heap_tuple
+                                    .get_by_name::<pgrx::datum::JsonB>(&root)
+                                    .unwrap_or_else(|_| {
+                                        panic!(
+                                            "doc_from_heap: should be able to read jsonb field {root}"
+                                        )
+                                    })?
+                                    .0;
+                                json_value.pointer(&pointer).cloned()?
+                            }
+                            _ => {
+                                return None;
+                            }
+                        };
+                        match field {
+                            serde_json::Value::String(val) => Some(val),
+                            serde_json::Value::Array(array) => Some(
+                                array
+                                    .into_iter()
+                                    .filter_map(|v| match v {
+                                        serde_json::Value::String(s) => Some(s),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
+                            ),
+                            val => unimplemented!(
+                                "only text fields for json/jsonb are supported for snippets, found {:?}",
+                                val
+                            ),
+                        }
+                    }
+                    (root, None) => heap_tuple
+                        .get_by_name(&root)
+                        .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {root}")),
+                }
+            }
+        })();
+
+        if should_free {
+            pg_sys::heap_freetuple(htup);
+        }
+        result
+    }
+}
+
+impl SolvePostgresExpressions for BaseScanState {
+    fn init_search_query_input(&mut self) {
+        self.search_query_input = self.base_search_query_input.clone();
+    }
+
+    // Ask the base query: `init_expr_context` asks in `begin_custom_scan`, before
+    // `init_search_query_input` fills `search_query_input`.
+    fn has_postgres_expressions(&mut self) -> bool {
+        self.base_search_query_input.has_postgres_expressions()
+    }
+
+    fn has_parameters(&mut self) -> bool {
+        self.base_search_query_input.has_parameters()
+    }
+
+    fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        self.search_query_input.init_postgres_expressions(planstate);
+    }
+
+    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        self.search_query_input
+            .solve_postgres_expressions(expr_context);
+    }
+
+    /// Install the late-bound source cell. Workers attach the published claim
+    /// table immediately; the leader's (or a serial scan's) cell is filled after
+    /// its reader opens (serial: privately in `init_search_reader`; parallel:
+    /// with the shared view at DSM initialization).
+    fn bitmap_source_cell(&mut self, _planstate: *mut pg_sys::PlanState) -> Option<BitmapCell> {
+        self.bitmap_exec.as_ref()?;
+        let cell = self
+            .bitmap_cell
+            .get_or_insert_with(BitmapCell::default)
+            .clone();
+        let is_worker = self.parallel.map(|p| !p.is_leader()).unwrap_or(false);
+        if is_worker
+            && cell.get().is_none()
+            && let Some(pstate) = self.parallel_state()
+            && let Some(handle) = unsafe { (*pstate).bitmap_wait_done() }
+            && let Some(bitmap_exec) = self.bitmap_exec.as_mut()
+        {
+            // The owner published one iteration state per participant: slot 0 is its
+            // own, worker `n` takes slot `n + 1`.
+            let slot = unsafe { pg_sys::ParallelWorkerNumber } as u32 + 1;
+            cell.fill(unsafe { bitmap_exec.worker_attach_source(handle, slot) });
+        }
+        Some(cell)
+    }
+
+    fn attach_bitmap_cell(&mut self, cell: &BitmapCell) {
+        self.search_query_input.attach_bitmap_cell(cell);
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+    use pgrx::prelude::*;
+
+    #[derive(Default)]
+    struct NoopExecMethod;
+
+    impl ExecMethod for NoopExecMethod {
+        fn query(&mut self, _state: &mut BaseScanState) -> bool {
+            false
+        }
+
+        fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
+            ExecState::Eof
+        }
+
+        fn reset(&mut self, _state: &mut BaseScanState) {}
+    }
+
+    fn parse_ctid(ctid: &str) -> u64 {
+        let trimmed = ctid.trim_matches(|c| c == '(' || c == ')');
+        let (block, offset) = trimmed
+            .split_once(',')
+            .expect("ctid should contain block and offset");
+        let block: u64 = block.parse().expect("block should parse");
+        let offset: u64 = offset.parse().expect("offset should parse");
+        (block << 16) | offset
+    }
+
+    unsafe fn push_active_snapshot() {
+        pg_sys::CommandCounterIncrement();
+        let snapshot = pg_sys::GetTransactionSnapshot();
+        pg_sys::PushActiveSnapshot(snapshot);
+    }
+
+    #[pg_test]
+    fn basescan_reset_refreshes_visibility_checker_after_heap_shrink() {
+        // After the heap relation shrinks, a rescan can retain heap/visibility state
+        // that was initialized against the old number of heap blocks. Without rebuilding
+        // that state in `reset()`, a stale CTID from a truncated tail block can be
+        // misinterpreted as still being in range, causing visibility checks and heap fetches
+        // to run against invalid assumptions about the current heap layout.
+        Spi::run("DROP TABLE IF EXISTS basescan_reset_refresh CASCADE;").unwrap();
+        Spi::run(
+            "CREATE TABLE basescan_reset_refresh (
+                id BIGSERIAL PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        Spi::run(
+            "INSERT INTO basescan_reset_refresh (value)
+             SELECT repeat('beer ', 1500)
+             FROM generate_series(1, 64);",
+        )
+        .unwrap();
+
+        let heap_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'basescan_reset_refresh'::regclass::oid;")
+                .expect("heap oid lookup should succeed")
+                .expect("heap oid should exist");
+
+        let stale_ctid = parse_ctid(
+            &Spi::get_one::<String>(
+                "SELECT ctid::text
+                 FROM basescan_reset_refresh
+                 ORDER BY ctid DESC
+                 LIMIT 1;",
+            )
+            .expect("ctid lookup should succeed")
+            .expect("tail ctid should exist"),
+        );
+        assert!(
+            (stale_ctid >> 16) > 0,
+            "test needs a tuple outside block zero",
+        );
+
+        let heaprel = PgSearchRelation::open(heap_oid);
+        unsafe {
+            push_active_snapshot();
+        }
+
+        let mut state = BaseScanState {
+            heaprelid: heap_oid,
+            heaprel: Some(heaprel.clone()),
+            visibility_checker: Some(VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
+                pg_sys::GetActiveSnapshot()
+            })),
+            doc_from_heap_state: Some(HeapFetchState::new(&heaprel)),
+            ..Default::default()
+        };
+        state.assign_exec_method(NoopExecMethod, None);
+
+        unsafe {
+            pg_sys::RelationTruncate(heaprel.as_ptr(), 0);
+        }
+        unsafe {
+            push_active_snapshot();
+        }
+
+        state.reset();
+
+        let slot =
+            unsafe { pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple) };
+        let visible = state
+            .visibility_checker()
+            .exec_if_visible(stale_ctid, slot, |_| true);
+        unsafe {
+            pg_sys::ExecDropSingleTupleTableSlot(slot);
+        }
+
+        assert_eq!(visible, None);
+    }
+
+    #[pg_test]
+    fn parallel_buffer_hits_include_workers_without_claimed_segments() {
+        use crate::index::mvcc::SegmentView;
+        use crate::index::reader::io_stats::{ComponentStats, Trace};
+        use crate::postgres::customscan::basescan::parallel::{ParallelRole, ParallelScanHandle};
+        use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
+        use crate::postgres::test_support::parallel_state_for_view;
+        use std::collections::BTreeMap;
+        use tantivy::index::SegmentComponent;
+
+        fn read_buffers(stats: Option<&ComponentStats>, hits: i64, reads: i64) {
+            let read = || unsafe {
+                pg_sys::pgBufferUsage.shared_blks_hit += hits;
+                pg_sys::pgBufferUsage.shared_blks_read += reads;
+            };
+            match stats {
+                Some(stats) => stats.buffer(read),
+                None => read(),
+            }
+        }
+
+        let dsm = parallel_state_for_view(SegmentView::new(Vec::new()));
+        let leader = unsafe { ParallelScanHandle::new(dsm, ParallelRole::Leader) };
+        let worker = unsafe { ParallelScanHandle::new(dsm, ParallelRole::Worker) };
+        let leader_trace = Trace::default();
+        let mut telemetry = ScanTelemetry::default();
+        for (is_leader, vectors, centroids, other, layers) in [
+            (true, 5, 0, 2, [1, 1, 2]),
+            (false, 11, 3, 1, [3, 4, 2]),
+            (false, 0, 7, 2, [0, 0, 0]),
+        ] {
+            let trace = if is_leader {
+                leader_trace.clone()
+            } else {
+                Trace::default()
+            };
+            {
+                let _scope = trace.enter();
+                read_buffers(
+                    Some(&trace.component(&SegmentComponent::Custom("vec".into()))),
+                    vectors,
+                    0,
+                );
+                read_buffers(
+                    Some(&trace.component(&SegmentComponent::Custom("centroids".into()))),
+                    centroids,
+                    0,
+                );
+                read_buffers(None, other, 0);
+            }
+            trace.set_vector_hits_for_test(layers);
+            if is_leader {
+                leader.finalize_explain(&mut telemetry);
+            } else {
+                worker.publish_telemetry(&telemetry, Some(&trace));
+            }
+        }
+        unsafe { (*dsm).reset() };
+        leader.finalize_explain(&mut telemetry);
+        leader.finalize_buffer_hits(&leader_trace);
+        let hits: BTreeMap<_, _> = leader_trace.hits().into_iter().collect();
+        assert_eq!(hits["Total"], 31);
+        assert_eq!(hits["Vectors"], 16);
+        assert_eq!(hits["Centroids"], 10);
+        assert_eq!(hits["Other"], 5);
+        assert_eq!(
+            leader_trace.vector_hits().map(|(_, hits)| hits),
+            [4, 5, 4, 3]
+        );
+        leader.finalize_explain(&mut telemetry);
+        leader.finalize_buffer_hits(&leader_trace);
+        assert_eq!(
+            leader_trace.hits().into_iter().collect::<BTreeMap<_, _>>(),
+            hits
+        );
+    }
+
+    #[pg_test]
+    fn bm25_and_vector_explain_share_buffer_accounting() {
+        use std::collections::BTreeMap;
+
+        pgrx::Spi::run(
+            "SET max_parallel_workers_per_gather = 0;
+                 SET enable_seqscan = off;
+                 SET paradedb.global_mutable_segment_rows = 0;
+                 SET paradedb.vector_stats = on;
+                 CREATE TABLE io_accounting (id int PRIMARY KEY, body text, embedding vector(3));
+                 INSERT INTO io_accounting
+                 SELECT i, 'search engine ' || i, ARRAY[i::real, 1, 0]::vector
+                 FROM generate_series(1, 1000) AS i;
+                 CREATE INDEX io_accounting_idx ON io_accounting
+                 USING paradedb (id, body, embedding vector_l2_ops);",
+        )
+        .unwrap();
+
+        for (query, vector) in [
+            (
+                "SELECT id FROM io_accounting WHERE body ||| 'search' ORDER BY pdb.score(id) DESC LIMIT 5",
+                false,
+            ),
+            (
+                "SELECT id FROM io_accounting WHERE id @@@ pdb.all() ORDER BY embedding <-> '[1,1,0]' LIMIT 5",
+                true,
+            ),
+        ] {
+            pgrx::Spi::run(query).unwrap();
+            for (analyze, buffers, verbose) in [
+                (true, true, true),
+                (true, true, false),
+                (true, false, true),
+                (true, false, false),
+                (false, true, false),
+            ] {
+                let plan = pgrx::Spi::get_one::<pgrx::Json>(&format!(
+                        "EXPLAIN (ANALYZE {analyze}, VERBOSE {verbose}, BUFFERS {buffers}, FORMAT JSON) {query}"
+                    ))
+                    .unwrap()
+                    .unwrap()
+                    .0;
+                let mut nodes = vec![&plan[0]["Plan"]];
+                let scan = loop {
+                    let node = nodes.pop().expect("ParadeDB scan should be present");
+                    if node["Index"] == "io_accounting_idx" {
+                        break node;
+                    }
+                    if let Some(children) = node["Plans"].as_array() {
+                        nodes.extend(children);
+                    }
+                };
+                let hits = scan
+                    .get("Buffer Hits")
+                    .map(|hits| hits.as_object().unwrap());
+                assert_eq!(hits.is_some(), analyze && buffers);
+                if let Some(hits) = hits {
+                    let total = hits["Total"].as_u64().unwrap();
+                    assert!(total > 0);
+                    assert_eq!(
+                        hits.iter()
+                            .filter(|(name, _)| name.as_str() != "Total")
+                            .map(|(_, value)| value
+                                .as_u64()
+                                .or_else(|| value["Total"].as_u64())
+                                .unwrap())
+                            .sum::<u64>(),
+                        total,
+                    );
+                    if let Some(vectors) = hits.get("Vectors") {
+                        assert_eq!(
+                            vectors
+                                .as_object()
+                                .unwrap()
+                                .iter()
+                                .filter(|(name, _)| name.as_str() != "Total")
+                                .map(|(_, value)| value.as_u64().unwrap())
+                                .sum::<u64>(),
+                            vectors["Total"].as_u64().unwrap(),
+                        );
+                    }
+                }
+                if vector && analyze && verbose {
+                    let segments: BTreeMap<String, serde_json::Value> =
+                        serde_json::from_str(scan["Segment Info"].as_str().unwrap()).unwrap();
+                    let vector_hits = segments
+                        .values()
+                        .map(|stats| stats["io_vec_buffer_hits"].as_u64().unwrap_or(0))
+                        .sum::<u64>();
+                    assert_eq!(vector_hits > 0, buffers);
+                    if let Some(hits) = hits {
+                        assert!(vector_hits <= hits["Vectors"]["Total"].as_u64().unwrap());
+                    }
+                    assert_eq!(
+                        segments.values().any(|stats| {
+                            stats.as_object().unwrap().keys().any(|key| {
+                                key != "scan_init_buffer_hits"
+                                    && !key.starts_with("io_")
+                                    && !key.starts_with("scan_init_io_")
+                                    && key.ends_with("_buffer_hits")
+                            })
+                        }),
+                        buffers
+                    );
+                }
+            }
+        }
+        let plan = pgrx::Spi::get_one::<pgrx::Json>(
+            "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON)
+             SELECT a.id, b.id
+             FROM (SELECT id FROM io_accounting WHERE body ||| 'engine'
+                   ORDER BY pdb.score(id) DESC LIMIT 3) a
+             CROSS JOIN LATERAL (
+                 SELECT id FROM io_accounting WHERE body ||| 'search' AND id > a.id
+                 ORDER BY pdb.score(id) DESC LIMIT 2
+             ) b",
+        )
+        .unwrap()
+        .unwrap()
+        .0;
+        let mut nodes = vec![&plan[0]["Plan"]];
+        let mut scans = Vec::new();
+        while let Some(node) = nodes.pop() {
+            if node["Index"] == "io_accounting_idx" {
+                scans.push(node);
+                let hits = node["Buffer Hits"].as_object().unwrap();
+                let total = hits["Total"].as_u64().unwrap();
+                assert!(total > 0);
+                assert_eq!(
+                    total,
+                    hits.iter()
+                        .filter(|(name, _)| name.as_str() != "Total")
+                        .map(|(_, value)| value
+                            .as_u64()
+                            .or_else(|| value["Total"].as_u64())
+                            .unwrap())
+                        .sum::<u64>()
+                );
+            }
+            if let Some(children) = node["Plans"].as_array() {
+                nodes.extend(children);
+            }
+        }
+        assert_eq!(scans.len(), 2);
+        assert!(
+            scans
+                .iter()
+                .any(|scan| scan["Actual Loops"].as_u64().unwrap() > 1)
+        );
+    }
+}

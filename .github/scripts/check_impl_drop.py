@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Fail on any `impl Drop` in pg_search that does not say why it skips `impl_safe_drop!`.
+Fail on any `impl Drop` in pgrx-linking crates that does not say why it skips `impl_safe_drop!`.
 
 A `Drop` that calls into Postgres has to skip its body while a panic unwinds or the backend
-exits (#6479), which is what `impl_safe_drop!` in pg_search/src/postgres/utils.rs does. A bare
+exits (#6479), which is what `impl_safe_drop!` in common/src/postgres/utils.rs does. A bare
 `impl Drop` needs a comment directly above it that opts out in so many words: "We
-intentionally do NOT use `impl_safe_drop!` here because ...". pg_search is the only crate
-that links pgrx, so it is the only one scanned.
+intentionally do NOT use `impl_safe_drop!` here because ...". Every workspace crate that
+depends on `pgrx` is scanned.
 """
 
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -52,20 +54,43 @@ def find_bare_drops(text):
     ]
 
 
+def pgrx_crate_src_dirs():
+    """Return `src/` directories for all workspace crates that depend on `pgrx`."""
+    out = subprocess.check_output(
+        [
+            "cargo",
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            str(REPO / "Cargo.toml"),
+        ],
+        text=True,
+    )
+    meta = json.loads(out)
+    return sorted(
+        Path(pkg["manifest_path"]).parent / "src"
+        for pkg in meta["packages"]
+        if any(dep["name"] == "pgrx" for dep in pkg["dependencies"])
+    )
+
+
 def main():
-    """Check the matcher, then report every bare `impl Drop` under pg_search/src."""
+    """Check the matcher, then report every bare `impl Drop` across pgrx-linking crates."""
     for text, expected in SELF_TEST:
         assert len(find_bare_drops(text)) == expected, text
     bad = [
         f"{path.relative_to(REPO)}:{line}: {header}"
-        for path in sorted((REPO / "pg_search" / "src").rglob("*.rs"))
+        for src_dir in pgrx_crate_src_dirs()
+        for path in sorted(src_dir.rglob("*.rs"))
         for line, header in find_bare_drops(path.read_text(encoding="utf-8"))
     ]
     if bad:
         print("\n".join(bad))
         print(
             f"\n{len(bad)} bare `impl Drop`. Use `impl_safe_drop!` from "
-            'pg_search/src/postgres/utils.rs, or opt out directly above the impl with "We '
+            'common/src/postgres/utils.rs, or opt out directly above the impl with "We '
             'intentionally do NOT use `impl_safe_drop!` here because ...".'
         )
     return 1 if bad else 0

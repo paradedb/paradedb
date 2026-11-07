@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::api::operator::f16_typmod::deserialize_i32_to_f32;
 use crate::query::pdb_query::pdb;

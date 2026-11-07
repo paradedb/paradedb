@@ -36,7 +36,8 @@ use pgrx::{FromDatum, PgList, pg_sys};
 use tantivy::fastfield::AliveBitSet;
 use tantivy::schema::{Field, TextOptions, Value};
 use tantivy::synonyms::{
-    CompiledRule, KeyDocs, SegmentSynonyms, SynonymRule, SynonymRuleTokenizer, SynonymSource,
+    CompiledRule, DEFAULT_MAX_RULES_PER_KEY, KeyDocs, SegmentSynonyms, SynonymRule,
+    SynonymRuleTokenizer, SynonymSource,
 };
 use tantivy::tokenizer::{TextAnalyzer, TokenizerManager};
 use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
@@ -240,7 +241,10 @@ impl SynonymSource for HeapRuleSource {
     }
 
     fn token_keys(&mut self, segment: usize, token: &str) -> tantivy::Result<Arc<[KeyDocs]>> {
-        Ok(self.segments[segment].0.token_keys(token)?.into())
+        Ok(self.segments[segment]
+            .0
+            .token_keys(token, DEFAULT_MAX_RULES_PER_KEY)?
+            .into())
     }
 
     fn alive_rules(

@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashSet;
-use crate::index::merge_policy::{LayeredMergeCandidate, LayeredMergePolicy};
+use crate::index::merge_policy::{
+    LayeredMergeCandidate, LayeredMergePolicy, MUTABLE_SEGMENT_LAYER,
+};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::PgSearchRelation;
@@ -171,6 +173,7 @@ impl FromDatum for BackgroundMergeArgs {
 #[derive(Debug, Clone)]
 struct IndexLayerSizes {
     user_configured_bg_layers: bool,
+    visible_segment_count: usize,
     foreground_layer_sizes: Vec<u64>,
     background_layer_sizes: Vec<u64>,
     backpressure_layer_size: Option<u64>,
@@ -240,6 +243,7 @@ impl IndexLayerSizes {
         if segment_cnt <= target_segment_count {
             return Self {
                 user_configured_bg_layers: has_bg_layers,
+                visible_segment_count: segment_cnt,
                 foreground_layer_sizes: Vec::new(),
                 background_layer_sizes: Vec::new(),
                 backpressure_layer_size: None,
@@ -274,6 +278,7 @@ impl IndexLayerSizes {
 
         Self {
             user_configured_bg_layers: has_bg_layers,
+            visible_segment_count: segment_cnt,
             foreground_layer_sizes,
             background_layer_sizes,
             backpressure_layer_size,
@@ -296,23 +301,22 @@ impl IndexLayerSizes {
 #[inline]
 fn backpressure(
     candidates: &[LayeredMergeCandidate],
+    visible_segment_count: usize,
     target_segment_count: usize,
 ) -> Option<&MergeCandidate> {
     candidates
         .chunk_by(|(left, _), (right, _)| left == right)
         .filter(|layer| {
-            // Layer 0 converts mutable segments, so apply backpressure above two eligible inputs.
-            // Immutable layers allow a backlog proportional to the target segment count.
-            let threshold = if layer[0].0 == 0 {
-                2
+            let (layer_size, _) = &layer[0];
+            if *layer_size == MUTABLE_SEGMENT_LAYER {
+                let eligible_segment_count: usize = layer
+                    .iter()
+                    .map(|(_, MergeCandidate(segment_ids))| segment_ids.len())
+                    .sum();
+                eligible_segment_count > 2
             } else {
-                BACKPRESSURE_MULTIPLIER * target_segment_count
-            };
-            layer
-                .iter()
-                .map(|(_, candidate)| candidate.0.len())
-                .sum::<usize>()
-                > threshold
+                visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
+            }
         })
         .min_by_key(|layer| layer[0].0)
         .map(|layer| &layer[0].1)
@@ -320,7 +324,7 @@ fn backpressure(
 
 /// Kick off a merge of the index, if needed.
 ///
-/// Prefer a background worker; help with one small merge when workers are busy or unavailable.
+/// Launch background work when possible; overfull indexes also need one eligible foreground merge.
 pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
     // don't kick off merges for invalid indexes
     if !index.is_valid() {
@@ -328,6 +332,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     }
 
     let layer_sizes = IndexLayerSizes::from(index);
+    let target_segment_count = index.options().target_segment_count();
     let metadata = MetaPage::open(index);
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
@@ -340,8 +345,12 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
+    let needs_foreground_backpressure = matches!(style, MergeStyle::Insert { .. })
+        && layer_sizes.visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count;
 
-    if needs_background_merge && try_launch_background_merger(index, largest_layer_size) {
+    let background_launched =
+        needs_background_merge && try_launch_background_merger(index, largest_layer_size);
+    if background_launched && !needs_foreground_backpressure {
         return Ok(());
     }
     if let MergeStyle::Insert {
@@ -359,7 +368,8 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         warn_unsupported_vector_merge(index, skipped);
         let candidate = backpressure(
             &backpressure_candidates,
-            index.options().target_segment_count(),
+            layer_sizes.visible_segment_count,
+            target_segment_count,
         )
         .or(foreground_candidate);
         if let Some(candidate) = candidate {
@@ -769,7 +779,7 @@ mod tests {
     use pgrx::prelude::*;
 
     #[pg_test]
-    fn test_immutable_backpressure_uses_full_candidates() {
+    fn test_immutable_backpressure_uses_index_wide_count() {
         let mut all_entries = Vec::new();
         for &size in DEFAULT_BACKGROUND_LAYER_SIZES {
             for (count, bytes, expected) in
@@ -784,20 +794,21 @@ mod tests {
                 let mut policy = LayeredMergePolicy::new(vec![size]);
                 policy.set_mergeable_segments_for_test(entries);
                 let (candidates, _) = policy.simulate();
-                let selected = backpressure(&candidates, 1);
+                let selected = backpressure(&candidates, count, 1);
                 assert_eq!(selected.is_some(), expected);
-                assert!(backpressure(&candidates, 2).is_none());
+                assert!(backpressure(&candidates, count, 2).is_none());
                 if let Some(selected) = selected {
                     assert_eq!(selected.0.len(), 2);
                     assert!(candidates.len() > 1);
                 }
             }
         }
-        let smallest_pressured_ids = all_entries[6..12]
+        let smallest_pressured_ids = all_entries[..2]
             .iter()
             .map(SegmentMetaEntry::segment_id)
             .collect::<HashSet<_>>();
         all_entries.drain(2..6);
+        let visible_segment_count = all_entries.len();
         let mut policy = LayeredMergePolicy::new(DEFAULT_BACKGROUND_LAYER_SIZES.to_vec());
         policy.set_mergeable_segments_for_test(all_entries);
         let (candidates, largest_layer) = policy.simulate();
@@ -806,7 +817,7 @@ mod tests {
             *DEFAULT_BACKGROUND_LAYER_SIZES.last().unwrap()
         );
         assert!(
-            backpressure(&candidates, 1)
+            backpressure(&candidates, visible_segment_count, 1)
                 .unwrap()
                 .0
                 .iter()
@@ -815,10 +826,30 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_backpressure_visible_segment_threshold() {
+        let mut policy = LayeredMergePolicy::new(vec![1024]);
+        policy.set_mergeable_segments_for_test(
+            (0..2)
+                .map(|_| create_segment_meta_entry(1024, 10, 0))
+                .collect(),
+        );
+        let (candidates, _) = policy.simulate();
+        for (count, expected) in [(128, false), (129, true)] {
+            let layers = IndexLayerSizes::new(vec![], vec![1024], count, count as u64 * 1024, 32);
+            assert_eq!(layers.visible_segment_count, count);
+            assert_eq!(
+                backpressure(&candidates, layers.visible_segment_count, 32).is_some(),
+                expected
+            );
+            assert!(backpressure(&[], layers.visible_segment_count, 32).is_none());
+        }
+    }
+
+    #[pg_test]
     fn test_backpressure_uses_background_layer_limits() {
         for (count, background_expected, backpressure_expected) in [
             (40, false, false),
-            (41, false, false),
+            (41, false, true),
             (50, false, true),
             (80, true, true),
         ] {
@@ -842,7 +873,7 @@ mod tests {
             policy.prepare_backpressure(layers.backpressure_layer_size);
             let (candidates, _) = policy.simulate();
             assert_eq!(
-                backpressure(&candidates, 10).is_some(),
+                backpressure(&candidates, layers.visible_segment_count, 10).is_some(),
                 backpressure_expected
             );
         }
@@ -925,7 +956,9 @@ mod tests {
         metadata.vacuum_list().write_list(ids[6..8].iter());
         let vacuum_sentinel = metadata.pin_ambulkdelete_sentinel();
         let merger = SearchIndexMerger::open(&index, MvccSatisfies::Mergeable).unwrap();
-        let mut policy = LayeredMergePolicy::new(IndexLayerSizes::from(&index).combined());
+        let layers = IndexLayerSizes::from(&index);
+        assert_eq!(layers.visible_segment_count, ids.len());
+        let mut policy = LayeredMergePolicy::new(layers.combined());
         policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
         let (candidates, _, _) = policy.simulate_supported(&merger).unwrap();
         assert_eq!(
@@ -935,24 +968,25 @@ mod tests {
                 .sum::<usize>(),
             4
         );
-        assert!(backpressure(&candidates, 2).is_none());
-        merge_lock.merge_list().remove_entry(reservation).unwrap();
-        drop(vacuum_sentinel);
-        let mut policy = LayeredMergePolicy::new(IndexLayerSizes::from(&index).combined());
-        policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-        let (candidates, _, _) = policy.simulate_supported(&merger).unwrap();
-        let selected = backpressure(&candidates, 2).unwrap().clone();
+        let selected = backpressure(
+            &candidates,
+            layers.visible_segment_count,
+            index.options().target_segment_count(),
+        )
+        .unwrap()
+        .clone();
         assert!(candidates.len() > 1);
-        merge_index(
+        drop(merger);
+        drop(merge_lock);
+        assert!(MergeSlot::for_layer_size(oid, bytes).is_available());
+        do_merge(
             &index,
-            merger,
-            std::slice::from_ref(&selected),
-            merge_lock,
-            metadata.pin_merge(),
-            MergeMode::Foreground,
-            xid,
-            xid,
-        );
+            MergeStyle::Insert {
+                current_xid: xid,
+                next_xid: xid,
+            },
+        )
+        .unwrap();
         let remaining = metadata
             .segment_metas()
             .list(None)
@@ -965,14 +999,39 @@ mod tests {
             ids.iter().filter(|id| !remaining.contains(id)).count(),
             selected.0.len()
         );
-        assert!(
+        assert!(ids[..8].iter().all(|id| remaining.contains(id)));
+        let merge_lock = metadata.acquire_merge_lock();
+        assert_eq!(merge_lock.merge_list().list_segment_ids().count(), 6);
+        merge_lock.merge_list().remove_entry(reservation).unwrap();
+        let reservation = merge_lock
+            .merge_list()
+            .add_segment_ids(remaining.iter(), xid)
+            .unwrap();
+        drop(merge_lock);
+        do_merge(
+            &index,
+            MergeStyle::Insert {
+                current_xid: xid,
+                next_xid: xid,
+            },
+        )
+        .unwrap();
+        assert_eq!(
             metadata
-                .acquire_merge_lock()
-                .merge_list()
-                .list_segment_ids()
-                .next()
-                .is_none()
+                .segment_metas()
+                .list(None)
+                .into_iter()
+                .filter(|entry| entry.visible())
+                .map(|entry| entry.segment_id())
+                .collect::<HashSet<_>>(),
+            remaining
         );
+        metadata
+            .acquire_merge_lock()
+            .merge_list()
+            .remove_entry(reservation)
+            .unwrap();
+        drop(vacuum_sentinel);
         drop(index);
         assert_eq!(
             Spi::get_one::<i64>("SELECT count(*) FROM backpressure WHERE id @@@ pdb.all()")

@@ -809,9 +809,9 @@ impl PgSearchScanPlan {
             let schema = match &*state {
                 ExecutionState::Shared { scan_state, .. }
                 | ExecutionState::RangePartitioned { scan_state, .. } => {
-                    Some(crate::postgres::customscan::mpp::run_on_main_thread(|token| {
-                        scan_state.get(token).reader.schema().clone()
-                    }))
+                    Some(crate::postgres::customscan::mpp::run_on_main_thread(
+                        |token| scan_state.get(token).reader.schema().clone(),
+                    ))
                 }
                 ExecutionState::Uninitialized | ExecutionState::Consumed => None,
             };

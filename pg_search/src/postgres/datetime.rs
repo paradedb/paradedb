@@ -23,11 +23,12 @@ use std::str::FromStr;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::datum::ToIsoString;
 use pgrx::datum::datetime_support::DateTimeConversionError;
+use pgrx::datum::{Datum, FromDatum, IntoDatum, UnboxDatum};
 use pgrx::nullable::Nullable;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
-use pgrx::{FromDatum, IntoDatum, pg_sys};
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
@@ -133,14 +134,25 @@ impl IntoDatum for ExactTime {
 unsafe impl SqlTranslatable for ExactTime {
     const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(ExactTime);
     const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
-    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
-        Ok(SqlMappingRef::literal("time"));
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> = Ok(SqlMappingRef::literal("time"));
     const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
         Ok(ReturnsRef::One(SqlMappingRef::literal("time")));
 }
 
+unsafe impl UnboxDatum for ExactTime {
+    type As<'src> = ExactTime;
+    #[inline]
+    unsafe fn unbox<'src>(datum: Datum<'src>) -> Self::As<'src>
+    where
+        Self: 'src,
+    {
+        // Mirror pgrx's UnboxDatum for Time: TryFrom keeps USECS_PER_DAY as 24:00:00.
+        ExactTime(pgrx::datum::Time::try_from(i64::unbox(datum)).unwrap_unchecked())
+    }
+}
+
 unsafe impl BoxRet for ExactTime {
-    unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {
+    unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {
         match self.into_datum() {
             Some(datum) => unsafe { fcinfo.return_raw_datum(datum) },
             None => fcinfo.return_null(),

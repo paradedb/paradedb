@@ -78,6 +78,87 @@ pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
     }
 }
 
+pub fn lookup_extension_version(name: &CStr) -> Option<String> {
+    unsafe {
+        let relation =
+            pg_sys::table_open(pg_sys::ExtensionRelationId, pg_sys::AccessShareLock as _);
+        let mut key = pg_sys::ScanKeyData::default();
+        pg_sys::ScanKeyInit(
+            &mut key,
+            pg_sys::Anum_pg_extension_extname as _,
+            pg_sys::BTEqualStrategyNumber as _,
+            pg_sys::F_NAMEEQ.into(),
+            pg_sys::Datum::from(name.as_ptr()),
+        );
+        let scan = pg_sys::systable_beginscan(
+            relation,
+            pg_sys::ExtensionNameIndexId.into(),
+            true,
+            std::ptr::null_mut(),
+            1,
+            &mut key,
+        );
+        let tuple = pg_sys::systable_getnext(scan);
+        let version = if tuple.is_null() {
+            None
+        } else {
+            let mut is_null = false;
+            let datum = pg_sys::heap_getattr(
+                tuple,
+                pg_sys::Anum_pg_extension_extversion as _,
+                (*relation).rd_att,
+                &mut is_null,
+            );
+            String::from_datum(datum, is_null)
+        };
+        pg_sys::systable_endscan(scan);
+        pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
+        version
+    }
+}
+
+pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
+    unsafe {
+        let relation = pg_sys::table_open(pg_sys::RelationRelationId, pg_sys::AccessShareLock as _);
+        let scan = pg_sys::systable_beginscan(
+            relation,
+            pg_sys::InvalidOid,
+            false,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+        );
+        let mut indexes = Vec::new();
+        loop {
+            let tuple = pg_sys::systable_getnext(scan);
+            if tuple.is_null() {
+                break;
+            }
+            let class = &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_class>();
+            if class.relkind as u8 != pg_sys::RELKIND_INDEX
+                || class.relpersistence as u8 == pg_sys::RELPERSISTENCE_TEMP
+                || !class.relam.is_paradedb_am()
+            {
+                continue;
+            }
+            let Some(entry) = SysCacheEntry::search1(
+                pg_sys::SysCacheIdentifier::INDEXRELID,
+                class.oid.into_datum().unwrap(),
+            ) else {
+                continue;
+            };
+            let index = &*pg_sys::GETSTRUCT(entry.tuple).cast::<pg_sys::FormData_pg_index>();
+            if index.indisvalid && index.indisready {
+                indexes.push(class.oid);
+            }
+        }
+        pg_sys::systable_endscan(scan);
+        pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
+        indexes.sort_unstable_by_key(|oid| oid.to_u32());
+        indexes
+    }
+}
+
 /// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
 pub fn lookup_type_category(typoid: pg_sys::Oid) -> Option<u8> {
     unsafe {
@@ -318,5 +399,70 @@ pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale
             provider: CollationProvider::from(collprovider as u8),
             name: collcollate,
         })
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::{PgTryBuilder, Spi, pg_guard, pg_test};
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn reject_planning(
+        _parse: *mut pg_sys::Query,
+        _query: *const std::ffi::c_char,
+        _options: std::ffi::c_int,
+        _params: pg_sys::ParamListInfo,
+    ) -> *mut pg_sys::PlannedStmt {
+        pgrx::error!("catalog discovery must not invoke planner hooks");
+    }
+
+    #[pg_test]
+    fn sweep_catalog_discovery_bypasses_planner_hooks() {
+        let mut expected = paradedb_index_oids();
+        Spi::run(
+            "CREATE TABLE sweep_catalog (id int, body text);
+             CREATE INDEX sweep_catalog_idx ON sweep_catalog USING paradedb(id, body);
+             CREATE INDEX sweep_catalog_btree ON sweep_catalog(id);
+             CREATE TABLE sweep_catalog_invalid_table (id int, body text);
+             CREATE INDEX sweep_catalog_invalid ON sweep_catalog_invalid_table USING paradedb(id, body);
+             CREATE TABLE sweep_catalog_unready_table (id int, body text);
+             CREATE INDEX sweep_catalog_unready ON sweep_catalog_unready_table USING paradedb(id, body);
+             UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'sweep_catalog_invalid'::regclass;
+             UPDATE pg_index SET indisready = false WHERE indexrelid = 'sweep_catalog_unready'::regclass;
+             CREATE TEMP TABLE sweep_catalog_temp (id int, body text);
+             CREATE INDEX sweep_catalog_temp_idx ON sweep_catalog_temp USING paradedb(id, body);
+             CREATE UNLOGGED TABLE sweep_catalog_unlogged (id int, body text);
+             CREATE INDEX sweep_catalog_unlogged_idx ON sweep_catalog_unlogged USING bm25(id, body);
+             CREATE TABLE sweep_catalog_partitioned (id int, body text) PARTITION BY RANGE(id);
+             CREATE TABLE sweep_catalog_leaf PARTITION OF sweep_catalog_partitioned FOR VALUES FROM (0) TO (10);
+             CREATE INDEX sweep_catalog_parent_idx ON sweep_catalog_partitioned USING paradedb(id, body);",
+        )
+        .unwrap();
+        expected.extend(
+            Spi::get_one::<Vec<pg_sys::Oid>>(
+                "SELECT array_agg(indexrelid) FROM pg_index
+                 WHERE indexrelid IN ('sweep_catalog_idx'::regclass, 'sweep_catalog_unlogged_idx'::regclass)
+                    OR indrelid = 'sweep_catalog_leaf'::regclass",
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        expected.sort_unstable_by_key(|oid| oid.to_u32());
+        unsafe {
+            let previous_hook = pg_sys::planner_hook;
+            pg_sys::planner_hook = Some(reject_planning);
+            PgTryBuilder::new(|| {
+                assert_eq!(
+                    lookup_extension_version(c"pg_search").as_deref(),
+                    Some(env!("CARGO_PKG_VERSION"))
+                );
+                assert_eq!(lookup_extension_version(c"sweep_missing_extension"), None);
+                assert_eq!(paradedb_index_oids(), expected);
+            })
+            .finally(|| pg_sys::planner_hook = previous_hook)
+            .execute();
+        }
     }
 }

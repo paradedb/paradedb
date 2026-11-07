@@ -806,16 +806,20 @@ impl PgSearchScanPlan {
                 .state
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let schema = match &*state {
-                ExecutionState::Shared { scan_state, .. }
-                | ExecutionState::RangePartitioned { scan_state, .. } => {
-                    Some(scan_state.0.reader.schema())
-                }
-                ExecutionState::Uninitialized | ExecutionState::Consumed => None,
-            };
-            if !base_query.is_pushdown_filter(&|field| {
-                schema.is_some_and(|s| s.is_term_filter_field(field.root()))
-            }) {
+            let is_pushdown_filter =
+                crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+                    let schema = match &*state {
+                        ExecutionState::Shared { scan_state, .. }
+                        | ExecutionState::RangePartitioned { scan_state, .. } => {
+                            Some(scan_state.get(token).reader.schema())
+                        }
+                        ExecutionState::Uninitialized | ExecutionState::Consumed => None,
+                    };
+                    base_query.is_pushdown_filter(&|field| {
+                        schema.is_some_and(|s| s.is_term_filter_field(field.root()))
+                    })
+                });
+            if !is_pushdown_filter {
                 return None;
             }
         }

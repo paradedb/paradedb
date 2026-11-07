@@ -19,7 +19,7 @@ use crate::api::{HashMap, HashSet};
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
-use crate::postgres::catalog::OidExt;
+use crate::postgres::catalog::{OidExt, lookup_extension_version, paradedb_index_oids};
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::index::free_leaf_partition_indexes;
 use crate::postgres::locks::AdvisoryLock;
@@ -31,8 +31,8 @@ use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
-    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, Spi,
-    check_for_interrupts, pg_guard, pg_sys,
+    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, check_for_interrupts,
+    pg_guard, pg_sys,
 };
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
@@ -226,25 +226,12 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
         if sweeping {
             let observed_counts = pass_context.switch_to(|_| {
                 let indexes = BackgroundWorker::transaction(|| {
-                    let version = Spi::get_one::<String>(
-                        "SELECT max(extversion::text) FROM pg_catalog.pg_extension WHERE extname = 'pg_search'",
-                    )
-                    .expect("should be able to inspect pg_search version");
+                    let version = lookup_extension_version(c"pg_search");
                     if version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
                         return None;
                     }
-                    let indexes = Spi::get_one::<Vec<pg_sys::Oid>>(
-                        "SELECT array_agg(i.indexrelid ORDER BY i.indexrelid)
-                         FROM pg_catalog.pg_index i
-                         JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
-                         JOIN pg_catalog.pg_am am ON am.oid = c.relam
-                         JOIN pg_catalog.pg_proc p ON p.oid = am.amhandler
-                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-                         WHERE n.nspname = 'paradedb' AND p.proname = 'bm25_handler'
-                           AND i.indisvalid AND i.indisready AND c.relkind = 'i' AND c.relpersistence <> 't'",
-                    )
-                    .expect("should be able to discover ParadeDB indexes")
-                    .unwrap_or_default();
+                    // Planner hooks can hide shard indexes or race with concurrent drops.
+                    let indexes = paradedb_index_oids();
                     let mut current_counts = HashMap::default();
                     let indexes = free_leaf_partition_indexes(&indexes)
                         .filter_map(|index| {
@@ -253,7 +240,9 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             }
                             let mut idle_segments = HashMap::default();
                             MetaPage::open(&index).segment_metas().for_each(|_, entry| {
-                                if entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId {
+                                if entry.is_mutable()
+                                    && entry.xmax() == pg_sys::InvalidTransactionId
+                                {
                                     let key = (index.oid(), entry.segment_id());
                                     let count = entry.num_docs();
                                     current_counts.insert(key, count);
@@ -282,7 +271,8 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if VacuumSignal::new(index.oid()).wants_cancel() {
                                 return;
                             }
-                            let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
+                            let Some(_slot) =
+                                MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
                             else {
                                 return;
                             };
@@ -293,7 +283,8 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             let merge_lock = metadata.acquire_merge_lock();
                             PgTryBuilder::new(AssertUnwindSafe(|| {
                                 let frozen = metadata.freeze_mutable_segments_matching(|entry| {
-                                    idle_segments.get(&entry.segment_id()) == Some(&entry.num_docs())
+                                    idle_segments.get(&entry.segment_id())
+                                        == Some(&entry.num_docs())
                                 });
                                 if frozen.is_empty() {
                                     return;
@@ -303,11 +294,18 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     pg_sys::BackendState::STATE_RUNNING,
                                     MERGING.as_ptr(),
                                 );
-                                let merger = SearchIndexMerger::open(&index, MvccSatisfies::Mergeable)
-                                    .expect("should be able to open mutable sweeper merger");
+                                let merger =
+                                    SearchIndexMerger::open(&index, MvccSatisfies::Mergeable)
+                                        .expect("should be able to open mutable sweeper merger");
                                 let mut policy = LayeredMergePolicy::new(Vec::new());
-                                policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-                                policy.retain(frozen.iter().map(|entry| entry.segment_id()).collect());
+                                policy.set_mergeable_segment_entries(
+                                    &metadata,
+                                    &merge_lock,
+                                    &merger,
+                                );
+                                policy.retain(
+                                    frozen.iter().map(|entry| entry.segment_id()).collect(),
+                                );
                                 let (candidates, _, skipped) = policy
                                     .simulate_supported(&merger)
                                     .expect("should be able to validate mutable sweep candidates");
@@ -331,7 +329,10 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             .catch_others(|caught| {
                                 dst::observe!(|| {
                                     if let Some(details) = merge_crash_details(&caught) {
-                                        dst::assert_unreachable!("pg_search mutable sweep crashed", &details);
+                                        dst::assert_unreachable!(
+                                            "pg_search mutable sweep crashed",
+                                            &details
+                                        );
                                     }
                                 });
                                 caught.rethrow()

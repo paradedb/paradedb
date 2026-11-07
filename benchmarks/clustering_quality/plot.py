@@ -13,10 +13,15 @@ from matplotlib.ticker import PercentFormatter
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("results")
+parser.add_argument(
+    "--output", help="Chart directory; defaults to the results directory"
+)
 args = parser.parse_args()
 from pathlib import Path
 
 root = Path(args.results)
+output = Path(args.output) if args.output else root
+output.mkdir(parents=True, exist_ok=True)
 manifest = json.loads((root / "manifest.json").read_text())
 summary = json.loads((root / "summary.json").read_text())
 curves = np.load(root / "curves.npz")
@@ -53,11 +58,13 @@ axes[0].set(
 axes[0].xaxis.set_major_formatter(PercentFormatter(1))
 axes[0].yaxis.set_major_formatter(PercentFormatter(1))
 axes[1].set(
-    xlabel="Rows per cluster",
+    xlabel="Rows per cluster (log scale)",
     ylabel="Fraction of clusters at or below size",
     title="Cluster size distribution",
     ylim=(0, 1.01),
 )
+axes[1].set_xscale("symlog", linthresh=1)
+axes[1].set_xlim(left=0)
 axes[1].yaxis.set_major_formatter(PercentFormatter(1))
 for ax in axes:
     ax.grid(alpha=0.2)
@@ -74,5 +81,5 @@ fig.suptitle(
     f"{configuration}",
     fontsize=12,
 )
-fig.savefig(root / "comparison.png", dpi=180)
-fig.savefig(root / "comparison.svg")
+fig.savefig(output / "comparison.png", dpi=180)
+fig.savefig(output / "comparison.svg")

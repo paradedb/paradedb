@@ -1679,6 +1679,7 @@ async fn generated_rank_join(database: Db) {
         .collect();
     let setup_sql = generated_queries_setup(&pool, &tables_and_sizes, COLUMNS);
     let where_columns = columns_named(vec!["name", "color"]);
+    let base_where_columns = columns_named(vec!["name", "color", "age", "quantity"]);
     let join_key_columns = columns_named(vec!["id", "age", "name", "price", "big_numeric", "uuid"]);
 
     let join_and_where_strategy = (2..=all_tables.len()).prop_flat_map(move |num_tables| {
@@ -1688,7 +1689,7 @@ async fn generated_rank_join(database: Db) {
             .map(|t| arb_wheres(vec![t.clone()], &where_columns).boxed())
             .collect();
         let extra_base_where =
-            proptest::option::of(arb_wheres(vec![joined[0].clone()], &where_columns));
+            proptest::option::of(arb_wheres(vec![joined[0].clone()], &base_where_columns));
         (
             arb_joins(Just(JoinType::Inner), joined.clone(), &join_key_columns),
             table_wheres,
@@ -1712,6 +1713,8 @@ async fn generated_rank_join(database: Db) {
         (join, table_wheres, extra_base_where, order_parts) in join_and_where_strategy,
         semi_exists in proptest::option::of(proptest::bool::ANY),
         disjunctive in proptest::bool::ANY,
+        base_where_is_pushdown_filter in proptest::bool::ANY,
+        project_score_and_subquery in proptest::bool::ANY,
         order_kind in order_kind_strategy,
         extra_vector_tiebreaker in proptest::bool::ANY,
         multiply_scores in proptest::bool::ANY,
@@ -1764,7 +1767,14 @@ async fn generated_rank_join(database: Db) {
             };
 
         let where_bm25 = match &extra_base_where {
-            Some(base_w) => format!("({}) AND ({where_clauses})", base_w.to_sql("@@@")),
+            Some(base_w) => {
+                let base_op = if base_where_is_pushdown_filter {
+                    " = "
+                } else {
+                    "@@@"
+                };
+                format!("({}) AND ({where_clauses})", base_w.to_sql(base_op))
+            }
             None => where_clauses,
         };
 
@@ -1827,8 +1837,16 @@ async fn generated_rank_join(database: Db) {
             }
         };
 
+        let select_id_expr = if project_score_and_subquery && n_scored > 0 {
+            format!(
+                "({select_table}.id + COALESCE((SELECT MAX(age) FROM {first_table}), 0) + (pdb.score({select_table}.id) * 0.0)::bigint)::bigint"
+            )
+        } else {
+            format!("{select_table}.id")
+        };
+
         let bm25_query = format!(
-            "SELECT {select_table}.id, {select_table}.name {from_prefix} \
+            "SELECT {select_id_expr}, {select_table}.name {from_prefix} \
              WHERE {where_bm25} \
              ORDER BY {order_by} \
              LIMIT {limit} OFFSET {offset}"
@@ -1869,24 +1887,30 @@ async fn generated_rank_join(database: Db) {
             )
         )?;
 
-        // TODO: Loosen this guard once `RankJoinRule` lifts its constant-score restriction
-        // (currently negated predicates lower to `ConstScore(Exists, 0.0) + must_not` with
-        // `is_constant_score() == true`, which Gate 1 in `SubtreeScoreStats::from_leaf_queries`
-        // rejects for score sorts). Requiring a bare indexed `Atom` per table is a conservative
-        // sufficient condition that guarantees Gate 1 (non-constant positive BM25 score) and
-        // Gate 2 (balanced score bounds) without duplicating `RankJoinRule`'s analysis in
-        // `wheregen`, while the result oracle above runs on all `arb_wheres` shapes.
+        let wheres_eligible = if use_disjunctive {
+            table_wheres
+                .iter()
+                .all(WhereExpr::is_pure_or_indexed_search)
+        } else {
+            table_wheres
+                .iter()
+                .all(WhereExpr::is_positive_indexed_search)
+        };
+        let base_where_eligible = match &extra_base_where {
+            None => true,
+            Some(base_w) if base_where_is_pushdown_filter => base_w.is_pushdown_filter_shape(),
+            Some(base_w) => !use_disjunctive && base_w.is_positive_indexed_search(),
+        };
+
         if !join.has_keyless_step()
             && !join_clause.contains(" AND ")
             && !join_clause.contains(".name =")
             && !join_clause.contains(".big_numeric =")
-            && extra_base_where.is_none()
+            && base_where_eligible
             && (n_scored == 0 || descending)
             && !gucs.parallel_workers
             && gucs.filter_pushdown
-            && table_wheres
-                .iter()
-                .all(|w| matches!(w, WhereExpr::Atom { is_indexed: true, .. }))
+            && wheres_eligible
         {
             let forbidden_candidate: &[&str] = if is_vector_order {
                 &["Sort Key:"]

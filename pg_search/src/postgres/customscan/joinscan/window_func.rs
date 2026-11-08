@@ -29,6 +29,7 @@ use crate::postgres::customscan::aggregatescan::pdb_agg::PdbAggRequest;
 use crate::postgres::customscan::aggregatescan::privdat::FilterExpr;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::joinscan::planning::resolve_fast_field_from_join_sources;
+use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use crate::postgres::customscan::pullup::SourceContext;
 use crate::postgres::deparse::deparse_planner_expr;
 use crate::postgres::utils::strip_relabel;
@@ -255,6 +256,30 @@ impl WindowAgg {
             && self.result_type.0 == other.result_type.0
             && self.filter == other.filter
     }
+
+    /// True when the window step's output column holds storage-encoded values
+    /// (numeric-storage SQL aggregates or `pdb.agg` JSON text) that cannot be
+    /// consumed directly by native DataFusion operators and must instead be
+    /// decoded through [`PgExprUdf`](crate::postgres::customscan::pg_expr_udf::PgExprUdf)
+    /// via [`Self::udf_input_decode`].
+    pub fn requires_udf_decode(&self) -> bool {
+        match &self.agg_def {
+            WindowAggDef::Sql(sql) => sql.arg_field_type().is_some_and(|ft| ft.is_numeric()),
+            WindowAggDef::PdbAgg(_) => true,
+        }
+    }
+
+    /// Decode metadata for a [`PgExprUdf`](crate::postgres::customscan::pg_expr_udf::PgExprUdf)
+    /// consuming this window aggregate's output column.
+    pub fn udf_input_decode(&self) -> InputDecode {
+        match &self.agg_def {
+            WindowAggDef::Sql(sql) => InputDecode::StorageEncoded {
+                is_avg: matches!(sql.agg_type(), SupportedWindowAggType::Avg),
+                field_type: sql.arg_field_type().cloned(),
+            },
+            WindowAggDef::PdbAgg(_) => InputDecode::JsonDocument,
+        }
+    }
 }
 
 /// Sentinel `varno` for window-aggregate inputs in serialized projection
@@ -323,6 +348,10 @@ impl WindowAggList {
         Self(aggs)
     }
 
+    pub fn push(&mut self, agg: WindowAgg) {
+        self.0.push(agg);
+    }
+
     pub fn get(&self, index: WindowAggIndex) -> Option<&WindowAgg> {
         self.0.get(index.0)
     }
@@ -363,6 +392,15 @@ impl WindowAggList {
             .position(|other| other.same_spec(wa))
             .map(WindowAggIndex)
             .unwrap_or(index)
+    }
+}
+
+impl IntoIterator for WindowAggList {
+    type Item = WindowAgg;
+    type IntoIter = std::vec::IntoIter<WindowAgg>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

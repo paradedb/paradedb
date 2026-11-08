@@ -185,6 +185,12 @@ pub fn mark_contexts_successful<C: ToWarningContexts>(contexts: C) {
 }
 
 pub fn clear_planner_warnings() {
+    // Increment the planning cycle counter so multiple queries planned within a single
+    // top-level statement (e.g. SPI queries inside a SQL or PL/pgSQL function, which all
+    // share `GetCurrentStatementStartTimestamp()`) each get their own deduplication key,
+    // while multiple physical-plan builds for the same planned query (e.g. `exec_custom_scan`
+    // followed by `explain_custom_scan` during `EXPLAIN ANALYZE`) share one key.
+    PLANNING_CYCLE_ID.with(|id| id.set(id.get().wrapping_add(1)));
     PLANNER_STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.warnings.clear();
@@ -374,13 +380,16 @@ pub fn emit_planner_warnings() {
 //
 
 type StatementId = pg_sys::TimestampTz;
+type PlanningCycleKey = (u64, StatementId);
 
 const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 
 thread_local! {
+    static PLANNING_CYCLE_ID: Cell<u64> = const { Cell::new(0) };
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_STALE_VM_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+    static WARNED_RANK_JOIN_AT: Cell<PlanningCycleKey> = const { Cell::new((0, NEVER)) };
 }
 
 fn current_statement_id() -> StatementId {
@@ -457,4 +466,37 @@ pub fn warn_stale_visibility_map(table_name: &str) {
          To disable this warning: SET paradedb.planner_warnings = 'off'"
     );
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
+}
+/// Emits an `EXPLAIN`-only `WARNING` (once per query planning/execution cycle, on the leader
+/// only) for diagnostics explaining why a faster plan variant within a ParadeDB scan was not used.
+///
+/// Because the query still executes inside a ParadeDB scan, these diagnostics only surface during
+/// `EXPLAIN` (and `EXPLAIN ANALYZE`) when `paradedb.planner_warnings` is not `'off'`, and do not
+/// raise an error in `'error'` mode.
+fn warn_in_explain_once_per_cycle(
+    warned_at: &'static LocalKey<Cell<PlanningCycleKey>>,
+    message: &str,
+) {
+    if !is_in_explain() || crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off {
+        return;
+    }
+    if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+        return;
+    }
+    let key = (
+        PLANNING_CYCLE_ID.with(|id| id.get()),
+        current_statement_id(),
+    );
+    if warned_at.with(|last| last.replace(key)) != key {
+        pgrx::warning!("{message}. To disable this warning: SET paradedb.planner_warnings = 'off'");
+    }
+}
+
+/// Emits a `WARNING` during `EXPLAIN` (once per query planning/execution cycle, on the leader
+/// only) when `RankJoinRule` declines to rewrite a score-ordered top-K join into `RankJoinExec`.
+pub fn warn_rank_join_not_used(reason: &str) {
+    warn_in_explain_once_per_cycle(
+        &WARNED_RANK_JOIN_AT,
+        &format!("RankJoinExec not used: {reason}"),
+    );
 }

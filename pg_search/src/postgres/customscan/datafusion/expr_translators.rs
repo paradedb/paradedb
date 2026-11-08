@@ -38,6 +38,7 @@ use crate::postgres::customscan::datafusion::translator::{
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::{InputDecode, PgExprUdf};
+use crate::postgres::node::NodeExt;
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
@@ -386,6 +387,8 @@ impl<'a> PredicateTranslator<'a> {
     /// columns, and delegates to `ExecEvalExpr`.
     ///
     /// Returns `None` when the expression can't be wrapped:
+    ///   - the expression contains a parameter (`T_Param`), subplan (`T_SubPlan`),
+    ///     or score function (`pdb.score`),
     ///   - result type is outside the supported set,
     ///   - some input Var can't be resolved against `self.sources` / mapper,
     ///   - `nodeToString` returns null.
@@ -394,6 +397,18 @@ impl<'a> PredicateTranslator<'a> {
     /// [`PredicateTranslator::translate`] — any subtree that fails native
     /// translation is wrapped here.
     pub(crate) unsafe fn try_wrap_as_udf(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        if node.contains_param()
+            || node.contains_type(pg_sys::NodeTag::T_SubPlan)
+            || node.contains_functions(&crate::postgres::customscan::score_funcoids())
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: declining UDF wrap for expression containing Param, SubPlan, or score function [{}] | {}",
+                node_tag_debug(node),
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
         let result_type_oid = pg_sys::exprType(node);
         if PgExprUdf::get_result_type_to_arrow(result_type_oid).is_none() {
             pgrx::debug1!(

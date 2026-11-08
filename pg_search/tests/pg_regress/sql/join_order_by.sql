@@ -233,9 +233,10 @@ ORDER BY random(), t1.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 2.7: Volatile expression Postgres can't project declines JoinScan
+-- TEST 2.7: Volatile expression referencing pdb.score() is projected by Postgres
 -- =============================================================================
--- pdb.score() exists only inside the scan, so the fallback can't take the expression.
+-- pdb.score() is appended to the scan's output so the Postgres projection above
+-- the scan can evaluate the volatile expression once per output row.
 
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, random() * pdb.score(t1.id) AS rand_score

@@ -1488,31 +1488,39 @@ pub fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::Tar
     }
 
     for var_ptr in expr.collect_nodes::<pg_sys::Var>() {
-        let varno = unsafe { (*var_ptr).varno } as pg_sys::Index;
-        let varattno = unsafe { (*var_ptr).varattno };
+        push_var_to_tlist_if_absent(var_ptr, tlist);
+    }
+}
 
-        if varno == 0 || varattno <= 0 {
-            continue;
+/// Append `var_ptr` as a resjunk `TargetEntry` to `tlist` if `var_ptr` is a positive-attribute
+/// base-relation `Var` and no `TargetEntry` for `(varno, varattno)` is already present.
+pub fn push_var_to_tlist_if_absent(
+    var_ptr: *mut pg_sys::Var,
+    tlist: &mut PgList<pg_sys::TargetEntry>,
+) {
+    let varno = unsafe { (*var_ptr).varno } as pg_sys::Index;
+    let varattno = unsafe { (*var_ptr).varattno };
+
+    if varno == 0 || varattno <= 0 {
+        return;
+    }
+
+    let already_present = tlist.iter_ptr().any(|te| {
+        let te = unsafe { &*te };
+        if unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_Var {
+            let existing = unsafe { &*(te.expr as *mut pg_sys::Var) };
+            existing.varno as pg_sys::Index == varno && existing.varattno == varattno
+        } else {
+            false
         }
+    });
 
-        let already_present = tlist.iter_ptr().any(|te| {
-            let te = unsafe { &*te };
-            if unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_Var {
-                let existing = unsafe { &*(te.expr as *mut pg_sys::Var) };
-                existing.varno as pg_sys::Index == varno && existing.varattno == varattno
-            } else {
-                false
-            }
-        });
-
-        if !already_present {
-            let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let new_var = unsafe { pg_sys::copyObjectImpl(var_ptr.cast()) }.cast::<pg_sys::Var>();
-            let te = unsafe {
-                pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true)
-            };
-            tlist.push(te);
-        }
+    if !already_present {
+        let resno = tlist.len() as pg_sys::AttrNumber + 1;
+        let new_var = unsafe { pg_sys::copyObjectImpl(var_ptr.cast()) }.cast::<pg_sys::Var>();
+        let te =
+            unsafe { pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true) };
+        tlist.push(te);
     }
 }
 

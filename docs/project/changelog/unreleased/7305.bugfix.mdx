@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+Fixed a crash when a `JoinScan` `SELECT` list combines `pdb.score()` with a scalar subquery or query parameter, kept `RankJoinExec` for joins with many `OR` or constant-score predicates on one side, and added `EXPLAIN` warnings when `RankJoinExec` is not used.

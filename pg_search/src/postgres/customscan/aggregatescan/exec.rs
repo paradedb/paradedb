@@ -18,7 +18,9 @@
 use crate::gucs;
 use crate::gucs::WorkMem;
 
-use crate::aggregate::{AggregateRequest, execute_aggregate, scrub_missing_sentinel_value};
+use crate::aggregate::{
+    AggregateRequest, NULL_SENTINEL_MIN, execute_aggregate, scrub_missing_sentinel_value,
+};
 use crate::api::HashMap;
 use crate::api::version::VersionInfo;
 use crate::customscan::aggregatescan::build::{
@@ -163,7 +165,9 @@ impl IntoIterator for AggregationResults {
     type Item = AggregationResultsRow;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
-    fn into_iter(self) -> Self::IntoIter {
+    fn into_iter(mut self) -> Self::IntoIter {
+        place_null_groups_around_empty_strings(&mut self.0);
+
         let mut result = Vec::new();
         match self.style() {
             AggregationStyle::Ungrouped => self.flatten_ungrouped(&mut result, None),
@@ -635,6 +639,48 @@ impl AggregationResults {
 }
 
 /// The buckets of the "grouped" terms aggregation at this level, if there is one.
+/// Moves each NULL group to the side of the empty string group that SQL expects.
+///
+/// NULL groups that sort first use `NULL_SENTINEL_MIN`, a string that sorts after `""`. Postgres
+/// text can't contain NUL, so no other value sorts before the sentinel and the two buckets are
+/// adjacent. Tantivy returns `"", NULL` where `ASC NULLS FIRST` wants `NULL, ""`, and
+/// `NULL, ""` where `DESC NULLS LAST` wants `"", NULL`.
+///
+/// The planner picks this sentinel only for a column in a key-based ORDER BY, so bucket order at
+/// these levels is always key order.
+fn place_null_groups_around_empty_strings(results: &mut HashMap<String, TantivyAggregationResult>) {
+    let has_key = |bucket: &BucketEntry, expected: &str| {
+        matches!(&bucket.key, Key::Str(key) if key == expected)
+    };
+
+    for result in results.values_mut() {
+        match result {
+            TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. }) => {
+                if let Some(null) = buckets
+                    .iter()
+                    .position(|bucket| has_key(bucket, NULL_SENTINEL_MIN))
+                {
+                    if null > 0 && has_key(&buckets[null - 1], "") {
+                        buckets.swap(null - 1, null);
+                    } else if buckets
+                        .get(null + 1)
+                        .is_some_and(|bucket| has_key(bucket, ""))
+                    {
+                        buckets.swap(null, null + 1);
+                    }
+                }
+                for bucket in buckets {
+                    place_null_groups_around_empty_strings(&mut bucket.sub_aggregation.0);
+                }
+            }
+            TantivyAggregationResult::BucketResult(BucketResult::Filter(filter)) => {
+                place_null_groups_around_empty_strings(&mut filter.sub_aggregations.0);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn grouped_buckets(map: &HashMap<String, TantivyAggregationResult>) -> Option<&[BucketEntry]> {
     match map.get(GroupedKey::NAME) {
         Some(TantivyAggregationResult::BucketResult(BucketResult::Terms { buckets, .. })) => {

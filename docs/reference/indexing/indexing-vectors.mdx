@@ -266,11 +266,11 @@ modelBuilder.Entity<MockItem>()
   router until the index is rebuilt.
 </ParamField>
 <ParamField body="spill" default={true}>
-  Assign each vector to a second IVF cluster chosen to cover queries its first
-  cluster misses. Doubles the quantized rows scanned per cluster and adds about
-  one quantized row per vector to the index. Applies to quantized vector fields
-  of segments clustered after the option is set. Set `spill = false` to disable
-  the second assignment.
+  Assign each vector to up to four distinct IVF clusters chosen to cover queries
+  its preceding assignments miss. Stores up to four quantized rows per vector
+  while retaining one full-precision row. Applies to quantized vector fields of
+  segments clustered after the option is set. Set `spill = false` to disable the
+  additional assignments.
 </ParamField>
 
 <Note>

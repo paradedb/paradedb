@@ -63,11 +63,16 @@ class SelectedComparisonTests(unittest.TestCase):
     def test_unreached_and_missing_measurements_stay_explicit(self):
         """Keep absent results visible and reject mismatched configurations or queries."""
         query = b"[]\n"
-        for name, spill in (("baseline", "false"), ("current", "true")):
+        for name, replicas in (("baseline", 2), ("current", 4)):
             root = self.root / name / "benchmark-artifacts"
             root.mkdir(parents=True)
             (root / "query_vectors.json").write_bytes(query)
-            (root / "config.toml").write_text(f"[index]\nspill = {spill}\n")
+            (root / "config.toml").write_text("[index]\nspill = true\n")
+            (root / "vector-info.json").write_text(
+                json.dumps(
+                    [{"vector_num_vectors": 10, "vector_total_rows": replicas * 10}]
+                )
+            )
             (root / "extension-commit.txt").write_text(compare_selected.BASELINE_SHA)
             points = [
                 {
@@ -88,6 +93,13 @@ class SelectedComparisonTests(unittest.TestCase):
             )
             self.assertEqual(result.count("unreached"), 4)
             self.assertIn("| missing | missing | missing | missing |", result)
+            info = self.root / "current/benchmark-artifacts/vector-info.json"
+            info.write_text('[{"vector_num_vectors": 10, "vector_total_rows": 20}]')
+            with self.assertRaisesRegex(ValueError, "4 postings"):
+                compare_selected.comparison(
+                    self.root / "baseline", self.root / "current"
+                )
+            info.write_text('[{"vector_num_vectors": 10, "vector_total_rows": 40}]')
             (self.root / "current/benchmark-artifacts/config.toml").write_text(
                 "[index]\nspill = true\ntarget_segment_count = 1\n"
             )

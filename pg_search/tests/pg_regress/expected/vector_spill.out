@@ -60,10 +60,10 @@ FROM pg_class WHERE relname = 'spill_rows_idx';
 SELECT bool_and(vector_format = 'ivf') AS clustered,
        bool_and(quantized) AS quantized,
        sum(vector_num_vectors) = 200 AS every_vector_present,
-       sum(vector_total_rows) = 2 * sum(vector_num_vectors) AS two_rows_per_vector
+       sum(vector_total_rows) = 4 * sum(vector_num_vectors) AS four_rows_per_vector
 FROM paradedb.vector_info('spill_rows_idx', 'vec');
- clustered | quantized | every_vector_present | two_rows_per_vector 
------------+-----------+----------------------+---------------------
+ clustered | quantized | every_vector_present | four_rows_per_vector 
+-----------+-----------+----------------------+----------------------
  t         | t         | t                    | t
 (1 row)
 
@@ -83,8 +83,7 @@ SELECT (SELECT array_agg(id) FROM indexed) = (SELECT array_agg(id) FROM oracle) 
  t                    | t
 (1 row)
 
--- With every cluster open, each document's second copy is dropped once; the plan's layer-0
--- accounting still covers every eligible row, and the exact phase scores a document at most once.
+-- With every cluster open, all three replicas are dropped before exact scoring.
 WITH plan AS (
     SELECT spill_explain(
         'SELECT id FROM spill_rows WHERE id @@@ pdb.all() '
@@ -95,25 +94,25 @@ WITH plan AS (
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint = 400
+    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint = 800
         AS every_row_eligible,
-    (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint = 200
-        AS one_copy_dropped_per_document,
+    (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint = 600
+        AS three_copies_dropped_per_document,
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
             + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
         AS eligible_is_scored_plus_planned_exact,
     (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint BETWEEN 10 AND 200
         AS exact_rows_once_per_document,
-    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint = 400
+    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint = 800
         AS every_row_visited
 FROM segment_info;
- every_row_eligible | one_copy_dropped_per_document | eligible_is_scored_plus_planned_exact | exact_rows_once_per_document | every_row_visited 
---------------------+-------------------------------+---------------------------------------+------------------------------+-------------------
- t                  | t                             | t                                     | t                            | t
+ every_row_eligible | three_copies_dropped_per_document | eligible_is_scored_plus_planned_exact | exact_rows_once_per_document | every_row_visited 
+--------------------+-----------------------------------+---------------------------------------+------------------------------+-------------------
+ t                  | t                                 | t                                     | t                            | t
 (1 row)
 
--- A narrower probe still returns the exact top 10 here: both copies of a document can carry it.
+-- A narrower probe can find a document through any of its four assignments.
 DO $$
 BEGIN
     PERFORM set_config('paradedb.vector_cluster_max_probe',

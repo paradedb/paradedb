@@ -1,4 +1,4 @@
-"""Compare replicated MS MARCO selections with the pinned non-replicated run."""
+"""Compare four-copy MS MARCO selections with the pinned two-copy SOAR run."""
 
 import argparse
 import hashlib
@@ -8,8 +8,8 @@ from pathlib import Path
 
 import tomllib
 
-BASELINE_SHA = "a3ac6ff9c238acf104a6877d02a4793dc9a24676"
-BASELINE_URL = "https://github.com/paradedb/paradedb/actions/runs/42419496747"
+BASELINE_SHA = "3105167ae0c5dcd514a558f535286578a5416a32"
+BASELINE_URL = "https://github.com/paradedb/paradedb/actions/runs/42477854482"
 QUERY_SHA = "cda4591e197108fcc6778352a2de649811f0aac3a30e8edafecf76d38101cc6d"
 
 
@@ -56,7 +56,7 @@ def build_comparison(roots):
         else {}
         for root in roots
     ]
-    lines = ["| Build metric | Unit | Baseline | SOAR |", "|---|---|---:|---:|"]
+    lines = ["| Build metric | Unit | SOAR 2x | SOAR 4x |", "|---|---|---:|---:|"]
     for name in sorted(metrics[0].keys() | metrics[1].keys()):
         values = [metric.get(name) for metric in metrics]
         units = {value["unit"] for value in values if value is not None}
@@ -68,17 +68,26 @@ def build_comparison(roots):
     return lines
 
 
+def verify_replicas(roots):
+    """Require the measured indexes to contain two and four copies respectively."""
+    for root, replicas in zip(roots, (2, 4)):
+        info = json.loads((root / "vector-info.json").read_text())
+        if not info or any(
+            segment["vector_total_rows"] != replicas * segment["vector_num_vectors"]
+            for segment in info
+        ):
+            raise ValueError(f"Expected {replicas} postings per vector")
+
+
 def comparison(baseline, current):
     """Retain unreached targets and distinguish EXPLAIN means from k6 percentiles."""
     roots = [baseline / "benchmark-artifacts", current / "benchmark-artifacts"]
     if (roots[0] / "extension-commit.txt").read_text().strip() != BASELINE_SHA:
         raise ValueError("Unexpected baseline revision")
     configs = [tomllib.loads((root / "config.toml").read_text()) for root in roots]
-    spills = [config["index"].pop("spill", False) for config in configs]
-    if spills != [False, True] or configs[0] != configs[1]:
-        raise ValueError(
-            "Expected only spill=false to spill=true in benchmark configuration"
-        )
+    if not configs[0]["index"].get("spill") or configs[0] != configs[1]:
+        raise ValueError("Expected identical spill=true benchmark configuration")
+    verify_replicas(roots)
     for root in roots:
         if (
             hashlib.sha256((root / "query_vectors.json").read_bytes()).hexdigest()
@@ -95,7 +104,7 @@ def comparison(baseline, current):
     if set(points[0]) != set(points[1]) or len(points[0]) != 6:
         raise ValueError("Expected all six recall targets in both runs")
     lines = [
-        "### Comparison with #7295 without replication",
+        "### Comparison: SOAR 2x versus 4x",
         "",
         (
             f"Baseline: [{BASELINE_SHA[:12]}]({BASELINE_URL}). "
@@ -112,7 +121,7 @@ def comparison(baseline, current):
     ]
     for name in sorted(points[0]):
         for label, mapping, root in zip(
-            ("Baseline", "SOAR"), points, (baseline, current)
+            ("SOAR 2x", "SOAR 4x"), points, (baseline, current)
         ):
             point = mapping[name]
             if point["reached"]:
@@ -144,7 +153,7 @@ def comparison(baseline, current):
             "Buffer counts are means from the separate EXPLAIN pass. Latencies are k6 percentiles; "
             "QPS uses the observed timed window. Unreached points have no k6 measurement. "
             "Build workers are observed PostgreSQL parallel workers; summed RSS includes shared "
-            "mappings. Replication also includes V6 exact-row storage. "
+            "mappings. Both runs use V6 exact-row storage. "
             "Separate hosts, index builds, "
             "and selected budgets limit causal attribution."
         ),

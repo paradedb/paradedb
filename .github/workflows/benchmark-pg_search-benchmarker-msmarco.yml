@@ -27,7 +27,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (global-routing-soar)
+    name: MS MARCO 113m (SOAR 4x)
     if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-msmarco-pg_search'
     timeout-minutes: 720
     runs-on:
@@ -205,7 +205,7 @@ jobs:
             > benchmark-artifacts/index-options.json
           jq -e 'length == 8 and (map(.vector_num_vectors) | add) == 113520750
             and all(.[]; .vector_format == "ivf" and .quantized
-              and .vector_total_rows == 2 * .vector_num_vectors)' benchmark-artifacts/vector-info.json
+              and .vector_total_rows == 4 * .vector_num_vectors)' benchmark-artifacts/vector-info.json
           jq -e 'index("spill=true") != null and index("target_segment_count=8") != null
             and index("vector_router_quantization=true") != null' benchmark-artifacts/index-options.json
 
@@ -299,12 +299,12 @@ jobs:
               --query "$query" --set "search.k=$k" --no-compare --html
           done
 
-      - name: Download the completed non-replicated PR 7295 baseline
+      - name: Download the completed SOAR 2x baseline
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: msmarco-113m-diagnostics
           path: benchmark-baseline
-          run-id: 42419496747
+          run-id: 42477854482
           github-token: ${{ github.token }}
 
       - name: Prepare k6 operating points
@@ -331,7 +331,7 @@ jobs:
 
           pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
 
-          SOAR replication is enabled, with centroid-parallel assignment and V6 document-ordered exact rows from #7277/#7275. Compared below with the completed non-replicated #7295 run 42419496747; no reference is rerun.
+          SOAR uses four assignments per vector, with cumulative residual penalties for the additional assignments. Compared below with the completed two-assignment SOAR run 42477854482; the query set and benchmark configuration are unchanged.
 
           Absolute cluster-work budgets selected independently for top-10 and top-100 at R90/R95/R99, with adaptive probing, global quantized routing, and rerank factor 2. The sweep starts at 100 units and searches from 1 to 1,000,000.
 
@@ -372,7 +372,7 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
-      - name: Compare selected points against PR 7295
+      - name: Compare selected points against SOAR 2x
         run: |
           python3 benchmarks/msmarco/compare_selected.py \
             --baseline benchmark-baseline --current . \

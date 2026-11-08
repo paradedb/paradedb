@@ -450,7 +450,7 @@ impl BM25IndexOptions {
         self.options_data().vector_router_quantization
     }
 
-    /// Whether new quantized IVF segments assign each vector to a second cluster as well.
+    /// Whether new quantized IVF segments assign each vector to up to four clusters.
     /// Captured in stored index settings during creation or rebuilding.
     pub fn spill(&self) -> bool {
         self.options_data().spill
@@ -1125,8 +1125,7 @@ pub unsafe fn init() {
     pg_sys::add_bool_reloption(
         RELOPT_KIND_PDB,
         "spill".as_pg_cstr(),
-        "Assign each vector to a second IVF cluster chosen to cover queries its first cluster misses"
-            .as_pg_cstr(),
+        "Assign each vector to up to four IVF clusters with SOAR replication".as_pg_cstr(),
         true,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );

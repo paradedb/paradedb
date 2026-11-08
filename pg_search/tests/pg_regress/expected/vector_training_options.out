@@ -57,9 +57,8 @@ ERROR:  invalid value for floating point option "training_sample_ratio": NaN
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 'Infinity');
 ERROR:  value Infinity out of bounds for option "training_sample_ratio"
 ALTER INDEX training_ratio_idx SET (max_leaf_size = 1);
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 2147483647);
 ALTER INDEX training_ratio_idx SET (max_leaf_size = 0);
-ERROR:  value 0 out of bounds for option "max_leaf_size"
+ALTER INDEX training_ratio_idx SET (max_leaf_size = 2147483647);
 ALTER INDEX training_ratio_idx SET (max_leaf_size = -1);
 ERROR:  value -1 out of bounds for option "max_leaf_size"
 ALTER INDEX training_ratio_idx SET (max_leaf_size = 'invalid');

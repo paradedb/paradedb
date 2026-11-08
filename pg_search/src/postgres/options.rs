@@ -468,7 +468,7 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the maximum number of training vectors per clustering leaf.
+    /// Returns the target number of indexed vectors per IVF cluster.
     pub fn max_leaf_size(&self) -> usize {
         self.options_data().max_leaf_size()
     }
@@ -891,7 +891,7 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the maximum number of training vectors per clustering leaf.
+    /// Returns the target number of indexed vectors per IVF cluster.
     pub fn max_leaf_size(&self) -> usize {
         self.max_leaf_size as usize
     }
@@ -1152,7 +1152,8 @@ pub unsafe fn init() {
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
         "max_leaf_size".as_pg_cstr(),
-        "Maximum training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        "Target indexed vectors per IVF cluster, adjusted for the training sample ratio"
+            .as_pg_cstr(),
         DEFAULT_MAX_LEAF_SIZE,
         1,
         i32::MAX,

@@ -89,6 +89,7 @@ use crate::scan::pre_filter::{
     InListLinearFallback, PreFilter, collect_filters, try_dynamic_filter_pushdown,
 };
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
+use crate::scan::rank_join_rule::RankJoinDeclineReason;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -673,6 +674,10 @@ impl PgSearchScanPlan {
         self.planner_estimated_rows
     }
 
+    pub fn table_alias(&self) -> &str {
+        &self.table_alias
+    }
+
     fn segment_pruning(&self) -> SegmentPruningEstimate {
         *self.segment_pruning.get_or_init(|| {
             let state_guard = self
@@ -778,21 +783,25 @@ impl PgSearchScanPlan {
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
         matched_tags: &mut std::collections::BTreeSet<String>,
-    ) -> Option<(Self, Vec<Option<usize>>)> {
+    ) -> std::result::Result<(Self, Vec<Option<usize>>), RankJoinDeclineReason> {
         let crate::scan::ScanMode::Tagged {
             base_query,
             local_queries,
         } = &self.scan_mode
         else {
-            return None;
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
         };
         if local_queries.is_empty()
             || !local_queries
                 .iter()
                 .all(|tq| elided_tags.contains(&tq.tag_name))
-            || base_query.has_heap_filters()
         {
-            return None;
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
+        }
+        if base_query.has_heap_filters() {
+            return Err(RankJoinDeclineReason::DisjunctiveLeafHasHeapFilter {
+                table: self.table_alias.clone(),
+            });
         }
         {
             let state = self
@@ -806,10 +815,19 @@ impl PgSearchScanPlan {
                 }
                 ExecutionState::Uninitialized | ExecutionState::Consumed => None,
             };
+<<<<<<< HEAD
             if !base_query.is_pushdown_filter(&|field| {
                 schema.is_some_and(|s| s.is_term_filter_field(field.root()))
             }) {
                 return None;
+=======
+            if !is_pushdown {
+                return Err(
+                    RankJoinDeclineReason::DisjunctiveLeafBaseNotPushdownFilter {
+                        table: self.table_alias.clone(),
+                    },
+                );
+>>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
             }
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
@@ -850,7 +868,7 @@ impl PgSearchScanPlan {
             ));
         }
         drop(state);
-        Some((plan, old_to_new))
+        Ok((plan, old_to_new))
     }
 
     fn rebuild_properties_with_schema(&mut self, schema: SchemaRef) {

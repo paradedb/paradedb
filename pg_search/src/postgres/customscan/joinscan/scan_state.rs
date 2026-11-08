@@ -110,24 +110,17 @@ fn resolve_var_to_df_col(
     attno: pg_sys::AttrNumber,
 ) -> Option<Expr> {
     // A window-aggregate sentinel Var (from rewrite_window_funcs_to_sentinels)
-    // resolves to the window step's output column — except for
-    // numeric-storage aggregates, whose column values are encoded (scaled
-    // i64, decimal bytes, avg blobs). Native DataFusion math over those
-    // would be wrong, so refuse here: per-node translation then falls back
-    // to the PgExprUdf path, whose window inputs decode via
-    // `JoinClauseMapper::udf_input`.
+    // resolves to the window step's output column — except when the column
+    // holds storage-encoded values (numeric-storage SQL aggregates or `pdb.agg`
+    // JSON text; see `WindowAgg::requires_udf_decode`). Native DataFusion
+    // operations over those would be wrong, so refuse here: per-node
+    // translation then falls back to the PgExprUdf path, whose window inputs
+    // decode via `JoinClauseMapper::udf_input`.
     if rti == WINDOW_SENTINEL_VARNO {
         let index = WindowAggIndex::from_sentinel_attno(attno)?;
         let window_agg = join_clause.window_aggs.get(index)?;
-        match &window_agg.agg_def {
-            WindowAggDef::Sql(sql) => {
-                if sql.arg_field_type().is_some_and(|ft| ft.is_numeric()) {
-                    return None;
-                }
-            }
-            // The column holds the document as text, which only the
-            // PgExprUdf path turns back into the jsonb the expression reads.
-            WindowAggDef::PdbAgg(_) => return None,
+        if window_agg.requires_udf_decode() {
+            return None;
         }
         let canonical = join_clause.window_aggs.canonical_index(index);
         return Some(col(canonical.as_col_name()));
@@ -232,14 +225,7 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
             let index = WindowAggIndex::from_sentinel_attno(varattno)?;
             let window_agg = self.join_clause.window_aggs.get(index)?;
             let canonical = self.join_clause.window_aggs.canonical_index(index);
-            let decode = match &window_agg.agg_def {
-                WindowAggDef::Sql(sql) => InputDecode::StorageEncoded {
-                    is_avg: matches!(sql.agg_type(), SupportedWindowAggType::Avg),
-                    field_type: sql.arg_field_type().cloned(),
-                },
-                WindowAggDef::PdbAgg(_) => InputDecode::JsonDocument,
-            };
-            return Some((col(canonical.as_col_name()), decode));
+            return Some((col(canonical.as_col_name()), window_agg.udf_input_decode()));
         }
         let field_type = numeric_fast_field_type(self.join_clause, varno, varattno)?;
         let expr = resolve_var_to_df_col(self.join_clause, varno, varattno)?;

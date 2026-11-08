@@ -185,6 +185,12 @@ pub fn mark_contexts_successful<C: ToWarningContexts>(contexts: C) {
 }
 
 pub fn clear_planner_warnings() {
+    // Increment the planning cycle counter so multiple queries planned within a single
+    // top-level statement (e.g. SPI queries inside a SQL or PL/pgSQL function, which all
+    // share `GetCurrentStatementStartTimestamp()`) each get their own deduplication key,
+    // while multiple physical-plan builds for the same planned query (e.g. `exec_custom_scan`
+    // followed by `explain_custom_scan` during `EXPLAIN ANALYZE`) share one key.
+    PLANNING_CYCLE_ID.with(|id| id.set(id.get().wrapping_add(1)));
     PLANNER_STATE.with(|state| {
         let mut state = state.borrow_mut();
         state.warnings.clear();
@@ -192,6 +198,7 @@ pub fn clear_planner_warnings() {
     });
 }
 
+<<<<<<< HEAD
 thread_local! {
     /// Tracks whether the current execution is within an `EXPLAIN` statement.
     ///
@@ -204,12 +211,35 @@ thread_local! {
 }
 
 /// An RAII guard that sets `IN_EXPLAIN` to `true` if `is_explain` is true, and restores
+=======
+/// Tracks whether the current thread is executing inside an `EXPLAIN` command, and whether
+/// `ANALYZE` is enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExplainMode {
+    /// Not inside an `EXPLAIN` command.
+    None,
+    /// Inside `EXPLAIN` without `ANALYZE`. `emit_planner_warnings()` downgrades
+    /// `paradedb.planner_warnings = 'error'` to `WARNING`s so users can inspect fallback plans.
+    PlanOnly,
+    /// Inside `EXPLAIN ANALYZE`, which executes the query and therefore enforces
+    /// `paradedb.planner_warnings = 'error'` on scan fallbacks, while still enabling
+    /// `EXPLAIN`-only `WARNING` diagnostics.
+    Analyze,
+}
+
+thread_local! {
+    static EXPLAIN_MODE: Cell<ExplainMode> = const { Cell::new(ExplainMode::None) };
+}
+
+/// An RAII guard that sets `EXPLAIN_MODE` to `mode`, and restores
+>>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
 /// the previous state when dropped (supporting nested utility statements and clean unwinds).
 pub struct ExplainGuard {
-    prev: bool,
+    prev: ExplainMode,
 }
 
 impl ExplainGuard {
+<<<<<<< HEAD
     /// Creates a new `ExplainGuard`. If `is_explain` is `true`, marks the thread-local
     /// state as being inside an `EXPLAIN` query.
     pub fn new(is_explain: bool) -> Self {
@@ -220,6 +250,11 @@ impl ExplainGuard {
             }
             prev
         });
+=======
+    /// Creates a new `ExplainGuard` that sets the thread-local `ExplainMode`.
+    pub fn new(mode: ExplainMode) -> Self {
+        let prev = EXPLAIN_MODE.with(|cell| cell.replace(mode));
+>>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
         Self { prev }
     }
 }
@@ -228,15 +263,79 @@ impl ExplainGuard {
 // local, and the flag has to be reset when EXPLAIN raises too.
 impl Drop for ExplainGuard {
     fn drop(&mut self) {
-        IN_EXPLAIN.with(|cell| cell.set(self.prev));
+        EXPLAIN_MODE.with(|cell| cell.set(self.prev));
     }
 }
 
+<<<<<<< HEAD
 /// Returns whether the current thread is currently planning or executing an `EXPLAIN` query.
 pub fn is_in_explain() -> bool {
     IN_EXPLAIN.with(|cell| cell.get())
 }
 
+=======
+/// Returns the current thread's [`ExplainMode`].
+pub fn explain_mode() -> ExplainMode {
+    EXPLAIN_MODE.with(|cell| cell.get())
+}
+
+// EXPLAIN EXECUTE bypasses ExplainOneQuery_hook. Cover utility statements too,
+// and invalidate plans built while errors were downgraded before they can execute.
+static mut PREV_PROCESS_UTILITY_HOOK: pg_sys::ProcessUtility_hook_type = None;
+
+struct ExplainUtilityGuard {
+    _explain: ExplainGuard,
+    invalidate: bool,
+}
+
+crate::impl_safe_drop!(ExplainUtilityGuard, |self| {
+    if self.invalidate {
+        unsafe { pg_sys::ResetPlanCache() };
+    }
+});
+
+#[allow(clippy::too_many_arguments)]
+#[rustfmt::skip]
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn explain_process_utility_hook(
+    pstmt: *mut pg_sys::PlannedStmt,
+    query_string: *const core::ffi::c_char,
+    read_only_tree: bool,
+    context: pg_sys::ProcessUtilityContext::Type,
+    params: pg_sys::ParamListInfo,
+    query_env: *mut pg_sys::QueryEnvironment,
+    dest: *mut pg_sys::DestReceiver,
+    qc: *mut pg_sys::QueryCompletion,
+) {
+    let node = (*pstmt).utilityStmt;
+    let _guard = if !node.is_null() && (*node).type_ == pg_sys::NodeTag::T_ExplainStmt {
+        let explain = &*node.cast::<pg_sys::ExplainStmt>();
+        let mut analyze = false;
+        for option in pgrx::PgList::<pg_sys::DefElem>::from_pg(explain.options).iter_ptr() {
+            if std::ffi::CStr::from_ptr((*option).defname).to_bytes() == b"analyze" {
+                analyze = pg_sys::defGetBoolean(option);
+            }
+        }
+        let mode = if analyze {
+            ExplainMode::Analyze
+        } else {
+            ExplainMode::PlanOnly
+        };
+        Some(ExplainUtilityGuard {
+            _explain: ExplainGuard::new(mode),
+            invalidate: !analyze && crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Error,
+        })
+    } else {
+        None
+    };
+    if let Some(prev_hook) = PREV_PROCESS_UTILITY_HOOK {
+        prev_hook(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    } else {
+        pg_sys::standard_ProcessUtility(pstmt, query_string, read_only_tree, context, params, query_env, dest, qc);
+    }
+}
+
+>>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
 static mut PREV_EXPLAIN_ONE_QUERY_HOOK: pg_sys::ExplainOneQuery_hook_type = None;
 
 #[allow(clippy::too_many_arguments)]
@@ -251,7 +350,17 @@ unsafe extern "C-unwind" fn paradedb_explain_one_query_hook(
     params: pg_sys::ParamListInfo,
     query_env: *mut pg_sys::QueryEnvironment,
 ) {
+<<<<<<< HEAD
     let _explain_guard = ExplainGuard::new(true);
+=======
+    // ANALYZE executes the query, so it must enforce the same policy as SELECT.
+    let mode = if (*es).analyze {
+        ExplainMode::Analyze
+    } else {
+        ExplainMode::PlanOnly
+    };
+    let _explain_guard = ExplainGuard::new(mode);
+>>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
 
     if let Some(prev_hook) = PREV_EXPLAIN_ONE_QUERY_HOOK {
         prev_hook(query, cursor_options, into, es, query_string, params, query_env);
@@ -300,7 +409,7 @@ pub fn emit_planner_warnings() {
         return;
     }
 
-    let in_explain = is_in_explain();
+    let in_plan_only_explain = explain_mode() == ExplainMode::PlanOnly;
 
     PLANNER_STATE.with(|state| {
         let state = state.borrow();
@@ -350,7 +459,7 @@ pub fn emit_planner_warnings() {
             return;
         }
 
-        if mode == crate::gucs::PlannerWarnings::Error && !in_explain {
+        if mode == crate::gucs::PlannerWarnings::Error && !in_plan_only_explain {
             if messages.len() == 1 {
                 pgrx::error!("{}", messages[0]);
             } else {
@@ -374,13 +483,16 @@ pub fn emit_planner_warnings() {
 //
 
 type StatementId = pg_sys::TimestampTz;
+type PlanningCycleKey = (u64, StatementId);
 
 const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 
 thread_local! {
+    static PLANNING_CYCLE_ID: Cell<u64> = const { Cell::new(0) };
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_STALE_VM_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+    static WARNED_RANK_JOIN_AT: Cell<PlanningCycleKey> = const { Cell::new((0, NEVER)) };
 }
 
 fn current_statement_id() -> StatementId {
@@ -458,3 +570,58 @@ pub fn warn_stale_visibility_map(table_name: &str) {
     );
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
 }
+<<<<<<< HEAD
+=======
+
+/// Emits an `EXPLAIN`-only `WARNING` (once per query planning/execution cycle, on the leader
+/// only) for diagnostics explaining why a faster plan variant within a ParadeDB scan was not used.
+///
+/// Because the query still executes inside a ParadeDB scan, these diagnostics only surface during
+/// `EXPLAIN` (and `EXPLAIN ANALYZE`) when `paradedb.planner_warnings` is not `'off'`, and do not
+/// raise an error in `'error'` mode.
+fn warn_in_explain_once_per_cycle(
+    warned_at: &'static LocalKey<Cell<PlanningCycleKey>>,
+    message: &str,
+) {
+    if explain_mode() == ExplainMode::None
+        || crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off
+    {
+        return;
+    }
+    if unsafe { pg_sys::ParallelWorkerNumber } != -1 {
+        return;
+    }
+    let key = (
+        PLANNING_CYCLE_ID.with(|id| id.get()),
+        current_statement_id(),
+    );
+    if warned_at.with(|last| last.replace(key)) != key {
+        pgrx::warning!("{message}. To disable this warning: SET paradedb.planner_warnings = 'off'");
+    }
+}
+
+/// Emits a `WARNING` during `EXPLAIN` (once per query planning/execution cycle, on the leader
+/// only) when `RankJoinRule` declines to rewrite a score-ordered top-K join into `RankJoinExec`.
+pub fn warn_rank_join_not_used(reason: &str) {
+    warn_in_explain_once_per_cycle(
+        &WARNED_RANK_JOIN_AT,
+        &format!("RankJoinExec not used: {reason}"),
+    );
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+
+    // In a sequential scan the scan error is raised before the spill diagnostic.
+    // Exercise the spill diagnostic independently to verify its severity too.
+    #[pgrx::pg_test(
+        error = "the query's filter match set exceeded work_mem and spilled to a temporary file; query performance may be degraded"
+    )]
+    fn planner_warning_spill_error() {
+        pgrx::Spi::run("SET paradedb.planner_warnings = 'error'").unwrap();
+        warn_filter_spilled();
+    }
+}
+>>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))

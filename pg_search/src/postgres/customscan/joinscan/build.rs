@@ -2214,17 +2214,25 @@ pub fn assign_tagged_queries<'a>(
     for source in sources {
         let alias =
             RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-        let local_queries: Vec<crate::scan::TaggedQuery> = predicates
-            .iter()
-            .enumerate()
-            .filter(|(_, (plan_pos, _))| *plan_pos == source.plan_position)
+        // Deduplicate by `p.query` per source: tag columns resolve by query equality,
+        // so a duplicate is never referenced and scores twice.
+        let mut unique_queries: Vec<(usize, &SearchQueryInput)> = Vec::new();
+        for (global_idx, (plan_pos, p)) in predicates.iter().enumerate() {
+            if *plan_pos == source.plan_position
+                && !unique_queries.iter().any(|(_, q)| *q == &p.query)
+            {
+                unique_queries.push((global_idx, &p.query));
+            }
+        }
+        let local_queries: Vec<crate::scan::TaggedQuery> = unique_queries
+            .into_iter()
             .enumerate()
             .map(
-                |(local_idx, (global_idx, (_, p)))| crate::scan::TaggedQuery {
+                |(local_idx, (global_idx, query))| crate::scan::TaggedQuery {
                     tag_name: format!("__{alias}_tag_{local_idx}"),
                     tag_idx: crate::scan::TagIndex(local_idx),
                     predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
-                    query: Box::new(p.query.clone()),
+                    query: Box::new(query.clone()),
                 },
             )
             .collect();

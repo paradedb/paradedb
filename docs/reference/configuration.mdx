@@ -28,23 +28,6 @@ ALTER ROLE app_user SET paradedb.vector_cluster_max_probe = 0.05;
 
 These settings control whether ParadeDB proposes custom plans for eligible queries.
 
-<<<<<<< HEAD
-| Setting                                             | Default       | Context | Description                                                                                                                 |
-| --------------------------------------------------- | ------------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_custom_scan`                       | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.                                  |
-| `paradedb.enable_aggregate_custom_scan`             | `on`          | user    | Enables the aggregate custom scan for eligible `pdb.agg` and `GROUP BY` queries.                                            |
-| `paradedb.enable_join_custom_scan`                  | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.                                       |
-| `paradedb.enable_rank_join`                         | `on`          | user    | Enables `RankJoinExec` and lazy probe-side top-K execution for eligible joins with `ORDER BY ... LIMIT`.                    |
-| `paradedb.rank_join_min_rows`                       | `10000`       | user    | Minimum estimated matching rows on join inputs before replacing a one-pass `HashJoinExec` with `RankJoinExec` or lazy sort. |
-| `paradedb.rank_join_unscored_selectivity_threshold` | `0.08`        | user    | Minimum unscored input selectivity for single-sided `RankJoinExec` before preferring `HashJoinExec` with `InList` pushdown. |
-| `paradedb.enable_custom_scan_without_operator`      | `off`         | user    | Allows custom scans without a ParadeDB search operator when the whole `WHERE` clause can push down.                         |
-| `paradedb.enable_filter_pushdown`                   | `on`          | user    | Allows non-indexed predicates to use heap filtering after the ParadeDB scan.                                                |
-| `paradedb.enable_range_partitioned_join`            | `on`          | user    | Enables range co-partitioned joins and asymmetric range alignment for MPP joins on indexes configured with `partition_by`.  |
-| `paradedb.enable_segment_pruning`                   | `on`          | user    | Prunes non-matching index segments using per-segment min/max field statistics during planning and scan execution.           |
-| `paradedb.enable_heuristic_selectivity`             | `on`          | user    | Uses cheap planner selectivity estimates for expensive fuzzy, regex, and range query shapes.                                |
-| `paradedb.per_tuple_cost`                           | `100000000.0` | user    | Planner cost multiplier that discourages using ParadeDB operators outside a supported index plan.                           |
-| `paradedb.explain_recursive_estimates`              | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                      |
-=======
 | Setting                                             | Default       | Context | Description                                                                                                                                                                            |
 | --------------------------------------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `paradedb.enable_custom_scan`                       | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.                                                                                             |
@@ -62,7 +45,6 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.explain_recursive_estimates`              | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                                                                                 |
 | `paradedb.planner_warnings`                         | `warning`     | user    | Controls warnings when an optimized scan cannot be used, and `EXPLAIN` warnings explaining why a faster plan variant within a scan was not used. Accepts `off`, `warning`, or `error`. |
 | `paradedb.spill_to_disk`                            | `off`         | user    | Allows eligible join and aggregate queries to spill to disk when they exceed `work_mem`.                                                                                               |
->>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
 
 ## Top K
 

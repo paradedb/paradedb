@@ -815,19 +815,14 @@ impl PgSearchScanPlan {
                 }
                 ExecutionState::Uninitialized | ExecutionState::Consumed => None,
             };
-<<<<<<< HEAD
             if !base_query.is_pushdown_filter(&|field| {
                 schema.is_some_and(|s| s.is_term_filter_field(field.root()))
             }) {
-                return None;
-=======
-            if !is_pushdown {
                 return Err(
                     RankJoinDeclineReason::DisjunctiveLeafBaseNotPushdownFilter {
                         table: self.table_alias.clone(),
                     },
                 );
->>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
             }
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));

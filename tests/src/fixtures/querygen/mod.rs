@@ -820,18 +820,13 @@ impl PgGucs {
             "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
-<<<<<<< HEAD
-        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
-=======
         writeln!(gucs, "{verb} paradedb.enable_rank_join TO {rank_join};").unwrap();
         if *rank_join {
             writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO 0;").unwrap();
         } else {
             writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO DEFAULT;").unwrap();
         }
-        // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
-        // (and MPP distributed execution) to be used on the small property-test tables.
->>>>>>> f339056 (fix: polish RankJoin eligibility, planner warnings, and parameterized score projections (#7305))
+        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
         if *parallel_workers {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
         } else {

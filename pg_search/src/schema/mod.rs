@@ -465,7 +465,18 @@ pub fn is_columnar_json_path(schema: &Schema, name: &str) -> bool {
 
 impl SearchIndexSchema {
     pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
-        Ok(load_index_schema(indexrel)?
+        // A partitioned index has no storage. Its members share the declared
+        // Tantivy schema, while column source numbers must still come from the
+        // parent's own options (children can have different dropped columns).
+        let schema = if crate::postgres::index::is_partitioned_index(indexrel.oid()) {
+            match crate::postgres::index::any_leaf_partition_index(indexrel) {
+                Some(leaf) => load_index_schema(&leaf)?,
+                None => Some(crate::postgres::planned_schema(indexrel)),
+            }
+        } else {
+            load_index_schema(indexrel)?
+        };
+        Ok(schema
             .map(|schema| Self {
                 schema,
                 bm25_options: indexrel.options().clone(),

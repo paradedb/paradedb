@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- PostgreSQL now checks column permissions for indexed fields resolved during SQL search and aggregation planning, raising `permission denied` for ungranted fields. Runtime-only, wildcard/unfielded, and untraceable inputs retain existing behavior.

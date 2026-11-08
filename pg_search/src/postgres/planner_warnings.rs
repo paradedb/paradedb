@@ -209,7 +209,7 @@ pub enum ExplainMode {
     PlanOnly,
     /// Inside `EXPLAIN ANALYZE`, which executes the query and therefore enforces
     /// `paradedb.planner_warnings = 'error'` on scan fallbacks, while still enabling
-    /// `EXPLAIN`-only `WARNING` diagnostics such as `warn_rank_join_not_used`.
+    /// `EXPLAIN`-only `WARNING` diagnostics.
     Analyze,
 }
 
@@ -239,14 +239,9 @@ impl Drop for ExplainGuard {
     }
 }
 
-/// Returns whether the current thread is planning an `EXPLAIN` without `ANALYZE`.
-pub fn is_in_explain() -> bool {
-    EXPLAIN_MODE.with(|cell| cell.get() == ExplainMode::PlanOnly)
-}
-
-/// Returns whether the current thread is inside any `EXPLAIN` (with or without `ANALYZE`).
-pub fn is_in_any_explain() -> bool {
-    EXPLAIN_MODE.with(|cell| cell.get() != ExplainMode::None)
+/// Returns the current thread's [`ExplainMode`].
+pub fn explain_mode() -> ExplainMode {
+    EXPLAIN_MODE.with(|cell| cell.get())
 }
 
 // EXPLAIN EXECUTE bypasses ExplainOneQuery_hook. Cover utility statements too,
@@ -376,7 +371,7 @@ pub fn emit_planner_warnings() {
         return;
     }
 
-    let in_explain = is_in_explain();
+    let in_plan_only_explain = explain_mode() == ExplainMode::PlanOnly;
 
     PLANNER_STATE.with(|state| {
         let state = state.borrow();
@@ -426,7 +421,7 @@ pub fn emit_planner_warnings() {
             return;
         }
 
-        if mode == crate::gucs::PlannerWarnings::Error && !in_explain {
+        if mode == crate::gucs::PlannerWarnings::Error && !in_plan_only_explain {
             if messages.len() == 1 {
                 pgrx::error!("{}", messages[0]);
             } else {
@@ -450,6 +445,7 @@ pub fn emit_planner_warnings() {
 //
 
 type StatementId = pg_sys::TimestampTz;
+type PlanningCycleKey = (u64, StatementId);
 
 const NEVER: StatementId = pg_sys::TimestampTz::MIN;
 
@@ -458,7 +454,7 @@ thread_local! {
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_STALE_VM_AT: Cell<StatementId> = const { Cell::new(NEVER) };
-    static WARNED_RANK_JOIN_AT: Cell<(u64, StatementId)> = const { Cell::new((0, NEVER)) };
+    static WARNED_RANK_JOIN_AT: Cell<PlanningCycleKey> = const { Cell::new((0, NEVER)) };
 }
 
 fn current_statement_id() -> StatementId {
@@ -551,14 +547,18 @@ pub fn warn_stale_visibility_map(table_name: &str) {
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
 }
 
-/// Emits a `WARNING` during `EXPLAIN` (once per query planning/execution cycle, on the leader
-/// only) when `RankJoinRule` declines to rewrite a score-ordered top-K join into `RankJoinExec`.
+/// Emits an `EXPLAIN`-only `WARNING` (once per query planning/execution cycle, on the leader
+/// only) for diagnostics explaining why a faster plan variant within a ParadeDB scan was not used.
 ///
-/// Because the query still executes inside a `ParadeDB Join Scan` (`HashJoinExec`), this
-/// diagnostic only surfaces during `EXPLAIN` (and `EXPLAIN ANALYZE`) when
-/// `paradedb.planner_warnings` is not `'off'`, and does not raise an error in `'error'` mode.
-pub fn warn_rank_join_not_used(reason: &str) {
-    if !is_in_any_explain() || crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off
+/// Because the query still executes inside a ParadeDB scan, these diagnostics only surface during
+/// `EXPLAIN` (and `EXPLAIN ANALYZE`) when `paradedb.planner_warnings` is not `'off'`, and do not
+/// raise an error in `'error'` mode.
+fn warn_in_explain_once_per_cycle(
+    warned_at: &'static LocalKey<Cell<PlanningCycleKey>>,
+    message: &str,
+) {
+    if explain_mode() == ExplainMode::None
+        || crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off
     {
         return;
     }
@@ -569,12 +569,18 @@ pub fn warn_rank_join_not_used(reason: &str) {
         PLANNING_CYCLE_ID.with(|id| id.get()),
         current_statement_id(),
     );
-    if WARNED_RANK_JOIN_AT.with(|last| last.replace(key)) != key {
-        pgrx::warning!(
-            "RankJoinExec not used: {reason}. \
-             To disable this warning: SET paradedb.planner_warnings = 'off'"
-        );
+    if warned_at.with(|last| last.replace(key)) != key {
+        pgrx::warning!("{message}. To disable this warning: SET paradedb.planner_warnings = 'off'");
     }
+}
+
+/// Emits a `WARNING` during `EXPLAIN` (once per query planning/execution cycle, on the leader
+/// only) when `RankJoinRule` declines to rewrite a score-ordered top-K join into `RankJoinExec`.
+pub fn warn_rank_join_not_used(reason: &str) {
+    warn_in_explain_once_per_cycle(
+        &WARNED_RANK_JOIN_AT,
+        &format!("RankJoinExec not used: {reason}"),
+    );
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -689,7 +689,6 @@ fn try_rewrite_under_sort(
         return Ok(Some(rewritten));
     }
     if let Some(reason) = decline_reason
-        && !matches!(reason, RankJoinDeclineReason::BelowMinRows { .. })
         && has_hash_join(node)
         && primary_sort_references_score(node, required_ordering)
         && (min_rows == 0 || !any_scan(node, |s| s.planner_estimated_rows() < min_rows as u64))
@@ -731,13 +730,13 @@ fn try_rewrite_rank_join(
                     eager_fields,
                 ) {
                     Ok(rewritten) => return Ok(rewritten),
-                    Err(RankJoinRewriteError::DataFusion(err)) => return Err(err.into()),
+                    Err(err @ RankJoinRewriteError::DataFusion(_)) => return Err(err),
                     Err(RankJoinRewriteError::Declined(reason)) => {
                         tag_decline = Some(reason);
                     }
                 }
             }
-            Err(RankJoinRewriteError::DataFusion(err)) => return Err(err.into()),
+            Err(err @ RankJoinRewriteError::DataFusion(_)) => return Err(err),
             Err(RankJoinRewriteError::Declined(reason)) => {
                 tag_decline = Some(reason);
             }
@@ -758,7 +757,7 @@ fn try_rewrite_rank_join(
         eager_fields,
     ) {
         Ok(rewritten) => Ok(rewritten),
-        Err(RankJoinRewriteError::DataFusion(err)) => Err(err.into()),
+        Err(err @ RankJoinRewriteError::DataFusion(_)) => Err(err),
         Err(RankJoinRewriteError::Declined(branch_reason)) => {
             Err(tag_decline.unwrap_or(branch_reason).into())
         }

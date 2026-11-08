@@ -67,7 +67,7 @@ use crate::api::{MvccVisibility, SortDirection, agg_funcoid};
 use crate::gucs;
 use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, RelNode};
 
-use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
+use crate::aggregate::is_null_sentinel;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
@@ -2782,25 +2782,10 @@ fn decode_safe_cast(
     }
 }
 
-/// True when a group key is the sentinel Tantivy's terms aggregation puts on the bucket of rows
-/// whose column is NULL (handles both MIN and MAX sentinels).
-/// U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
-/// Bool uses string sentinels for both MIN and MAX.
-/// DateTime columns don't have a missing sentinel (NULLs are excluded).
-fn is_null_group_key(key: &TantivyValue) -> bool {
-    match &key.0 {
-        PdbOwnedValue::Str(_) => is_string_null_sentinel(key),
-        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-        PdbOwnedValue::U64(v) => *v == u64::MAX,
-        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
-        _ => false,
-    }
-}
-
 /// The NULL bucket of a key with a string sentinel. A real key of another type, such as a JSON
 /// number equal to `i64::MIN`, must not read as NULL here.
 fn is_string_null_sentinel(key: &TantivyValue) -> bool {
-    matches!(&key.0, PdbOwnedValue::Str(s) if s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX)
+    matches!(&key.0, PdbOwnedValue::Str(s) if is_null_sentinel(s))
 }
 
 /// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels
@@ -2815,8 +2800,9 @@ unsafe fn group_key_to_datum(
     expected_typoid: pg_sys::Oid,
     original_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
-    // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
-    if is_null_group_key(&key) {
+    // A `GROUP BY` level keys its NULL group with a string sentinel whatever the column type
+    // (see `set_missing_on_terms`), so a number is always a value.
+    if is_string_null_sentinel(&key) {
         return None;
     }
 

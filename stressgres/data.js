@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794125511991,
+  "lastUpdate": 1794125538125,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112812,6 +112812,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13488176191-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8f6e050cca2aa889cee58e5dacd92fd650c009fb",
+          "message": "chore: Fix conflict between #7108 and #7298. (#7309)\n\nFix conflict between #7108 and #7298.",
+          "timestamp": "2026-11-07T17:05:12Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8f6e050cca2aa889cee58e5dacd92fd650c009fb"
+        },
+        "date": 1794125535101,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1701.9635967697807,
+            "unit": "median tps",
+            "extra": "avg tps: 1733.6783136335714, max tps: 1919.557238466135, count: 59246"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.971655667353223,
+            "unit": "median tps",
+            "extra": "avg tps: 6.0158036943548465, max tps: 7.061352066667269, count: 59246"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1370.802377329667,
+            "unit": "median tps",
+            "extra": "avg tps: 1408.7479036651105, max tps: 1833.8914388745252, count: 59246"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2910.3151631989545,
+            "unit": "median tps",
+            "extra": "avg tps: 2850.538864488859, max tps: 3190.8082525076165, count: 59246"
+          }
+        ],
+        "publication_id": "13609588747-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -157478,6 +157525,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13488176191-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8f6e050cca2aa889cee58e5dacd92fd650c009fb",
+          "message": "chore: Fix conflict between #7108 and #7298. (#7309)\n\nFix conflict between #7108 and #7298.",
+          "timestamp": "2026-11-07T17:05:12Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8f6e050cca2aa889cee58e5dacd92fd650c009fb"
+        },
+        "date": 1794125538038,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.04884717955642575, max background_merging: 2.0, count: 59246"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.706913626066517, max cpu: 11.803279, count: 59246"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.251947256987812, max mem: 29.25390625, count: 59246"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.706479386549911, max cpu: 27.799229, count: 59246"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 52.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.227579182560845, max mem: 56.15234375, count: 59246"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40386,
+            "unit": "median block_count",
+            "extra": "avg block_count: 40230.709600648144, max block_count: 40386.0, count: 59246"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.994581912702968, max segment_count: 21.0, count: 59246"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.076923,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.749907408753412, max cpu: 34.18108, count: 59246"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 41.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 41.617431187337544, max mem: 41.640625, count: 59246"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.838024654480379, max cpu: 28.015566, count: 59246"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 58.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.74318796311143, max mem: 60.53125, count: 59246"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.483280951110967, max cpu: 27.35043, count: 59246"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 52.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.64124384452115, max mem: 54.20703125, count: 59246"
+          }
+        ],
+        "publication_id": "13609588747-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

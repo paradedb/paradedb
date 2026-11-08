@@ -27,7 +27,7 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (global-routing-soar)
+    name: MS MARCO 113m (soar-query-overhead)
     if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-msmarco-pg_search'
     timeout-minutes: 720
     runs-on:
@@ -299,12 +299,12 @@ jobs:
               --query "$query" --set "search.k=$k" --no-compare --html
           done
 
-      - name: Download the completed non-replicated PR 7295 baseline
+      - name: Download the completed SOAR PR 7315 baseline
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: msmarco-113m-diagnostics
           path: benchmark-baseline
-          run-id: 42419496747
+          run-id: 42477854482
           github-token: ${{ github.token }}
 
       - name: Prepare k6 operating points
@@ -331,7 +331,7 @@ jobs:
 
           pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
 
-          SOAR replication is enabled, with centroid-parallel assignment and V6 document-ordered exact rows from #7277/#7275. Compared below with the completed non-replicated #7295 run 42419496747; no reference is rerun.
+          SOAR replication, centroid-parallel assignment, and V6 document-ordered exact rows are retained. This run adds direct unaligned ARM sign-code scoring and deferred exact-row reader initialization. Compared below with the completed SOAR #7315 run 42477854482 using identical benchmark configuration; no reference is rerun.
 
           Absolute cluster-work budgets selected independently for top-10 and top-100 at R90/R95/R99, with adaptive probing, global quantized routing, and rerank factor 2. The sweep starts at 100 units and searches from 1 to 1,000,000.
 
@@ -372,7 +372,7 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
-      - name: Compare selected points against PR 7295
+      - name: Compare selected points against the completed SOAR baseline
         run: |
           python3 benchmarks/msmarco/compare_selected.py \
             --baseline benchmark-baseline --current . \

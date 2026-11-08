@@ -63,7 +63,7 @@ class SelectedComparisonTests(unittest.TestCase):
     def test_unreached_and_missing_measurements_stay_explicit(self):
         """Keep absent results visible and reject mismatched configurations or queries."""
         query = b"[]\n"
-        for name, spill in (("baseline", "false"), ("current", "true")):
+        for name, spill in (("baseline", "true"), ("current", "true")):
             root = self.root / name / "benchmark-artifacts"
             root.mkdir(parents=True)
             (root / "query_vectors.json").write_bytes(query)
@@ -87,6 +87,15 @@ class SelectedComparisonTests(unittest.TestCase):
                 self.root / "baseline", self.root / "current"
             )
             self.assertEqual(result.count("unreached"), 4)
+            self.assertIn("SOAR baseline", result)
+            self.assertIn("Optimized SOAR", result)
+            (self.root / "current/benchmark-artifacts/config.toml").write_text(
+                "[index]\nspill = false\n"
+            )
+            with self.assertRaisesRegex(ValueError, "replication"):
+                compare_selected.comparison(
+                    self.root / "baseline", self.root / "current"
+                )
             self.assertIn("| missing | missing | missing | missing |", result)
             (self.root / "current/benchmark-artifacts/config.toml").write_text(
                 "[index]\nspill = true\ntarget_segment_count = 1\n"

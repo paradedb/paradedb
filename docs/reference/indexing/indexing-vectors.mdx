@@ -250,12 +250,13 @@ modelBuilder.Entity<MockItem>()
   every vector. The default samples 32% of the vectors. Larger samples can
   improve centroid quality at the cost of a slower, more memory-intensive build.
 </ParamField>
-<ParamField body="max_leaf_size" default={200}>
+<ParamField body="max_leaf_size" default={0}>
   The target number of indexed vectors per IVF cluster. Must be an integer
-  between `1` and `2147483647`. The training leaf cap is `ceil(2 × max_leaf_size
-  × training_sample_ratio)` sampled vectors. Smaller values generally produce
-  more centroids and smaller clusters. Actual cluster sizes depend on the
-  clustering result.
+  between `0` and `2147483647`. A positive value sets the vectors per cluster
+  directly. `0` sizes each cluster to 4 Postgres pages of layer-0 quantized data
+  for the field's dimension and metric. The training leaf cap is `ceil(2 ×
+  cluster_target × training_sample_ratio)` sampled vectors. Actual cluster sizes
+  depend on the clustering result.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the
@@ -268,9 +269,9 @@ modelBuilder.Entity<MockItem>()
 <Note>
   These options replace `centroid_ratio` and `training_samples_per_centroid`.
   The old names are no longer accepted. Recreate indexes that explicitly store
-  either old option using the new options. `REINDEX` alone does not remove
-  obsolete index options. The new defaults sample 32% of vectors and use a
-  target cluster size of 200 indexed vectors.
+  either old option using the new options; `REINDEX` alone does not remove
+  obsolete index options. The defaults sample 32% of vectors and size clusters
+  to 4 pages of quantized data.
 </Note>
 
 <ParamField body="quantization" default="[1,1]">

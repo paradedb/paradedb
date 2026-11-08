@@ -31,8 +31,9 @@ still end the scan early.
 </ParamField>
 
 <Note>
-  Recall also depends on the index's `training_sample_ratio` and
-  `max_leaf_size`, applied whenever a segment is clustered. See [Index
+  Recall also depends on the index's `training_sample_ratio` and on the cluster
+  size set by `max_leaf_size` (4 pages of quantized data by default), applied
+  whenever a segment is clustered. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
 

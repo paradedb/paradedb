@@ -468,7 +468,7 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the target number of indexed vectors per IVF cluster.
+    /// Returns the vectors per IVF cluster; `0` sizes clusters in pages of quantized data.
     pub fn max_leaf_size(&self) -> usize {
         self.options_data().max_leaf_size()
     }
@@ -891,7 +891,7 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the target number of indexed vectors per IVF cluster.
+    /// Returns the vectors per IVF cluster; `0` sizes clusters in pages of quantized data.
     pub fn max_leaf_size(&self) -> usize {
         self.max_leaf_size as usize
     }
@@ -1152,10 +1152,9 @@ pub unsafe fn init() {
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
         "max_leaf_size".as_pg_cstr(),
-        "Target indexed vectors per IVF cluster, adjusted for the training sample ratio"
-            .as_pg_cstr(),
+        "Vectors per IVF cluster; 0 sizes clusters to 4 pages of quantized data".as_pg_cstr(),
         DEFAULT_MAX_LEAF_SIZE,
-        1,
+        0,
         i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );

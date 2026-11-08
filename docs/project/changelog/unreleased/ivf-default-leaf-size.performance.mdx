@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Raised the default IVF `max_leaf_size` from `100` to `200` for better query latency. Existing indexes are unaffected.
+IVF clusters are sized in storage pages by default. `max_leaf_size` defaults to `0`, which targets 4 Postgres pages of layer-0 quantized data per cluster for the field's dimension and metric. Positive values retain an explicit target number of indexed vectors per cluster. Existing segments keep their clusters until their next clustered merge; run `REINDEX` to apply auto-sizing to every segment.

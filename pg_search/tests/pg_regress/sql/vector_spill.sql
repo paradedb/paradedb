@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 1000000;
 SET paradedb.vector_stats = on;
 
 CREATE FUNCTION spill_fixture_vector(d integer, n integer)
@@ -98,7 +98,13 @@ SELECT
 FROM segment_info;
 
 -- A narrower probe still returns the exact top 10 here: both copies of a document can carry it.
-SET paradedb.vector_cluster_max_probe = 0.5;
+DO $$
+BEGIN
+    PERFORM set_config('paradedb.vector_cluster_max_probe',
+        (SELECT (sum(vector_num_centroids) / 2)::text
+         FROM paradedb.vector_info('spill_rows_idx', 'vec')), false);
+END
+$$;
 WITH indexed AS (
     SELECT id FROM spill_rows WHERE id @@@ pdb.all()
     ORDER BY vec <=> spill_fixture_vector(768, 7), id LIMIT 10
@@ -107,7 +113,7 @@ WITH indexed AS (
     ORDER BY vec <=> spill_fixture_vector(768, 7), id LIMIT 10
 )
 SELECT (SELECT count(*) FROM indexed i JOIN oracle o USING (id)) >= 9 AS recall_at_half_probe;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 1000000;
 
 ALTER INDEX spill_rows_idx SET (spill = false);
 REINDEX INDEX spill_rows_idx;

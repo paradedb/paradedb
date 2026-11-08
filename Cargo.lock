@@ -5120,7 +5120,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5331,7 +5331,7 @@ dependencies = [
  "serde_path_to_error",
  "stable_deref_trait",
  "strum 0.28.0",
- "superkmeans-rs 0.3.0 (git+https://github.com/paradedb/superkmeans-rs?rev=7c519a43d3e97685bfacbf868a0ec2e67c9c06a2)",
+ "superkmeans-rs",
  "tantivy",
  "tantivy-common",
  "tantivy-fst",
@@ -7224,20 +7224,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "superkmeans-rs"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=7c519a43d3e97685bfacbf868a0ec2e67c9c06a2#7c519a43d3e97685bfacbf868a0ec2e67c9c06a2"
-dependencies = [
- "matrixmultiply",
- "pkg-config",
- "rand 0.8.7",
- "rand_chacha 0.3.1",
- "rand_distr",
- "rayon",
-]
-
-[[package]]
-name = "superkmeans-rs"
-version = "0.3.0"
-source = "git+https://github.com/paradedb/superkmeans-rs?rev=ec3c9befe84d8beb437111a8eb4876eebc58e7a3#ec3c9befe84d8beb437111a8eb4876eebc58e7a3"
+source = "git+https://github.com/paradedb/superkmeans-rs?rev=713a461c29ce261bc3ab04417aa7b730a0aab53c#713a461c29ce261bc3ab04417aa7b730a0aab53c"
 dependencies = [
  "matrixmultiply",
  "pkg-config",
@@ -7346,7 +7333,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7383,7 +7370,7 @@ dependencies = [
  "serde_json",
  "sketches-ddsketch 0.4.1",
  "smallvec",
- "superkmeans-rs 0.3.0 (git+https://github.com/paradedb/superkmeans-rs?rev=ec3c9befe84d8beb437111a8eb4876eebc58e7a3)",
+ "superkmeans-rs",
  "tantivy-bitpacker",
  "tantivy-columnar",
  "tantivy-common",
@@ -7405,7 +7392,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "bitpacking",
 ]
@@ -7413,7 +7400,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7428,7 +7415,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7461,7 +7448,7 @@ dependencies = [
 [[package]]
 name = "tantivy-quant"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
@@ -7470,7 +7457,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7482,7 +7469,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7495,7 +7482,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7532,7 +7519,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=47cfa0b62683645bf7095b4ad59146a8fc019785#47cfa0b62683645bf7095b4ad59146a8fc019785"
+source = "git+https://github.com/paradedb/tantivy.git?rev=cd1f11679a109a691ef099599e1f14a943872669#cd1f11679a109a691ef099599e1f14a943872669"
 dependencies = [
  "serde",
 ]

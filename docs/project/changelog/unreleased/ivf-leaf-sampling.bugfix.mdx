@@ -1,5 +1,5 @@
 ---
-header: bugfix
+header: stability
 ---
 
 IVF clustering now accounts for `training_sample_ratio` when translating `target_leaf_size` into a sampled training leaf cap: `ceil(2 × target_leaf_size × training_sample_ratio)`. The default remains `200` indexed vectors per cluster, which gives a cap of `128` sampled vectors at the default ratio of `0.32`, instead of `200`. Existing segments keep their clusters until their next clustered merge; run `REINDEX` to apply the change to every segment.

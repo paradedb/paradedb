@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794128152572,
+  "lastUpdate": 1794164227414,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -56570,6 +56570,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13610150385-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "10f6f520029566f3c2130881ca8f0072daf3afcb",
+          "message": "chore: Preserve benchmark cluster GUCs across heap snapshot restores. (#7310)\n\n## What\n\nPreserve `$PGDATA/postgresql.auto.conf` across `restore-heap`, and\nremove the `paradedb.global_target_segment_count` override from\n`.github/actions/setup-benchmark-cluster/action.yml`.\n\n## Why\n\n`pgbackrest restore` overwrote the `postgresql.auto.conf` configured by\n`setup-benchmark-cluster` with the snapshot's stale settings (reverting\n`max_worker_processes` from `32` to `8`, so the mutable-sweep background\nworkers from #6797 starved parallel queries of 2 worker slots, and\noverriding `bm25.sql`'s per-index `target_segment_count = 32` with\n`48`).",
+          "timestamp": "2026-11-08T16:51:23Z",
+          "url": "https://github.com/paradedb/paradedb/commit/10f6f520029566f3c2130881ca8f0072daf3afcb"
+        },
+        "date": 1794164224266,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 8.743,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 9.184,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 9.403,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 9.597,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 10.279,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 10.5,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 12.147,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 13.669,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 13.923,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 9.154,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 9.427,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.53,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 9.285,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 9.534,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 9.655,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.957,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 10.436,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 10.561,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.044,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.495,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 3.942,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 3.973,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 4.712,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 5.041,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 10.605,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 11.906,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 12.315,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13629970809-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -60095,6 +60253,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13610150385-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "10f6f520029566f3c2130881ca8f0072daf3afcb",
+          "message": "chore: Preserve benchmark cluster GUCs across heap snapshot restores. (#7310)\n\n## What\n\nPreserve `$PGDATA/postgresql.auto.conf` across `restore-heap`, and\nremove the `paradedb.global_target_segment_count` override from\n`.github/actions/setup-benchmark-cluster/action.yml`.\n\n## Why\n\n`pgbackrest restore` overwrote the `postgresql.auto.conf` configured by\n`setup-benchmark-cluster` with the snapshot's stale settings (reverting\n`max_worker_processes` from `32` to `8`, so the mutable-sweep background\nworkers from #6797 starved parallel queries of 2 worker slots, and\noverriding `bm25.sql`'s per-index `target_segment_count = 32` with\n`48`).",
+          "timestamp": "2026-11-08T16:51:23Z",
+          "url": "https://github.com/paradedb/paradedb/commit/10f6f520029566f3c2130881ca8f0072daf3afcb"
+        },
+        "date": 1794164225556,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 113.96852302678964,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 104.36932521827505,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 81.52750478715492,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 110.65870818344787,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 107.09332802692974,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 101.81493682685021,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 324.08314363151163,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 248.52536200430336,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 106.66752145465503,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13629970809-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -74544,6 +74770,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13610150385-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "10f6f520029566f3c2130881ca8f0072daf3afcb",
+          "message": "chore: Preserve benchmark cluster GUCs across heap snapshot restores. (#7310)\n\n## What\n\nPreserve `$PGDATA/postgresql.auto.conf` across `restore-heap`, and\nremove the `paradedb.global_target_segment_count` override from\n`.github/actions/setup-benchmark-cluster/action.yml`.\n\n## Why\n\n`pgbackrest restore` overwrote the `postgresql.auto.conf` configured by\n`setup-benchmark-cluster` with the snapshot's stale settings (reverting\n`max_worker_processes` from `32` to `8`, so the mutable-sweep background\nworkers from #6797 starved parallel queries of 2 worker slots, and\noverriding `bm25.sql`'s per-index `target_segment_count = 32` with\n`48`).",
+          "timestamp": "2026-11-08T16:51:23Z",
+          "url": "https://github.com/paradedb/paradedb/commit/10f6f520029566f3c2130881ca8f0072daf3afcb"
+        },
+        "date": 1794164227403,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.5065620572833333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4327.859375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13629970809-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -77310,6 +77569,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13610150385-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "10f6f520029566f3c2130881ca8f0072daf3afcb",
+          "message": "chore: Preserve benchmark cluster GUCs across heap snapshot restores. (#7310)\n\n## What\n\nPreserve `$PGDATA/postgresql.auto.conf` across `restore-heap`, and\nremove the `paradedb.global_target_segment_count` override from\n`.github/actions/setup-benchmark-cluster/action.yml`.\n\n## Why\n\n`pgbackrest restore` overwrote the `postgresql.auto.conf` configured by\n`setup-benchmark-cluster` with the snapshot's stale settings (reverting\n`max_worker_processes` from `32` to `8`, so the mutable-sweep background\nworkers from #6797 starved parallel queries of 2 worker slots, and\noverriding `bm25.sql`'s per-index `target_segment_count = 32` with\n`48`).",
+          "timestamp": "2026-11-08T16:51:23Z",
+          "url": "https://github.com/paradedb/paradedb/commit/10f6f520029566f3c2130881ca8f0072daf3afcb"
+        },
+        "date": 1794164226520,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 6569.54,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 8112.66,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 13223.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 6908.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 8723.01,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 9487.15,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 706.09,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1082.32,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 3225.95,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13629970809-buffers"
       }
     ],
     "benchmarker hackernews (latency)": [

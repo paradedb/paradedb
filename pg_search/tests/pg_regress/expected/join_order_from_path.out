@@ -129,8 +129,8 @@ JOIN jo_reviews r ON r.book_id = b.id AND r.rating > b.author_id % 3
 JOIN jo_authors a ON a.id = b.author_id
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (b INNER a) INNER r
    Join Cond: r.book_id = b.id, a.id = b.author_id
@@ -141,7 +141,7 @@ ORDER BY b.id, r.id LIMIT 5;
      : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
      :   ProjectionExec: expr=[id@0 as col_1, id@1 as col_2, ctid_0@2 as ctid_0, ctid_2@3 as ctid_2]
      :     VisibilityFilterExec: tables=[b, a, r], pruned=[a]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, book_id@1)], filter=rating@1 > author_id@0 % 3, projection=[ctid_0@0, id@1, ctid_2@4, book_id@5, id@7, ctid_1@3]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, book_id@1)], filter=rating@1 > CAST(pdb_eval_expr_opexpr_3daa4e1b(author_id@0) AS Int64), projection=[ctid_0@0, id@1, ctid_2@4, book_id@5, id@7, ctid_1@3]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@2)], projection=[ctid_0@2, id@3, author_id@4, ctid_1@1]
      :           CooperativeExec
      :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"orchid","lenient":null,"conjunction_mode":null}}}}
@@ -175,8 +175,8 @@ JOIN jo_reviews r ON r.book_id = b.id AND r.rating > b.author_id % 3
 JOIN jo_authors a ON a.id = b.author_id AND r.rating <> b.author_id % 5
 WHERE a.bio @@@ 'orchid' AND r.body @@@ 'lovely'
 ORDER BY b.id, r.id LIMIT 5;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                  QUERY PLAN                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: (b INNER a) INNER r
    Join Cond: r.book_id = b.id, a.id = b.author_id
@@ -187,7 +187,7 @@ ORDER BY b.id, r.id LIMIT 5;
      : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
      :   ProjectionExec: expr=[id@0 as col_1, id@1 as col_2, ctid_0@2 as ctid_0, ctid_2@3 as ctid_2]
      :     VisibilityFilterExec: tables=[b, a, r], pruned=[a]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, book_id@1)], filter=rating@1 != author_id@0 % 5 AND rating@1 > author_id@0 % 3, projection=[ctid_0@0, id@1, ctid_2@4, book_id@5, id@7, ctid_1@3]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, book_id@1)], filter=rating@1 != CAST(pdb_eval_expr_opexpr_29adca6d(author_id@0) AS Int64) AND rating@1 > CAST(pdb_eval_expr_opexpr_3daa4e1b(author_id@0) AS Int64), projection=[ctid_0@0, id@1, ctid_2@4, book_id@5, id@7, ctid_1@3]
      :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, author_id@2)], projection=[ctid_0@2, id@3, author_id@4, ctid_1@1]
      :           CooperativeExec
      :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"orchid","lenient":null,"conjunction_mode":null}}}}

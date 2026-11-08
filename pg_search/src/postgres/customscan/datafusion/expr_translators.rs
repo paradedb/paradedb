@@ -24,9 +24,10 @@
 //! MinMaxExpr, ScalarArrayOpExpr, and CoerceViaIO — plus a UDF fallback hook
 //! (`try_wrap_as_udf`) for opaque expressions.
 
+use datafusion::arrow::datatypes::DataType;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
-use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, col, lit};
+use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, cast, col, lit};
 use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
@@ -95,6 +96,26 @@ impl<'a> PredicateTranslator<'a> {
         let schema = CStr::from_ptr(namespace_ptr).to_str().ok()?;
         let name = func_name?;
 
+        // DataFusion's `abs(INT_MIN)` does not overflow (64-bit index) and its `concat` formats
+        // non-text arguments unlike PostgreSQL, so let the UDF fallback evaluate both.
+        let is_int = |oid| matches!(oid, pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID);
+        let differs = match name.as_str() {
+            "abs" => pg_args.iter_ptr().any(|arg| is_int(pg_sys::exprType(arg))),
+            "concat" => !pg_args.iter_ptr().all(|arg| {
+                let oid = pg_sys::exprType(arg);
+                is_int(oid) || matches!(oid, pg_sys::TEXTOID | pg_sys::VARCHAROID)
+            }),
+            _ => false,
+        };
+        if differs {
+            pgrx::debug1!(
+                "PredicateTranslator: {} left to PostgreSQL [FuncExpr] | {}",
+                name,
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
         let arity = df_args.len();
         let result = Self::translate_known_func(schema, &name, df_args);
         if result.is_none() {
@@ -159,12 +180,10 @@ impl<'a> PredicateTranslator<'a> {
                     ("abs", 1) => Some(abs(it.next()?)),
                     ("ceil" | "ceiling", 1) => Some(ceil(it.next()?)),
                     ("floor", 1) => Some(floor(it.next()?)),
-                    ("round", _) => Some(round(it.collect())),
-                    ("sqrt", 1) => Some(sqrt(it.next()?)),
-                    ("power" | "pow", 2) => Some(power(it.next()?, it.next()?)),
-                    ("sign", 1) => Some(signum(it.next()?)),
-                    ("ln", 1) => Some(ln(it.next()?)),
-                    ("log" | "log10", 1) => Some(log10(it.next()?)),
+                    // `round`, `sqrt`, `power`, `sign`, `ln` and `log` are intentionally
+                    // NOT mapped: DataFusion rounds halves away from zero and returns
+                    // `Infinity`, `NaN` or its own error where PostgreSQL raises one or
+                    // returns 0, so the `try_wrap_as_udf` fallback evaluates them.
 
                     // core module
                     ("coalesce", _) => Some(coalesce(it.collect())),
@@ -206,15 +225,19 @@ impl<'a> PredicateTranslator<'a> {
         }
     }
 
-    /// Translate a `CaseExpr` (CASE `operand` WHEN … THEN … ELSE … END).
+    /// Translate a searched `CaseExpr` (CASE WHEN … THEN … ELSE … END).
     pub(crate) unsafe fn translate_case_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         let case = node as *mut pg_sys::CaseExpr;
 
-        let operand = if !(*case).arg.is_null() {
-            Some(Box::new(self.translate((*case).arg.cast())?))
-        } else {
-            None
-        };
+        // `CASE x WHEN v` needs a `CaseTestExpr` DataFusion has no counterpart for, and a
+        // boolean CASE becomes AND/OR there, which evaluates every branch.
+        if !(*case).arg.is_null() || (*case).casetype == pg_sys::BOOLOID {
+            pgrx::debug1!(
+                "PredicateTranslator: CASE with an operand or a boolean result left to PostgreSQL [CaseExpr] | {}",
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
 
         let when_list = PgList::<pg_sys::Node>::from_pg((*case).args);
         let mut when_then_expr: Vec<(Box<Expr>, Box<Expr>)> = Vec::with_capacity(when_list.len());
@@ -236,7 +259,7 @@ impl<'a> PredicateTranslator<'a> {
         };
 
         Some(Expr::Case(Case {
-            expr: operand,
+            expr: None,
             when_then_expr,
             else_expr,
         }))
@@ -279,6 +302,16 @@ impl<'a> PredicateTranslator<'a> {
             );
             return None;
         }
+        // DataFusion's NULLIF compares text by bytes and tells -0.0 from 0.0.
+        if matches!((*op).opresulttype, pg_sys::FLOAT4OID | pg_sys::FLOAT8OID)
+            || !collation_supports((*op).inputcollid, CollationOperation::Equality)
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: NULLIF left to PostgreSQL [NullIfExpr] | {}",
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
         let left = self.translate(args.get_ptr(0)?)?;
         let right = self.translate(args.get_ptr(1)?)?;
         Some(nullif(left, right))
@@ -289,6 +322,16 @@ impl<'a> PredicateTranslator<'a> {
         use datafusion::functions::core::expr_fn::{greatest, least};
 
         let mmx = node as *mut pg_sys::MinMaxExpr;
+        // DataFusion compares text by bytes and picks the other of -0.0 and 0.0.
+        if matches!((*mmx).minmaxtype, pg_sys::FLOAT4OID | pg_sys::FLOAT8OID)
+            || !collation_supports((*mmx).inputcollid, CollationOperation::Ordering)
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: GREATEST/LEAST left to PostgreSQL [MinMaxExpr] | {}",
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
         let pg_args = PgList::<pg_sys::Node>::from_pg((*mmx).args);
 
         let df_args: Option<Vec<Expr>> =
@@ -326,7 +369,44 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
-        let scalar = self.translate(args.get_ptr(0)?)?;
+        // Only pg_catalog's `x = ANY (...)` and `x <> ALL (...)` are an IN and a NOT IN list.
+        let opno = (*saop).opno;
+        let op_name_ptr = pg_sys::get_opname(opno);
+        let namespace_ptr =
+            pg_sys::get_namespace_name(pg_sys::get_func_namespace(pg_sys::get_opcode(opno)));
+        if op_name_ptr.is_null() || namespace_ptr.is_null() {
+            return None;
+        }
+        let op_name = CStr::from_ptr(op_name_ptr).to_str().ok()?;
+        let schema = CStr::from_ptr(namespace_ptr).to_str().ok()?;
+        let list_op = if (*saop).useOr { "=" } else { "<>" };
+        if schema != "pg_catalog"
+            || op_name != list_op
+            || !collation_supports((*saop).inputcollid, CollationOperation::Equality)
+        {
+            pgrx::debug1!(
+                "PredicateTranslator: ANY/ALL left to PostgreSQL [ScalarArrayOpExpr] op=\"{}\" | {}",
+                op_name,
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
+        // DataFusion's IN list tells -0.0 from 0.0, so let the UDF fallback evaluate float
+        // comparisons.
+        let scalar_node = args.get_ptr(0)?;
+        if matches!(
+            pg_sys::exprType(scalar_node),
+            pg_sys::FLOAT4OID | pg_sys::FLOAT8OID
+        ) {
+            pgrx::debug1!(
+                "PredicateTranslator: float ANY/ALL left to PostgreSQL [ScalarArrayOpExpr] | {}",
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
+        let scalar = self.translate(scalar_node)?;
 
         let rhs = args.get_ptr(1)?;
         if (*rhs).type_ != pg_sys::NodeTag::T_ArrayExpr {
@@ -583,14 +663,46 @@ impl<'a> PredicateTranslator<'a> {
             }
         };
 
-        // Arrow wraps integer overflow where PostgreSQL raises an error, so let the
+        // DataFusion's date and timestamp arithmetic (the index holds dates as timestamps)
+        // fails to plan or differs from PostgreSQL's, so let the UDF fallback evaluate it.
+        if matches!(
+            op,
+            Operator::Plus
+                | Operator::Minus
+                | Operator::Multiply
+                | Operator::Divide
+                | Operator::Modulo
+        ) && !matches!(
+            (*op_expr).opresulttype,
+            pg_sys::INT2OID
+                | pg_sys::INT4OID
+                | pg_sys::INT8OID
+                | pg_sys::FLOAT4OID
+                | pg_sys::FLOAT8OID
+                | pg_sys::NUMERICOID
+        ) {
+            pgrx::debug1!(
+                "PredicateTranslator: non-numeric arithmetic left to PostgreSQL [OpExpr] op=\"{}\" | {}",
+                op_str,
+                self.deparse_for_debug(node)
+            );
+            return None;
+        }
+
+        // Arrow wraps integer overflow, the 64-bit index hides `INT_MIN / -1`, and a zero
+        // divisor raises Arrow's own error, where PostgreSQL raises its errors, so let the
         // UDF fallback evaluate integer arithmetic.
-        if matches!(op, Operator::Plus | Operator::Minus | Operator::Multiply)
-            && matches!(
-                (*op_expr).opresulttype,
-                pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
-            )
-        {
+        if matches!(
+            op,
+            Operator::Plus
+                | Operator::Minus
+                | Operator::Multiply
+                | Operator::Divide
+                | Operator::Modulo
+        ) && matches!(
+            (*op_expr).opresulttype,
+            pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
+        ) {
             pgrx::debug1!(
                 "PredicateTranslator: integer arithmetic left to PostgreSQL [OpExpr] op=\"{}\", types=({}, {}) | {}",
                 op_str,
@@ -652,6 +764,11 @@ impl<'a> PredicateTranslator<'a> {
 
         if let Some(ref mapper) = self.mapper {
             if let Some(expr) = mapper.map_var(varno, varattno) {
+                // A `float4` column is indexed as its shortest decimal, so narrow it back
+                // to the exact `float4` value PostgreSQL computes with.
+                if (*var).vartype == pg_sys::FLOAT4OID {
+                    return Some(cast(expr, DataType::Float32));
+                }
                 return Some(expr);
             }
             pgrx::debug1!(
@@ -813,16 +930,6 @@ mod tests {
         ("ceil", 1),
         ("ceiling", 1),
         ("floor", 1),
-        ("round", 0),
-        ("round", 1),
-        ("round", 2),
-        ("sqrt", 1),
-        ("power", 2),
-        ("pow", 2),
-        ("sign", 1),
-        ("ln", 1),
-        ("log", 1),
-        ("log10", 1),
         // core module
         ("coalesce", 0),
         ("coalesce", 1),
@@ -891,8 +998,6 @@ mod tests {
             ("starts_with", 3),
             ("nullif", 1),
             ("nullif", 3),
-            ("power", 1),
-            ("power", 3),
             ("abs", 0),
             ("abs", 2),
             ("length", 0),

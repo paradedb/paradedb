@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed Join Scan returning values that differ from Postgres for some expressions, such as `round`, `ln`, `power`, `abs` and `/` on integers, `%` by zero, `CASE x WHEN v`, `x > ANY (ARRAY[...])`, `NULLIF` and `GREATEST` over floats, and `real` columns. Postgres now evaluates the expressions that differ, and `real` columns are read back as their exact value.

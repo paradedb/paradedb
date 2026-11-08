@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794125459980,
+  "lastUpdate": 1794125486470,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -494523,6 +494523,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13487157822-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8f6e050cca2aa889cee58e5dacd92fd650c009fb",
+          "message": "chore: Fix conflict between #7108 and #7298. (#7309)\n\nFix conflict between #7108 and #7298.",
+          "timestamp": "2026-11-07T17:05:12Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8f6e050cca2aa889cee58e5dacd92fd650c009fb"
+        },
+        "date": 1794125484203,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 36.79769828354341,
+            "unit": "median tps",
+            "extra": "avg tps: 55.950215623514026, max tps: 527.5490494145491, count: 58783"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.697694183643016,
+            "unit": "median tps",
+            "extra": "avg tps: 30.497053829693183, max tps: 332.03743328928016, count: 58783"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 71.81752271260166,
+            "unit": "median tps",
+            "extra": "avg tps: 128.07910804975742, max tps: 1100.9177686046996, count: 58783"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.83061229597881,
+            "unit": "median tps",
+            "extra": "avg tps: 29.747761630849226, max tps: 261.74067305959727, count: 58783"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.92764764646997,
+            "unit": "median tps",
+            "extra": "avg tps: 58.57356821229188, max tps: 534.2450333567706, count: 58783"
+          }
+        ],
+        "publication_id": "13610211100-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -507650,6 +507703,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13487157822-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8f6e050cca2aa889cee58e5dacd92fd650c009fb",
+          "message": "chore: Fix conflict between #7108 and #7298. (#7309)\n\nFix conflict between #7108 and #7298.",
+          "timestamp": "2026-11-07T17:05:12Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8f6e050cca2aa889cee58e5dacd92fd650c009fb"
+        },
+        "date": 1794125486396,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.731984853188848, max partition_index_size:MB: 23.8203125, count: 58783"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.288722916367483, max cpu: 32.26116, count: 58783"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.7940684647347, max mem: 58.59375, count: 58783"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.999521,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.956900518502035, max cpu: 32.36994, count: 58783"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 68.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 67.54742276412823, max mem: 72.28515625, count: 58783"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.694721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.195257677143486, max cpu: 27.559809, count: 58783"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 50.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.060098290534675, max mem: 54.15625, count: 58783"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.94024727925645, max cpu: 32.40116, count: 58783"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 65.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.58252153311757, max mem: 73.1640625, count: 58783"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.19297686651783, max cpu: 32.19933, count: 58783"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 60.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.55738704748822, max mem: 70.0625, count: 58783"
+          }
+        ],
+        "publication_id": "13610211100-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

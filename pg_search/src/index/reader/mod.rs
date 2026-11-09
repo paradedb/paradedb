@@ -20,6 +20,7 @@ pub mod io_stats;
 pub mod scorer;
 pub mod segment_component;
 pub mod sort_by_range;
+pub mod vector;
 
 use anyhow::{Context, Result, bail};
 use tantivy::schema::{Field, FieldType, VectorOptions};

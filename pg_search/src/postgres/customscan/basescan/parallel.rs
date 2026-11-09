@@ -20,10 +20,6 @@
 
 use std::os::raw::c_void;
 use std::ptr::NonNull;
-use std::sync::OnceLock;
-
-use tantivy::TantivyError;
-use tantivy::vector::{VectorRoutingPlan, VectorRoutingPlanProvider};
 
 use crate::index::reader::io_stats::Trace;
 use crate::postgres::ParallelScanState;
@@ -31,35 +27,8 @@ use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::basescan::telemetry::ScanTelemetry;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
-use crate::postgres::customscan::mpp::{MainThread, run_on_main_thread};
 
 use pgrx::pg_sys::{self, Size, dsa_area, shm_toc};
-
-pub(super) struct ParallelVectorRoutingPlan {
-    pub(super) shared: MainThread<(*mut ParallelScanState, *mut dsa_area)>,
-    pub(super) plan: OnceLock<tantivy::Result<VectorRoutingPlan>>,
-}
-
-impl VectorRoutingPlanProvider for ParallelVectorRoutingPlan {
-    fn get(&self) -> tantivy::Result<&VectorRoutingPlan> {
-        pg_sys::thread_check::check_active_thread();
-        self.plan
-            .get_or_init(|| {
-                run_on_main_thread(|token| {
-                    let (state, area) = *self.shared.get(token);
-                    unsafe { (*state).poll_vector_routing_plan(area) }
-                        .map_err(|err| TantivyError::SystemError(err.to_string()))?
-                        .ok_or_else(|| {
-                            TantivyError::InternalError(
-                                "filtered parallel vector scan must have a routing plan".into(),
-                            )
-                        })
-                })
-            })
-            .as_ref()
-            .map_err(Clone::clone)
-    }
-}
 
 /// Role of this backend in a parallel-aware scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +188,7 @@ impl ParallelQueryCapable for BaseScan {
         pscan_state.bitmap_reset();
         pscan_state.reset();
         pscan_state.vector_routing_ready = false;
+        pscan_state.vector_search_budget = None;
         state.custom_state_mut().vector_routing_plan = None;
         if let Some(reader) = state.custom_state_mut().search_reader.as_mut() {
             reader.vector_routing_plan = None;
@@ -230,9 +200,7 @@ impl ParallelQueryCapable for BaseScan {
         // first; its reader stays, holding the segment pins, until that ReScan replaces it.
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
-        if unsafe { !pg_sys::parallel_leader_participation }
-            && state.custom_state().needs_vector_routing()
-        {
+        if state.custom_state().needs_vector_routing() {
             BaseScan::init_search_reader(state);
         }
         unsafe { leader_publish_query(state, pscan_state) };

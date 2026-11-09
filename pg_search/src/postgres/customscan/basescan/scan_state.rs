@@ -43,11 +43,11 @@ use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::BitmapCell;
 use std::ptr::NonNull;
 
+use crate::index::reader::vector::SharedVectorRouting;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
 use tantivy::index::SegmentId;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::VectorRoutingPlanProvider;
 
 #[derive(Default)]
 pub struct BaseScanState {
@@ -63,7 +63,7 @@ pub struct BaseScanState {
     /// Set when this scan is parallel-aware (DSM attached).
     pub parallel: Option<ParallelScanHandle>,
     /// Workers wait for the leader to publish this plan when they first need it.
-    pub vector_routing_plan: Option<Arc<dyn VectorRoutingPlanProvider>>,
+    pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
 
     // Note: the range table index at execution time might be different from the one at planning time,
@@ -432,6 +432,15 @@ impl BaseScanState {
                 ..
             }) if self.needs_vector_routing() => {
                 // A nonparticipating leader never executes this scan, so it must route at init.
+                let parallel = self.parallel.expect("parallel scan must be attached");
+                if unsafe { (*parallel.dsm_ptr()).vector_search_budget.is_none() } {
+                    let budget = self
+                        .search_reader
+                        .as_ref()
+                        .expect("search reader must be open")
+                        .vector_search_budget(name);
+                    unsafe { (*parallel.dsm_ptr()).vector_search_budget = Some(budget) };
+                }
                 if defer {
                     self.vector_routing_pending = true;
                     return;
@@ -443,18 +452,19 @@ impl BaseScanState {
                     .search_reader
                     .as_ref()
                     .expect("search reader must be open");
-                Some(Arc::new(reader.vector_routing_plan(
+                Some(reader.vector_routing_plan(
                     name,
                     query,
                     reader.estimate_vector_match_fraction(),
-                )))
+                    unsafe { (*parallel.dsm_ptr()).vector_search_budget.unwrap() },
+                ))
             }
             _ => None,
         };
         let parallel = self.parallel.expect("parallel scan must be attached");
-        unsafe { (*parallel.dsm_ptr()).publish_vector_routing_plan(query_area, plan.as_deref()) }
+        unsafe { (*parallel.dsm_ptr()).publish_vector_routing_plan(query_area, plan.as_ref()) }
             .expect("should be able to publish the vector routing plan");
-        let plan = plan.map(|plan| plan as Arc<dyn VectorRoutingPlanProvider>);
+        let plan = plan.map(|plan| Arc::new(SharedVectorRouting::from(plan)));
         self.vector_routing_plan = plan.clone();
         self.vector_routing_pending = false;
         if let Some(reader) = self.search_reader.as_mut() {

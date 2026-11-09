@@ -31,10 +31,11 @@ use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::SharedBitmapHandle;
 
+use crate::index::reader::vector::VectorRoutingResults;
 use pgrx::*;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::index::SegmentId;
-use tantivy::vector::VectorRoutingPlan;
+use tantivy::vector::VectorSearchBudget;
 
 pub mod access;
 mod build;
@@ -715,6 +716,7 @@ pub struct ParallelScanState {
     /// DSA area (`EState.es_query_dsa`); 0 until published. See [`Self::publish_query`].
     query: pg_sys::dsa_pointer,
     query_len: usize,
+    pub(crate) vector_search_budget: Option<VectorSearchBudget>,
     vector_routing_plan: pg_sys::dsa_pointer,
     vector_routing_plan_len: usize,
     vector_routing_ready: bool,
@@ -776,6 +778,7 @@ impl ParallelScanState {
         self.bitmap_table = 0;
         self.query = 0;
         self.query_len = 0;
+        self.vector_search_budget = None;
         self.vector_routing_plan = 0;
         self.vector_routing_plan_len = 0;
         self.vector_routing_ready = false;
@@ -1247,7 +1250,7 @@ impl ParallelScanState {
     pub unsafe fn publish_vector_routing_plan(
         &mut self,
         area: *mut pg_sys::dsa_area,
-        plan: Option<&VectorRoutingPlan>,
+        plan: Option<&VectorRoutingResults>,
     ) -> anyhow::Result<()> {
         unsafe {
             if self.vector_routing_plan != 0 {
@@ -1278,7 +1281,7 @@ impl ParallelScanState {
     pub unsafe fn poll_vector_routing_plan(
         &mut self,
         area: *mut pg_sys::dsa_area,
-    ) -> anyhow::Result<Option<VectorRoutingPlan>> {
+    ) -> anyhow::Result<Option<VectorRoutingResults>> {
         loop {
             unsafe { pg_sys::ResetLatch(pg_sys::MyLatch) };
             if check_for_interrupts_or_cancel() {

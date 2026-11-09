@@ -31,6 +31,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
+use crate::index::reader::vector::{SharedVectorRouting, VectorRoutingResults};
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, SchemaRef};
 use base64::Engine;
@@ -62,7 +63,6 @@ use datafusion_proto::physical_plan::{
 use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
-use tantivy::vector::{VectorRoutingPlan, VectorRoutingPlanProvider};
 
 use crate::api::{HashMap, OrderByInfo};
 use crate::index::fast_fields_helper::FFHelper;
@@ -127,7 +127,7 @@ pub struct ScanState {
 impl VectorRouting {
     fn from_parallel(
         is_parallel: bool,
-        prepared_plan: Option<Arc<dyn VectorRoutingPlanProvider>>,
+        prepared_plan: Option<Arc<SharedVectorRouting>>,
     ) -> Result<Self> {
         if is_parallel {
             prepared_plan.map(Self::Shared).ok_or_else(|| {
@@ -1358,8 +1358,8 @@ impl PgSearchScanPlan {
                 let bytes = STANDARD
                     .decode(encoded)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
-                serde_cbor::from_slice::<VectorRoutingPlan>(&bytes)
-                    .map(|plan| Arc::new(plan) as Arc<dyn VectorRoutingPlanProvider>)
+                serde_cbor::from_slice::<VectorRoutingResults>(&bytes)
+                    .map(|plan| Arc::new(SharedVectorRouting::from(plan)))
                     .map_err(|e| DataFusionError::External(Box::new(e)))
             })
             .transpose()?;
@@ -2618,7 +2618,14 @@ pub(crate) fn prepare_vector_routing(plan: &Arc<dyn ExecutionPlan>) {
             .expect("vector routing identity must serialize");
             let plan = plans.entry(key).or_insert_with(|| {
                 // Build-side join filters are not available until workers execute.
-                Arc::new(scan_state.reader.vector_routing_plan(name, query, 0.0))
+                Arc::new(SharedVectorRouting::from(
+                    scan_state.reader.vector_routing_plan(
+                        name,
+                        query,
+                        0.0,
+                        scan_state.reader.vector_search_budget(name),
+                    ),
+                ))
             });
             scan_state.reader.vector_routing_plan = Some(Arc::clone(plan) as Arc<_>);
         });

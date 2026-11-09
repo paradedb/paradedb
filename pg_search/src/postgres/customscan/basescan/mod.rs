@@ -50,7 +50,6 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
-use crate::postgres::customscan::basescan::parallel::ParallelVectorRoutingPlan;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 
 use crate::postgres::customscan::basescan::projections::snippet::{
@@ -105,10 +104,10 @@ use crate::vector::metric::VectorMetric;
 use crate::{DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
+use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::VectorRoutingPlanProvider;
 
 use super::pullup::SourceContext;
 
@@ -2090,11 +2089,15 @@ impl CustomScan for BaseScan {
                         .leader_publish_vector_routing_plan(area, false)
                 };
             } else {
-                let plan: Option<Arc<dyn VectorRoutingPlanProvider>> =
-                    Some(Arc::new(ParallelVectorRoutingPlan {
-                        shared: MainThread::new((parallel.dsm_ptr(), area)),
-                        plan: OnceLock::new(),
-                    }));
+                let plan: Option<Arc<SharedVectorRouting>> = Some(Arc::new(SharedVectorRouting {
+                    budget: unsafe {
+                        (*parallel.dsm_ptr())
+                            .vector_search_budget
+                            .expect("leader must publish the vector budget")
+                    },
+                    shared: Some(MainThread::new((parallel.dsm_ptr(), area))),
+                    results: OnceLock::new(),
+                }));
                 let custom = state.custom_state_mut();
                 custom.vector_routing_plan = plan.clone();
                 custom.vector_routing_pending = false;

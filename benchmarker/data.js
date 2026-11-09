@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794215877649,
+  "lastUpdate": 1794252985980,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -79550,6 +79550,226 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13657736477-throughput"
+      }
+    ],
+    "benchmarker msmarco-113m (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bd20e76c9f3a0d60489620d324c0084d0601512c",
+          "message": "ci: add MS MARCO vector benchmark baseline (#7320)\n\nAdds a permanent MS MARCO 113M benchmark to CI so main can establish a\nbaseline and future PRs can compare against it. Apply\n`benchmark-cohere-msmarco` to benchmark a PR's head; scheduled daily\nruns and manual runs on main publish the baseline. Backfills do not\noverwrite it.\n\nReuses the heap snapshot and top-10/top-100 workloads exercised in\n#7315, with current main's fractional probe budgets and index options.\nThe runner verifies eight segments and 113,520,750 vectors, sweeps\nR90/R95/R99 with pdbench, measures reached points with k6, and publishes\nlatency, throughput, buffer, and build metrics through the existing\nqueue. Cohere's shared helpers now validate both neighbor counts; no\nengine or dependency changes are included.\n\nValidation:\n- All 12 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass, including actionlint and Python\nlint/format checks.\n- Replayed saved Cohere run 42459336164 and MS MARCO run 41977107529\nreports: all 9 Cohere and 6 MS MARCO plans validate; Cohere selections\nare unchanged and the MS MARCO query hash matches.\n\nThe full 113M benchmark runs in CI via the label on this PR. After\nmerge, the daily main run establishes the baseline, or it can be started\nimmediately with `gh workflow run\nbenchmark-pg_search-benchmarker-msmarco.yml --repo paradedb/paradedb\n--ref main`.",
+          "timestamp": "2026-11-09T16:25:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bd20e76c9f3a0d60489620d324c0084d0601512c"
+        },
+        "date": 1794252983000,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 15.486,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 19.523,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 23.095,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 31.411,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 54.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 59.918,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 6.646,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 8.222,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 8.428,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 11.387,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 39.184,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 41.832,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13704271933-latency"
+      }
+    ],
+    "benchmarker msmarco-113m (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bd20e76c9f3a0d60489620d324c0084d0601512c",
+          "message": "ci: add MS MARCO vector benchmark baseline (#7320)\n\nAdds a permanent MS MARCO 113M benchmark to CI so main can establish a\nbaseline and future PRs can compare against it. Apply\n`benchmark-cohere-msmarco` to benchmark a PR's head; scheduled daily\nruns and manual runs on main publish the baseline. Backfills do not\noverwrite it.\n\nReuses the heap snapshot and top-10/top-100 workloads exercised in\n#7315, with current main's fractional probe budgets and index options.\nThe runner verifies eight segments and 113,520,750 vectors, sweeps\nR90/R95/R99 with pdbench, measures reached points with k6, and publishes\nlatency, throughput, buffer, and build metrics through the existing\nqueue. Cohere's shared helpers now validate both neighbor counts; no\nengine or dependency changes are included.\n\nValidation:\n- All 12 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass, including actionlint and Python\nlint/format checks.\n- Replayed saved Cohere run 42459336164 and MS MARCO run 41977107529\nreports: all 9 Cohere and 6 MS MARCO plans validate; Cohere selections\nare unchanged and the MS MARCO query hash matches.\n\nThe full 113M benchmark runs in CI via the label on this PR. After\nmerge, the daily main run establishes the baseline, or it can be started\nimmediately with `gh workflow run\nbenchmark-pg_search-benchmarker-msmarco.yml --repo paradedb/paradedb\n--ref main`.",
+          "timestamp": "2026-11-09T16:25:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bd20e76c9f3a0d60489620d324c0084d0601512c"
+        },
+        "date": 1794252984217,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 68.5935393627235,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 29.263299681424126,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 161.1224281645604,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 56.861270803739544,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13704271933-throughput"
+      }
+    ],
+    "benchmarker msmarco-113m (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bd20e76c9f3a0d60489620d324c0084d0601512c",
+          "message": "ci: add MS MARCO vector benchmark baseline (#7320)\n\nAdds a permanent MS MARCO 113M benchmark to CI so main can establish a\nbaseline and future PRs can compare against it. Apply\n`benchmark-cohere-msmarco` to benchmark a PR's head; scheduled daily\nruns and manual runs on main publish the baseline. Backfills do not\noverwrite it.\n\nReuses the heap snapshot and top-10/top-100 workloads exercised in\n#7315, with current main's fractional probe budgets and index options.\nThe runner verifies eight segments and 113,520,750 vectors, sweeps\nR90/R95/R99 with pdbench, measures reached points with k6, and publishes\nlatency, throughput, buffer, and build metrics through the existing\nqueue. Cohere's shared helpers now validate both neighbor counts; no\nengine or dependency changes are included.\n\nValidation:\n- All 12 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass, including actionlint and Python\nlint/format checks.\n- Replayed saved Cohere run 42459336164 and MS MARCO run 41977107529\nreports: all 9 Cohere and 6 MS MARCO plans validate; Cohere selections\nare unchanged and the MS MARCO query hash matches.\n\nThe full 113M benchmark runs in CI via the label on this PR. After\nmerge, the daily main run establishes the baseline, or it can be started\nimmediately with `gh workflow run\nbenchmark-pg_search-benchmarker-msmarco.yml --repo paradedb/paradedb\n--ref main`.",
+          "timestamp": "2026-11-09T16:25:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bd20e76c9f3a0d60489620d324c0084d0601512c"
+        },
+        "date": 1794252985092,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 4973.09,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 13390.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1913.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 7468.31,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13704271933-buffers"
+      }
+    ],
+    "benchmarker msmarco-113m (index build)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bd20e76c9f3a0d60489620d324c0084d0601512c",
+          "message": "ci: add MS MARCO vector benchmark baseline (#7320)\n\nAdds a permanent MS MARCO 113M benchmark to CI so main can establish a\nbaseline and future PRs can compare against it. Apply\n`benchmark-cohere-msmarco` to benchmark a PR's head; scheduled daily\nruns and manual runs on main publish the baseline. Backfills do not\noverwrite it.\n\nReuses the heap snapshot and top-10/top-100 workloads exercised in\n#7315, with current main's fractional probe budgets and index options.\nThe runner verifies eight segments and 113,520,750 vectors, sweeps\nR90/R95/R99 with pdbench, measures reached points with k6, and publishes\nlatency, throughput, buffer, and build metrics through the existing\nqueue. Cohere's shared helpers now validate both neighbor counts; no\nengine or dependency changes are included.\n\nValidation:\n- All 12 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass, including actionlint and Python\nlint/format checks.\n- Replayed saved Cohere run 42459336164 and MS MARCO run 41977107529\nreports: all 9 Cohere and 6 MS MARCO plans validate; Cohere selections\nare unchanged and the MS MARCO query hash matches.\n\nThe full 113M benchmark runs in CI via the label on this PR. After\nmerge, the daily main run establishes the baseline, or it can be started\nimmediately with `gh workflow run\nbenchmark-pg_search-benchmarker-msmarco.yml --repo paradedb/paradedb\n--ref main`.",
+          "timestamp": "2026-11-09T16:25:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/bd20e76c9f3a0d60489620d324c0084d0601512c"
+        },
+        "date": 1794252985972,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 145.04173025523332,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 478657.203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx parallel workers",
+            "value": 7,
+            "unit": "workers"
+          },
+          {
+            "name": "msmarco_bm25_idx peak summed RSS",
+            "value": 101.56327438354492,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13704271933-index"
       }
     ]
   }

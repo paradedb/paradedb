@@ -83,6 +83,27 @@ pub mod pdb {
         }
     }
 
+    #[pg_extern(immutable, parallel_safe)]
+    pub fn prox_not(
+        include: ProximityClause,
+        exclude: ProximityClause,
+        pre: default!(i32, -1),
+        post: default!(i32, -1),
+    ) -> ProximityClause {
+        if include.is_empty() || include.is_incomplete() || exclude.is_incomplete() {
+            panic!("prox_not requires complete include and exclude ProximityClauses");
+        }
+        if pre < -1 || post < -1 {
+            panic!("pre and post should be between -1 and i32::MAX");
+        }
+        ProximityClause::Not {
+            include: Box::new(include),
+            exclude: Box::new(exclude),
+            pre,
+            post,
+        }
+    }
+
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "proximity")]
     pub fn proximity(prox: crate::query::proximity::ProximityClause) -> pdb::Query {
@@ -96,7 +117,18 @@ pub mod pdb {
                 distance,
                 right: *right,
             },
-            _ => panic!("prox must be a complete ProximityClause"),
+            crate::query::proximity::ProximityClause::Not {
+                include,
+                exclude,
+                pre,
+                post,
+            } => pdb::Query::ProximityNot {
+                include: *include,
+                exclude: *exclude,
+                pre,
+                post,
+            },
+            other => panic!("prox must be a complete ProximityClause: {other:?}"),
         }
     }
 

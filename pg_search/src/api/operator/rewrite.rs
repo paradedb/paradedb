@@ -151,9 +151,9 @@ impl SearchOperator {
                 let query = match rhs {
                     RHSValue::Text(text) => return parse(text, None, None),
                     RHSValue::PdbQuery(query) => query,
-                    RHSValue::ProximityClause(prox @ ProximityClause::Proximity { .. }) => {
-                        proximity(prox)
-                    }
+                    RHSValue::ProximityClause(
+                        prox @ (ProximityClause::Proximity { .. } | ProximityClause::Not { .. }),
+                    ) => proximity(prox),
                     RHSValue::ProximityClause(_) | RHSValue::TextArray(_) => self.invalid_rhs(),
                 };
                 return SearchQueryInput::from_unfielded(query);

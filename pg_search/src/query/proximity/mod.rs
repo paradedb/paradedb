@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod not;
 pub mod query;
 mod scorer;
+mod spans;
 mod weight;
 
 pub use pdb::*;
@@ -45,6 +47,16 @@ mod pdb {
             left: Box<ProximityClause>,
             distance: ProximityDistance,
             right: Box<ProximityClause>,
+        },
+        /// The occurrences of `include` that no occurrence of `exclude` touches. `pre` and `post`
+        /// count the tokens allowed between an exclusion and the occurrence, before and after it,
+        /// like the distance of `##`: `0` rejects an adjacent exclusion, `-1` only an overlapping
+        /// one. An empty `exclude` removes nothing.
+        Not {
+            include: Box<ProximityClause>,
+            exclude: Box<ProximityClause>,
+            pre: i32,
+            post: i32,
         },
     }
 
@@ -108,6 +120,38 @@ mod pdb {
                 ProximityClause::Proximity { left, right, .. } => {
                     left.is_empty() || right.is_empty()
                 }
+                // An empty exclusion removes nothing, so the clause is as empty as its include.
+                ProximityClause::Not { include, .. } => include.is_empty(),
+            }
+        }
+
+        /// Whether an operand is missing somewhere, like the right side of `'a' ##3`. Unlike
+        /// [`Self::is_empty`], an empty array is complete.
+        pub fn is_incomplete(&self) -> bool {
+            match self {
+                ProximityClause::Uninitialized => true,
+                ProximityClause::Term(_) | ProximityClause::Regex { .. } => false,
+                ProximityClause::Clauses(clauses) => clauses.iter().any(Self::is_incomplete),
+                ProximityClause::Proximity { left, right, .. } => {
+                    left.is_incomplete() || right.is_incomplete()
+                }
+                ProximityClause::Not {
+                    include, exclude, ..
+                } => include.is_incomplete() || exclude.is_incomplete(),
+            }
+        }
+
+        /// Whether a `Not` appears anywhere in the clause, which then needs span-aware evaluation.
+        pub fn contains_not(&self) -> bool {
+            match self {
+                ProximityClause::Not { .. } => true,
+                ProximityClause::Clauses(clauses) => clauses.iter().any(Self::contains_not),
+                ProximityClause::Proximity { left, right, .. } => {
+                    left.contains_not() || right.contains_not()
+                }
+                ProximityClause::Uninitialized
+                | ProximityClause::Term(_)
+                | ProximityClause::Regex { .. } => false,
             }
         }
 
@@ -166,6 +210,10 @@ mod pdb {
                             .chain(right.terms(field, segment_reader, which_terms)?),
                     ),
                 },
+                // Only `include` scores, highlights and drives the cost estimate.
+                ProximityClause::Not { include, .. } => {
+                    Box::new(include.terms(field, segment_reader, which_terms)?)
+                }
             };
             Ok(iter)
         }

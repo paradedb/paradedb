@@ -503,3 +503,57 @@ await dbContext
 ```
 
 </CodeGroup>
+
+## Proximity Exclusion
+
+`pdb.prox_not(include, exclude, pre, post)` matches the occurrences of `include` that no occurrence of `exclude` touches.
+A document matches as long as one occurrence survives. A boolean `NOT` cannot express this: it drops the whole document.
+
+The following query finds documents that mention `shoes`, except where `shoes` directly follows `running`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.prox_not('shoes', 'running', pre => 0);
+```
+
+`pre` and `post` count the tokens allowed between the exclusion and the occurrence, before and after it, like the distance of `##`:
+
+| Value | Meaning                                                         |
+| ----- | --------------------------------------------------------------- |
+| `-1`  | The exclusion must overlap the occurrence. This is the default. |
+| `0`   | The exclusion may also be adjacent.                             |
+| `n`   | Up to `n` tokens may sit between the two.                       |
+
+An occurrence is excluded when the exclusion ends at most `pre` tokens before it **and** starts at most `post` tokens after it.
+`pre => 2` alone therefore looks two tokens back, and setting both looks both ways.
+This is Lucene's `span_not`, with `pre` and `post` shifted by one.
+
+Both sides accept any proximity clause. A multi-token `include` is excluded as a whole, and an `exclude` with a gap covers the tokens inside it:
+
+```sql
+-- `running shoes`, unless it sits inside a `no ... running shoes` span
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.prox_not(
+    pdb.prox_clause_in_order('running', 0, 'shoes'),
+    pdb.prox_clause_in_order('no', 2, 'shoes')
+);
+```
+
+Each element of a `pdb.prox_array` exclusion applies on its own, and an empty array excludes nothing. To give exclusions different windows, nest `pdb.prox_not`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.prox_not(pdb.prox_not('shoes', 'running', pre => 0), 'cheap', pre => 2);
+```
+
+`pdb.prox_not` can also be used on either side of `##` and `##>`. Only the surviving occurrences are paired.
+
+<Note>
+  Only `include` contributes to the score, and the terms of `exclude` are not
+  highlighted. A text exclusion is a single finalized token: use
+  `pdb.prox_clause_in_order('no', 0, 'shoes')` rather than `'no shoes'` to
+  exclude a phrase.
+</Note>

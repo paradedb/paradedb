@@ -27,8 +27,9 @@ use crate::query::numeric::{
     string_to_json_numeric,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
+use crate::query::proximity::ProximityClause;
+use crate::query::proximity::not::ProximityNotQuery;
 use crate::query::proximity::query::ProximityQuery;
-use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     QueryError, SearchQueryInput, check_range_bounds, coerce_bound_to_field_type, value_to_term,
@@ -272,6 +273,12 @@ pub mod pdb {
             left: ProximityClause,
             distance: ProximityDistance,
             right: ProximityClause,
+        },
+        ProximityNot {
+            include: ProximityClause,
+            exclude: ProximityClause,
+            pre: i32,
+            post: i32,
         },
         TokenizedPhrase {
             phrase: String,
@@ -651,7 +658,30 @@ impl pdb::Query {
                 left,
                 distance,
                 right,
-            } => proximity(&field, schema, left, distance, right)?,
+            } => proximity(
+                &field,
+                schema,
+                ProximityClause::Proximity {
+                    left: Box::new(left),
+                    distance,
+                    right: Box::new(right),
+                },
+            )?,
+            pdb::Query::ProximityNot {
+                include,
+                exclude,
+                pre,
+                post,
+            } => proximity(
+                &field,
+                schema,
+                ProximityClause::Not {
+                    include: Box::new(include),
+                    exclude: Box::new(exclude),
+                    pre,
+                    post,
+                },
+            )?,
             pdb::Query::TokenizedPhrase { phrase, slop } => tokenized_phrase(
                 &field,
                 schema,
@@ -783,6 +813,7 @@ impl pdb::Query {
             | pdb::Query::PhraseArray { .. }
             | pdb::Query::PhrasePrefix { .. }
             | pdb::Query::Proximity { .. }
+            | pdb::Query::ProximityNot { .. }
             | pdb::Query::TokenizedPhrase { .. }
             | pdb::Query::RegexPhrase { .. }
             | pdb::Query::Term { .. } => false,
@@ -821,6 +852,7 @@ impl pdb::Query {
             | pdb::Query::RegexPhrase { .. }
             | pdb::Query::PhrasePrefix { .. }
             | pdb::Query::Proximity { .. }
+            | pdb::Query::ProximityNot { .. }
             | pdb::Query::MatchArray { .. }
             | pdb::Query::PhraseArray { .. } => false,
 
@@ -922,11 +954,9 @@ impl InOutFuncs for pdb::Query {
 fn proximity(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    left: ProximityClause,
-    distance: ProximityDistance,
-    right: ProximityClause,
+    clause: ProximityClause,
 ) -> anyhow::Result<Box<dyn Query>> {
-    if left.is_empty() || right.is_empty() {
+    if clause.is_empty() {
         return Ok(Box::new(EmptyQuery));
     }
 
@@ -935,8 +965,21 @@ fn proximity(
         .ok_or(QueryError::NonIndexedField(field.clone()))?
         .with_positions()?;
 
-    let prox = ProximityQuery::new(search_field.field(), left, distance, right);
-    Ok(Box::new(prox))
+    // A `Not` anywhere needs the spans of the whole clause, see `ProximityNotQuery`.
+    let contains_not = clause.contains_not();
+    Ok(match clause {
+        ProximityClause::Proximity {
+            left,
+            distance,
+            right,
+        } if !contains_not => Box::new(ProximityQuery::new(
+            search_field.field(),
+            *left,
+            distance,
+            *right,
+        )),
+        clause => Box::new(ProximityNotQuery::new(search_field.field(), clause)),
+    })
 }
 
 fn term_set(

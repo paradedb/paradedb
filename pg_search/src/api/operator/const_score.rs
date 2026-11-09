@@ -239,20 +239,7 @@ pub(crate) fn text_array_to_const(
 fn prox_to_const(input: ProximityClause, typmod: i32, _is_explicit: bool) -> ConstType {
     let const_ = deserialize_i32_to_f32(typmod);
 
-    let prox = if let ProximityClause::Proximity {
-        left,
-        right,
-        distance,
-    } = input
-    {
-        pdb::Query::Proximity {
-            left: *left,
-            right: *right,
-            distance,
-        }
-    } else {
-        panic!("invalid ProximityClause variant: {input:?}")
-    };
+    let prox = crate::api::builder_fns::proximity(input);
 
     ConstType(pdb::Query::ScoreAdjusted {
         query: Box::new(prox),

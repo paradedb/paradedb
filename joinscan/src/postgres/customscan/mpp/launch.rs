@@ -159,7 +159,7 @@ fn run_launched_worker(seg: *mut pg_sys::dsm_segment, state_manager: ParallelSta
     // sleeping after a burst of yields rather than spin.
     let mut spins = 0u32;
     loop {
-        check_for_interrupts!();
+        check_for_interrupts();
         match go.load(Ordering::Acquire) {
             GO_RUN => break,
             // Too few workers attached for MPP: the leader runs serially. Exit before touching

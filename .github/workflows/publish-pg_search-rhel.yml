@@ -317,7 +317,7 @@ jobs:
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --no-assemble-unreleased --no-distrib-packages --pg-config $PG_CONFIG_PATH
 
       - name: Create .rpm Package
         env:

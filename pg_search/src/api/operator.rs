@@ -465,7 +465,7 @@ unsafe fn resolve_lhs_var_for_group(
         return var;
     }
 
-    let rte = pg_sys::rt_fetch(varno, rtable);
+    let rte = pgrx::rt_fetch!(varno, rtable).get();
     if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
         // PG18 introduces RTE_GROUP for GROUP BY expressions. When a Var references
         // RTE_GROUP, it points to a synthetic range table entry rather than the base

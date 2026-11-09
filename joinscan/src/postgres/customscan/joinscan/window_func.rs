@@ -703,10 +703,7 @@ unsafe extern "C-unwind" fn placeholder_mutator(
 
     #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
     {
-        let fnptr = placeholder_mutator as *const ();
-        let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-            std::mem::transmute(fnptr);
-        pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
     }
 
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
@@ -851,10 +848,7 @@ unsafe extern "C-unwind" fn sentinel_mutator(
 
     #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
     {
-        let fnptr = sentinel_mutator as *const ();
-        let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-            std::mem::transmute(fnptr);
-        pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        pg_sys::expression_tree_mutator(node, Some(sentinel_mutator), context)
     }
 
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]

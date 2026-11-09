@@ -28,10 +28,11 @@ use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::utils::is_a;
 use crate::postgres::var::VarContext;
 use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
+use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, pg_sys};
 use std::ffi::CStr;
 
 /// Returns `true` when `opno` is the ltree descendant operator `<@` applied to
@@ -284,7 +285,7 @@ pub unsafe fn try_build_pushdown_qual(
     // In all other pushdown scenarios, the value is on the rhs.
     let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
         && nodecast!(Var, T_Var, rhs)
-            .is_some_and(|var| pg_sys::type_is_array(unsafe { (*var).vartype }))
+            .is_some_and(|var| unsafe { pgrx::type_is_array!((*var).vartype).is_true() })
     {
         (rhs, lhs, true)
     } else {

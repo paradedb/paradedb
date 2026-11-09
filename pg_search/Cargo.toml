@@ -11,6 +11,49 @@ workspace = true
 [lib]
 crate-type = ["cdylib"]
 
+# Opts into cargo-pgrx's SQL migration fragments, the same `<PR>.<slug>.sql`
+# files and `-- depends-on:` syntax RELEASE.md describes. `cargo pgrx install`,
+# `run`, `test` and `regress` assemble them into a temporary upgrade script so
+# `ALTER EXTENSION pg_search UPDATE` works on a development database, and
+# `cargo pgrx package` refuses to build while any are unassembled unless given
+# `--assemble-unreleased` or `--no-assemble-unreleased`.
+[package.metadata.pgrx]
+unreleased-sql-dir = "sql/unreleased"
+
+# `cargo pgrx package` builds an RPM and a DEB from these sections on Linux.
+# Unset keys keep cargo-pgrx's PGDG defaults: package names
+# `pg_search_<pg>` and `postgresql-<pg>-pg-search`, installed under
+# `/usr/pgsql-<pg>/` and `/usr/{lib,share}/postgresql/<pg>/`. `files` replaces
+# the default list, so it repeats the shared library before adding the license.
+# The publish workflows and `make package` pass `--no-distrib-packages` and
+# still build their own packages.
+[package.metadata.rpm]
+maintainer = "ParadeDB <support@paradedb.com>"
+description = """Full-text search, vector retrieval, and aggregations for Postgres
+pg_search upgrades Postgres with a custom index for fast full-text and
+vector search, BM25 scoring, filtering, and aggregations. Your application
+data and search engine live in one database, with no second system to
+deploy and nothing to sync."""
+depends = ["postgresql${PG_MAJOR_VERSION}-server", "openblas"]
+files = [
+  { source = "${BUILD_BASE_PATH}/${PG_PKGLIBDIR}/${LIB_FILE}", dest = "/usr/pgsql-${PG_MAJOR_VERSION}/lib/${LIB_FILE}", mode = "0755" },
+  { source = "${WORKSPACE_ROOT}/LICENSE", dest = "/usr/share/licenses/${NAME}_${PG_MAJOR_VERSION}/LICENSE", mode = "0644" },
+]
+
+[package.metadata.deb]
+maintainer = "ParadeDB <support@paradedb.com>"
+description = """Full-text search, vector retrieval, and aggregations for Postgres
+pg_search upgrades Postgres with a custom index for fast full-text and
+vector search, BM25 scoring, filtering, and aggregations. Your application
+data and search engine live in one database, with no second system to
+deploy and nothing to sync."""
+section = "database"
+depends = ["postgresql-${PG_MAJOR_VERSION}", "libopenblas0"]
+files = [
+  { source = "${BUILD_BASE_PATH}/${PG_PKGLIBDIR}/${LIB_FILE}", dest = "/usr/lib/postgresql/${PG_MAJOR_VERSION}/lib/${LIB_FILE}", mode = "0644" },
+  { source = "${WORKSPACE_ROOT}/LICENSE", dest = "/usr/share/doc/postgresql-${PG_MAJOR_VERSION}-${DEB_NAME}/LICENSE", mode = "0644" },
+]
+
 [features]
 default = ["pg18"]
 pg15 = [

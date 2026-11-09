@@ -296,7 +296,7 @@ fn flush_mutable_segments(
             // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
             // Check for interrupts here before `ambulkdelete`'s `.expect()` turns a cancellation
             // into an internal error panic.
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
             return Err(error);
         }
     }

@@ -831,7 +831,7 @@ unsafe fn keys_decide_column(
     let Some(var) = nodecast!(Var, T_Var, strip_relabel(expr)) else {
         return false;
     };
-    let rte = pg_sys::rt_fetch((*var).varno as pg_sys::Index, (*parse).rtable);
+    let rte = pgrx::rt_fetch!((*var).varno as pg_sys::Index, (*parse).rtable).get();
     if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION || (*var).varlevelsup != 0 {
         return false;
     };

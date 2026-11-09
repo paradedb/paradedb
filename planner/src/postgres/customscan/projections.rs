@@ -181,10 +181,7 @@ pub fn create_placeholder_targetlist(
         // For all other nodes, use the standard mutator to walk children
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            let fnptr = placeholder_mutator as *const ();
-            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-                std::mem::transmute(fnptr);
-            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+            pg_sys::expression_tree_mutator(node, Some(placeholder_mutator), context)
         }
 
         #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
@@ -568,9 +565,6 @@ pub unsafe fn inject_placeholders(
 
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            let fnptr = walker as *const ();
-            let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-                std::mem::transmute(fnptr);
             pg_sys::expression_tree_mutator(node, Some(walker), context)
         }
 

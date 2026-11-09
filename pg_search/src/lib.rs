@@ -127,7 +127,7 @@ extension_sql!(
 
 /// Initializes option parsing
 fn check_for_interrupts() {
-    pgrx::check_for_interrupts!();
+    pgrx::check_for_interrupts();
 }
 
 #[allow(clippy::missing_safety_doc)]

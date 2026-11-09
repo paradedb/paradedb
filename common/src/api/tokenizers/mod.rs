@@ -73,7 +73,6 @@ const ALIAS_MAGIC: u32 = u32::from_ne_bytes(*b"err\0");
 
 impl DatumWithType {
     pub unsafe fn new(mut datum: pg_sys::Datum, typoid: pg_sys::Oid) -> *mut Self {
-        use pgrx::varlena::varsize_any;
         use std::mem::size_of;
 
         // load metadata about the underlying type.
@@ -95,7 +94,7 @@ impl DatumWithType {
         let data_len = if elem_length > 0 {
             elem_length as usize
         } else if elem_length == -1 {
-            varsize_any(datum.cast_mut_ptr::<pg_sys::varlena>())
+            pgrx::VARSIZE_ANY!(datum.cast_mut_ptr::<pg_sys::varlena>()).get() as usize
         } else {
             unreachable!("tried to pass a C string as a tokenizer")
         };
@@ -120,7 +119,8 @@ impl DatumWithType {
         };
 
         // Set the varlena header so Postgres knows the length.
-        pgrx::set_varsize_4b(&mut (*ptr).vl_len_, size as i32);
+        let header: *mut pg_sys::varlena = &raw mut (*ptr).vl_len_;
+        pgrx::SET_VARSIZE_4B!(header, size as i32);
 
         // Copy in the data for the underlying type
         // (based on Postgres's `ArrayCastAndSet()`).
@@ -149,7 +149,7 @@ impl DatumWithType {
         let ptr = pg_sys::pg_detoast_datum(this.cast_mut_ptr());
         debug_assert!(!ptr.is_null());
 
-        let vl_len = pgrx::varlena::varsize_any(ptr.cast::<pg_sys::varlena>());
+        let vl_len = pgrx::VARSIZE_ANY!(ptr).get() as usize;
         let minimum_size = std::mem::size_of::<DatumWithTypeContents>();
 
         // Check both size AND magic number to avoid false positives.
@@ -157,7 +157,7 @@ impl DatumWithType {
         //       any element of this type is prefixed with the valid C string
         //       `err`
         if vl_len < minimum_size
-            || pgrx::varlena::vardata_any(ptr)
+            || pgrx::VARDATA_ANY!(ptr).get()
                 .byte_add(offset_of!(DatumWithTypeContents, magic))
                 .cast::<u32>()
                 .read_unaligned()
@@ -167,7 +167,7 @@ impl DatumWithType {
             return (pg_sys::Datum::from(ptr), None);
         }
 
-        let contents_ptr = pgrx::varlena::vardata_any(ptr).cast::<DatumWithTypeContents>();
+        let contents_ptr = pgrx::VARDATA_ANY!(ptr).get().cast::<DatumWithTypeContents>();
         let contents = contents_ptr.read();
 
         let data_ptr = contents_ptr.add(1).cast();

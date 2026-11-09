@@ -411,10 +411,11 @@ impl RowMatcher {
     }
 
     pub(super) unsafe fn matches(&mut self, row: pg_sys::Datum) -> Option<bool> {
-        let header = pg_sys::pg_detoast_datum(row.cast_mut_ptr()).cast();
+        let header =
+            pg_sys::pg_detoast_datum(row.cast_mut_ptr()).cast::<pg_sys::HeapTupleHeaderData>();
         let row_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
-            pgrx::heap_tuple_header_get_type_id(header),
-            pgrx::heap_tuple_header_get_typmod(header),
+            pgrx::HeapTupleHeaderGetTypeId!(header).into(),
+            pgrx::HeapTupleHeaderGetTypMod!(header).get(),
         ));
         let conversion =
             pg_sys::convert_tuples_by_name(row_desc.as_ptr(), (*self.slot).tts_tupleDescriptor);

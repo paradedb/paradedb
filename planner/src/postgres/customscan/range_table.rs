@@ -108,7 +108,7 @@ pub unsafe fn is_partitioned_table_setup(
         }
 
         // Get the RTE to check if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx, rtable);
+        let rte = pgrx::rt_fetch!(baserel_idx, rtable).get();
         if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
             continue;
         }
@@ -163,7 +163,7 @@ pub unsafe fn get_rte(
 
 pub unsafe fn rte_is_partitioned(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> bool {
     let rtable = (*(*root).parse).rtable;
-    let rte = pg_sys::rt_fetch(rti, rtable);
+    let rte = pgrx::rt_fetch!(rti, rtable).get();
     (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE
 }
 

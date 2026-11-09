@@ -92,7 +92,7 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for ConstType {
         const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(ConstType);
-        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::ThisExtension;
         const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
             Ok(SqlMappingRef::literal("pdb.const"));
         const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
@@ -140,8 +140,7 @@ mod typedef {
             CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.const;
         "#,
-        name = "ConstType_shell",
-        creates = [Type(ConstType)]
+        name = "ConstType_shell"
     );
 
     #[pg_extern(immutable, parallel_safe)]
@@ -199,6 +198,7 @@ mod typedef {
             );
         "#,
         name = "ConstType_final",
+        creates = [Type(ConstType)],
         requires = [
             "ConstType_shell",
             const_in,

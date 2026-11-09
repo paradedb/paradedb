@@ -3384,7 +3384,7 @@ fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bo
     if let Some(rtref) = unsafe { nodecast!(RangeTblRef, T_RangeTblRef, node) } {
         let rtable = unsafe { (*query).rtable };
         if !rtable.is_null() {
-            let rte = unsafe { pg_sys::rt_fetch((*rtref).rtindex as pg_sys::Index, rtable) };
+            let rte = unsafe { pgrx::rt_fetch!((*rtref).rtindex as pg_sys::Index, rtable).get() };
             if !rte.is_null() && unsafe { (*rte).lateral } {
                 return true;
             }

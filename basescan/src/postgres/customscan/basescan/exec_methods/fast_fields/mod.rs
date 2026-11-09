@@ -86,7 +86,7 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        let maybe_var = if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Var) {
+        let maybe_var = if crate::postgres::utils::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Var) {
             if let Some(var) = (*te).expr.find_single_node::<pg_sys::Var>() {
                 if (*var).varno as i32 != context.heap_rti as i32 {
                     // We expect all Vars in the target list to be from the same range table as the
@@ -156,7 +156,7 @@ pub unsafe fn pullup_fast_fields(
             //
             // Complex expressions involving score which are not going to be solved in upper nodes are not supported.
             // See: https://github.com/paradedb/paradedb/issues/3978
-        } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
+        } else if crate::postgres::utils::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
             || nodecast!(Const, T_Const, (*te).expr).is_some()
             || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
         {

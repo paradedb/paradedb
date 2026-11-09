@@ -791,7 +791,8 @@ fn decode_queries_capped(
         "queries must have type vector[]"
     );
 
-    let array = pgrx::AnyArray::into::<pgrx::Array<pg_sys::Datum>>(queries)
+    let array = queries
+        .value::<pgrx::Array<pg_sys::Datum>>()?
         .context("could not decode queries vector[]")?;
     let mut decoded = Vec::new();
     let mut input_count = 0usize;

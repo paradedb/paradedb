@@ -23,11 +23,12 @@
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet};
 use crate::customscan::operator_oid;
 use crate::postgres::node::NodeExt;
+use crate::postgres::utils::is_a;
 use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::{AnyNumeric, PgOid};
-use pgrx::{FromDatum, PgList, is_a, pg_sys};
+use pgrx::{FromDatum, PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::OnceLock;
 
@@ -377,7 +378,7 @@ pub unsafe fn find_var_relation(
         return (pg_sys::InvalidOid, 0, None);
     }
 
-    let rte = pg_sys::rt_fetch(varno, rtable);
+    let rte = pgrx::rt_fetch!(varno, rtable).get();
 
     match (*rte).rtekind {
         // the Var comes from a relation

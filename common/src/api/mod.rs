@@ -87,13 +87,13 @@ impl Regex {
 macro_rules! nodecast {
     ($type_:ident, $kind:ident, $node:expr) => {{
         let node = $node;
-        pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
+        $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
             .then(|| node.cast::<pgrx::pg_sys::$type_>())
     }};
 
     ($type_:ident, $kind:ident, $node:expr, true) => {{
         let node = $node;
-        (node.is_null() || pgrx::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind))
+        (node.is_null() || $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind))
             .then(|| node.cast::<pgrx::pg_sys::$type_>())
     }};
 }

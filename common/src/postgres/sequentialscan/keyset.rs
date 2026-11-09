@@ -65,7 +65,7 @@ impl KeySet {
     pub fn build_from(values: impl IntoIterator<Item = TantivyValue>) -> Self {
         let mut builder = KeySetBuilder::default();
         for value in values {
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
             builder.push(value);
         }
         builder.finish()

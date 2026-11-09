@@ -284,15 +284,16 @@ impl VectorPartitioning {
                 use_aggressive_split: true,
                 ..Default::default()
             };
-            let mut clusterer = HierarchicalSuperKMeans::with_config(
+            let clusterer = HierarchicalSuperKMeans::with_config(
                 dimensions,
                 HierarchicalSuperKMeansConfig {
                     base: base_config,
                     max_leaf_size,
+                    iters_fine: 12,
                     ..Default::default()
                 },
             );
-            clusterer.train_owned(data, rows)
+            clusterer.train_meso_cluster(&data, rows).centroids
         } else {
             Vec::new()
         };

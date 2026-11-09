@@ -763,7 +763,7 @@ impl PartitionSpill {
                 }
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(self.tree.route(&point))
+        Ok(self.tree.route(&point, ctid))
     }
 }
 

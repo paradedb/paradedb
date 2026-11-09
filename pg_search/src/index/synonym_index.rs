@@ -33,13 +33,13 @@ use crate::postgres::utils::strip_tokenizer_cast;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use anyhow::anyhow;
 use pgrx::{FromDatum, PgList, pg_sys};
-use tantivy::fastfield::AliveBitSet;
 use tantivy::schema::{Field, TextOptions, Value};
 use tantivy::synonyms::{
-    CompiledRule, KeyDocs, SegmentSynonyms, SynonymRule, SynonymRuleTokenizer, SynonymSource,
+    CompiledRule, DEFAULT_MAX_RULES_PER_KEY, KeyDocs, SegmentSynonyms, SynonymRule,
+    SynonymRuleTokenizer, SynonymSource,
 };
 use tantivy::tokenizer::{TextAnalyzer, TokenizerManager};
-use tantivy::{DocId, SegmentOrdinal, TantivyDocument};
+use tantivy::{DocId, SegmentOrdinal, SegmentReader, TantivyDocument};
 use tokenizers::SearchTokenizer;
 
 /// True when the one key column of the index reads a `pdb.synonym_rule` column, plain or through
@@ -167,7 +167,7 @@ impl RuleCheck {
 /// from its heap row, fetched under the snapshot, and the same fetch says whether the rule is
 /// alive.
 pub struct HeapRuleSource {
-    segments: Vec<(SegmentSynonyms, Option<AliveBitSet>)>,
+    segments: Vec<(SegmentSynonyms, SegmentReader)>,
     ctids: Arc<FFHelper>,
     visibility: VisibilityChecker,
     slot: *mut pg_sys::TupleTableSlot,
@@ -208,7 +208,7 @@ impl HeapRuleSource {
             .map(|segment_reader| {
                 Ok((
                     SegmentSynonyms::open(segment_reader, field)?,
-                    segment_reader.alive_bitset().cloned(),
+                    segment_reader.clone(),
                 ))
             })
             .collect::<tantivy::Result<_>>()?;
@@ -235,12 +235,15 @@ impl HeapRuleSource {
 }
 
 impl SynonymSource for HeapRuleSource {
-    fn num_segments(&self) -> usize {
-        self.segments.len()
-    }
-
-    fn token_keys(&mut self, segment: usize, token: &str) -> tantivy::Result<Arc<[KeyDocs]>> {
-        Ok(self.segments[segment].0.token_keys(token)?.into())
+    fn token_keys(&mut self, token: &str) -> tantivy::Result<Vec<Arc<[KeyDocs]>>> {
+        self.segments
+            .iter()
+            .map(|(synonyms, _)| {
+                Ok(synonyms
+                    .token_keys(token, DEFAULT_MAX_RULES_PER_KEY)?
+                    .into())
+            })
+            .collect()
     }
 
     fn alive_rules(
@@ -250,11 +253,7 @@ impl SynonymSource for HeapRuleSource {
     ) -> tantivy::Result<Option<Arc<[CompiledRule]>>> {
         // VACUUM marks a deleted rule in the bitset before Postgres reuses its ctid, so the bitset
         // comes first and a reused ctid never reads another row's rule.
-        if self.segments[segment]
-            .1
-            .as_ref()
-            .is_some_and(|alive| !alive.is_alive(doc))
-        {
+        if self.segments[segment].1.is_deleted(doc) {
             return Ok(None);
         }
         let Some(ctid) = self.ctids.ctid(segment as SegmentOrdinal).as_u64(doc) else {

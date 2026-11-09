@@ -24,7 +24,7 @@ use crate::postgres::delete::VacuumSignal;
 use crate::postgres::index::free_leaf_partition_indexes;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::merge::{
-    MergeMode, MergeSlot, MergeSlotVariant, merge_crash_details, merge_index,
+    MergeMode, MergeSlot, MergeSlotVariant, MergeStyle, do_merge, merge_crash_details, merge_index,
     warn_unsupported_vector_merge,
 };
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
@@ -262,7 +262,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     }
                                 }
                             });
-                            (!idle_segments.is_empty()).then_some((index.oid(), idle_segments))
+                            Some((index.oid(), idle_segments))
                         })
                         .collect::<Vec<_>>();
                     Some((indexes, current_counts))
@@ -280,6 +280,16 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                         };
                         if (*index.rd_rel).relam.is_paradedb_am() && index.is_valid() {
                             if VacuumSignal::new(index.oid()).wants_cancel() {
+                                return;
+                            }
+                            if [MergeSlotVariant::Small, MergeSlotVariant::Large]
+                                .into_iter()
+                                .any(|variant| MergeSlot::new(index.oid(), variant).is_available())
+                            {
+                                do_merge(&index, MergeStyle::Background)
+                                    .expect("should be able to schedule a background merge");
+                            }
+                            if idle_segments.is_empty() {
                                 return;
                             }
                             let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()

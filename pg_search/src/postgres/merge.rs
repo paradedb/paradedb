@@ -97,8 +97,8 @@ pub(crate) enum MergeStyle {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
     },
-    /// VACUUM finished; only a background merge may follow.
-    Vacuum,
+    /// Only a background merge may follow.
+    Background,
 }
 
 /// Who runs a merge, which decides what happens between candidates.
@@ -332,6 +332,9 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     }
 
     let layer_sizes = IndexLayerSizes::from(index);
+    if matches!(style, MergeStyle::Background) && !layer_sizes.user_configured_background_layers() {
+        return Ok(());
+    }
     let target_segment_count = index.options().target_segment_count();
     let metadata = MetaPage::open(index);
     let merge_pins = metadata.pin_merge();
@@ -746,7 +749,7 @@ impl MergeSlot {
     // NOTE: This only prevents concurrent merges from different backends,
     // will always return true if called repeatedly from the same transaction
     // See: https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS
-    fn is_available(&self) -> bool {
+    pub(crate) fn is_available(&self) -> bool {
         let key = self.key();
         if let Some(lock) = AdvisoryLock::conditional_lock_session(key) {
             drop(lock); // explicitly unlock immediately

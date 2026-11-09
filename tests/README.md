@@ -79,3 +79,5 @@ To run a single test, use the following command (replace `<testname>` with the t
 ```shell
 cargo test --package tests --test <testname>
 ```
+
+When unreleased SQL fragments are installed, pgrx may use a temporary extension version. Debug builds let the mutable sweep worker use that version. Release builds require `pg_extension.extversion` to match the loaded library's compiled version. To exercise sweeps with `cargo pgrx install --release`, assemble the fragments and set the crate version to the target first.

@@ -12,6 +12,14 @@ At release time, the [**Publish GitHub Release** workflow](https://github.com/pa
 
 Changelog sections follow the order in `.changelog_headers.json`: breaking changes, new features, performance improvements, stability improvements, documentation, and other changes. Empty sections are omitted.
 
+
+SQL assembly and dependency linting use the repository's pinned `cargo-pgrx`. Install it before running `scripts/release.sh all`, `sql`, or `lint-fragments` locally. The release wrapper still handles changelogs, version selection, and backport rules.
+
+`cargo pgrx migrate assemble` refuses to overwrite an existing migration. On a failed release, inspect the generated script before retrying. Start from a clean checkout of the release branch rather than deleting or rewriting a shipped migration. RC releases preserve fragments for the final release.
+
+Linux publishing uses `cargo pgrx package` and refuses unassembled fragments. The workflows test the package against a fresh database and an upgrade from a published release before signing it. Release asset names and the Debian copyright file used by extension images stay the same.
+
+
 ## Enterprise: Community Sync
 
 Commits from `paradedb/paradedb` are automatically synced to `paradedb/paradedb-enterprise` via GitHub Actions.

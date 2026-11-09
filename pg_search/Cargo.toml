@@ -20,13 +20,7 @@ crate-type = ["cdylib"]
 [package.metadata.pgrx]
 unreleased-sql-dir = "sql/unreleased"
 
-# `cargo pgrx package` builds an RPM and a DEB from these sections on Linux.
-# Unset keys keep cargo-pgrx's PGDG defaults: package names
-# `pg_search_<pg>` and `postgresql-<pg>-pg-search`, installed under
-# `/usr/pgsql-<pg>/` and `/usr/{lib,share}/postgresql/<pg>/`. `files` replaces
-# the default list, so it repeats the shared library before adding the license.
-# The publish workflows and `make package` pass `--no-distrib-packages` and
-# still build their own packages.
+# Native packages use the PGDG layout. Publish workflows keep the existing asset names.
 [package.metadata.rpm]
 maintainer = "ParadeDB, Inc. <support@paradedb.com>"
 description = """One Postgres for your application data, full-text search, vector retrieval, and aggregations."""
@@ -44,6 +38,7 @@ depends = ["postgresql-${PG_MAJOR_VERSION}", "libopenblas0"]
 files = [
   { source = "${BUILD_BASE_PATH}/${PG_PKGLIBDIR}/${LIB_FILE}", dest = "/usr/lib/postgresql/${PG_MAJOR_VERSION}/lib/${LIB_FILE}", mode = "0644" },
   { source = "${WORKSPACE_ROOT}/LICENSE", dest = "/usr/share/doc/postgresql-${PG_MAJOR_VERSION}-${DEB_NAME}/LICENSE", mode = "0644" },
+  { source = "debian/copyright", dest = "/usr/share/doc/postgresql-${PG_MAJOR_VERSION}-${DEB_NAME}/copyright", mode = "0644" },
 ]
 
 [features]

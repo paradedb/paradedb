@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: pg_search
+Upstream-Contact: ParadeDB <support@paradedb.com>
+Source: https://github.com/paradedb/paradedb
+
+Files: *
+Copyright: ParadeDB <support@paradedb.com>
+License: AGPL-3.0-or-later
+ The full license text is in this package at LICENSE,
+ and online at https://www.gnu.org/licenses/agpl-3.0.txt

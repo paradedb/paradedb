@@ -137,6 +137,12 @@ jobs:
           echo "is_latest=${IS_LATEST}"
           echo "is_latest=${IS_LATEST}" >> $GITHUB_OUTPUT
 
+      - name: Install cargo-pgrx
+        if: github.repository == 'paradedb/paradedb'
+        run: |
+          PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+          cargo install --locked cargo-pgrx --version "$PGRX_VERSION" --debug
+
       - name: Assemble Release Artifacts
         if: github.repository == 'paradedb/paradedb'
         env:

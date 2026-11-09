@@ -1,0 +1,80 @@
+# Build and install the same native packages that the release workflows publish.
+name: Test pg_search Packages
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/publish-pg_search-*.yml"
+      - ".github/workflows/test-pg_search-packages.yml"
+      - "scripts/package-linux.sh"
+      - "scripts/test-linux-package.sh"
+      - "pg_search/Cargo.toml"
+      - "pg_search/debian/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: test-pg_search-packages-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debian:
+    uses: ./.github/workflows/publish-pg_search-debian.yml
+    with:
+      package_test: true
+  ubuntu:
+    uses: ./.github/workflows/publish-pg_search-ubuntu.yml
+    with:
+      package_test: true
+  rhel:
+    uses: ./.github/workflows/publish-pg_search-rhel.yml
+    with:
+      package_test: true
+  macos:
+    name: Build macOS Extension (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Dependencies
+        run: |
+          brew install llvm openblas postgresql@18 pgvector
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          {
+            echo "CLANG_PATH=$(brew --prefix llvm)/bin/clang"
+            echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib"
+            echo "PG_CONFIG=$(brew --prefix postgresql@18)/bin/pg_config"
+          } >> "$GITHUB_ENV"
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+        with:
+          rustflags: ""
+      - name: Install cargo-pgrx
+        run: |
+          PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+          cargo install --locked cargo-pgrx --version "$PGRX_VERSION" --debug
+          cargo pgrx init --pg18="$PG_CONFIG"
+      - name: Build and Load Extension
+        run: |
+          PREV_VERSION=$(./scripts/release.sh latest-sql-version)
+          ./scripts/release.sh set-version 999.0.0 --skip-nix
+          cargo pgrx migrate assemble 999.0.0 --package pg_search \
+            --prev-version "${PREV_VERSION#v}" --allow-empty
+          cargo pgrx package -p pg_search --pg-config "$PG_CONFIG" --no-distrib-packages
+          cargo pgrx install -p pg_search --release --pg-config "$PG_CONFIG"
+          PG_BIN=$("$PG_CONFIG" --bindir)
+          "$PG_BIN/initdb" -D "$RUNNER_TEMP/pgdata" -A trust
+          trap '"$PG_BIN/pg_ctl" -D "$RUNNER_TEMP/pgdata" -m immediate stop' EXIT
+          "$PG_BIN/pg_ctl" -D "$RUNNER_TEMP/pgdata" -l "$RUNNER_TEMP/postgres.log" \
+            -o "-c listen_addresses='' -c unix_socket_directories='$RUNNER_TEMP' -c shared_preload_libraries=pg_search" -w start
+          "$PG_BIN/psql" -h "$RUNNER_TEMP" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION pg_search CASCADE;'

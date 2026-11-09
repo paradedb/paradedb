@@ -71,7 +71,10 @@ jobs:
           # which makes Homebrew print a "taps are not trusted" warning on every brew
           # invocation. We don't use it, so untap it to keep the logs clean.
           brew untap aws/tap || true
-          brew install gettext
+          brew install gettext llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+          echo "CLANG_PATH=$(brew --prefix llvm)/bin/clang" >> "$GITHUB_ENV"
           echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
           echo "/usr/bin" >> "$GITHUB_PATH"
           /usr/bin/git --version

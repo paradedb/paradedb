@@ -25,6 +25,9 @@ on:
       - ".github/workflows/check-released-migrations.yml"
       - ".github/workflows/publish-github-release.yml"
       - "pg_search/sql/**"
+      - "pg_search/Cargo.toml"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
 
 permissions:
   contents: read
@@ -39,6 +42,16 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true # Required: the check resolves release tags locally
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+        with:
+          rustflags: ""
+
+      - name: Install cargo-pgrx
+        run: |
+          PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
+          cargo install --locked cargo-pgrx --version "$PGRX_VERSION" --debug
 
       - name: Test Release Scripts
         run: |

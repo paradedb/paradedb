@@ -68,7 +68,7 @@ use crate::api::{HashMap, OrderByInfo};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SegmentPruningEstimate};
+use crate::index::reader::index::{SearchIndexReader, SegmentPruningEstimate, VectorRouting};
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
@@ -1950,7 +1950,30 @@ impl PgSearchScanPlan {
             .collect();
         let assigned_partition_segments = self.partition_segments.clone();
 
+        let vector_routing = if self.vector_order_by().is_some()
+            && (self.assigned_partition.is_some()
+                || parallel_state.is_some()
+                || range_boundaries.is_some())
+        {
+            crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+                scan_state
+                    .get(token)
+                    .reader
+                    .vector_routing_plan
+                    .clone()
+                    .map(VectorRouting::Shared)
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(
+                            "shared vector scan requires a prepared global routing plan".into(),
+                        )
+                    })
+            })?
+        } else {
+            VectorRouting::Local
+        };
+
         let stream_ctx = ScanStreamContext {
+            vector_routing,
             scan_state,
             parallel_state,
             range_boundaries,
@@ -1981,6 +2004,7 @@ impl PgSearchScanPlan {
 }
 
 pub(super) struct ScanStreamContext {
+    pub(super) vector_routing: VectorRouting,
     pub(super) scan_state: Box<crate::postgres::customscan::mpp::MainThread<ScanState>>,
     pub(super) parallel_state:
         Option<crate::postgres::customscan::mpp::MainThread<*mut ParallelScanState>>,
@@ -2134,6 +2158,7 @@ impl FilterStepMetrics {
 /// Builds the standard segment-by-segment stream for a `PgSearchScanPlan` when `lazy_sort` is `None`.
 fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<RecordBatch>> {
     let ScanStreamContext {
+        vector_routing: _,
         mut scan_state,
         parallel_state,
         range_boundaries,
@@ -2560,11 +2585,7 @@ pub(crate) fn prepare_vector_routing(plan: &Arc<dyn ExecutionPlan>) {
             .expect("vector routing identity must serialize");
             let plan = plans.entry(key).or_insert_with(|| {
                 // Build-side join filters are not available until workers execute.
-                Arc::new(
-                    scan_state
-                        .reader
-                        .vector_routing_plan(name, query, Some(0.0)),
-                )
+                Arc::new(scan_state.reader.vector_routing_plan(name, query, 0.0))
             });
             scan_state.reader.vector_routing_plan = Some(Arc::clone(plan) as Arc<_>);
         });

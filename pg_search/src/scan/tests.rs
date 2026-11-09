@@ -136,6 +136,108 @@ mod tests {
         assert_eq!(row_count, 100);
     }
 
+    #[pg_test]
+    fn shared_vector_scan_requires_prepared_routing() {
+        use crate::api::{FieldName, OrderByFeature, OrderByInfo, QueryVector, SortDirection};
+        use crate::scan::execution_plan::{ScanState, ScannerConfig};
+        use crate::scan::lazy_sort::{LazyParallelMode, LazySortConfig};
+        use crate::scan::range_partitioning::RangeSplitPoints;
+        use crate::vector::metric::VectorMetric;
+
+        let (heap_oid, _) = get_relation_oids();
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             ALTER TABLE t ADD COLUMN embedding vector(3);
+             UPDATE t SET embedding = '[1,0,0]';
+             DROP INDEX t_idx;
+             CREATE INDEX t_idx ON t USING paradedb (id, embedding vector_l2_ops);",
+        )
+        .unwrap();
+        let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 't_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let heap_rel = PgSearchRelation::open(heap_oid);
+        let index_rel = PgSearchRelation::open(index_oid);
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let fields = vec![WhichFastField::Ctid];
+        let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
+        push_active_snapshot();
+        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, unsafe {
+            pg_sys::GetActiveSnapshot()
+        })
+        .with_ffhelper(Arc::clone(&ffhelper));
+        let state = ScanState {
+            source_idx: Some(0),
+            planner_estimated_rows: 100,
+            scanner_config: ScannerConfig {
+                which_fast_fields: fields.clone(),
+                heap_relid: heap_oid.into(),
+                batch_size_hint: None,
+                score_needed: false,
+                scan_mode: crate::scan::ScanMode::all(),
+            },
+            ffhelper,
+            visibility: Box::new(visibility),
+            reader,
+        };
+        for range in [false, true] {
+            let plan = PgSearchScanPlan::new(
+                Some(state.clone()),
+                build_arrow_schema(&fields),
+                SearchQueryInput::All,
+                Vec::new(),
+                None,
+                index_oid.into(),
+                None,
+                1,
+                None,
+                range.then(|| RangeSplitPoints {
+                    partition_by: FieldName::from("id"),
+                    points: vec![],
+                }),
+            )
+            .with_lazy_sort(LazySortConfig {
+                orderby_info: Some(vec![OrderByInfo {
+                    feature: OrderByFeature::VectorDistance {
+                        name: FieldName::from("embedding"),
+                        rti: 0,
+                        query_vector: QueryVector::Resolved(vec![1.0, 0.0, 0.0]),
+                        metric: VectorMetric::L2,
+                    },
+                    direction: SortDirection::AscNullsLast,
+                }]),
+                ordering: None,
+                initial_window: 10.0,
+                parallel_mode: LazyParallelMode::Unpartitioned,
+                telemetry: None,
+            });
+            if !range {
+                assert!(
+                    plan.clone()
+                        .execute(0, Arc::new(TaskContext::default()))
+                        .is_ok()
+                );
+            }
+            let shared = plan.with_assigned_partition(0);
+            let error = match shared.execute(0, Arc::new(TaskContext::default())) {
+                Ok(_) => panic!("shared vector scan accepted missing routing initialization"),
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("shared vector scan requires a prepared global routing plan"),
+                "{error}"
+            );
+        }
+    }
+
     // ==================== Filter Pushdown Test Helpers ====================
 
     /// Standard test fields for filter pushdown tests: ctid, id (i64), price (f64), quantity (i64)

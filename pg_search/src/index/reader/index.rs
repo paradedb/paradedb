@@ -159,10 +159,9 @@ pub(crate) struct TopKWindow {
     pub offset: TopKOffset,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum SegmentBatching {
-    PerSegment,
-    Global,
+pub enum VectorRouting {
+    Local,
+    Shared(Arc<dyn VectorRoutingPlanProvider>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -924,11 +923,26 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+    pub(crate) fn estimate_vector_match_fraction(&self) -> f64 {
+        let (matches, docs) =
+            self.candidate_segment_readers()
+                .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
+                    let estimated = self
+                        .query
+                        .estimate_docs(reader)
+                        .ok()
+                        .flatten()
+                        .map_or(0, |estimate| estimate.live_docs(reader));
+                    (matches + estimated, docs + u64::from(reader.num_docs()))
+                });
+        matches as f64 / docs.max(1) as f64
+    }
+
     pub(crate) fn vector_routing_plan(
         &self,
         name: &FieldName,
         query: &[f32],
-        match_fraction: Option<f64>,
+        match_fraction: f64,
     ) -> VectorRoutingPlan {
         let field = self
             .schema
@@ -957,21 +971,6 @@ impl SearchIndexReader {
                 partition_centroid: centroid.as_deref(),
             })
             .collect::<Vec<_>>();
-        let match_fraction = match_fraction.unwrap_or_else(|| {
-            let (matches, docs) =
-                readers
-                    .iter()
-                    .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
-                        let estimated = self
-                            .query
-                            .estimate_docs(reader)
-                            .ok()
-                            .flatten()
-                            .map_or(0, |estimate| estimate.live_docs(reader));
-                        (matches + estimated, docs + u64::from(reader.num_docs()))
-                    });
-            matches as f64 / docs.max(1) as f64
-        });
         VectorRoutingPlan::build(
             field,
             query.to_vec(),
@@ -2262,7 +2261,7 @@ impl SearchIndexReader {
     }
 
     /// Search the Tantivy index for the Top K matching documents in specific segments.
-    /// Segments are consumed lazily, except when vector collection uses global batching.
+    /// Segments are consumed lazily, except when local vector routing collects all segments together.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
@@ -2285,7 +2284,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-        batching: SegmentBatching,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         self.search_top_k_in_segments_internal(
             segments.map(|id| (id, SegmentQueryKind::Unconstrained)),
@@ -2297,7 +2296,7 @@ impl SearchIndexReader {
             },
             aux_collector,
             parallel_state_holding_shared_threshold,
-            batching,
+            routing,
         )
     }
 
@@ -2311,6 +2310,7 @@ impl SearchIndexReader {
         partition_bounds: &SearchQueryInput,
         orderby_info: &[OrderByInfo],
         window: TopKWindow,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         let segment_iter = segments
             .included
@@ -2331,7 +2331,7 @@ impl SearchIndexReader {
             window,
             None,
             None,
-            SegmentBatching::PerSegment,
+            routing,
         )
     }
 
@@ -2344,7 +2344,7 @@ impl SearchIndexReader {
         window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-        batching: SegmentBatching,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         let n = window.limit.0;
         let offset = window.offset.0;
@@ -2510,12 +2510,6 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                let routing_plan = self.vector_routing_plan.clone().or_else(|| {
-                    matches!(batching, SegmentBatching::PerSegment).then(|| {
-                        Arc::new(self.vector_routing_plan(name, &query_vector, Some(0.0)))
-                            as Arc<dyn VectorRoutingPlanProvider>
-                    })
-                });
                 let max_scan_levels = gucs::vector_max_scan_levels();
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
@@ -2536,8 +2530,8 @@ impl SearchIndexReader {
                     ));
                 }
 
-                if let Some(plan) = routing_plan {
-                    collector = collector.with_routing_plan_provider(plan);
+                if let VectorRouting::Shared(plan) = routing {
+                    collector = collector.with_routing_plan_provider(Arc::clone(plan));
                 }
                 let mut erased_features = erased_features;
                 let score_index = erased_features.score_index();
@@ -2558,9 +2552,9 @@ impl SearchIndexReader {
                         .inspect(|(_, reader, _)| {
                             collected_ids.borrow_mut().push(reader.segment_id());
                         });
-                let batches: Box<dyn Iterator<Item = Vec<_>>> = match batching {
-                    SegmentBatching::PerSegment => Box::new(readers.map(|reader| vec![reader])),
-                    SegmentBatching::Global => Box::new(std::iter::once(readers.collect())),
+                let batches: Box<dyn Iterator<Item = Vec<_>>> = match routing {
+                    VectorRouting::Shared(_) => Box::new(readers.map(|reader| vec![reader])),
+                    VectorRouting::Local => Box::new(std::iter::once(readers.collect())),
                 };
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
                 // ProbeStats — for every tie-break shape.
@@ -4737,36 +4731,41 @@ mod tests {
             vec![score_order.clone()],
             vec![score_order, field_order],
         ] {
-            for batching in [SegmentBatching::Global, SegmentBatching::PerSegment] {
-                let trace = io_stats::Trace::default();
-                let reader = SearchIndexReader::open_with_context(
-                    &index_rel,
-                    query.clone(),
-                    true,
-                    MvccSatisfies::Snapshot,
-                    None,
-                    None,
-                    false,
-                    Some(trace.clone()),
-                )
-                .unwrap();
-                let ids = reader.segment_ids();
-                assert_eq!(ids.len(), 3);
-                let segments = ids.iter().copied().enumerate().map(|(i, id)| {
-                    if i > 0 {
-                        let mut info = BTreeMap::from([(ids[i - 1], serde_json::json!({}))]);
-                        trace.attach(&mut info);
-                        assert!(
-                            info[&ids[i - 1]]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
-                            "collection must finish before claiming the next segment: {order:?}, {batching:?}"
-                        );
-                    }
-                    id
-                });
-                let top =
-                    reader.search_top_k_in_segments(segments, &order, 50, 0, None, None, batching);
-                assert_eq!(top.results.len(), 30);
-            }
+            let trace = io_stats::Trace::default();
+            let reader = SearchIndexReader::open_with_context(
+                &index_rel,
+                query.clone(),
+                true,
+                MvccSatisfies::Snapshot,
+                None,
+                None,
+                false,
+                Some(trace.clone()),
+            )
+            .unwrap();
+            let ids = reader.segment_ids();
+            assert_eq!(ids.len(), 3);
+            let segments = ids.iter().copied().enumerate().map(|(i, id)| {
+                if i > 0 {
+                    let mut info = BTreeMap::from([(ids[i - 1], serde_json::json!({}))]);
+                    trace.attach(&mut info);
+                    assert!(
+                        info[&ids[i - 1]]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
+                        "collection must finish before claiming the next segment: {order:?}"
+                    );
+                }
+                id
+            });
+            let top = reader.search_top_k_in_segments(
+                segments,
+                &order,
+                50,
+                0,
+                None,
+                None,
+                &VectorRouting::Local,
+            );
+            assert_eq!(top.results.len(), 30);
         }
     }
 
@@ -4801,15 +4800,7 @@ mod tests {
             pg_sys::QueryCancelPending = 1;
             pg_sys::InterruptPending = 1;
         });
-        reader.search_top_k_in_segments(
-            segments,
-            &order,
-            10,
-            0,
-            None,
-            None,
-            SegmentBatching::Global,
-        );
+        reader.search_top_k_in_segments(segments, &order, 10, 0, None, None, &VectorRouting::Local);
         panic!("global vector collection ignored cancellation");
     }
 
@@ -4817,6 +4808,20 @@ mod tests {
     fn vector_topk_reports_only_collected_candidates() {
         use crate::api::QueryVector;
         use crate::vector::metric::VectorMetric;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct ObservedRoutingPlan {
+            plan: VectorRoutingPlan,
+            consumed: Arc<AtomicBool>,
+        }
+
+        impl VectorRoutingPlanProvider for ObservedRoutingPlan {
+            fn get(&self) -> tantivy::Result<&VectorRoutingPlan> {
+                self.consumed.store(true, Ordering::Relaxed);
+                Ok(&self.plan)
+            }
+        }
+
         Spi::run(
             "CREATE TABLE candidate_vectors (id bigint PRIMARY KEY, embedding vector(3));
              CREATE INDEX candidate_vectors_idx ON candidate_vectors
@@ -4873,24 +4878,31 @@ mod tests {
                             direction: SortDirection::AscNullsLast,
                         });
                     }
+                    let consumed = Arc::new(AtomicBool::new(false));
+                    let routing = if individual_segments {
+                        VectorRouting::Shared(Arc::new(ObservedRoutingPlan {
+                            plan: reader.vector_routing_plan(
+                                &FieldName::from("embedding"),
+                                &[1.0, 0.0, 0.0],
+                                reader.estimate_vector_match_fraction(),
+                            ),
+                            consumed: Arc::clone(&consumed),
+                        }))
+                    } else {
+                        VectorRouting::Local
+                    };
                     let checked_out = std::cell::Cell::new(0);
-                    let initial_reads = io_stats::vector_buffer_reads();
                     let ids = ids.into_iter().inspect(|_| {
                         if individual_segments && expected_segments == 2 && checked_out.get() == 1 {
                             assert!(
-                                io_stats::vector_buffer_reads() > initial_reads,
-                                "collection must search before claiming another segment"
+                                consumed.load(Ordering::Relaxed),
+                                "collection must consume its plan before claiming another segment"
                             );
                         }
                         checked_out.set(checked_out.get() + 1);
                     });
-                    let batching = if individual_segments {
-                        SegmentBatching::PerSegment
-                    } else {
-                        SegmentBatching::Global
-                    };
                     let top =
-                        reader.search_top_k_in_segments(ids, &order, 50, 0, None, None, batching);
+                        reader.search_top_k_in_segments(ids, &order, 50, 0, None, None, &routing);
                     let docs = top
                         .results
                         .into_iter()

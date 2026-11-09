@@ -716,4 +716,169 @@ mod tests {
         assert!(!e.intersects(&Bound::Unbounded, &Bound::Excluded(i(5))));
         assert!(e.intersects(&Bound::Unbounded, &Bound::Included(i(5))));
     }
+
+    /// A skewed key leans on the ctid fallback, so several partitions share one box on the
+    /// declared field and are told apart only by the fallback's ctid ranges, which are persisted
+    /// too. The duplicate declared boxes collapse into one split point, and pruning on the field
+    /// keeps every segment that shares the hot box.
+    #[pg_test]
+    fn ctid_fallback_segments_share_a_box_and_are_never_pruned_apart() {
+        Spi::run(
+            r#"
+            CREATE TABLE stats_skewed (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            -- 9900 rows have tenant_id 0; the other 100 each get a distinct tenant_id in 1..=100.
+            INSERT INTO stats_skewed (tenant_id, name)
+            SELECT CASE WHEN i % 100 = 0 THEN i / 100 ELSE 0 END, 'row ' || i
+            FROM generate_series(1, 10000) i;
+            SET max_parallel_maintenance_workers = 0;
+            CREATE INDEX stats_skewed_idx ON stats_skewed USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'tenant_id', target_segment_count = 8);
+            "#,
+        )
+        .unwrap();
+        let indexrel = open_index("stats_skewed_idx");
+        let (field, stats) = segment_stats(&indexrel, "tenant_id");
+        assert_eq!(stats.len(), 8, "one segment per partition");
+
+        // Seven hot segments share the box below 1 and one cold segment holds the rest.
+        let hot = LogicalBounds {
+            lower: Bound::Unbounded,
+            upper: Bound::Excluded(PdbOwnedValue::I64(1)),
+        };
+        let boxes: Vec<LogicalBounds> = stats
+            .iter()
+            .map(|s| {
+                s.logical(field)
+                    .unwrap()
+                    .expect("every partition has a box")
+            })
+            .collect();
+        assert_eq!(boxes.iter().filter(|b| **b == hot).count(), 7, "{boxes:?}");
+
+        // The fallback's ctid ranges are persisted next to the declared field's box: each hot
+        // segment carries one, and the cold segment, which no fallback split reached, has none.
+        let (ctid_field, _) = segment_stats(&indexrel, "ctid");
+        let ctid_boxes: Vec<Option<LogicalBounds>> = stats
+            .iter()
+            .map(|s| s.logical(ctid_field).unwrap())
+            .collect();
+        let mut hot_ctid_boxes = Vec::new();
+        for ((segment, tenant_box), ctid_box) in stats.iter().zip(&boxes).zip(&ctid_boxes) {
+            if *tenant_box != hot {
+                assert!(
+                    ctid_box.is_none(),
+                    "cold segment has a ctid box: {ctid_box:?}"
+                );
+                continue;
+            }
+            let ctid_box = ctid_box.clone().expect("every hot segment has a ctid box");
+            // The rows the build routed there fall inside the box.
+            let empirical = segment.empirical(ctid_field).unwrap().unwrap();
+            assert!(
+                empirical.is_subset_of(&ctid_box.lower, &ctid_box.upper),
+                "{empirical:?} vs {ctid_box:?}"
+            );
+            hot_ctid_boxes.push((empirical.min, ctid_box));
+        }
+        assert_eq!(hot_ctid_boxes.len(), 7, "{ctid_boxes:?}");
+
+        // Ordered by their rows' smallest ctid, which orders the disjoint boxes that hold them,
+        // the hot ctid boxes tile the whole ctid range with no gap or overlap: open at both
+        // ends, and each upper bound is the next one's lower.
+        hot_ctid_boxes.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+        let hot_ctid_boxes: Vec<LogicalBounds> =
+            hot_ctid_boxes.into_iter().map(|(_, b)| b).collect();
+        assert_eq!(
+            hot_ctid_boxes[0].lower,
+            Bound::Unbounded,
+            "{hot_ctid_boxes:?}"
+        );
+        assert_eq!(
+            hot_ctid_boxes[6].upper,
+            Bound::Unbounded,
+            "{hot_ctid_boxes:?}"
+        );
+        let mut ctid_cuts = Vec::new();
+        for pair in hot_ctid_boxes.windows(2) {
+            let (Bound::Excluded(upper), Bound::Included(lower)) = (&pair[0].upper, &pair[1].lower)
+            else {
+                panic!("adjacent ctid boxes must meet at a cut: {pair:?}");
+            };
+            assert_eq!(upper.total_cmp(lower), Ordering::Equal, "{pair:?}");
+            ctid_cuts.push(lower.clone());
+        }
+
+        // The persisted ctid split points are exactly those six cuts.
+        assert_eq!(
+            persisted_split_points(&indexrel, "ctid")
+                .unwrap()
+                .expect("the hot segments carry ctid boxes"),
+            ctid_cuts
+        );
+
+        // The duplicate boxes collapse into the one real split point.
+        let split_points = persisted_split_points(&indexrel, "tenant_id")
+            .unwrap()
+            .expect("every partition's segment carries its box");
+        assert_eq!(split_points, vec![PdbOwnedValue::I64(1)]);
+
+        // Pruning on `tenant_id` keeps all seven hot segments for the low range, and only the
+        // cold one for the high range: none of the hot segments is pruned away from its rows.
+        let reader = SearchIndexReader::open(
+            &indexrel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+        let boundaries = RangePartitioning {
+            partition_by: FieldName::from("tenant_id"),
+            split_points,
+        };
+        let low: Vec<SegmentId> = segments_for_partition(&reader, &boundaries, 0).into();
+        let high: Vec<SegmentId> = segments_for_partition(&reader, &boundaries, 1).into();
+        assert_eq!((low.len(), high.len()), (7, 1), "{low:?} / {high:?}");
+        assert!(low.iter().all(|id| !high.contains(id)));
+
+        // Pruning on ctid with the persisted cuts tells the hot segments apart. Each of the
+        // seven ctid partitions keeps exactly its own hot segment, and every other hot segment
+        // is pruned by its ctid box. The cold segment has no ctid box, and its rows are spread
+        // across the heap, so its empirical ctid range keeps it in every partition.
+        let ctid_boundaries = RangePartitioning {
+            partition_by: FieldName::from("ctid"),
+            split_points: ctid_cuts,
+        };
+        let mut own_segments: Vec<SegmentId> = Vec::new();
+        let mut everywhere: Option<Vec<SegmentId>> = None;
+        for partition in 0..7 {
+            let chosen: Vec<SegmentId> =
+                segments_for_partition(&reader, &ctid_boundaries, partition).into();
+            assert_eq!(
+                chosen.len(),
+                2,
+                "ctid partition {partition}: its hot segment and the cold one: {chosen:?}"
+            );
+            assert!(
+                chosen.iter().filter(|id| high.contains(id)).count() == 1,
+                "ctid partition {partition} must keep the cold segment: {chosen:?}"
+            );
+            own_segments.extend(chosen.iter().filter(|id| !high.contains(id)));
+            everywhere = Some(match everywhere {
+                None => chosen,
+                Some(prev) => prev.into_iter().filter(|id| chosen.contains(id)).collect(),
+            });
+        }
+        assert_eq!(
+            everywhere.unwrap(),
+            high,
+            "only the cold segment is in every partition"
+        );
+        own_segments.sort();
+        own_segments.dedup();
+        assert_eq!(
+            own_segments.len(),
+            7,
+            "each ctid partition keeps a different hot segment"
+        );
+    }
 }

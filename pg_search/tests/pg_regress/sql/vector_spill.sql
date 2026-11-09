@@ -90,7 +90,8 @@ SELECT
     (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
         = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
             + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
-        AS eligible_is_scored_plus_planned_exact,
+            + (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint
+        AS eligible_is_scored_exact_or_duplicate,
     (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint BETWEEN 10 AND 200
         AS exact_rows_once_per_document,
     (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint = 400

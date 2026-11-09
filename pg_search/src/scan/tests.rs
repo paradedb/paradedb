@@ -217,24 +217,33 @@ mod tests {
                 parallel_mode: LazyParallelMode::Unpartitioned,
                 telemetry: None,
             });
-            if !range {
+            let assigned = plan.with_assigned_partition(0);
+            let serial = assigned.as_ref().clone().into_single_shared_partition();
+            assert!(
+                serial
+                    .clone()
+                    .execute(0, Arc::new(TaskContext::default()))
+                    .is_ok()
+            );
+            let stamped = serial;
+            // Unpartitioned scans record parallel mode without using the segment-claim pointer.
+            stamped.set_parallel_state(std::ptr::dangling_mut());
+            let mut shared_plans = vec![assigned, Arc::new(stamped)];
+            if range {
+                shared_plans.push(Arc::new(plan));
+            }
+            for shared in shared_plans {
+                let error = match shared.execute(0, Arc::new(TaskContext::default())) {
+                    Ok(_) => panic!("shared vector scan accepted missing routing initialization"),
+                    Err(error) => error,
+                };
                 assert!(
-                    plan.clone()
-                        .execute(0, Arc::new(TaskContext::default()))
-                        .is_ok()
+                    error
+                        .to_string()
+                        .contains("shared vector scan requires a prepared global routing plan"),
+                    "{error}"
                 );
             }
-            let shared = plan.with_assigned_partition(0);
-            let error = match shared.execute(0, Arc::new(TaskContext::default())) {
-                Ok(_) => panic!("shared vector scan accepted missing routing initialization"),
-                Err(error) => error,
-            };
-            assert!(
-                error
-                    .to_string()
-                    .contains("shared vector scan requires a prepared global routing plan"),
-                "{error}"
-            );
         }
     }
 

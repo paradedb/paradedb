@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794211980501,
+  "lastUpdate": 1794212008410,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112859,6 +112859,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13609588747-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0d55a93132b2a78e3480ec81afe1f30104e54c41",
+          "message": "chore: Generate Dockerfiles for v0.26.6 (#7326)\n\nUpdates generated Dockerfiles for v0.26.6 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-09T04:12:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0d55a93132b2a78e3480ec81afe1f30104e54c41"
+        },
+        "date": 1794212005659,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1733.7415852825638,
+            "unit": "median tps",
+            "extra": "avg tps: 1759.708295895444, max tps: 1944.1912140014645, count: 59239"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.014071792067292,
+            "unit": "median tps",
+            "extra": "avg tps: 6.05705020807792, max tps: 7.125887909683418, count: 59239"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1570.6505699159497,
+            "unit": "median tps",
+            "extra": "avg tps: 1554.3534304756813, max tps: 1854.5893829217214, count: 59239"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2869.883023675151,
+            "unit": "median tps",
+            "extra": "avg tps: 2822.9245923472035, max tps: 3160.538930961812, count: 59239"
+          }
+        ],
+        "publication_id": "13657639695-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -157626,6 +157673,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13609588747-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0d55a93132b2a78e3480ec81afe1f30104e54c41",
+          "message": "chore: Generate Dockerfiles for v0.26.6 (#7326)\n\nUpdates generated Dockerfiles for v0.26.6 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-09T04:12:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0d55a93132b2a78e3480ec81afe1f30104e54c41"
+        },
+        "date": 1794212008299,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.8961494961089823, max background_merging: 2.0, count: 59239"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.454447230186605, max cpu: 9.825998, count: 59239"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 29.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.18356928606999, max mem: 29.2109375, count: 59239"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.605650457321743, max cpu: 23.715414, count: 59239"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 51.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.5202219768649, max mem: 55.890625, count: 59239"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45320,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45050.458886881956, max block_count: 45323.0, count: 59239"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.418373031280069, max segment_count: 19.0, count: 59239"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.686031547973315, max cpu: 38.17097, count: 59239"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 42.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.304849911481455, max mem: 42.328125, count: 59239"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7960494430470035, max cpu: 32.463768, count: 59239"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 58.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.546603127268355, max mem: 62.609375, count: 59239"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.578241950718639, max cpu: 28.152493, count: 59239"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 51.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.07289987381623, max mem: 55.890625, count: 59239"
+          }
+        ],
+        "publication_id": "13657639695-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

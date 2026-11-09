@@ -154,7 +154,7 @@ jobs:
             exit 0
           fi
           auth="Authorization: Basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
-          # Sparse checkouts can fetch missing objects during commit; authenticate those fetches.
+          # git commit needs auth to fetch missing objects from the sparse checkout.
           # Keep generated benchmark commits separate from GitHub account contributions.
           git -c http.extraheader="$auth" \
             -c user.name='ParadeDB Benchmarks' -c user.email='benchmarks@paradedb.invalid' \

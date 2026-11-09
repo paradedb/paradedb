@@ -1,9 +1,18 @@
 """Regression checks for the pdbench-to-k6 handoff."""
 
 import copy
+import json
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
+from prepare_k6 import (
+    DIMENSIONS,
+    HN_FILTER_FIELDS,
+    PROBE,
+    QUERIES,
+    SUITES,
+    operating_points,
+    summary,
+)
 from verify_plans import verify
 
 
@@ -13,7 +22,7 @@ def reports(dataset="cohere"):
         {
             "kind": "search",
             "config": {
-                "dataset": {"name": dataset, "size": "1m"},
+                "dataset": {"name": dataset, "size": "1m", "dims": DIMENSIONS[dataset]},
                 "search": {
                     "query": query,
                     "k": neighbors,
@@ -27,7 +36,8 @@ def reports(dataset="cohere"):
                 "variants": {
                     query: {
                         "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
-                        f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
+                        f"current_setting('{dataset}.qvec')::vector({DIMENSIONS[dataset]}) "
+                        f"LIMIT {neighbors}",
                         "targets": {
                             "0.9": {"value": "0.001", "recall": 0.96},
                             "0.95": {"value": "0.001", "recall": 0.96},
@@ -117,6 +127,49 @@ class OperatingPointsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "strict recall targets"):
             operating_points(inputs, dataset="msmarco")
 
+    def test_hn_exports_dimensions_and_scalar_fields_for_all_ten_workloads(self):
+        """Keep HN's dimensions and predicate identities through the handoff."""
+        inputs = reports("hn")
+        points = operating_points(inputs, dataset="hn")
+        self.assertEqual(len(points), 30)
+        for point in points:
+            self.assertEqual(point["dimensions"], 1536)
+            self.assertEqual(point["neighbors"], 10)
+            self.assertEqual(point["filter_fields"], HN_FILTER_FIELDS[point["query"]])
+            self.assertIn("$1::vector(1536)", point["sql"])
+        with self.assertRaisesRegex(ValueError, "Missing recall sweeps"):
+            operating_points(inputs[:-1], dataset="hn")
+        inputs[0]["config"]["dataset"]["dims"] = 1024
+        with self.assertRaisesRegex(ValueError, "1536-dimensional"):
+            operating_points(inputs, dataset="hn")
+
+    def test_scalar_plan_guard_requires_all_fields_and_rejects_heap_fallbacks(self):
+        """Accept indexed conjunctions and reject incomplete pushdown."""
+        scan = {
+            "Custom Plan Provider": "ParadeDB Base Scan",
+            "TopK Limit": 10,
+            "TopK Order By": "emb <=> vector asc",
+        }
+        predicates = [
+            {"term": {"field": "type", "value": "story"}},
+            {"range": {"field": "score", "lower_bound": {"included": 10}}},
+        ]
+        plan = [{"Plan": scan}]
+        scan["Tantivy Query"] = json.dumps({"boolean": {"must": predicates}})
+        verify(plan, True, 10, ["type", "score"])
+        with self.assertRaisesRegex(ValueError, "predicate pushed down"):
+            verify(plan, True, 10, ["by"])
+        for fallback in ("heap_filter", "postgres_expression"):
+            scan["Tantivy Query"] = json.dumps(
+                {"boolean": {"must": predicates + [{fallback: {"field": "by"}}]}}
+            )
+            with self.assertRaisesRegex(ValueError, "heap filtering"):
+                verify(plan, True, 10, ["type", "score"])
+        scan["Tantivy Query"] = json.dumps({"term": {"field": "by", "value": "DanBC"}})
+        verify(plan, True, 10, ["by"])
+        scan["Tantivy Query"] = json.dumps({"range": {"field": "time"}})
+        verify(plan, True, 10, ["time"])
+
     def test_top100_plan_requires_cosine_topk_inside_paradedb(self):
         """Reject plans that do not push the requested TopK into the index."""
         scan = {
@@ -159,11 +212,11 @@ class OperatingPointsTest(unittest.TestCase):
         """Reject fallback scans and filters outside the index."""
         scan = {
             "Custom Plan Provider": "ParadeDB Base Scan",
-            "Tantivy Query": "text:year",
+            "Tantivy Query": json.dumps({"term": {"field": "text", "value": "year"}}),
         }
         plan = [{"Plan": {"Node Type": "Gather", "Plans": [scan]}}]
         verify(plan, filtered=True)
-        scan["Tantivy Query"] = "all"
+        scan["Tantivy Query"] = '"all"'
         with self.assertRaisesRegex(ValueError, "predicate pushed down"):
             verify(plan, filtered=True)
         scan["Filter"] = "text = 'year'"

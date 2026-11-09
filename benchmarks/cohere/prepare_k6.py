@@ -5,10 +5,24 @@ import json
 from pathlib import Path
 
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
+HN_FILTER_FIELDS = {
+    "knn_top10_unfiltered": [],
+    "knn_top10_score": ["score"],
+    "knn_top10_story": ["type"],
+    "knn_top10_story_score": ["type", "score"],
+    "knn_top10_time_1": ["time"],
+    "knn_top10_time_2": ["time"],
+    "knn_top10_time_3": ["time"],
+    "knn_top10_author_1": ["by"],
+    "knn_top10_author_2": ["by"],
+    "knn_top10_author_3": ["by"],
+}
 SUITES = {
     "cohere": dict.fromkeys(QUERIES, 10),
     "msmarco": {"knn_top10_unfiltered": 10, "knn_top100_unfiltered": 100},
+    "hn": dict.fromkeys(HN_FILTER_FIELDS, 10),
 }
+DIMENSIONS = {"cohere": 1024, "msmarco": 1024, "hn": 1536}
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
 
@@ -32,8 +46,12 @@ def operating_points(reports, dataset="cohere"):
             report["kind"] != "search"
             or report["data"]["sweep_param"] != PROBE
             or current["dataset"]["name"] != dataset
+            or current["dataset"]["dims"] != DIMENSIONS[dataset]
         ):
-            raise ValueError("Expected a pdbench max_probe search report")
+            raise ValueError(
+                "Expected a pdbench max_probe search report with "
+                f"{DIMENSIONS[dataset]}-dimensional query vectors"
+            )
         if report["data"]["query_vectors"] != 100:
             raise ValueError(
                 "CI requires all 100 query vectors and strict recall targets"
@@ -66,6 +84,10 @@ def operating_points(reports, dataset="cohere"):
                         "name": f"{query}@r{round(target * 100)}",
                         "query": query,
                         "neighbors": neighbors,
+                        "dimensions": DIMENSIONS[dataset],
+                        "filter_fields": HN_FILTER_FIELDS[query]
+                        if dataset == "hn"
+                        else ([] if query.endswith("_unfiltered") else ["text"]),
                         "target": target,
                         "reached": selected is not None,
                         "probe": selected["value"] if selected else None,

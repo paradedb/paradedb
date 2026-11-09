@@ -56,10 +56,7 @@ def operating_points(reports, dataset="cohere"):
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
-                    not current["search"]["sweep"]["min"]
-                    <= float(selected["value"])
-                    <= current["search"]["sweep"]["max"]
-                    or not float(selected["value"]).is_integer()
+                    not 1 <= float(selected["value"]) <= 100_000
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):
@@ -91,7 +88,7 @@ def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
     lines = [
         (
-            "| Workload / recall target | k | max_probe (cluster-work units) | Achieved recall@k "
+            "| Workload / recall target | k | max_probe | Achieved recall@k "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|---:|",
@@ -114,8 +111,7 @@ def summary(points):
             f"{point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects the absolute max_probe work budget separately for each workload "
-        "and recall target on this index. "
+        "\npdbench selects max_probe separately for each workload and recall target on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

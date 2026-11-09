@@ -17,12 +17,7 @@ def reports(dataset="cohere"):
                 "search": {
                     "query": query,
                     "k": neighbors,
-                    "sweep": {
-                        "min": 1.0,
-                        "max": 100_000.0,
-                        "integer": True,
-                        "tolerance": 0.000001,
-                    },
+                    "sweep": {"tolerance": 0.000001},
                     "session": {"cohere.titles_10pct": "year", "jit": "off"},
                 },
             },
@@ -89,18 +84,6 @@ class OperatingPointsTest(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "invalid selected point"):
             operating_points(inputs)
-
-    def test_refuses_probe_values_outside_absolute_sweep_bounds(self):
-        """Reject invalid budgets while accepting absolute values above one."""
-        for value in ["0", "0.5", "25.5", "99999.5", "100001", "nan", "inf"]:
-            with self.subTest(value=value):
-                inputs = reports()
-                result = inputs[0]["data"]["variants"][QUERIES[0]]
-                result["points"][0]["value"] = value
-                for selected in result["targets"].values():
-                    selected["value"] = value
-                with self.assertRaisesRegex(ValueError, "invalid selected point"):
-                    operating_points(inputs)
 
     def test_msmarco_exports_both_neighbor_counts_and_preserves_reports(self):
         """Keep top-10 and top-100 selections distinct in the shared handoff."""

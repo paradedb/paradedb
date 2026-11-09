@@ -46,6 +46,7 @@ def operating_points(reports):
                     not current["search"]["sweep"]["min"]
                     <= float(selected["value"])
                     <= current["search"]["sweep"]["max"]
+                    or not float(selected["value"]).is_integer()
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):

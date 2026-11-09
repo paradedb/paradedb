@@ -8,7 +8,7 @@ SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
 SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
 SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
     = 'TABLE(segno text, cluster_sizes bigint[])' AS cluster_columns;
@@ -272,7 +272,7 @@ FROM segment_info;
  t                                        | t
 (1 row)
 
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine WHERE id @@@ pdb.all() '
@@ -470,7 +470,7 @@ SELECT
  t
 (1 row)
 
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 DROP TABLE q_cosine_oracle;
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
 CREATE INDEX q_l2_idx ON q_l2

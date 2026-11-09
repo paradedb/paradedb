@@ -71,7 +71,7 @@ retaining more members cannot recover members in unopened lists.
    `pdbench search` loads the query vectors and sweeps
    `paradedb.vector_cluster_max_probe` in absolute cluster-work units separately
    for each filter to r90/r95/r99. The sweep starts at 100 units and searches
-   between 1 and 100,000 units.
+   between 1 and 100,000 units, using only whole-number budgets.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
    After the sweeps, CI downloads diagnostics from the latest successful main

@@ -1877,12 +1877,12 @@ async fn generated_rank_join(database: Db) {
         let sides = Sides {
             baseline: format!(
                 "{base_gucs}\
-                 SET paradedb.vector_cluster_max_probe TO 1000000000;\n\
+                 SET paradedb.vector_cluster_max_probe TO 100000;\n\
                  SET paradedb.enable_rank_join TO off;\n"
             ),
             candidate: format!(
                 "{base_gucs}\
-                 SET paradedb.vector_cluster_max_probe TO 1000000000;\n\
+                 SET paradedb.vector_cluster_max_probe TO 100000;\n\
                  SET paradedb.enable_rank_join TO on;\n\
                  SET paradedb.rank_join_min_rows TO 0;\n"
             ),

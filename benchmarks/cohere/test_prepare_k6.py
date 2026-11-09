@@ -16,7 +16,12 @@ def reports():
                 "dataset": {"size": "1m"},
                 "search": {
                     "query": query,
-                    "sweep": {"min": 1.0, "max": 1_000_000.0, "tolerance": 0.000001},
+                    "sweep": {
+                        "min": 1.0,
+                        "max": 100_000.0,
+                        "integer": True,
+                        "tolerance": 0.000001,
+                    },
                     "session": {"cohere.titles_10pct": "year", "jit": "off"},
                 },
             },
@@ -86,7 +91,7 @@ class OperatingPointsTest(unittest.TestCase):
 
     def test_refuses_probe_values_outside_absolute_sweep_bounds(self):
         """Reject invalid budgets while accepting absolute values above one."""
-        for value in ["0.5", "1000001", "nan", "inf"]:
+        for value in ["0", "0.5", "25.5", "99999.5", "100001", "nan", "inf"]:
             with self.subTest(value=value):
                 inputs = reports()
                 result = inputs[0]["data"]["variants"][QUERIES[0]]

@@ -77,7 +77,7 @@ These settings affect vector queries over `pgvector`'s `vector` type. See [Index
 | Setting                                 | Default         | Context | Description                                                                                                  |
 | --------------------------------------- | --------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `paradedb.vector_adaptive_probing`      | `on`            | user    | Stops cluster probing when competitive-candidate admission decays, within the same routing and work budgets. |
-| `paradedb.vector_cluster_max_probe`     | `100`           | user    | Global probe-work budget in average-cluster units; also controls the router request.                         |
+| `paradedb.vector_cluster_max_probe`     | `100`           | user    | Global probe-work budget in whole average-cluster units (`1`–`100000`); also controls the router request.    |
 | `paradedb.vector_clustering_threshold`  | `500`           | user    | Segment document-count threshold at which merged vector storage switches from flat to IVF.                   |
 | `paradedb.vector_fixed_probe_cost_rows` | Tantivy default | user    | Fixed per-probe cost used by the IVF probe-budget model; mainly for testing and calibration.                 |
 | `paradedb.vector_stats`                 | `off`           | user    | Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`; for diagnostics.                   |

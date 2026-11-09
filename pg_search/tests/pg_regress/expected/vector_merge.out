@@ -134,7 +134,7 @@ SELECT count(*) = 50000 AS heap_has_all_rows FROM remerge;
  t
 (1 row)
 
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 SELECT count(*) = count(DISTINCT id) AS ann_returns_unique_ids
 FROM (
     SELECT id

@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
 
 SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
@@ -241,7 +241,7 @@ SELECT
     jsonb_path_query_first(value, '$.**.exact_scan_ns') IS NULL
         AS diagnostics_absent_skips_ivf_exact
 FROM segment_info;
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 
 WITH plan AS (
     SELECT quant_explain(
@@ -410,7 +410,7 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS routed_matches_exhaustive;
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 DROP TABLE q_cosine_oracle;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));

@@ -105,7 +105,7 @@ WHERE v.vector_format = 'ivf';
 -- only checks that returned ids are unique (nothing doubled) rather than
 -- requiring every row.
 SELECT count(*) = 50000 AS heap_has_all_rows FROM remerge;
-SET paradedb.vector_cluster_max_probe = 1000000000;
+SET paradedb.vector_cluster_max_probe = 100000;
 SELECT count(*) = count(DISTINCT id) AS ann_returns_unique_ids
 FROM (
     SELECT id

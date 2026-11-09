@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::guc::GucEnum;
+use pgrx::guc::{GucCheckError, GucEnum};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
@@ -332,6 +332,21 @@ static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::n
 
 /// Global IVF probe-work budget in average-cluster units.
 static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(100.0);
+
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn check_vector_cluster_max_probe(
+    new_value: *mut f64,
+    _extra: *mut *mut std::ffi::c_void,
+    _source: pg_sys::GucSource::Type,
+) -> bool {
+    if unsafe { *new_value }.fract() != 0.0 {
+        unsafe {
+            GucCheckError::new("paradedb.vector_cluster_max_probe must be a whole number").apply();
+        }
+        return false;
+    }
+    true
+}
 
 /// Returns the global IVF probe-work budget.
 pub fn vector_cluster_max_probe() -> f64 {
@@ -707,16 +722,21 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_float_guc(
-        c"paradedb.vector_cluster_max_probe",
-        c"Global IVF probe-work budget in average-cluster units for vector ORDER BY queries",
-        c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
-        &VECTOR_CLUSTER_MAX_PROBE,
-        0.000001,
-        1_000_000_000.0,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
+    unsafe {
+        GucRegistry::define_float_guc_with_hooks(
+            c"paradedb.vector_cluster_max_probe",
+            c"Global IVF probe-work budget in whole average-cluster units for vector ORDER BY queries",
+            c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
+            &VECTOR_CLUSTER_MAX_PROBE,
+            1.0,
+            100_000.0,
+            GucContext::Userset,
+            GucFlags::default(),
+            Some(check_vector_cluster_max_probe),
+            None,
+            None,
+        );
+    }
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_fixed_probe_cost_rows",
@@ -1436,13 +1456,38 @@ mod tests {
         .unwrap();
         assert_eq!(vector_cluster_max_probe(), 100.0);
         assert!(vector_adaptive_probing().is_some());
-        Spi::run("SET paradedb.vector_cluster_max_probe = 25.0;").unwrap();
+        for budget in [1, 100_000, 25] {
+            Spi::run(&format!(
+                "SET paradedb.vector_cluster_max_probe = {budget};"
+            ))
+            .unwrap();
+            assert_eq!(vector_cluster_max_probe(), f64::from(budget));
+        }
         assert_eq!(vector_cluster_max_probe(), 25.0);
         Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
         assert!(vector_adaptive_probing().is_none());
         assert_eq!(vector_cluster_max_probe(), 25.0);
         Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
         assert_eq!(vector_cluster_max_probe(), 100.0);
+    }
+
+    #[pg_test(error = "paradedb.vector_cluster_max_probe must be a whole number")]
+    fn test_vector_probe_budget_rejects_fraction() {
+        Spi::run("SET paradedb.vector_cluster_max_probe = 25.5;").unwrap();
+    }
+
+    #[pg_test(
+        error = "0 is outside the valid range for parameter \"paradedb.vector_cluster_max_probe\" (1 .. 100000)"
+    )]
+    fn test_vector_probe_budget_rejects_zero() {
+        Spi::run("SET paradedb.vector_cluster_max_probe = 0;").unwrap();
+    }
+
+    #[pg_test(
+        error = "100001 is outside the valid range for parameter \"paradedb.vector_cluster_max_probe\" (1 .. 100000)"
+    )]
+    fn test_vector_probe_budget_rejects_above_max() {
+        Spi::run("SET paradedb.vector_cluster_max_probe = 100001;").unwrap();
     }
 
     #[pg_test]

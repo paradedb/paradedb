@@ -37,7 +37,7 @@ plan_cache_mode = "force_custom_plan"
 [search.sweep]
 param = "paradedb.vector_cluster_max_probe"
 min = 1.0
-max = 1_000_000.0
+max = 100_000.0
 start = 100.0
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001

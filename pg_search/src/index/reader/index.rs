@@ -1153,12 +1153,7 @@ impl SearchIndexReader {
             index_relation.created_by_version()
         };
         let need_scores = need_scores || search_query_input.need_scores();
-        let parser = || {
-            QueryParser::for_index(
-                &index,
-                schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-            )
-        };
+        let parser = || schema.query_parser(&index);
         let pruning_query = SegmentPruner::has_prunable_predicate(&schema, &search_query_input)
             .then(|| search_query_input.clone());
         let estimate_from_statistics = search_query_input.supports_statistics_estimation();
@@ -1393,15 +1388,7 @@ impl SearchIndexReader {
             .into_tantivy_query(
                 &self.schema,
                 self.index_created_by_version,
-                &|| {
-                    QueryParser::for_index(
-                        &self.underlying_index,
-                        self.schema
-                            .fields()
-                            .map(|(field, _)| field)
-                            .collect::<Vec<_>>(),
-                    )
-                },
+                &|| self.schema.query_parser(&self.underlying_index),
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
@@ -3021,15 +3008,7 @@ impl SearchIndexReader {
         &self,
         query_input: SearchQueryInput,
     ) -> Result<QueryWithEstimates> {
-        let parser_closure = || {
-            QueryParser::for_index(
-                &self.underlying_index,
-                self.schema
-                    .fields()
-                    .map(|(field, _)| field)
-                    .collect::<Vec<_>>(),
-            )
-        };
+        let parser_closure = || self.schema.query_parser(&self.underlying_index);
 
         let (_tantivy_query, mut query_tree) = query_input.into_tantivy_query_with_tree(
             &self.schema,

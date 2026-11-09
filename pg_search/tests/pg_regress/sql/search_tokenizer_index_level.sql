@@ -68,6 +68,18 @@ CREATE INDEX idx_bad ON autocomplete
     USING paradedb (id, (title::pdb.ngram(1, 10, 'search_tokenizer=unicode_words')));
 
 -------------------------------------------------------------
+-- Test 5: search_tokenizer applies to query strings parsed by @@@ and pdb.parse
+-------------------------------------------------------------
+
+-- "Running" not lowered at search time -> 0 rows
+SELECT id FROM param_test WHERE content @@@ 'Running' ORDER BY id;
+SELECT id FROM param_test WHERE param_test @@@ pdb.parse('content:Running') ORDER BY id;
+
+-- "running" already lowercase -> matches all 3 rows
+SELECT id FROM param_test WHERE content @@@ 'running' ORDER BY id;
+SELECT id FROM param_test WHERE param_test @@@ pdb.parse('content:running') ORDER BY id;
+
+-------------------------------------------------------------
 -- Cleanup
 -------------------------------------------------------------
 

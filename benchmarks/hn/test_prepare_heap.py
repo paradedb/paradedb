@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 import duckdb  # pylint: disable=import-error
-from prepare_hn_heap import CORPUS, FIXTURES, fetch, prepare
+from prepare_heap import CORPUS, FIXTURES, fetch, prepare
 
 
 class PrepareHnHeapTests(unittest.TestCase):

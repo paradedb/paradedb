@@ -168,8 +168,8 @@ jobs:
           python3 -m venv .hn-fixtures
           .hn-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
           HN_TEST_DATABASE_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
-            .hn-fixtures/bin/python -m unittest discover -s .github/scripts -p 'test_prepare_hn_heap.py'
-          .hn-fixtures/bin/python .github/scripts/prepare_hn_heap.py \
+            .hn-fixtures/bin/python -m unittest discover -s benchmarks/hn -p 'test_prepare_heap.py'
+          .hn-fixtures/bin/python benchmarks/hn/prepare_heap.py \
             --source s3://paradedb-benchmark/datasets/hn/v1 \
             --output "$RUNNER_TEMP/hn-heap"
 

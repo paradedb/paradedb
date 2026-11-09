@@ -52,7 +52,7 @@ Run preparation checks with:
 
 ```sh
 uv run --with duckdb==2.0.0 python -m unittest discover \
-  -s .github/scripts -p test_prepare_hn_heap.py
+  -s benchmarks/hn -p test_prepare_heap.py
 ```
 
 Set `HN_TEST_DATABASE_URL` to an empty scratch PostgreSQL database with pgvector

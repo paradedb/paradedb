@@ -537,8 +537,15 @@ impl SearchQueryInput {
         }
     }
 
-    /// Estimates a relative upper bound on the BM25 score of `self`, accounting for query-level
-    /// `Boost`, `ConstScore`, `Boolean` sums, and `DisjunctionMax`.
+    /// Estimates the characteristic BM25 score swing of `self` for `RankJoinRule` Gate 2,
+    /// accounting for query-level `Boost`, `ConstScore`, `Boolean` (`must` / `should`), and
+    /// `DisjunctionMax`.
+    ///
+    /// Constant-score predicates (`is_constant_score()`) add a fixed offset to every matching
+    /// document and do not increase within-leaf score variation. Across `Boolean.should` (`OR`)
+    /// branches, a matching document only needs to satisfy one disjunct (consistent with multi-term
+    /// `ParseWithField` / `Match` queries, which return `1.0`), so `should` takes the maximum
+    /// branch scale; across `Boolean.must` (`AND`) branches, clause scores are summed.
     pub(crate) fn estimate_max_score(&self) -> f64 {
         match self {
             SearchQueryInput::Uninitialized | SearchQueryInput::Empty | SearchQueryInput::Null => {
@@ -557,12 +564,19 @@ impl SearchQueryInput {
             SearchQueryInput::ScoreFilter { query, .. } => {
                 query.as_deref().map_or(1.0, Self::estimate_max_score)
             }
-            SearchQueryInput::Boolean { must, should, .. } => must
-                .iter()
-                .chain(should.iter())
-                .map(Self::estimate_max_score)
-                .sum::<f64>()
-                .max(1.0),
+            SearchQueryInput::Boolean { must, should, .. } => {
+                let must_sum: f64 = must
+                    .iter()
+                    .filter(|q| !q.is_constant_score())
+                    .map(Self::estimate_max_score)
+                    .sum();
+                let should_max: f64 = should
+                    .iter()
+                    .filter(|q| !q.is_constant_score())
+                    .map(Self::estimate_max_score)
+                    .fold(0.0_f64, f64::max);
+                (must_sum + should_max).max(1.0)
+            }
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
                 .iter()
                 .map(Self::estimate_max_score)

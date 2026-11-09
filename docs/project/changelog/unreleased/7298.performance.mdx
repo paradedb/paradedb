@@ -1,5 +1,0 @@
----
-header: performance
----
-
-Top-K joins ordered by combined search scores now use the rank join when a leaf carries a single-table filter answered by the index, including row-level security policies, `=`, `= ANY`, and range conditions. Such filters previously forced a hash join over every permitted row.

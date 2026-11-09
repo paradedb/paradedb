@@ -88,6 +88,7 @@ use crate::scan::pre_filter::{
     InListLinearFallback, PreFilter, collect_filters, try_dynamic_filter_pushdown,
 };
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
+use crate::scan::rank_join_rule::RankJoinDeclineReason;
 
 /// Ingredients needed to construct a Scanner for deferred search.
 #[derive(Clone)]
@@ -674,6 +675,10 @@ impl PgSearchScanPlan {
         self.planner_estimated_rows
     }
 
+    pub fn table_alias(&self) -> &str {
+        &self.table_alias
+    }
+
     fn segment_pruning(&self) -> SegmentPruningEstimate {
         *self.segment_pruning.get_or_init(|| {
             let state_guard = self
@@ -785,38 +790,50 @@ impl PgSearchScanPlan {
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
         matched_tags: &mut std::collections::BTreeSet<String>,
-    ) -> Option<(Self, Vec<Option<usize>>)> {
+    ) -> std::result::Result<(Self, Vec<Option<usize>>), RankJoinDeclineReason> {
         let crate::scan::ScanMode::Tagged {
             base_query,
             local_queries,
         } = &self.scan_mode
         else {
-            return None;
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
         };
         if local_queries.is_empty()
             || !local_queries
                 .iter()
                 .all(|tq| elided_tags.contains(&tq.tag_name))
-            || base_query.has_heap_filters()
         {
-            return None;
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
+        }
+        if base_query.has_heap_filters() {
+            return Err(RankJoinDeclineReason::DisjunctiveLeafHasHeapFilter {
+                table: self.table_alias.clone(),
+            });
         }
         {
             let state = self
                 .state
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let schema = match &*state {
+            let is_pushdown = match &*state {
                 ExecutionState::Shared { scan_state, .. }
                 | ExecutionState::RangePartitioned { scan_state, .. } => {
-                    Some(scan_state.0.reader.schema())
+                    crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+                        let schema = scan_state.get(token).reader.schema();
+                        base_query
+                            .is_pushdown_filter(&|field| schema.is_term_filter_field(field.root()))
+                    })
                 }
-                ExecutionState::Uninitialized | ExecutionState::Consumed => None,
+                ExecutionState::Uninitialized | ExecutionState::Consumed => {
+                    base_query.is_pushdown_filter(&|_| false)
+                }
             };
-            if !base_query.is_pushdown_filter(&|field| {
-                schema.is_some_and(|s| s.is_term_filter_field(field.root()))
-            }) {
-                return None;
+            if !is_pushdown {
+                return Err(
+                    RankJoinDeclineReason::DisjunctiveLeafBaseNotPushdownFilter {
+                        table: self.table_alias.clone(),
+                    },
+                );
             }
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
@@ -860,7 +877,7 @@ impl PgSearchScanPlan {
             });
         }
         drop(state);
-        Some((plan, old_to_new))
+        Ok((plan, old_to_new))
     }
 
     fn rebuild_properties_with_schema(&mut self, schema: SchemaRef) {

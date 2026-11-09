@@ -184,6 +184,42 @@ impl Expr {
             }
         }
     }
+
+    /// True when every leaf is an indexed search `Atom` (`===`) combined with `AND` / `OR` (no
+    /// `NOT`, `IS NULL`, `IS NOT NULL`, or `pdb.all()`), guaranteeing a non-constant BM25 score
+    /// in `ScanMode::Standard`.
+    pub fn is_positive_indexed_search(&self) -> bool {
+        match self {
+            Expr::Atom { is_indexed, .. } => *is_indexed && self.has_search_operator(),
+            Expr::And(l, r) | Expr::Or(l, r) => {
+                l.is_positive_indexed_search() && r.is_positive_indexed_search()
+            }
+            _ => false,
+        }
+    }
+
+    /// True when every leaf is an indexed search `Atom` (`===`) combined only with `OR`, so that
+    /// when combined across tables in a disjunctive `WHERE`, the resulting tag filter is a pure
+    /// `OR` of non-constant-score tag columns eligible for `with_elided_disjunctive_tags`.
+    pub fn is_pure_or_indexed_search(&self) -> bool {
+        match self {
+            Expr::Atom { is_indexed, .. } => *is_indexed && self.has_search_operator(),
+            Expr::Or(l, r) => l.is_pure_or_indexed_search() && r.is_pure_or_indexed_search(),
+            _ => false,
+        }
+    }
+
+    /// True when `self.to_sql(" = ")` lowers to a `0.0`-score pushdown restriction accepted by
+    /// `SearchQueryInput::is_pushdown_filter` (`=`, `IS NOT NULL`, or an `AND` of those on
+    /// indexed literal/fast-field columns).
+    pub fn is_pushdown_filter_shape(&self) -> bool {
+        match self {
+            Expr::Atom { is_indexed, .. } => *is_indexed,
+            Expr::IsNotNull(_) => true,
+            Expr::And(l, r) => l.is_pushdown_filter_shape() && r.is_pushdown_filter_shape(),
+            _ => false,
+        }
+    }
 }
 
 // `tables` is a named generic rather than `impl AsRef<str>` so the return type can use precise

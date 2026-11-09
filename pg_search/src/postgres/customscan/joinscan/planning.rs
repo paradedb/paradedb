@@ -30,7 +30,7 @@ use super::build::{
 };
 use super::predicate::{all_vars_are_fast_fields_recursive, resolve_join_conditions};
 use super::privdat::{OutputColumnInfo, PrivateData};
-use super::window_func::{WindowAgg, WindowAggDef, WindowAggId, extract_window_agg};
+use super::window_func::{WindowAggDef, WindowAggId, WindowAggList, extract_window_agg};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::node::NodeExt;
@@ -867,10 +867,22 @@ unsafe fn collect_join_sources_join_rel(
     None
 }
 
+/// Check whether `expr` can be evaluated by PostgreSQL's projection step above the `JoinScan`
+/// (`ResolvedExpr::PgProjected`).
+///
+/// Rejects set-returning expressions, subplans, embedded window functions, system/whole-row
+/// `Var`s, and `Var`s or `pdb.score()` calls referencing relations absent from
+/// `plan.output_rtis()`. Supported `Var`s and `pdb.score()` subexpressions are appended to
+/// `custom_scan_tlist` by `add_vars_and_scores_to_tlist` during `plan_custom_path`.
 pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<(), String> {
     if pg_sys::expression_returns_set(expr) {
         pgrx::debug1!("JoinScan declined Postgres projection: expression returns a set");
         return Err("returns a set".to_string());
+    }
+
+    if expr.contains_type(pg_sys::NodeTag::T_SubPlan) {
+        pgrx::debug1!("JoinScan declined Postgres projection: expression contains a SubPlan");
+        return Err("contains a subplan".to_string());
     }
 
     let mut deps = ExprDeps {
@@ -879,13 +891,6 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
         window_funcs: Vec::new(),
     };
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
-
-    if !deps.score_rtis.is_empty() {
-        pgrx::debug1!(
-            "JoinScan declined Postgres projection: expression depends on a score function"
-        );
-        return Err("depends on a score function".to_string());
-    }
 
     if !deps.window_funcs.is_empty() {
         pgrx::debug1!(
@@ -900,6 +905,19 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
         .map(|s| source_table_name(&s.to_source_context()))
         .collect::<Vec<_>>()
         .join(", ");
+
+    let output_rtis = plan.output_rtis();
+    for score_rti in deps.score_rtis {
+        if !output_rtis.contains(&score_rti) {
+            pgrx::debug1!(
+                "JoinScan declined Postgres projection: expression depends on score for relation \
+                 (rti={}) not found in any source (tables: {})",
+                score_rti,
+                tables_str
+            );
+            return Err("score function references a relation outside the join".to_string());
+        }
+    }
 
     let mut seen = std::collections::HashSet::new();
     for var_ptr in deps.vars {
@@ -921,7 +939,7 @@ pub unsafe fn can_pg_project(expr: *mut pg_sys::Node, plan: &RelNode) -> Result<
             continue;
         }
 
-        if !plan.output_rtis().contains(&varno) {
+        if !output_rtis.contains(&varno) {
             pgrx::debug1!(
                 "JoinScan declined Postgres projection: expression depends on a relation \
                  (rti={}) not found in any source (tables: {})",
@@ -2417,13 +2435,13 @@ pub(crate) enum ResolvedExpr {
         input_vars: Vec<InputVarInfo>,
         result_type: pg_sys::Oid,
         /// Window functions embedded in the expression, in walker visit order
-        /// (each one's id ordinal is its position in this Vec). They are
+        /// (each one's id ordinal is its position in this list). They are
         /// computed by the scan's window step and fed to expression
         /// evaluation as opaque inputs; their argument Vars deliberately do
         /// NOT appear in `input_vars`. The extracted specs carry a
         /// placeholder resno of 0 in their `WindowAggId` — the caller that
         /// records them stamps the owning target entry's resno.
-        window_deps: Vec<WindowAgg>,
+        window_deps: WindowAggList,
     },
     PgProjected,
     /// A window function, or expression over one, that will return a constant value on all rows
@@ -2575,11 +2593,13 @@ unsafe extern "C-unwind" fn expr_deps_walker(
 /// Check if an expression in the target list can be evaluated and projected by JoinScan.
 ///
 /// Plain Vars, score functions, and indexed expressions are mapped to their respective
-/// ResolvedExpr variants. A general expression (or constant) declines on an aggregate. It
-/// runs inside the scan when every Var it reads is a fast field (score function arguments
-/// excluded) and its result type is Arrow-convertible; otherwise, volatile functions
-/// included, Postgres computes it over the scan's rows when `enable_pg_project_fallback`
-/// is set.
+/// ResolvedExpr variants. A general expression (or constant) declines on an aggregate or an
+/// unabsorbable window function. It runs inside the scan when every Var it reads is a fast field
+/// (score and absorbed window function arguments excluded), its result type is Arrow-convertible,
+/// and it contains no parameters or untranslatable score subtrees (evaluated against any absorbed
+/// `window_deps` via [`PredicateTranslator::can_translate_with_windows`]); otherwise, volatile
+/// functions and parameters included, Postgres computes it over the scan's rows when
+/// `enable_pg_project_fallback` is set.
 pub(crate) unsafe fn resolve_target_entry_expr(
     expr: *mut pg_sys::Node,
     root: *mut pg_sys::PlannerInfo,
@@ -2668,6 +2688,20 @@ pub(crate) unsafe fn resolve_target_entry_expr(
             );
         });
     }
+    if expr.contains_param() || expr.contains_type(pg_sys::NodeTag::T_SubPlan) {
+        return pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            "target list expression contains a parameter or subplan".to_string(),
+        )
+        .inspect_err(|_| {
+            pgrx::debug1!(
+                "JoinScan declined: target list expression contains a parameter \
+                 or subplan (tables: {})",
+                tables_str
+            );
+        });
+    }
 
     let mut deps = ExprDeps {
         vars: Vec::new(),
@@ -2675,10 +2709,11 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         window_funcs: Vec::new(),
     };
     expr_deps_walker(expr, std::ptr::addr_of_mut!(deps).cast());
+    let has_score_deps = !deps.score_rtis.is_empty();
 
     // Each embedded window function must itself be absorbable (supported
     // aggregate, bare OVER (), fast-field argument, columnar FILTER columns).
-    let mut window_deps = Vec::new();
+    let mut window_deps = WindowAggList::default();
     if !deps.window_funcs.is_empty() {
         for (ordinal, wf) in deps.window_funcs.iter().enumerate() {
             // The owning target entry's resno is unknown here; 0 is a
@@ -2802,6 +2837,28 @@ pub(crate) unsafe fn resolve_target_entry_expr(
                     result_type,
                     tables_str
                 );
+        });
+    }
+
+    if has_score_deps
+        && !PredicateTranslator::can_translate_with_windows(
+            Some(root),
+            &plan.sources(),
+            expr,
+            Some(plan),
+            &window_deps,
+        )
+    {
+        return pg_project_or_decline(
+            expr,
+            plan_for_pg_project_fallback,
+            "target list score expression cannot be evaluated in DataFusion".to_string(),
+        )
+        .inspect_err(|_| {
+            pgrx::debug1!(
+                "JoinScan declined: target list score expression cannot be evaluated in DataFusion (tables: {})",
+                tables_str
+            );
         });
     }
 

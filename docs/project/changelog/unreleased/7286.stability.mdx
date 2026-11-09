@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A search on the parent of a table inheritance tree, such as `SELECT * FROM parent WHERE id @@@ pdb.all()`, now returns the matching rows of the child tables too. The same applies to a `DELETE` on the parent. The Base Scan used to read only the parent's index, so it found only the parent's rows. A search on `ONLY parent` still reads only the parent. `pdb.score` and `pdb.snippet` on such a parent now fail with an error. On `ONLY parent` they work.

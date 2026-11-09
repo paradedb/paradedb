@@ -726,6 +726,19 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 return false;
             }
 
+            // The parent of an inheritance tree is also read by one scan per table. The
+            // parser sets `inh` on each table named without `ONLY`, so also check that the
+            // table has children.
+            let rte = unsafe { pg_sys::rt_fetch(varno, (*parse).rtable) };
+            let is_inheritance_parent = unsafe {
+                (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION
+                    && (*rte).inh
+                    && pg_sys::has_subclass(relid)
+            };
+            if is_inheritance_parent {
+                return false;
+            }
+
             if SearchIndexSchema::open(&bm25_index).is_err() {
                 return false;
             }

@@ -910,27 +910,13 @@ impl CustomScan for BaseScan {
             }
 
             let rti = builder.args().rti;
-            let (table, bm25_index) = {
-                let rte = builder.args().rte();
+            // A plain table or materialized view, as for Join Scan and Aggregate Scan. This
+            // declines an inheritance parent: its index holds only its own rows, and Postgres
+            // scans each table of the inheritance tree on its own instead.
+            let relid = range_table::get_plain_relation_relid(builder.args().rte)?;
 
-                // we only support plain relation and join rte's
-                if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
-                    && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
-                {
-                    return None;
-                }
-
-                // and we only work on plain relations
-                let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
-                if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-                    return None;
-                }
-
-                // and that relation must have a `USING paradedb` index
-                let (table, bm25_index) = rel_get_bm25_index(rte.relid)?;
-
-                (table, bm25_index)
-            };
+            // The relation must also have a `USING paradedb` index.
+            let (table, bm25_index) = rel_get_bm25_index(relid)?;
 
             let root = builder.args().root;
 

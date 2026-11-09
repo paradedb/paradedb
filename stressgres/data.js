@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794211880806,
+  "lastUpdate": 1794211905503,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -495428,6 +495428,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13610211100-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0d55a93132b2a78e3480ec81afe1f30104e54c41",
+          "message": "chore: Generate Dockerfiles for v0.26.6 (#7326)\n\nUpdates generated Dockerfiles for v0.26.6 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-09T04:12:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0d55a93132b2a78e3480ec81afe1f30104e54c41"
+        },
+        "date": 1794211902956,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.72350577895958,
+            "unit": "median tps",
+            "extra": "avg tps: 57.42378316504246, max tps: 515.1734069974992, count: 58795"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.20346701932522,
+            "unit": "median tps",
+            "extra": "avg tps: 31.161366619870105, max tps: 316.5500202990931, count: 58795"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 71.98681391685038,
+            "unit": "median tps",
+            "extra": "avg tps: 130.6368016746505, max tps: 1164.6475996190788, count: 58795"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.31085612646962,
+            "unit": "median tps",
+            "extra": "avg tps: 30.36539982287811, max tps: 258.6683604991015, count: 58795"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.56163702685059,
+            "unit": "median tps",
+            "extra": "avg tps: 59.26929704871134, max tps: 535.0333738531942, count: 58795"
+          }
+        ],
+        "publication_id": "13657329850-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -508644,6 +508697,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13610211100-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0d55a93132b2a78e3480ec81afe1f30104e54c41",
+          "message": "chore: Generate Dockerfiles for v0.26.6 (#7326)\n\nUpdates generated Dockerfiles for v0.26.6 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-09T04:12:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0d55a93132b2a78e3480ec81afe1f30104e54c41"
+        },
+        "date": 1794211905390,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.59375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.528733310655667, max partition_index_size:MB: 24.8125, count: 58795"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.2011190402331, max cpu: 41.538464, count: 58795"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.971316518198826, max mem: 58.30859375, count: 58795"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.907440698676726, max cpu: 41.201717, count: 58795"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 65.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 65.13873482545284, max mem: 73.5234375, count: 58795"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.701237,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.29035575047951, max cpu: 27.705627, count: 58795"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 53.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.089929389191255, max mem: 55.609375, count: 58795"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.999521,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.881878347369693, max cpu: 42.22874, count: 58795"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 62.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.17419815407347, max mem: 72.52734375, count: 58795"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.181260787478724, max cpu: 36.923077, count: 58795"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 59.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.518416545305726, max mem: 67.17578125, count: 58795"
+          }
+        ],
+        "publication_id": "13657329850-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

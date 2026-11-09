@@ -38,7 +38,7 @@ use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use superkmeans::common::Y_BATCH_SIZE;
 use superkmeans::distance::l2_squared;
-use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, SuperKMeansConfig};
+use superkmeans::{SuperKMeans, SuperKMeansConfig};
 use tantivy::schema::{Field, FieldType, Schema, VectorOptions};
 
 use crate::api::FieldName;
@@ -271,29 +271,21 @@ impl VectorPartitioning {
         let count = target.min(distinct.len());
         drop(distinct);
         let centroids = if count > 1 {
-            let target_leaf_size = rows as f64 / count as f64;
-            let max_leaf_size = ((target_leaf_size * std::f64::consts::SQRT_2).round() as usize)
-                .clamp(1, rows.saturating_sub(1).max(1));
-            let base_config = SuperKMeansConfig {
-                seed: SAMPLE_SEED as u64,
-                n_threads: 1,
-                angular: metric.is_angular(),
-                use_blas_only: true,
-                data_already_rotated: true,
-                suppress_warnings: true,
-                use_aggressive_split: true,
-                ..Default::default()
-            };
-            let clusterer = HierarchicalSuperKMeans::with_config(
+            let mut clusterer = SuperKMeans::with_config(
+                count,
                 dimensions,
-                HierarchicalSuperKMeansConfig {
-                    base: base_config,
-                    max_leaf_size,
-                    iters_fine: 12,
+                SuperKMeansConfig {
+                    seed: SAMPLE_SEED as u64,
+                    n_threads: 1,
+                    angular: metric.is_angular(),
+                    use_blas_only: true,
+                    data_already_rotated: true,
+                    suppress_warnings: true,
+                    use_aggressive_split: true,
                     ..Default::default()
                 },
             );
-            clusterer.train_meso_cluster(&data, rows).centroids
+            clusterer.train_owned(data, rows)
         } else {
             Vec::new()
         };
@@ -909,11 +901,7 @@ mod tests {
                     .collect(),
                 2,
             );
-            assert!(
-                model.centroids.len() >= 4 && model.centroids.len() % 2 == 0,
-                "expected at least 2 centroids, got {} floats",
-                model.centroids.len()
-            );
+            assert_eq!(model.centroids.len(), 4);
             assert_ne!(
                 model.route(Some(&PgVector(vec![-10.0, 0.0]))),
                 model.route(Some(&PgVector(vec![10.0, 0.0])))
@@ -929,24 +917,6 @@ mod tests {
                 model
             );
         }
-        // Skewed distributions split dense clusters so the final partition count is emergent.
-        let skewed = train(
-            VectorMetric::L2,
-            (0..400)
-                .map(|i| {
-                    Some(PgVector(if i < 300 {
-                        vec![if i % 2 == 0 { -10.0 } else { -8.0 }, (i % 13) as f32 * 0.1]
-                    } else {
-                        vec![10.0, (i % 7) as f32 * 0.1]
-                    }))
-                })
-                .collect(),
-            2,
-        );
-        assert!(
-            BuildPartitioning::Vector(skewed).partition_count() > 2,
-            "dense cluster should split beyond target=2"
-        );
         for sample in [vec![], vec![None], vec![Some(PgVector(vec![0.0, 0.0]))]] {
             let model = train(VectorMetric::Cosine, sample, 8);
             assert_eq!(model.route(Some(&PgVector(vec![1.0, 0.0]))), 0);

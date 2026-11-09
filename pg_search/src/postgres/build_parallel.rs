@@ -2039,11 +2039,6 @@ mod tests {
                     (1..=target).contains(&segments),
                     "segments={segments}, workers={workers}, leader={leader}"
                 );
-            } else if partition_by.is_none() && target > 1 {
-                assert!(
-                    segments >= target,
-                    "segments={segments}, target={target}, workers={workers}, leader={leader}"
-                );
             } else {
                 assert_eq!(
                     segments, target,

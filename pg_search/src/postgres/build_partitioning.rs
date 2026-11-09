@@ -69,9 +69,6 @@ const MAX_SAMPLE_BLOCKS: u32 = 4096;
 /// uniform over the visited blocks.
 const MAX_SAMPLE_ROWS: usize = 30_000;
 
-/// Target number of sampled rows per coarse vector partition.
-const VECTOR_TARGET_SAMPLES_PER_PARTITION: usize = 256;
-
 /// Minimum recommended sampled rows per coarse vector partition before warning that
 /// `maintenance_work_mem` is constraining partition training.
 const VECTOR_MIN_SAMPLES_PER_PARTITION: usize = 64;
@@ -410,12 +407,9 @@ fn vector_training_sample_rows(
     target_partitions: usize,
     budget_bytes: usize,
 ) -> usize {
-    let target_rows = target_partitions
-        .saturating_mul(VECTOR_TARGET_SAMPLES_PER_PARTITION)
-        .clamp(1, MAX_SAMPLE_ROWS);
     let min_rows = target_partitions
         .saturating_mul(VECTOR_MIN_SAMPLES_PER_PARTITION)
-        .min(target_rows);
+        .min(MAX_SAMPLE_ROWS);
     let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
     let centroid_bytes = target_partitions.saturating_mul(
         vector_bytes
@@ -436,17 +430,16 @@ fn vector_training_sample_rows(
     if max_budget_rows < min_rows {
         let samples_per_partition = max_budget_rows / target_partitions.max(1);
         let recommended_mb = fixed_bytes
-            .saturating_add(target_rows.saturating_mul(row_bytes))
+            .saturating_add(min_rows.saturating_mul(row_bytes))
             .div_ceil(1024 * 1024);
         pgrx::warning!(
-            "`maintenance_work_mem` only fits {} training samples per vector partition (minimum recommended is {}, target is {}); consider increasing `maintenance_work_mem` to at least {}MB",
+            "`maintenance_work_mem` only fits {} training samples per vector partition (minimum recommended is {}); consider increasing `maintenance_work_mem` to at least {}MB",
             samples_per_partition,
             VECTOR_MIN_SAMPLES_PER_PARTITION,
-            VECTOR_TARGET_SAMPLES_PER_PARTITION,
             recommended_mb
         );
     }
-    max_budget_rows.clamp(1, target_rows)
+    max_budget_rows.clamp(1, MAX_SAMPLE_ROWS)
 }
 
 /// Whether `dim` has a columnar field at all, whatever order that column is in.

@@ -69,6 +69,10 @@ const MAX_SAMPLE_BLOCKS: u32 = 4096;
 /// uniform over the visited blocks.
 const MAX_SAMPLE_ROWS: usize = 30_000;
 
+/// Minimum recommended sampled rows per coarse vector partition before warning that
+/// `maintenance_work_mem` is constraining partition training.
+const VECTOR_MIN_SAMPLES_PER_PARTITION: usize = 64;
+
 /// Current, previous, and returned centroids coexist at the end of training.
 const VECTOR_TRAINING_CENTROID_BUFFERS: usize = 3;
 
@@ -270,10 +274,11 @@ impl VectorPartitioning {
                 SuperKMeansConfig {
                     seed: SAMPLE_SEED as u64,
                     n_threads: 1,
-                    angular: metric != VectorMetric::L2,
+                    angular: metric.is_angular(),
                     use_blas_only: true,
                     data_already_rotated: true,
                     suppress_warnings: true,
+                    use_aggressive_split: true,
                     ..Default::default()
                 },
             );
@@ -347,23 +352,7 @@ pub(super) fn plan_partition_boundaries(
 
     let sample_rows = vector.map_or(MAX_SAMPLE_ROWS, |(dimensions, _)| {
         let budget = (unsafe { pg_sys::maintenance_work_mem } as usize).saturating_mul(1024);
-        let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
-        let centroid_bytes = target_partitions.saturating_mul(
-            vector_bytes
-                .saturating_mul(VECTOR_TRAINING_CENTROID_BUFFERS)
-                .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES),
-        );
-        let ratio_bytes = dimensions
-            .saturating_add(1)
-            .saturating_mul(std::mem::size_of::<f32>());
-        let fixed_bytes = centroid_bytes
-            .saturating_add(vector_bytes)
-            .saturating_add(ratio_bytes);
-        // One vector buffer plus row state and a conservatively unbatched distance buffer.
-        let row_bytes = vector_bytes
-            .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
-            .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
-        (budget.saturating_sub(fixed_bytes) / row_bytes).clamp(1, MAX_SAMPLE_ROWS)
+        vector_training_sample_rows(dimensions, target_partitions, budget)
     });
     let categorized_fields = schema.categorized_fields();
     if let Some((dimensions, metric)) = vector {
@@ -423,6 +412,46 @@ pub(super) fn plan_partition_boundaries(
         target_partitions,
         ctid_fallback,
     ))))
+}
+
+fn vector_training_sample_rows(
+    dimensions: usize,
+    target_partitions: usize,
+    budget_bytes: usize,
+) -> usize {
+    let min_rows = target_partitions
+        .saturating_mul(VECTOR_MIN_SAMPLES_PER_PARTITION)
+        .min(MAX_SAMPLE_ROWS);
+    let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
+    let centroid_bytes = target_partitions.saturating_mul(
+        vector_bytes
+            .saturating_mul(VECTOR_TRAINING_CENTROID_BUFFERS)
+            .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES),
+    );
+    let ratio_bytes = dimensions
+        .saturating_add(1)
+        .saturating_mul(std::mem::size_of::<f32>());
+    let fixed_bytes = centroid_bytes
+        .saturating_add(vector_bytes)
+        .saturating_add(ratio_bytes);
+    // One vector buffer plus row state and a conservatively unbatched distance buffer.
+    let row_bytes = vector_bytes
+        .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
+        .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
+    let max_budget_rows = budget_bytes.saturating_sub(fixed_bytes) / row_bytes.max(1);
+    if max_budget_rows < min_rows {
+        let samples_per_partition = max_budget_rows / target_partitions.max(1);
+        let recommended_mb = fixed_bytes
+            .saturating_add(min_rows.saturating_mul(row_bytes))
+            .div_ceil(1024 * 1024);
+        pgrx::warning!(
+            "`maintenance_work_mem` only fits {} training samples per vector partition (minimum recommended is {}); consider increasing `maintenance_work_mem` to at least {}MB",
+            samples_per_partition,
+            VECTOR_MIN_SAMPLES_PER_PARTITION,
+            recommended_mb
+        );
+    }
+    max_budget_rows.clamp(1, MAX_SAMPLE_ROWS)
 }
 
 /// Whether `dim` has a columnar field at all, whatever order that column is in.

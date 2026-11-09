@@ -87,7 +87,7 @@ impl TantivyValue {
                     PgBuiltInOids::INT2OID => i16::try_from(self)?.into_datum(),
                     PgBuiltInOids::INT4OID => i32::try_from(self)?.into_datum(),
                     PgBuiltInOids::INT8OID => i64::try_from(self)?.into_datum(),
-                    PgBuiltInOids::OIDOID => Oid::from(u32::try_from(self)?).into_datum(),
+                    PgBuiltInOids::OIDOID => Some(Datum::from(u32::try_from(self)?)),
                     PgBuiltInOids::FLOAT4OID => f32::try_from(self)?.into_datum(),
                     PgBuiltInOids::FLOAT8OID => f64::try_from(self)?.into_datum(),
                     PgBuiltInOids::NUMERICOID => pgrx::AnyNumeric::try_from(self)?.into_datum(),

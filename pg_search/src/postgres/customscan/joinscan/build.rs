@@ -26,12 +26,15 @@
 //! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
+use crate::index::fast_fields_helper::{FieldCardinality, WhichFastField};
 use crate::nodecast;
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::node::NodeExt;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
+use crate::schema::SearchFieldType;
 use anyhow::anyhow;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use pgrx::{PgList, pg_sys};
@@ -166,6 +169,31 @@ impl ScoreColumn {
 impl fmt::Display for ScoreColumn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "pdb.score({})", self.0)
+    }
+}
+
+/// DataFusion-facing synthetic vector score column name helper.
+///
+/// JoinScan formats vector similarity score column names as `pdb.vector_score({table})`
+/// to distinguish them from Tantivy BM25 `pdb.score({table})` columns.
+#[derive(Debug, Clone)]
+pub struct VectorScoreColumn(String);
+
+impl VectorScoreColumn {
+    pub const PREFIX: &'static str = "pdb.vector_score(";
+
+    pub fn new(table: impl Into<String>) -> Self {
+        Self(table.into())
+    }
+
+    pub fn is_vector_score_column(name: &str) -> bool {
+        name.starts_with(Self::PREFIX) && name.ends_with(')')
+    }
+}
+
+impl fmt::Display for VectorScoreColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "pdb.vector_score({})", self.0)
     }
 }
 
@@ -550,6 +578,16 @@ pub struct JoinSource {
 }
 
 impl JoinSource {
+    pub fn to_source_context(&self) -> SourceContext {
+        let indexrel = PgSearchRelation::open(self.scan_info.indexrelid);
+        SourceContext {
+            heap_rti: self.scan_info.heap_rti,
+            heaprel: PgSearchRelation::open(self.scan_info.heaprelid),
+            indexrel: Some(indexrel),
+            alias: self.scan_info.alias.clone(),
+        }
+    }
+
     pub unsafe fn contains_score(&self, node: *mut pg_sys::Node) -> bool {
         let funcoids = score_funcoids();
         node.any(|node| {
@@ -612,12 +650,25 @@ impl JoinSource {
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| {
-                if f.field.is_score() {
+                if f.field.is_score() || f.field.is_vector_score() {
                     None
                 } else {
                     Some(f.field.name())
                 }
             })
+    }
+
+    /// Resolve an attribute number to its field type if it is a scalar NUMERIC fast field.
+    pub fn numeric_field_type(&self, attno: pg_sys::AttrNumber) -> Option<SearchFieldType> {
+        let field_info = self.scan_info.fields.iter().find(|f| f.attno == attno)?;
+        match &field_info.field {
+            WhichFastField::Named {
+                field_type,
+                cardinality: FieldCardinality::Scalar,
+                ..
+            } if field_type.is_numeric() => Some(*field_type),
+            _ => None,
+        }
     }
 
     /// Recursively collect all base relations in this source.
@@ -677,6 +728,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                vector_order_by: None,
             },
         })
     }
@@ -1704,6 +1756,42 @@ impl RelNode {
         }
     }
 
+    /// Returns true if `target_rti` is reachable through a branch of `Inner`, `Semi` (when in
+    /// `left`), and `RightSemi` (when in `right`) equi-joins (plus optional `Filter` nodes), with
+    /// no `Unnest`, outer, anti, mark, or keyless joins along that branch.
+    pub fn supports_vector_order_by(&self, target_rti: pg_sys::Index) -> bool {
+        match self {
+            RelNode::Scan(s) => s.contains_rti(target_rti),
+            RelNode::Filter(f) => f.input.supports_vector_order_by(target_rti),
+            RelNode::Unnest(_) => false,
+            RelNode::Join(j) => {
+                if j.equi_keys.is_empty() {
+                    return false;
+                }
+                match j.join_type {
+                    JoinType::Inner => {
+                        if j.left.contains_rti(target_rti) {
+                            j.left.supports_vector_order_by(target_rti)
+                        } else if j.right.contains_rti(target_rti) {
+                            j.right.supports_vector_order_by(target_rti)
+                        } else {
+                            false
+                        }
+                    }
+                    JoinType::Semi => {
+                        j.left.contains_rti(target_rti)
+                            && j.left.supports_vector_order_by(target_rti)
+                    }
+                    JoinType::RightSemi => {
+                        j.right.contains_rti(target_rti)
+                            && j.right.supports_vector_order_by(target_rti)
+                    }
+                    _ => false,
+                }
+            }
+        }
+    }
+
     /// Recursively renders a human-readable representation of the join tree.
     pub fn explain(&self) -> String {
         self.explain_internal(true)
@@ -1761,23 +1849,7 @@ impl RelNode {
     /// the tree and must be visited separately (see `JoinCSClause::visit_queries_mut`).
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
-            RelNode::Scan(source) => match &mut source.scan_info.mode {
-                crate::scan::ScanMode::Standard { query } => f(query),
-                crate::scan::ScanMode::Tagged {
-                    base_query,
-                    local_queries,
-                } => {
-                    f(base_query);
-                    for tq in local_queries {
-                        f(&mut tq.query);
-                    }
-                }
-                crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
-                    for q in disjunct_queries {
-                        f(q);
-                    }
-                }
-            },
+            RelNode::Scan(source) => source.scan_info.mode.queries_mut().for_each(f),
             RelNode::Join(j) => {
                 j.left.visit_queries_mut(f);
                 j.right.visit_queries_mut(f);
@@ -1798,23 +1870,7 @@ impl RelNode {
     /// just to satisfy a `&mut` receiver.
     pub fn visit_queries(&self, f: &mut impl FnMut(&SearchQueryInput)) {
         match self {
-            RelNode::Scan(source) => match &source.scan_info.mode {
-                crate::scan::ScanMode::Standard { query } => f(query),
-                crate::scan::ScanMode::Tagged {
-                    base_query,
-                    local_queries,
-                } => {
-                    f(base_query);
-                    for tq in local_queries {
-                        f(&tq.query);
-                    }
-                }
-                crate::scan::ScanMode::Disjunctive { disjunct_queries } => {
-                    for q in disjunct_queries {
-                        f(q);
-                    }
-                }
-            },
+            RelNode::Scan(source) => source.scan_info.mode.queries().for_each(f),
             RelNode::Join(j) => {
                 j.left.visit_queries(f);
                 j.right.visit_queries(f);
@@ -1998,6 +2054,12 @@ impl JoinCSClause {
         self
     }
 
+    pub fn collect_source_contexts(&self, acc: &mut Vec<SourceContext>) {
+        for source in self.plan.sources() {
+            acc.push(source.to_source_context());
+        }
+    }
+
     /// Recursively collect all base relations in this join tree.
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         for source in self.plan.sources() {
@@ -2071,22 +2133,42 @@ impl JoinCSClause {
     }
 
     pub fn has_postgres_expressions(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.has_postgres_expressions() {
-                found = true;
-            }
+        let mut found = self.order_by.iter().any(|ob| {
+            matches!(
+                ob.feature,
+                crate::api::OrderByFeature::VectorDistance {
+                    query_vector: crate::api::QueryVector::Expr(_),
+                    ..
+                }
+            )
         });
+        if !found {
+            self.visit_queries(&mut |q| {
+                if q.has_postgres_expressions() {
+                    found = true;
+                }
+            });
+        }
         found
     }
 
     pub fn has_parameters(&self) -> bool {
-        let mut found = false;
-        self.visit_queries(&mut |q| {
-            if q.has_parameters() {
-                found = true;
-            }
+        let mut found = self.order_by.iter().any(|ob| {
+            matches!(
+                ob.feature,
+                crate::api::OrderByFeature::VectorDistance {
+                    query_vector: crate::api::QueryVector::Param(_),
+                    ..
+                }
+            )
         });
+        if !found {
+            self.visit_queries(&mut |q| {
+                if q.has_parameters() {
+                    found = true;
+                }
+            });
+        }
         found
     }
 
@@ -2101,7 +2183,7 @@ impl JoinCSClause {
     /// query with the no-reset variant, so a later source's solve doesn't free the rewritten
     /// expression tree an earlier source's solve just built (see
     /// `SearchQueryInput::solve_postgres_expressions_no_reset`). Both must stay alive through
-    /// `rebake_for_mpp`, which is why the whole clause resets only up front.
+    /// `rebake_logical_plan`, which is why the whole clause resets only up front.
     pub fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         assert!(
             !expr_context.is_null(),
@@ -2144,17 +2226,25 @@ pub fn assign_tagged_queries<'a>(
     for source in sources {
         let alias =
             RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
-        let local_queries: Vec<crate::scan::TaggedQuery> = predicates
-            .iter()
-            .enumerate()
-            .filter(|(_, (plan_pos, _))| *plan_pos == source.plan_position)
+        // Deduplicate by `p.query` per source: tag columns resolve by query equality,
+        // so a duplicate is never referenced and scores twice.
+        let mut unique_queries: Vec<(usize, &SearchQueryInput)> = Vec::new();
+        for (global_idx, (plan_pos, p)) in predicates.iter().enumerate() {
+            if *plan_pos == source.plan_position
+                && !unique_queries.iter().any(|(_, q)| *q == &p.query)
+            {
+                unique_queries.push((global_idx, &p.query));
+            }
+        }
+        let local_queries: Vec<crate::scan::TaggedQuery> = unique_queries
+            .into_iter()
             .enumerate()
             .map(
-                |(local_idx, (global_idx, (_, p)))| crate::scan::TaggedQuery {
+                |(local_idx, (global_idx, query))| crate::scan::TaggedQuery {
                     tag_name: format!("__{alias}_tag_{local_idx}"),
                     tag_idx: crate::scan::TagIndex(local_idx),
                     predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
-                    query: Box::new(p.query.clone()),
+                    query: Box::new(query.clone()),
                 },
             )
             .collect();
@@ -2398,7 +2488,7 @@ pub unsafe fn lookup_base_rel_info(
 /// over an array fast field on an indexed base table.
 pub unsafe fn try_extract_lateral_unnest_from_rte(
     root: *mut pg_sys::PlannerInfo,
-    candidate_rti: pg_sys::Index,
+    function_rti: FunctionRti,
     rte: *mut pg_sys::RangeTblEntry,
 ) -> Option<LateralUnnestInfo> {
     if rte.is_null() || (*rte).rtekind != pg_sys::RTEKind::RTE_FUNCTION {
@@ -2428,32 +2518,20 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
         return None;
     }
 
-    let (source_relid, _alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
-    let bm25_index = bm25_index?;
-
-    let schema = crate::schema::SearchIndexSchema::open(&bm25_index).ok()?;
-    let hr = PgSearchRelation::open(source_relid);
-    let tupdesc = hr.tuple_desc();
-    let att = tupdesc.get((source_attno - 1) as usize)?;
-    let col_name = att.name();
-    let search_field = schema.search_field(col_name)?;
-    if !search_field.is_fast() {
-        return None;
-    }
-    let categorized = schema.categorized_fields();
-    let field_data = categorized
-        .iter()
-        .find(|(sf, _)| sf == &search_field)
-        .map(|(_, data)| data)?;
-    if !field_data.is_array {
-        return None;
-    }
+    let (source_relid, alias, bm25_index) = lookup_base_rel_info(root, source_rti.0)?;
+    let context = SourceContext::new(
+        source_rti.0,
+        PgSearchRelation::open(source_relid),
+        bm25_index,
+        alias,
+    );
+    let resolved = context.resolve_fast_field(ResTarget::Attno(source_attno), Access::List)?;
 
     Some(LateralUnnestInfo {
-        function_rti: FunctionRti(candidate_rti),
+        function_rti,
         source_rti,
         source_attno,
-        field_name: col_name.to_string(),
+        field_name: resolved.field.name(),
         is_left_join: false,
     })
 }
@@ -2461,12 +2539,12 @@ pub unsafe fn try_extract_lateral_unnest_from_rte(
 /// Convenience helper to extract lateral unnest info by RTI.
 pub unsafe fn try_extract_lateral_unnest(
     root: *mut pg_sys::PlannerInfo,
-    candidate_rti: pg_sys::Index,
+    candidate_rti: FunctionRti,
 ) -> Option<LateralUnnestInfo> {
     let rte = get_rte(
         (*root).simple_rel_array_size as usize,
         (*root).simple_rte_array,
-        candidate_rti,
+        candidate_rti.0,
     )?;
     try_extract_lateral_unnest_from_rte(root, candidate_rti, rte)
 }
@@ -2607,5 +2685,223 @@ mod tests {
         assert_eq!(rti_of(&j.left), 1);
         assert_eq!(rti_of(&j.right), 2);
         assert_eq!((j.equi_keys[0].outer_rti, j.equi_keys[0].inner_rti), (1, 2));
+    }
+
+    #[pg_test]
+    fn generic_plan_rebakes_across_mpp_and_serial_mode_toggles() {
+        use pgrx::Spi;
+
+        Spi::run(
+            r#"
+            SET paradedb.enable_join_custom_scan TO on;
+            SET paradedb.mpp_min_rows TO 0;
+            SET enable_indexscan TO off;
+            SET plan_cache_mode = force_generic_plan;
+            SET max_parallel_workers TO 64;
+            SET min_parallel_table_scan_size TO 0;
+            SET parallel_setup_cost TO 0;
+            SET parallel_tuple_cost TO 0;
+
+            CREATE TABLE mpp_mode_files (
+                id INTEGER,
+                title TEXT,
+                content TEXT
+            );
+            CREATE INDEX mpp_mode_files_idx ON mpp_mode_files
+            USING bm25 (id, title, content)
+            WITH (
+                numeric_fields = '{"id": {"fast": true}}',
+                text_fields = '{"title": {"fast": true}, "content": {}}',
+                target_segment_count = 2,
+                layer_sizes = '0',
+                background_layer_sizes = '0'
+            );
+
+            CREATE TABLE mpp_mode_pages (
+                id INTEGER,
+                file_id INTEGER,
+                page_text TEXT
+            );
+            CREATE INDEX mpp_mode_pages_idx ON mpp_mode_pages
+            USING bm25 (id, file_id, page_text)
+            WITH (
+                numeric_fields = '{"id": {"fast": true}, "file_id": {"fast": true}}',
+                text_fields = '{"page_text": {}}',
+                target_segment_count = 2,
+                layer_sizes = '0',
+                background_layer_sizes = '0'
+            );
+
+            SET paradedb.global_mutable_segment_rows = 0;
+            INSERT INTO mpp_mode_files (id, title, content)
+            SELECT g, 'Doc ' || g, 'Section ' || g FROM generate_series(1, 50) AS g;
+            INSERT INTO mpp_mode_files (id, title, content)
+            SELECT g, 'Doc ' || g, 'Section ' || g FROM generate_series(51, 100) AS g;
+
+            INSERT INTO mpp_mode_pages (id, file_id, page_text)
+            SELECT g, g, 'Page ' || g FROM generate_series(1, 50) AS g;
+            INSERT INTO mpp_mode_pages (id, file_id, page_text)
+            SELECT g, g, 'Page ' || g FROM generate_series(51, 100) AS g;
+            RESET paradedb.global_mutable_segment_rows;
+
+            ANALYZE mpp_mode_files;
+            ANALYZE mpp_mode_pages;
+
+            CREATE OR REPLACE FUNCTION mpp_mode_explain_has_distributed(stmt_sql text)
+            RETURNS boolean LANGUAGE plpgsql AS $fn$
+            DECLARE
+                line text;
+            BEGIN
+                FOR line IN EXECUTE 'EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, TIMING OFF) ' || stmt_sql LOOP
+                    IF line LIKE '%DistributedExec%' THEN
+                        RETURN true;
+                    END IF;
+                END LOOP;
+                RETURN false;
+            END;
+            $fn$;
+            "#,
+        )
+        .unwrap();
+
+        let run_stmt = |stmt_name: &str| -> (Vec<i32>, bool) {
+            let rows = Spi::connect(|client| {
+                let table = client
+                    .select(&format!("EXECUTE {stmt_name}"), None, &[])
+                    .unwrap();
+                table
+                    .map(|row| row.get::<i32>(1).unwrap().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            let is_distributed = Spi::get_one::<bool>(&format!(
+                "SELECT mpp_mode_explain_has_distributed('EXECUTE {stmt_name}')"
+            ))
+            .unwrap()
+            .unwrap();
+            (rows, is_distributed)
+        };
+
+        let expected = vec![1001, 2002, 3003, 4004, 5005];
+
+        // 1. Prepared with MPP active (`LogicalPlanMode::Mpp`), then toggled 2 -> 0 -> 2.
+        //    No parameters exist in the query, so `needs_solve` is false and only
+        //    `needs_mode_rebake` in `JoinScan::maybe_solve_and_rebake` triggers rebaking.
+        Spi::run(
+            r#"
+            SET max_parallel_workers_per_gather TO 2;
+            PREPARE q_mpp_first AS
+            SELECT f.id * 1000 + p.id
+            FROM mpp_mode_files f
+            JOIN mpp_mode_pages p ON f.id = p.file_id
+            WHERE f.content @@@ 'Section'
+              AND p.page_text @@@ 'Page'
+            ORDER BY f.id, p.id
+            LIMIT 5;
+            "#,
+        )
+        .unwrap();
+
+        let (rows, is_dist) = run_stmt("q_mpp_first");
+        assert_eq!(rows, expected);
+        assert!(is_dist, "expected DistributedExec at workers=2");
+
+        Spi::run("SET max_parallel_workers_per_gather TO 0;").unwrap();
+        let (rows, is_dist) = run_stmt("q_mpp_first");
+        assert_eq!(rows, expected);
+        assert!(!is_dist, "expected serial execution at workers=0");
+
+        Spi::run("SET max_parallel_workers_per_gather TO 2;").unwrap();
+        let (rows, is_dist) = run_stmt("q_mpp_first");
+        assert_eq!(rows, expected);
+        assert!(
+            is_dist,
+            "expected DistributedExec after toggling back to workers=2"
+        );
+
+        // 2. Prepared with `max_parallel_workers_per_gather = 1` (so Postgres sets
+        //    `glob->parallelModeOK = true` while `mpp_is_active()` is false -> baked as
+        //    `LogicalPlanMode::Serial`), then toggled 1 -> 2 -> 0.
+        Spi::run(
+            r#"
+            SET max_parallel_workers_per_gather TO 1;
+            PREPARE q_serial_first AS
+            SELECT f.id * 1000 + p.id
+            FROM mpp_mode_files f
+            JOIN mpp_mode_pages p ON f.id = p.file_id
+            WHERE f.content @@@ 'Section'
+              AND p.page_text @@@ 'Page'
+            ORDER BY f.id, p.id
+            LIMIT 5;
+            "#,
+        )
+        .unwrap();
+
+        let (rows, is_dist) = run_stmt("q_serial_first");
+        assert_eq!(rows, expected);
+        assert!(!is_dist, "expected serial execution at workers=1");
+
+        Spi::run("SET max_parallel_workers_per_gather TO 2;").unwrap();
+        let (rows, is_dist) = run_stmt("q_serial_first");
+        assert_eq!(rows, expected);
+        assert!(
+            is_dist,
+            "expected DistributedExec after toggling from Serial to workers=2"
+        );
+
+        Spi::run("SET max_parallel_workers_per_gather TO 0;").unwrap();
+        let (rows, is_dist) = run_stmt("q_serial_first");
+        assert_eq!(rows, expected);
+        assert!(
+            !is_dist,
+            "expected serial execution after toggling back to workers=0"
+        );
+
+        // 3. Issue #6950: MPP `AggregateScan` over a join with a non-equi filter, `SUM` + `AVG`,
+        //    `enable_filter_pushdown = false`, `add_doc_count_to_aggs = true`, and
+        //    `parallel_leader_participation = false`, also exercising `AggregateScan` across
+        //    MPP and serial mode toggles on a cached generic plan.
+        Spi::run(
+            r#"
+            SET paradedb.enable_aggregate_custom_scan TO on;
+            SET paradedb.enable_filter_pushdown TO false;
+            SET paradedb.add_doc_count_to_aggs TO true;
+            SET parallel_leader_participation TO false;
+            SET max_parallel_workers_per_gather TO 2;
+
+            PREPARE q_agg_join_6950 AS
+            SELECT (SUM(f.id) + ROUND(AVG(p.file_id)))::integer
+            FROM mpp_mode_files f
+            JOIN mpp_mode_pages p ON f.id = p.id AND f.id <= p.file_id
+            WHERE NOT (f.title === 'Doc 999')
+            GROUP BY f.title
+            ORDER BY 1
+            LIMIT 5;
+            "#,
+        )
+        .unwrap();
+
+        let expected_agg = vec![2, 4, 6, 8, 10];
+        let (rows, is_dist) = run_stmt("q_agg_join_6950");
+        assert_eq!(rows, expected_agg);
+        assert!(
+            is_dist,
+            "expected DistributedExec for #6950 aggregate join at workers=2"
+        );
+
+        Spi::run("SET max_parallel_workers_per_gather TO 0;").unwrap();
+        let (rows, is_dist) = run_stmt("q_agg_join_6950");
+        assert_eq!(rows, expected_agg);
+        assert!(
+            !is_dist,
+            "expected serial execution for #6950 aggregate join at workers=0"
+        );
+
+        Spi::run("SET max_parallel_workers_per_gather TO 2;").unwrap();
+        let (rows, is_dist) = run_stmt("q_agg_join_6950");
+        assert_eq!(rows, expected_agg);
+        assert!(
+            is_dist,
+            "expected DistributedExec for #6950 aggregate join after toggling back to workers=2"
+        );
     }
 }

@@ -86,6 +86,7 @@ cargo run -- --help
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-index`: Including this skips index creation (and the after-create-index hook). Useful for iterating on queries against an already-indexed database.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
+- `--query-filter`: Runs only the queries whose name (`{query}` or `{query} - {variant}`) matches this regex. The dirty (`% visible`) runs of a matching query also run.
 - `--vacuum`: Controls whether `VACUUM FULL ANALYZE`, followed by `VACUUM ANALYZE` to update the visibility map, runs before the queries. Defaults to `true`.
 
 ## Notable Heap Options
@@ -95,6 +96,22 @@ cargo run -- --help
 - `snapshot-heap --pgdata` / `restore-heap --pgdata`: Points pgBackRest at the stopped Postgres data directory. This can also be provided with `PGDATA`.
 - `snapshot-heap --config` / `restore-heap --config`: Uses an existing pgBackRest config instead of generating one.
 - `snapshot-heap --repo-*` / `restore-heap --repo-*`: Provides the S3 repository settings when generating a pgBackRest config.
+
+## Benchmarking a PR
+
+The `benchmark-stackoverflow` label runs every Stack Overflow query on a PR. To run only some of them, add a conversation comment (not a review comment) with a regex. The workflow passes it to `--query-filter`:
+
+```text
+@paradedb stackoverflow ^count_filter
+```
+
+With a size before the regex, the workflow runs only that dataset size. The `20m` size takes most of a full run, so `100k` or `1m` gives a faster result:
+
+```text
+@paradedb stackoverflow 1m ^count_filter
+```
+
+The commenter needs write access, and the PR branch must be in `paradedb/paradedb`. The workflow replies with a link to the run. Then it posts the results to the PR, one comment for each dataset size.
 
 ## Datasets
 

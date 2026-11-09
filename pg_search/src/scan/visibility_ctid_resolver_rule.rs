@@ -115,7 +115,6 @@ mod tests {
             None,
             schema.clone(),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             Some(ffhelper_scan.clone()),
             42,

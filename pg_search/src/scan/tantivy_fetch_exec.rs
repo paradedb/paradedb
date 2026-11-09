@@ -240,8 +240,11 @@ impl ExecutionPlan for TantivyFetchExec {
             use futures::StreamExt;
             while let Some(batch_res) = input_stream.next().await {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let result = batch_res
-                    .and_then(|batch| fetch_batch(batch, &fetch_fields, &ffhelpers));
+                let result = batch_res.and_then(|batch| {
+                    crate::postgres::customscan::mpp::try_run_on_main_thread(|_| {
+                        fetch_batch(batch, &fetch_fields, &ffhelpers)
+                    })
+                });
                 timer.done();
 
                 yield result.record_output(&baseline_metrics)?;

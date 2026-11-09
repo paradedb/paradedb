@@ -28,6 +28,7 @@ use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
 pub type LayeredMergeCandidate = (u64, MergeCandidate);
+pub(crate) const MUTABLE_SEGMENT_LAYER: u64 = 0;
 
 #[derive(Debug)]
 pub struct LayeredMergePolicy {
@@ -198,7 +199,7 @@ impl LayeredMergePolicy {
         }
     }
 
-    fn retain(&mut self, to_keep: HashSet<SegmentId>) {
+    pub(crate) fn retain(&mut self, to_keep: HashSet<SegmentId>) {
         self.mergeable_segments
             .retain(|segment_id, _| to_keep.contains(segment_id));
     }
@@ -276,10 +277,16 @@ impl LayeredMergePolicy {
                 // If a segment is mutable, then it makes sense to merge it away, even if it is the only item in the segment.
                 if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
                 {
-                    if let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0) {
+                    if let Some((_, mc)) = candidates
+                        .iter_mut()
+                        .find(|(layer_size, _)| *layer_size == MUTABLE_SEGMENT_LAYER)
+                    {
                         mc.0.push(segment_meta.id());
                     } else {
-                        candidates.push((0, MergeCandidate(vec![segment_meta.id()])));
+                        candidates.push((
+                            MUTABLE_SEGMENT_LAYER,
+                            MergeCandidate(vec![segment_meta.id()]),
+                        ));
                     }
 
                     merged_segments.insert(segment_meta.id());
@@ -288,7 +295,9 @@ impl LayeredMergePolicy {
                 // If it is not mutable, but is still empty for some reason, then we should include it in any other candidate level
                 // that is planned (in order to get rid of it), but there is no point in doing a single-entry merge.
                 if let Some(segment_meta) = original_segments.iter().find(|s| s.id() == *segment_id)
-                    && let Some((_, mc)) = candidates.iter_mut().find(|(lvl, _)| *lvl == 0)
+                    && let Some((_, mc)) = candidates
+                        .iter_mut()
+                        .find(|(layer_size, _)| *layer_size == MUTABLE_SEGMENT_LAYER)
                 {
                     mc.0.push(segment_meta.id());
                     merged_segments.insert(segment_meta.id());

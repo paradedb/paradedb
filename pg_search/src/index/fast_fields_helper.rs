@@ -72,6 +72,16 @@ pub struct FFHelper(
     Option<FFInner>,
 );
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the inner
+// state to `drop_on_main_thread`, where its own `Drop` impls handle unwinding and process exit.
+impl Drop for FFHelper {
+    fn drop(&mut self) {
+        if let Some(inner) = self.0.take() {
+            crate::postgres::customscan::mpp::drop_on_main_thread(inner);
+        }
+    }
+}
+
 struct FFInner {
     // A segment's fast-field file opens on first column access: the tantivy fork's
     // `SegmentReader::fast_fields()` is a lazy open, and for a mutable segment it materializes
@@ -185,6 +195,7 @@ impl FFHelper {
                 WhichFastField::Ctid
                 | WhichFastField::TableOid
                 | WhichFastField::Score(_)
+                | WhichFastField::VectorScore(_)
                 | WhichFastField::Junk(_)
                 | WhichFastField::DeferredCtid(_)
                 | WhichFastField::MatchTag(_) => FFType::Junk,
@@ -649,6 +660,13 @@ impl FieldCardinality {
             FieldCardinality::List => arrow_schema::DataType::List(list_item_field(element)),
         }
     }
+
+    pub fn from_arrayness(is_array: bool) -> Self {
+        match is_array {
+            true => FieldCardinality::List,
+            false => FieldCardinality::Scalar,
+        }
+    }
 }
 
 /// The child field of an Arrow list, named "item" by Arrow convention.
@@ -680,6 +698,7 @@ pub enum WhichFastField {
     Ctid,
     TableOid,
     Score(Option<String>),
+    VectorScore(Option<String>),
     Named {
         name: String,
         field_type: SearchFieldType,
@@ -700,13 +719,14 @@ impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
             CTID_FIELD_NAME => WhichFastField::Ctid,
             "tableoid" => WhichFastField::TableOid,
             "pdb.score()" => WhichFastField::Score(None),
+            "pdb.vector_score()" => WhichFastField::VectorScore(None),
             other => {
                 if other.starts_with("junk(") && other.ends_with(")") {
                     WhichFastField::Junk(String::from(
                         other.trim_start_matches("junk(").trim_end_matches(")"),
                     ))
                 } else {
-                    WhichFastField::eager(other, value.1)
+                    WhichFastField::eager_scalar(other, value.1)
                 }
             }
         }
@@ -726,12 +746,23 @@ impl WhichFastField {
         matches!(self, Self::Score(_))
     }
 
+    pub fn vector_score() -> Self {
+        Self::VectorScore(None)
+    }
+
+    pub fn is_vector_score(&self) -> bool {
+        matches!(self, Self::VectorScore(_))
+    }
+
     pub fn name(&self) -> String {
         match self {
             WhichFastField::Junk(s) => format!("junk({s})"),
             WhichFastField::Ctid => CTID_FIELD_NAME.into(),
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score(alias) => alias.as_deref().unwrap_or("pdb.score()").into(),
+            WhichFastField::VectorScore(alias) => {
+                alias.as_deref().unwrap_or("pdb.vector_score()").into()
+            }
             WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
@@ -753,7 +784,7 @@ impl WhichFastField {
         match self {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
-            WhichFastField::Score(_) => DataType::Float32,
+            WhichFastField::Score(_) | WhichFastField::VectorScore(_) => DataType::Float32,
             WhichFastField::Named {
                 delivery: FieldDelivery::Eager,
                 field_type,
@@ -787,7 +818,7 @@ impl WhichFastField {
     }
 
     /// The common case: one value per row, decoded during the scan.
-    pub fn eager(name: impl Into<String>, field_type: SearchFieldType) -> Self {
+    pub fn eager_scalar(name: impl Into<String>, field_type: SearchFieldType) -> Self {
         Self::named(
             name,
             field_type,
@@ -827,6 +858,26 @@ impl WhichFastField {
                 ..
             }
         )
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        match self {
+            WhichFastField::Junk(_)
+            | WhichFastField::Ctid
+            | WhichFastField::TableOid
+            | WhichFastField::Score(_)
+            | WhichFastField::VectorScore(_)
+            | WhichFastField::DeferredCtid(_)
+            | WhichFastField::MatchTag(_) => true,
+            WhichFastField::Named { cardinality, .. } => match cardinality {
+                FieldCardinality::Scalar => true,
+                FieldCardinality::List => false,
+            },
+        }
+    }
+
+    pub fn is_array(&self) -> bool {
+        !self.is_scalar()
     }
 }
 
@@ -1264,7 +1315,7 @@ mod tests {
 
         let helper = FFHelper::with_fields(
             &reader,
-            &[WhichFastField::eager(
+            &[WhichFastField::eager_scalar(
                 "id",
                 SearchFieldType::I64(pg_sys::INT8OID),
             )],

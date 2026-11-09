@@ -1121,6 +1121,11 @@ impl VisibilityFilterExec {
         &self.plan_pos_oids
     }
 
+    /// Table names corresponding 1:1 with [`Self::plan_pos_oids`].
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
+    }
+
     /// Sets the ctid resolver (FFHelper and its index relation OID) for
     /// the given plan_position. Called by `VisibilityCtidResolverRule`.
     pub fn set_ctid_resolver(&self, plan_pos: usize, resolver: CtidResolver) {
@@ -1377,49 +1382,54 @@ impl ExecutionPlan for VisibilityFilterExec {
         let mut input_stream = self.input.execute(partition, context)?;
         let input_schema = self.input.schema();
 
-        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        if snapshot.is_null() {
-            panic!("VisibilityFilterExec requires an active Postgres snapshot");
-        }
-
         let resolvers = self
             .ctid_resolvers
             .lock()
             .expect("VisibilityFilterExec ctid_resolvers lock poisoned")
             .clone();
-        let mut checkers: Vec<CtidCheckerEntry> = Vec::with_capacity(self.plan_pos_oids.len());
-        for &(plan_pos, heap_oid) in &self.plan_pos_oids {
-            let col_name = CtidColumn::new(plan_pos).to_string();
-            let (col_idx, _) = input_schema.column_with_name(&col_name).ok_or_else(|| {
-                DataFusionError::Execution(format!(
-                    "VisibilityFilterExec: missing ctid column '{}'",
-                    col_name
-                ))
-            })?;
-            let heaprel = PgSearchRelation::open(heap_oid);
-            let resolver = resolvers
-                .get(plan_pos)
-                .and_then(|r| r.as_ref().map(|res| Arc::clone(&res.ffhelper)))
-                .ok_or_else(|| {
-                    DataFusionError::Execution(format!(
-                        "VisibilityFilterExec: no ctid resolver wired for \
-                         plan_position {plan_pos}. \
-                         VisibilityCtidResolverRule must run before execute."
-                    ))
-                })?;
-            let visibility =
-                VisibilityChecker::with_rel_and_snap(&heaprel, snapshot).with_ffhelper(resolver);
-            let is_pruned = self
-                .projection
-                .as_ref()
-                .is_some_and(|proj| !proj.contains(&col_idx));
-            checkers.push(CtidCheckerEntry {
-                col_idx,
-                checker: visibility,
-                state: DeferredCtidMaterializationState::default(),
-                is_pruned,
-            });
-        }
+        let mut checkers = crate::postgres::customscan::mpp::MainThread::new(
+            crate::postgres::customscan::mpp::try_run_on_main_thread(|_| -> Result<_> {
+                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+                if snapshot.is_null() {
+                    panic!("VisibilityFilterExec requires an active Postgres snapshot");
+                }
+                let mut checkers = Vec::with_capacity(self.plan_pos_oids.len());
+                for &(plan_pos, heap_oid) in &self.plan_pos_oids {
+                    let col_name = CtidColumn::new(plan_pos).to_string();
+                    let (col_idx, _) =
+                        input_schema.column_with_name(&col_name).ok_or_else(|| {
+                            DataFusionError::Execution(format!(
+                                "VisibilityFilterExec: missing ctid column '{}'",
+                                col_name
+                            ))
+                        })?;
+                    let heaprel = PgSearchRelation::open(heap_oid);
+                    let resolver = resolvers
+                        .get(plan_pos)
+                        .and_then(|r| r.as_ref().map(|res| Arc::clone(&res.ffhelper)))
+                        .ok_or_else(|| {
+                            DataFusionError::Execution(format!(
+                                "VisibilityFilterExec: no ctid resolver wired for \
+                                 plan_position {plan_pos}. \
+                                 VisibilityCtidResolverRule must run before execute."
+                            ))
+                        })?;
+                    let visibility = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot)
+                        .with_ffhelper(resolver);
+                    let is_pruned = self
+                        .projection
+                        .as_ref()
+                        .is_some_and(|proj| !proj.contains(&col_idx));
+                    checkers.push(CtidCheckerEntry {
+                        col_idx,
+                        checker: visibility,
+                        state: DeferredCtidMaterializationState::default(),
+                        is_pruned,
+                    });
+                }
+                Ok(checkers)
+            })?,
+        );
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let ctids_fetched = MetricBuilder::new(&self.metrics).counter("ctids_fetched", partition);
@@ -1432,7 +1442,14 @@ impl ExecutionPlan for VisibilityFilterExec {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let result = match batch_res {
                     Ok(batch) => {
-                        let (filtered, stats) = filter_batch(&stream_input_schema, &mut checkers, batch)?;
+                        let (filtered, stats) =
+                            crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+                                filter_batch(
+                                    &stream_input_schema,
+                                    checkers.get_mut(token),
+                                    batch,
+                                )
+                            })?;
                         ctids_fetched.add(stats.fetched);
                         ctids_lazy.add(stats.lazy);
                         match &projection {
@@ -1451,9 +1468,9 @@ impl ExecutionPlan for VisibilityFilterExec {
             baseline_metrics.done();
         };
 
-        // SAFETY: The generated stream captures VisibilityChecker instances
-        // holding raw Postgres relation/snapshot pointers. These are safe because
-        // we run on a single-threaded Tokio runtime within the backend process.
+        // SAFETY: `checkers` is wrapped in `MainThread`, and all `VisibilityChecker`
+        // accesses and stream destruction run on the Postgres main thread via
+        // `run_on_main_thread` / `drop_on_main_thread`.
         let stream = unsafe { UnsafeSendStream::new(stream_gen, self.schema()) };
         Ok(Box::pin(stream))
     }

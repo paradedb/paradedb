@@ -500,8 +500,52 @@ impl SearchQueryInput {
         }
     }
 
-    /// Estimates a relative upper bound on the BM25 score of `self`, accounting for query-level
-    /// `Boost`, `ConstScore`, `Boolean` sums, and `DisjunctionMax`.
+    /// Whether this is a plain SQL restriction as pushdown lowers it (`=`, `= ANY`, a range,
+    /// `IS NOT NULL`, `<>`, or an AND of those), which the rank join can keep as a `0.0`-score
+    /// filter. A term counts only on a field `term_is_filter` accepts. A `PostgresExpression` is
+    /// accepted for plain `EXPLAIN` (before `solve_postgres_expressions` resolves it at
+    /// execution). Every explicit `@@@` search (`WithIndex`), any boost or non-zero constant
+    /// score, an OR, and every other form is refused.
+    pub(crate) fn is_pushdown_filter(&self, term_is_filter: &dyn Fn(&FieldName) -> bool) -> bool {
+        match self {
+            SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::Null
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. } => true,
+            // The negation of a pushed filter guards NULLs with a `0.0` constant.
+            SearchQueryInput::ConstScore { query, score } => {
+                *score == 0.0 && query.is_pushdown_filter(term_is_filter)
+            }
+            // An excluded clause adds no score, but deciding what it excludes may need one.
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+                ..
+            } => {
+                should.is_empty()
+                    && must
+                        .iter()
+                        .chain(must_not)
+                        .all(|q| q.is_pushdown_filter(term_is_filter))
+            }
+            SearchQueryInput::FieldedQuery { field, query } => {
+                query.is_pushdown_filter(field, term_is_filter)
+            }
+            _ => false,
+        }
+    }
+
+    /// Estimates the characteristic BM25 score swing of `self` for `RankJoinRule` Gate 2,
+    /// accounting for query-level `Boost`, `ConstScore`, `Boolean` (`must` / `should`), and
+    /// `DisjunctionMax`.
+    ///
+    /// Constant-score predicates (`is_constant_score()`) add a fixed offset to every matching
+    /// document and do not increase within-leaf score variation. Across `Boolean.should` (`OR`)
+    /// branches, a matching document only needs to satisfy one disjunct (consistent with multi-term
+    /// `ParseWithField` / `Match` queries, which return `1.0`), so `should` takes the maximum
+    /// branch scale; across `Boolean.must` (`AND`) branches, clause scores are summed.
     pub(crate) fn estimate_max_score(&self) -> f64 {
         match self {
             SearchQueryInput::Uninitialized | SearchQueryInput::Empty | SearchQueryInput::Null => {
@@ -520,12 +564,19 @@ impl SearchQueryInput {
             SearchQueryInput::ScoreFilter { query, .. } => {
                 query.as_deref().map_or(1.0, Self::estimate_max_score)
             }
-            SearchQueryInput::Boolean { must, should, .. } => must
-                .iter()
-                .chain(should.iter())
-                .map(Self::estimate_max_score)
-                .sum::<f64>()
-                .max(1.0),
+            SearchQueryInput::Boolean { must, should, .. } => {
+                let must_sum: f64 = must
+                    .iter()
+                    .filter(|q| !q.is_constant_score())
+                    .map(Self::estimate_max_score)
+                    .sum();
+                let should_max: f64 = should
+                    .iter()
+                    .filter(|q| !q.is_constant_score())
+                    .map(Self::estimate_max_score)
+                    .fold(0.0_f64, f64::max);
+                (must_sum + should_max).max(1.0)
+            }
             SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
                 .iter()
                 .map(Self::estimate_max_score)
@@ -2060,13 +2111,15 @@ impl PartialEq for PostgresPointer {
         if self.0.is_null() || other.0.is_null() {
             return false;
         }
-        unsafe { pg_sys::equal(self.0.cast(), other.0.cast()) }
+        crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
+            pg_sys::equal(self.0.cast(), other.0.cast())
+        })
     }
 }
 
-// SAFETY: PostgresPointer is only used within PostgreSQL's single-threaded context
-// during query execution. The PostgresPointer serialization/deserialization handles
-// the cross-thread boundary properly via nodeToString/stringToNode.
+// SAFETY: All dereferences of the underlying Postgres node pointer (`PartialEq`, `Serialize`,
+// `Deserialize`, and evaluation) are dispatched to the Postgres main thread via
+// `run_on_main_thread`.
 unsafe impl Send for PostgresPointer {}
 unsafe impl Sync for PostgresPointer {}
 
@@ -2084,16 +2137,15 @@ impl Serialize for PostgresPointer {
         if self.0.is_null() {
             serializer.serialize_none()
         } else {
-            unsafe {
+            let string = crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
                 let stripped = crate::postgres::utils::strip_placeholder_vars_deep(self.0.cast());
                 let s = pg_sys::nodeToString(stripped.cast());
-                let cstr = core::ffi::CStr::from_ptr(s)
-                    .to_str()
-                    .map_err(serde::ser::Error::custom)?;
-                let string = cstr.to_owned();
+                let res = core::ffi::CStr::from_ptr(s).to_str().map(|s| s.to_owned());
                 pg_sys::pfree(s.cast());
-                serializer.serialize_some(&string)
-            }
+                res
+            })
+            .map_err(serde::ser::Error::custom)?;
+            serializer.serialize_some(&string)
         }
     }
 }
@@ -2115,11 +2167,11 @@ impl<'de> Deserialize<'de> for PostgresPointer {
             where
                 E: serde::de::Error,
             {
-                unsafe {
-                    let cstr = std::ffi::CString::new(v).map_err(E::custom)?;
-                    let node = pg_sys::stringToNode(cstr.as_ptr());
-                    Ok(PostgresPointer(node.cast()))
-                }
+                let cstr = std::ffi::CString::new(v).map_err(E::custom)?;
+                let node = crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
+                    pg_sys::stringToNode(cstr.as_ptr())
+                });
+                Ok(PostgresPointer(node.cast()))
             }
 
             fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -2185,6 +2237,109 @@ mod tests {
     use crate::query::pdb_query::pdb;
 
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn pushdown_filter_admits_sql_restrictions_only() {
+        let filter = |_: &crate::api::FieldName| true;
+        let no_filter = |_: &crate::api::FieldName| false;
+        let term_set = create_term_query();
+        let term = SearchQueryInput::FieldedQuery {
+            field: "test".into(),
+            query: pdb::Query::Term {
+                value: PdbOwnedValue::Str("value".to_string()),
+            },
+        };
+        let and = SearchQueryInput::Boolean {
+            must: vec![term_set.clone(), term.clone()],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        let or = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![term_set.clone(), term.clone()],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        let score_filter = SearchQueryInput::ScoreFilter {
+            bounds: vec![],
+            query: Some(Box::new(term_set.clone())),
+        };
+        let not_score_filter = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![score_filter.clone()],
+            minimum_should_match: None,
+        };
+        let not_term = SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![term.clone()],
+            minimum_should_match: None,
+        };
+        let const_over_filter = SearchQueryInput::ConstScore {
+            query: Box::new(term_set.clone()),
+            score: 7.0,
+        };
+        let explicit_term = SearchQueryInput::WithIndex {
+            oid: pgrx::pg_sys::Oid::INVALID,
+            query: Box::new(term.clone()),
+        };
+        let explicit_term_set = SearchQueryInput::WithIndex {
+            oid: pgrx::pg_sys::Oid::INVALID,
+            query: Box::new(term_set.clone()),
+        };
+        let zero_const_over_filter = SearchQueryInput::ConstScore {
+            query: Box::new(term_set.clone()),
+            score: 0.0,
+        };
+        let const_over_text = SearchQueryInput::ConstScore {
+            query: Box::new(term.clone()),
+            score: 7.0,
+        };
+        let cast_const_over_text = SearchQueryInput::FieldedQuery {
+            field: "test".into(),
+            query: pdb::Query::ScoreAdjusted {
+                query: Box::new(pdb::Query::Term {
+                    value: PdbOwnedValue::Str("value".to_string()),
+                }),
+                score: Some(pdb::ScoreAdjustStyle::Const(7.0)),
+            },
+        };
+
+        let pg_expr =
+            SearchQueryInput::postgres_expression(std::ptr::null_mut(), "expr".to_string());
+        let and_pg_expr = SearchQueryInput::Boolean {
+            must: vec![pg_expr.clone(), term.clone()],
+            should: vec![],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+
+        assert!(SearchQueryInput::All.is_pushdown_filter(&no_filter));
+        assert!(SearchQueryInput::Empty.is_pushdown_filter(&no_filter));
+        assert!(SearchQueryInput::Null.is_pushdown_filter(&no_filter));
+        assert!(pg_expr.is_pushdown_filter(&no_filter));
+        assert!(and_pg_expr.is_pushdown_filter(&filter));
+        assert!(!and_pg_expr.is_pushdown_filter(&no_filter));
+        assert!(term_set.is_pushdown_filter(&no_filter));
+        assert!(term.is_pushdown_filter(&filter));
+        assert!(!term.is_pushdown_filter(&no_filter));
+        assert!(and.is_pushdown_filter(&filter));
+        assert!(!and.is_pushdown_filter(&no_filter));
+        assert!(!or.is_pushdown_filter(&filter));
+        assert!(!score_filter.is_pushdown_filter(&filter));
+        assert!(!not_score_filter.is_pushdown_filter(&filter));
+        assert!(not_term.is_pushdown_filter(&filter));
+        assert!(!not_term.is_pushdown_filter(&no_filter));
+        assert!(!explicit_term.is_pushdown_filter(&filter));
+        assert!(!explicit_term_set.is_pushdown_filter(&no_filter));
+        assert!(!const_over_filter.is_pushdown_filter(&no_filter));
+        assert!(zero_const_over_filter.is_pushdown_filter(&no_filter));
+        assert!(!const_over_text.is_pushdown_filter(&no_filter));
+        assert!(!cast_const_over_text.is_pushdown_filter(&filter));
+        assert!(!cast_const_over_text.is_pushdown_filter(&no_filter));
+    }
 
     fn create_term_query() -> SearchQueryInput {
         SearchQueryInput::TermSet {

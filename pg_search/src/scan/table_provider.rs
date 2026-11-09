@@ -200,8 +200,9 @@ impl Clone for PgSearchTableProvider {
     }
 }
 
-// SAFETY: pg_search runs DataFusion on a single-threaded runtime inside the backend, so the
-// process-local fields (raw pointers, the reference-counted manifest) never cross a thread.
+// SAFETY: `PgSearchTableProvider::scan` is only invoked during physical plan construction on the
+// Postgres main thread, so its process-local fields (raw pointers and reference-counted manifest)
+// are only ever accessed on the main thread.
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
@@ -421,6 +422,20 @@ impl PgSearchTableProvider {
         }
     }
 
+    pub fn set_vector_score_alias(&mut self, alias: &str) {
+        let mut modified = false;
+        for wff in self.fields.iter_mut() {
+            if let WhichFastField::VectorScore(score_alias) = wff {
+                *score_alias = Some(alias.to_string());
+                modified = true;
+            }
+        }
+        if modified {
+            self.schema = OnceLock::new();
+            self.late_materialization_schema = OnceLock::new();
+        }
+    }
+
     /// Returns the JoinScan source identity configured for deferred visibility,
     /// regardless of whether deferred visibility is currently active.
     pub(crate) fn configured_deferred_ctid_plan_position(&self) -> Option<usize> {
@@ -616,7 +631,6 @@ impl PgSearchTableProvider {
                 state,
                 schema,
                 resolved_query,
-                None,
                 deferred,
                 ffhelper_arg,
                 self.scan_info.indexrelid.to_u32(),
@@ -625,7 +639,8 @@ impl PgSearchTableProvider {
                 parallel_state,
                 self.range_split_points.clone(),
             )
-            .with_table_alias(table_alias),
+            .with_table_alias(table_alias)
+            .with_vector_order_by(self.scan_info.vector_order_by.clone()),
         ))
     }
 

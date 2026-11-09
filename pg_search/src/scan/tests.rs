@@ -74,7 +74,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
@@ -108,7 +108,6 @@ mod tests {
             Some(partition),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             0,
@@ -124,9 +123,7 @@ mod tests {
         let mut row_count = 0;
 
         // Use a runtime to block on the stream
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         runtime.block_on(async {
             while let Some(batch) = stream.next().await {
                 let batch = batch.unwrap();
@@ -145,12 +142,15 @@ mod tests {
     fn test_fields() -> Vec<WhichFastField> {
         vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::InvalidOid)),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
+                "id".to_string(),
+                SearchFieldType::I64(pg_sys::InvalidOid),
+            ),
+            WhichFastField::eager_scalar(
                 "price".to_string(),
                 SearchFieldType::F64(pg_sys::InvalidOid),
             ),
-            WhichFastField::eager(
+            WhichFastField::eager_scalar(
                 "quantity".to_string(),
                 SearchFieldType::I64(pg_sys::InvalidOid),
             ),
@@ -419,9 +419,7 @@ mod tests {
         );
 
         // Test full DataFusion flow
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
         runtime.block_on(async {
             let ctx = SessionContext::new();
@@ -754,7 +752,7 @@ mod tests {
         use crate::scan::range_partitioning::RangeSplitPoints;
 
         let matching_ids = |reader: &SearchIndexReader| {
-            let fields = [WhichFastField::eager(
+            let fields = [WhichFastField::eager_scalar(
                 "id".to_string(),
                 SearchFieldType::I64(pg_sys::INT4OID),
             )];
@@ -869,7 +867,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         let ffhelper: Arc<FFHelper> = FFHelper::with_fields(&reader, &fields).into();
 
@@ -911,7 +909,6 @@ mod tests {
             Some(partition),
             build_arrow_schema(&fields),
             SearchQueryInput::All,
-            None,
             Vec::new(),
             None,
             index_oid.into(),
@@ -1168,7 +1165,7 @@ mod tests {
 
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::eager("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
+            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
         unsafe {
             pg_sys::CommandCounterIncrement();
@@ -1215,7 +1212,6 @@ mod tests {
                 Some(scan_state),
                 build_arrow_schema(&fields),
                 query,
-                None,
                 Vec::new(),
                 None,
                 index_oid.into(),
@@ -1276,8 +1272,9 @@ mod tests {
 
         // Dispatch must preserve the four global ranges even though this task-specialized
         // variant advertises one local partition to DataFusion.
+        let codec = crate::scan::physical_codec::PgSearchPhysicalExtensionCodec::default();
         let proto_converter = DefaultPhysicalProtoConverter {};
-        let encoded = plan.encode_for_dispatch(&proto_converter).unwrap();
+        let encoded = plan.encode_for_dispatch(&codec, &proto_converter).unwrap();
         let task_context = TaskContext::default();
         let decode = |bytes: &[u8], parallel_state| {
             PgSearchScanPlan::decode_for_dispatch(
@@ -1285,6 +1282,7 @@ mod tests {
                 parallel_state,
                 None,
                 &task_context,
+                &codec,
                 &proto_converter,
             )
         };
@@ -1328,7 +1326,9 @@ mod tests {
             crate::postgres::test_support::parallel_state_for_view(reader.segment_view());
         let mut stale_plan = (*plan).clone();
         stale_plan.partition_segments = Some(stale);
-        let stale_encoded = stale_plan.encode_for_dispatch(&proto_converter).unwrap();
+        let stale_encoded = stale_plan
+            .encode_for_dispatch(&codec, &proto_converter)
+            .unwrap();
         assert!(decode(&stale_encoded, Some(parallel_state)).is_err());
         let plan = decode(&encoded, Some(parallel_state)).unwrap();
         assert_eq!(
@@ -1350,9 +1350,7 @@ mod tests {
         // partition must not consume the assigned global partition's execution state.
         assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
         let collect_ids = |plan: &Arc<dyn ExecutionPlan>, partition: usize| {
             let mut stream = plan
                 .execute(partition, Arc::new(TaskContext::default()))
@@ -1385,7 +1383,9 @@ mod tests {
         // statistics and decides each searched segment against the predicate.
         let (filtered, _) = make_plan(range_query("id", 30, 40));
         let filtered = filtered.with_assigned_partition(1);
-        let filtered_encoded = filtered.encode_for_dispatch(&proto_converter).unwrap();
+        let filtered_encoded = filtered
+            .encode_for_dispatch(&codec, &proto_converter)
+            .unwrap();
         let opens_before_decode = STATS_OPENS.load(Relaxed);
         let worker = decode(&filtered_encoded, Some(parallel_state)).unwrap();
         assert_eq!(

@@ -41,36 +41,35 @@ pub struct HeapFieldFilter {
     pub heap_filter: String,
 
     #[serde(skip)]
+    eval_state: Option<crate::postgres::customscan::mpp::MainThread<HeapFieldFilterState>>,
+}
+
+#[derive(Debug, Default)]
+struct HeapFieldFilterState {
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
-    #[serde(skip)]
     heap_fetch_state: Option<HeapFetchState>,
-    #[serde(skip)]
     scratch_context: Option<pg_sys::MemoryContext>,
 }
+
+crate::impl_safe_drop!(HeapFieldFilterState, |self| {
+    if let Some(context) = self.scratch_context.take() {
+        unsafe {
+            if crate::postgres::utils::IsTransactionState() {
+                pg_sys::MemoryContextDelete(context);
+            }
+        }
+    }
+});
 
 impl Clone for HeapFieldFilter {
     fn clone(&self) -> Self {
         Self {
             expr_node: self.expr_node.clone(),
             heap_filter: self.heap_filter.clone(),
-            initialized_expression: None,
-            heap_fetch_state: None,
-            scratch_context: None,
+            eval_state: None,
         }
     }
 }
-
-crate::impl_safe_drop!(HeapFieldFilter, |self| {
-    unsafe {
-        if let Some(context) = self
-            .scratch_context
-            .take()
-            .filter(|_| crate::postgres::utils::IsTransactionState())
-        {
-            pg_sys::MemoryContextDelete(context);
-        }
-    }
-});
 
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &HeapFieldFilter) -> bool {
@@ -78,19 +77,13 @@ impl PartialEq for HeapFieldFilter {
     }
 }
 
-// SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
-unsafe impl Send for HeapFieldFilter {}
-unsafe impl Sync for HeapFieldFilter {}
-
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node
     pub unsafe fn new(expr_node: *mut pg_sys::Node, heap_filter: String) -> Self {
         Self {
             expr_node: PostgresPointer(expr_node.cast()),
             heap_filter,
-            initialized_expression: None,
-            heap_fetch_state: None,
-            scratch_context: None,
+            eval_state: None,
         }
     }
 
@@ -109,9 +102,21 @@ impl HeapFieldFilter {
             return true;
         }
 
-        self.evaluate_expression_inner(ctid, heaprel, expr_node, expr_context, planstate)
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let state = self
+                .eval_state
+                .get_or_insert_with(|| {
+                    crate::postgres::customscan::mpp::MainThread::new(
+                        HeapFieldFilterState::default(),
+                    )
+                })
+                .get_mut(token);
+            state.evaluate_expression_inner(ctid, heaprel, expr_node, expr_context, planstate)
+        })
     }
+}
 
+impl HeapFieldFilterState {
     /// Inner expression evaluation method that can be wrapped in panic handling
     unsafe fn evaluate_expression_inner(
         &mut self,
@@ -201,7 +206,9 @@ impl HeapFieldFilter {
         self.initialized_expression = Some((new_state, planstate));
         new_state
     }
+}
 
+impl HeapFieldFilter {
     /// Get the PostgreSQL expression node
     pub unsafe fn get_expression_node(&self) -> *mut pg_sys::Node {
         self.expr_node.0.cast()
@@ -331,7 +338,10 @@ pub enum TidProbe {
 
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
-pub struct HeapFilterQuery {
+pub struct HeapFilterQuery(crate::postgres::customscan::mpp::MainThread<HeapFilterQueryInner>);
+
+#[derive(Debug)]
+struct HeapFilterQueryInner {
     indexed_query: Box<dyn Query>,
     always_filters: Vec<HeapFieldFilter>,
     recheck_filters: Vec<HeapFieldFilter>,
@@ -341,10 +351,6 @@ pub struct HeapFilterQuery {
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
-
-// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it
-unsafe impl Send for HeapFilterQuery {}
-unsafe impl Sync for HeapFilterQuery {}
 
 impl HeapFilterQuery {
     #[allow(clippy::too_many_arguments)]
@@ -358,47 +364,57 @@ impl HeapFilterQuery {
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
-        Self {
-            indexed_query,
-            always_filters,
-            recheck_filters,
-            bitmap_consumer_id,
-            bitmap_cell,
-            rel_oid,
-            expr_context,
-            planstate,
-        }
+        Self(crate::postgres::customscan::mpp::MainThread::new(
+            HeapFilterQueryInner {
+                indexed_query,
+                always_filters,
+                recheck_filters,
+                bitmap_consumer_id,
+                bitmap_cell,
+                rel_oid,
+                expr_context,
+                planstate,
+            },
+        ))
     }
 }
 
 impl tantivy::query::QueryClone for HeapFilterQuery {
     fn box_clone(&self) -> Box<dyn Query> {
-        Box::new(Self {
-            indexed_query: self.indexed_query.box_clone(),
-            always_filters: self.always_filters.clone(),
-            recheck_filters: self.recheck_filters.clone(),
-            bitmap_consumer_id: self.bitmap_consumer_id,
-            bitmap_cell: self.bitmap_cell.clone(),
-            rel_oid: self.rel_oid,
-            expr_context: self.expr_context,
-            planstate: self.planstate,
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let inner = self.0.get(token);
+            Box::new(Self::new(
+                inner.indexed_query.box_clone(),
+                inner.always_filters.clone(),
+                inner.recheck_filters.clone(),
+                inner.bitmap_consumer_id,
+                inner.bitmap_cell.clone(),
+                inner.rel_oid,
+                inner.expr_context,
+                inner.planstate,
+            ))
         })
     }
 }
 
 impl Query for HeapFilterQuery {
     fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
-        let indexed_weight = self.indexed_query.weight(enable_scoring)?;
-        Ok(Box::new(HeapFilterWeight {
-            indexed_weight,
-            always_filters: self.always_filters.clone(),
-            recheck_filters: self.recheck_filters.clone(),
-            bitmap_consumer_id: self.bitmap_consumer_id,
-            bitmap_cell: self.bitmap_cell.clone(),
-            rel_oid: self.rel_oid,
-            expr_context: self.expr_context,
-            planstate: self.planstate,
-        }))
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let inner = self.0.get(token);
+            let indexed_weight = inner.indexed_query.weight(enable_scoring)?;
+            Ok(Box::new(HeapFilterWeight(
+                crate::postgres::customscan::mpp::MainThread::new(HeapFilterWeightInner {
+                    indexed_weight,
+                    always_filters: inner.always_filters.clone(),
+                    recheck_filters: inner.recheck_filters.clone(),
+                    bitmap_consumer_id: inner.bitmap_consumer_id,
+                    bitmap_cell: inner.bitmap_cell.clone(),
+                    rel_oid: inner.rel_oid,
+                    expr_context: inner.expr_context,
+                    planstate: inner.planstate,
+                }),
+            )) as Box<dyn Weight>)
+        })
     }
 
     fn query_terms(
@@ -407,11 +423,18 @@ impl Query for HeapFilterQuery {
         reader: &SegmentReader,
         visitor: &mut dyn for<'a> FnMut(&'a Term, bool),
     ) {
-        self.indexed_query.query_terms(field, reader, visitor);
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            self.0
+                .get(token)
+                .indexed_query
+                .query_terms(field, reader, visitor);
+        });
     }
 }
 
-struct HeapFilterWeight {
+struct HeapFilterWeight(crate::postgres::customscan::mpp::MainThread<HeapFilterWeightInner>);
+
+struct HeapFilterWeightInner {
     indexed_weight: Box<dyn Weight>,
     always_filters: Vec<HeapFieldFilter>,
     recheck_filters: Vec<HeapFieldFilter>,
@@ -422,52 +445,59 @@ struct HeapFilterWeight {
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
-// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it
-unsafe impl Send for HeapFilterWeight {}
-unsafe impl Sync for HeapFilterWeight {}
-
 impl Weight for HeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let inner = self.0.get(token);
+            let indexed_scorer = inner.indexed_weight.scorer(reader, boost)?;
 
-        // Get ctid fast field for heap access
-        let fast_fields_reader = reader.fast_fields();
-        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
+            // Get ctid fast field for heap access
+            let fast_fields_reader = reader.fast_fields();
+            let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
 
-        // Claim this (consumer, segment) stream's cursor. No cell installed means
-        // no bitmap was planned (or this is an estimation clone): evaluate filters
-        // directly. An installed-but-unfilled cell is an invariant violation.
-        let cursor = match (self.bitmap_consumer_id, &self.bitmap_cell) {
-            (Some(consumer_id), Some(cell)) => {
-                let source = cell
-                    .get()
-                    .unwrap_or_else(|| panic!("bitmap cursor source was never initialized"));
-                Some(unsafe { source.claim(consumer_id, reader.segment_id()) })
-            }
-            _ => None,
-        };
+            // Claim this (consumer, segment) stream's cursor. No cell installed means
+            // no bitmap was planned (or this is an estimation clone): evaluate filters
+            // directly. An installed-but-unfilled cell is an invariant violation.
+            let cursor = match (inner.bitmap_consumer_id, &inner.bitmap_cell) {
+                (Some(consumer_id), Some(cell)) => {
+                    let source = cell
+                        .get()
+                        .unwrap_or_else(|| panic!("bitmap cursor source was never initialized"));
+                    Some(unsafe { source.claim(consumer_id, reader.segment_id()) })
+                }
+                _ => None,
+            };
 
-        let scorer = HeapFilterScorer::new(
-            indexed_scorer,
-            self.always_filters.clone(),
-            self.recheck_filters.clone(),
-            cursor,
-            ctid_ff,
-            self.rel_oid,
-            self.expr_context,
-            self.planstate,
-        );
+            let scorer = HeapFilterScorer::new(
+                indexed_scorer,
+                inner.always_filters.clone(),
+                inner.recheck_filters.clone(),
+                cursor,
+                ctid_ff,
+                inner.rel_oid,
+                inner.expr_context,
+                inner.planstate,
+            );
 
-        Ok(Box::new(scorer))
+            Ok(Box::new(scorer) as Box<dyn Scorer>)
+        })
     }
 
     fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
-        let indexed_explanation = self.indexed_weight.explain(reader, doc)?;
-        Ok(Explanation::new("HeapFilter", indexed_explanation.value()))
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let indexed_explanation = self.0.get(token).indexed_weight.explain(reader, doc)?;
+            Ok(Explanation::new("HeapFilter", indexed_explanation.value()))
+        })
     }
 }
 
 struct HeapFilterScorer {
+    inner: crate::postgres::customscan::mpp::MainThread<HeapFilterScorerInner>,
+    current_doc: DocId,
+    size_hint: u32,
+}
+
+struct HeapFilterScorerInner {
     indexed_scorer: Box<dyn Scorer>,
     /// Evaluated on every doc that survives the bitmap probe (or every doc when no
     /// bitmap set is attached). See `SearchQueryInput::HeapFilter`.
@@ -485,10 +515,6 @@ struct HeapFilterScorer {
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
-// SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
-unsafe impl Send for HeapFilterScorer {}
-unsafe impl Sync for HeapFilterScorer {}
-
 impl HeapFilterScorer {
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -501,7 +527,8 @@ impl HeapFilterScorer {
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
-        let mut scorer = Self {
+        let size_hint = indexed_scorer.size_hint();
+        let mut inner = HeapFilterScorerInner {
             indexed_scorer,
             always_filters,
             recheck_filters,
@@ -516,11 +543,18 @@ impl HeapFilterScorer {
 
         // Position at the first valid document
         // For initialization, we need to check the current document first, then advance if needed
-        scorer.find_first_valid_document();
+        inner.find_first_valid_document();
+        let current_doc = inner.current_doc;
 
-        scorer
+        Self {
+            inner: crate::postgres::customscan::mpp::MainThread::new(inner),
+            current_doc,
+            size_hint,
+        }
     }
+}
 
+impl HeapFilterScorerInner {
     fn find_first_valid_document(&mut self) {
         // For initialization, check the current document first
         self.current_doc = self.indexed_scorer.doc();
@@ -587,20 +621,14 @@ impl HeapFilterScorer {
 
         true
     }
-}
 
-impl Scorer for HeapFilterScorer {
-    fn score(&mut self) -> Score {
-        // Return the score from the indexed query (preserving BM25 scores)
-        self.indexed_scorer.score()
-    }
-}
-
-impl DocSet for HeapFilterScorer {
     fn advance(&mut self) -> DocId {
         self.in_danger = false;
         loop {
-            pgrx::check_for_interrupts!();
+            if crate::postgres::customscan::mpp::check_for_interrupts_or_cancel() {
+                self.current_doc = TERMINATED;
+                return TERMINATED;
+            }
 
             let doc = self.indexed_scorer.advance();
 
@@ -616,9 +644,6 @@ impl DocSet for HeapFilterScorer {
         }
     }
 
-    // The default `seek` advances one document at a time and evaluates the heap filters on
-    // each, so an intersection seeking this scorer past the documents its driver skipped would
-    // fetch every one of them from the heap.
     fn seek(&mut self, target: DocId) -> DocId {
         if !self.in_danger && self.current_doc >= target {
             return self.current_doc;
@@ -632,9 +657,6 @@ impl DocSet for HeapFilterScorer {
         self.advance()
     }
 
-    // A probe at a rejected document answers with a lower bound instead of walking the
-    // indexed scorer (and the heap) to the next accepted one, which the caller may never ask
-    // for.
     fn seek_danger(&mut self, target: DocId) -> SeekDangerResult {
         if target >= TERMINATED {
             return SeekDangerResult::SeekLowerBound(TERMINATED);
@@ -664,12 +686,54 @@ impl DocSet for HeapFilterScorer {
             }
         }
     }
+}
+
+impl Scorer for HeapFilterScorer {
+    fn score(&mut self) -> Score {
+        crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            self.inner.get_mut(token).indexed_scorer.score()
+        })
+    }
+}
+
+impl DocSet for HeapFilterScorer {
+    fn advance(&mut self) -> DocId {
+        let doc = crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            self.inner.get_mut(token).advance()
+        });
+        self.current_doc = doc;
+        doc
+    }
+
+    // The default `seek` advances one document at a time and evaluates the heap filters on
+    // each, so an intersection seeking this scorer past the documents its driver skipped would
+    // fetch every one of them from the heap.
+    fn seek(&mut self, target: DocId) -> DocId {
+        let doc = crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            self.inner.get_mut(token).seek(target)
+        });
+        self.current_doc = doc;
+        doc
+    }
+
+    // A probe at a rejected document answers with a lower bound instead of walking the
+    // indexed scorer (and the heap) to the next accepted one, which the caller may never ask
+    // for.
+    fn seek_danger(&mut self, target: DocId) -> SeekDangerResult {
+        let (res, doc) = crate::postgres::customscan::mpp::run_on_main_thread(|token| {
+            let inner = self.inner.get_mut(token);
+            let res = inner.seek_danger(target);
+            (res, inner.current_doc)
+        });
+        self.current_doc = doc;
+        res
+    }
 
     fn doc(&self) -> DocId {
         self.current_doc
     }
 
     fn size_hint(&self) -> u32 {
-        self.indexed_scorer.size_hint()
+        self.size_hint
     }
 }

@@ -9,6 +9,10 @@
 --
 -- Also checks that the same query still fails cleanly with
 -- paradedb.spill_to_disk left off (the default).
+--
+-- The queries group on p.file_id, not f.id: with f's primary key in the keys,
+-- f.title would be carried as a deferred term instead of grouped on, and the
+-- groups would fit in work_mem without spilling.
 -- =====================================================================
 \i common/common_setup.sql
 SET client_min_messages TO warning;
@@ -82,11 +86,11 @@ $$ LANGUAGE plpgsql;
 -- by" -- not the pool's message alone, since try_grow() still runs and
 -- still fails; the disk manager just can't act on it by spilling.
 SET work_mem = '1.25MB';
-SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+SELECT p.file_id AS id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
 FROM spill_small_files f
 JOIN spill_small_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
-GROUP BY f.id, f.title;
+GROUP BY p.file_id, f.title;
 
 -- GUC on: the aggregate spills and completes.
 SET paradedb.spill_to_disk TO on;
@@ -115,11 +119,11 @@ SELECT
         WHERE cnt <> 1 OR total_size <> ((id * 17) % 4096)
     ) = 0 AS all_groups_correct
 FROM (
-    SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+    SELECT p.file_id AS id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
     FROM spill_small_files f
     JOIN spill_small_pages p ON f.id = p.file_id
     WHERE f.content @@@ 'Section'
-    GROUP BY f.id, f.title
+    GROUP BY p.file_id, f.title
 ) q;
 
 -- GUC on, but enough work_mem for the same plan to stay in memory: the spill file
@@ -131,11 +135,11 @@ SELECT
         WHERE cnt <> 1 OR total_size <> ((id * 17) % 4096)
     ) = 0 AS all_groups_correct
 FROM (
-    SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+    SELECT p.file_id AS id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
     FROM spill_small_files f
     JOIN spill_small_pages p ON f.id = p.file_id
     WHERE f.content @@@ 'Section'
-    GROUP BY f.id, f.title
+    GROUP BY p.file_id, f.title
 ) q;
 
 -- A spill that hits temp_file_limit must fail as a normal error. The write raises
@@ -145,11 +149,11 @@ SET work_mem = '1.25MB';
 SET temp_file_limit = '100kB';
 -- The message names the GUC differently across PG versions; the SQLSTATE does not.
 \set VERBOSITY sqlstate
-SELECT f.id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
+SELECT p.file_id AS id, f.title, COUNT(*) AS cnt, SUM(p.size_bytes) AS total_size
 FROM spill_small_files f
 JOIN spill_small_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
-GROUP BY f.id, f.title;
+GROUP BY p.file_id, f.title;
 \set VERBOSITY default
 
 -- The same failure under SPI: a subtransaction abort releases the resource owner's
@@ -157,11 +161,11 @@ GROUP BY f.id, f.title;
 CREATE TABLE spill_limit_outcome (msg text);
 DO $$
 BEGIN
-    PERFORM f.id, f.title, COUNT(*), SUM(p.size_bytes)
+    PERFORM p.file_id, f.title, COUNT(*), SUM(p.size_bytes)
     FROM spill_small_files f
     JOIN spill_small_pages p ON f.id = p.file_id
     WHERE f.content @@@ 'Section'
-    GROUP BY f.id, f.title;
+    GROUP BY p.file_id, f.title;
     INSERT INTO spill_limit_outcome VALUES ('unexpected success under temp_file_limit');
 EXCEPTION WHEN OTHERS THEN
     INSERT INTO spill_limit_outcome VALUES ('caught: ' || SQLSTATE);

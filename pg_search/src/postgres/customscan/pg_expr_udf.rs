@@ -93,9 +93,9 @@ pub struct PgExprUdf {
     /// Pre-computed DataFusion Signature (input types match Tantivy widening)
     #[serde(skip, default = "PgExprUdf::default_signature")]
     signature: Signature,
-    /// Lazily initialized PG expression evaluation state.
+    /// Lazily initialized PG expression evaluation state, bound to the Postgres main thread.
     #[serde(skip)]
-    initialized_state: OnceLock<PgExprState>,
+    initialized_state: OnceLock<crate::postgres::customscan::mpp::MainThread<PgExprState>>,
 }
 
 impl std::fmt::Debug for PgExprUdf {
@@ -127,7 +127,9 @@ impl std::hash::Hash for PgExprUdf {
 }
 
 /// Cached PostgreSQL expression evaluation state.
-/// Allocated in TopTransactionContext to survive across DataFusion batch boundaries.
+/// Allocated in TopTransactionContext to survive across DataFusion batch boundaries, and wrapped
+/// in [`crate::postgres::customscan::mpp::MainThread`] so it is only accessed or dropped on
+/// the Postgres main thread.
 struct PgExprState {
     expr_state: *mut pg_sys::ExprState,
     estate: *mut pg_sys::EState,
@@ -136,16 +138,13 @@ struct PgExprState {
     json_doc_datums: RefCell<HashMap<usize, (pg_sys::Datum, bool)>>,
 }
 
-// SAFETY: PgExprState is only accessed within a single DataFusion partition
-// (target_partitions=1). The raw pointers are not shared across threads.
-unsafe impl Send for PgExprState {}
-unsafe impl Sync for PgExprState {}
-
 crate::impl_safe_drop!(PgExprState, |self| {
     unsafe {
-        pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-        pg_sys::FreeExprContext(self.econtext, true);
-        pg_sys::FreeExecutorState(self.estate);
+        if crate::postgres::utils::IsTransactionState() {
+            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+            pg_sys::FreeExprContext(self.econtext, true);
+            pg_sys::FreeExecutorState(self.estate);
+        }
     }
 });
 
@@ -239,36 +238,45 @@ impl PgExprUdf {
     }
 
     /// Lazily initialize PG expression state on first call.
-    unsafe fn get_or_init_state(&self) -> &PgExprState {
-        self.initialized_state.get_or_init(|| {
-            PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                let prepared =
-                    PreparedPgExpr::from_serialized(&self.pg_expr_string, &self.input_vars);
+    fn get_or_init_state(
+        &self,
+        token: crate::postgres::customscan::mpp::MainThreadToken,
+    ) -> &PgExprState {
+        self.initialized_state
+            .get_or_init(|| {
+                unsafe {
+                    PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                        let prepared =
+                            PreparedPgExpr::from_serialized(&self.pg_expr_string, &self.input_vars);
 
-                let tupdesc = build_tupdesc_for_inputs(&self.input_vars);
+                        let tupdesc = build_tupdesc_for_inputs(&self.input_vars);
 
-                // SAFETY: tupdesc is valid, TTSOpsVirtual is a static PG global.
-                let slot = pg_sys::MakeSingleTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
+                        // SAFETY: tupdesc is valid, TTSOpsVirtual is a static PG global.
+                        let slot =
+                            pg_sys::MakeSingleTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
 
-                let estate = pg_sys::CreateExecutorState();
-                let econtext = pg_sys::CreateExprContext(estate);
+                        let estate = pg_sys::CreateExecutorState();
+                        let econtext = pg_sys::CreateExprContext(estate);
 
-                // Use ecxt_innertuple because Var nodes are rewritten to INNER_VAR.
-                (*econtext).ecxt_innertuple = slot;
+                        // Use ecxt_innertuple because Var nodes are rewritten to INNER_VAR.
+                        (*econtext).ecxt_innertuple = slot;
 
-                // SAFETY: expr_node is a valid deserialized+rewritten Node.
-                let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
+                        // SAFETY: expr_node is a valid deserialized+rewritten Node.
+                        let expr_state =
+                            pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
 
-                let json_doc_datums = RefCell::new(HashMap::new());
-                PgExprState {
-                    expr_state,
-                    estate,
-                    econtext,
-                    slot,
-                    json_doc_datums,
+                        let json_doc_datums = RefCell::new(HashMap::new());
+                        crate::postgres::customscan::mpp::MainThread::new(PgExprState {
+                            expr_state,
+                            estate,
+                            econtext,
+                            slot,
+                            json_doc_datums,
+                        })
+                    })
                 }
             })
-        })
+            .get(token)
     }
 }
 
@@ -443,30 +451,31 @@ impl ScalarUDFImpl for PgExprUdf {
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        // SAFETY: single-threaded access guaranteed by target_partitions=1.
-        let pg_state = unsafe { self.get_or_init_state() };
+        crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+            let pg_state = self.get_or_init_state(token);
 
-        // A UDF over only constants has no input Vars — that's valid.
-        // ExecEvalExpr evaluates it with an empty slot.
+            // A UDF over only constants has no input Vars — that's valid.
+            // ExecEvalExpr evaluates it with an empty slot.
 
-        let n = args.number_rows;
-        let arg_values = &args.args;
+            let n = args.number_rows;
+            let arg_values = &args.args;
 
-        let arrow_array = eval_expr_to_arrow!(
-            self, n, pg_state, arg_values, &self.input_vars,
-            pg_sys::BOOLOID   => |d: pg_sys::Datum| d.value() != 0                    => BooleanBuilder::with_capacity(n),
-            pg_sys::INT2OID   => |d: pg_sys::Datum| d.value() as i16                  => Int16Builder::with_capacity(n),
-            pg_sys::INT4OID   => |d: pg_sys::Datum| d.value() as i32                  => Int32Builder::with_capacity(n),
-            pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
-            pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
-            pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
-            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
-                use pgrx::FromDatum;
-                String::from_datum(d, false).expect("non-null TEXT datum")
-            } => StringBuilder::with_capacity(n, n * 32),
-        );
+            let arrow_array = eval_expr_to_arrow!(
+                self, n, pg_state, arg_values, &self.input_vars,
+                pg_sys::BOOLOID   => |d: pg_sys::Datum| d.value() != 0                    => BooleanBuilder::with_capacity(n),
+                pg_sys::INT2OID   => |d: pg_sys::Datum| d.value() as i16                  => Int16Builder::with_capacity(n),
+                pg_sys::INT4OID   => |d: pg_sys::Datum| d.value() as i32                  => Int32Builder::with_capacity(n),
+                pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
+                pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
+                pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
+                pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
+                    use pgrx::FromDatum;
+                    String::from_datum(d, false).expect("non-null TEXT datum")
+                } => StringBuilder::with_capacity(n, n * 32),
+            );
 
-        Ok(ColumnarValue::Array(arrow_array))
+            Ok(ColumnarValue::Array(arrow_array))
+        })
     }
 }
 

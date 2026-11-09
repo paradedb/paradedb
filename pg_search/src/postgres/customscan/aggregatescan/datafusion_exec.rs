@@ -48,6 +48,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{
     ColumnRef, CompareOp, DataFusionTopK, FilterExpr, TopKSortTarget,
 };
 use crate::postgres::customscan::datafusion::cardinality_agg::tantivy_cardinality_udaf;
+use crate::postgres::customscan::datafusion::carry_value::carry_value;
 use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
@@ -68,6 +69,7 @@ use crate::postgres::customscan::joinscan::scan_state::{
 };
 use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
+use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use crate::scan::PgSearchTableProvider;
 use crate::scan::table_provider::pg_search_provider_from_scan;
 use crate::schema::SearchFieldType;
@@ -170,10 +172,15 @@ pub async fn build_join_aggregate_plan(
         if gc.row_value {
             // PostgreSQL's Agg node reads such a column from one row of the group.
             let column = make_plan_position_col(plan, gc.plan_position, &gc.field_name);
-            row_values.push((
-                gc_idx,
-                first_value(column, row_order.clone()).alias(targetlist.row_value_name(gc_idx)),
-            ));
+            // Every row of the group holds the same value of a dependent column, so
+            // any row will do: no row order to carry, and a deferred string can pass
+            // through undecoded (see `carry_value`).
+            let expr = if gc.dependent {
+                carry_value(column)
+            } else {
+                first_value(column, row_order.clone())
+            };
+            row_values.push((gc_idx, expr.alias(targetlist.row_value_name(gc_idx))));
             group_df_indices.push(usize::MAX);
             continue;
         }
@@ -1195,9 +1202,14 @@ struct AggregateIndexVarMapper<'a> {
     lateral_unnests: Vec<&'a LateralUnnestInfo>,
 }
 
-impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
-    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        let (rti, attno) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+impl<'a> AggregateIndexVarMapper<'a> {
+    /// Resolve INDEX_VAR references to the Var's original `(rti, attno)`.
+    fn original_var(
+        &self,
+        varno: pg_sys::Index,
+        varattno: pg_sys::AttrNumber,
+    ) -> Option<(pg_sys::Index, pg_sys::AttrNumber)> {
+        if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             // INDEX_VAR: look up the original Var from custom_scan_tlist.
             // varattno is 1-indexed into the target list.
             let tlist =
@@ -1208,10 +1220,24 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
                 return None;
             }
             let var = unsafe { &*(te.expr as *mut pg_sys::Var) };
-            (var.varno as pg_sys::Index, var.varattno)
+            Some((var.varno as pg_sys::Index, var.varattno))
         } else {
-            (varno, varattno)
-        };
+            Some((varno, varattno))
+        }
+    }
+
+    fn numeric_field_type(
+        &self,
+        varno: pg_sys::Index,
+        varattno: pg_sys::AttrNumber,
+    ) -> Option<SearchFieldType> {
+        let (rti, attno) = self.original_var(varno, varattno)?;
+        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
+        source.numeric_field_type(attno)
+    }
+
+    fn resolve_column(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        let (rti, attno) = self.original_var(varno, varattno)?;
 
         if let Some(unnest_info) = self
             .lateral_unnests
@@ -1245,6 +1271,30 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
         } else {
             Some(make_source_col(source, &field_name))
         }
+    }
+}
+
+impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        // NUMERIC fast fields are storage-encoded, so native operators would read
+        // scaled integers. Refuse them so the `PgExprUdf` fallback decodes them.
+        if self.numeric_field_type(varno, varattno).is_some() {
+            return None;
+        }
+        self.resolve_column(varno, varattno)
+    }
+
+    fn udf_input(
+        &self,
+        varno: pg_sys::Index,
+        varattno: pg_sys::AttrNumber,
+    ) -> Option<(Expr, InputDecode)> {
+        let field_type = self.numeric_field_type(varno, varattno)?;
+        let decode = InputDecode::StorageEncoded {
+            is_avg: false,
+            field_type: Some(field_type),
+        };
+        Some((self.resolve_column(varno, varattno)?, decode))
     }
 }
 

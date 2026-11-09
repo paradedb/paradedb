@@ -54,6 +54,11 @@ pub enum IndexExpression {
     UnicodeWordsColumnar,
     Upper,
     LiteralNormalized,
+    /// An arithmetic OpExpr over the column, e.g. `(age * 10)`
+    Multiply {
+        factor: i64,
+    },
+    VectorCosine,
 }
 
 impl IndexExpression {
@@ -66,7 +71,20 @@ impl IndexExpression {
             }
             Self::Upper => format!("(upper({column_name})::pdb.literal)"),
             Self::LiteralNormalized => format!("({column_name}::pdb.literal_normalized)"),
+            Self::Multiply { factor } => {
+                format!("(({column_name} * {factor})::pdb.alias('{column_name}_x{factor}'))")
+            }
+            Self::VectorCosine => format!("{column_name} vector_cosine_ops"),
         }
+    }
+
+    /// True when the indexed value is the column itself (just a tokenizer cast), so
+    /// `GROUP BY col` / `ORDER BY col` can use the fast field.
+    pub const fn indexes_bare_column(&self) -> bool {
+        matches!(
+            self,
+            Self::Literal | Self::UnicodeWordsColumnar | Self::LiteralNormalized
+        )
     }
 }
 
@@ -400,11 +418,13 @@ CREATE TABLE {tname} (
 -- hand the replay other rows.
 ALTER TABLE {tname} SET (autovacuum_enabled = off);
 {index_before_data}
+SET paradedb.global_mutable_segment_rows = 0;
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
 {bulk_insert_sql}
 
+RESET paradedb.global_mutable_segment_rows;
 {index_after_data}
 
 {b_tree_indexes}
@@ -413,7 +433,9 @@ ANALYZE {tname};
 "#,
             b_tree_indexes = columns_def
                 .iter()
-                .filter(|c| c.is_indexed)
+                .filter(|c| {
+                    c.is_indexed && c.index_expression != Some(IndexExpression::VectorCosine)
+                })
                 .map(|c| format!(
                     "CREATE INDEX idx{tname}_{name} ON {tname} ({name});",
                     name = c.name
@@ -516,6 +538,9 @@ pub struct PgGucs {
     /// Enable range co-partitioning for joins whose indexes declare compatible `partition_by`
     /// fields.
     pub range_partitioned_join: bool,
+    /// Enable `RankJoinExec` and lower `paradedb.rank_join_min_rows` to `0` so small property-test
+    /// tables exercise `RankJoinExec`.
+    pub rank_join: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -672,7 +697,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 11]>()
+        any::<[bool; 12]>()
             .prop_map(|b| {
                 let mut g = Self {
                     aggregate_custom_scan: b[0],
@@ -686,6 +711,7 @@ impl Arbitrary for PgGucs {
                     parallel_leader_participation: b[8],
                     columnar_exec: b[9],
                     range_partitioned_join: b[10],
+                    rank_join: b[11],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -711,6 +737,7 @@ impl PgGucs {
             parallel_leader_participation: true,
             columnar_exec: false,
             range_partitioned_join: false,
+            rank_join: false,
         }
     }
 
@@ -739,6 +766,7 @@ impl PgGucs {
             parallel_leader_participation,
             columnar_exec,
             range_partitioned_join,
+            rank_join,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -794,11 +822,35 @@ impl PgGucs {
             "{verb} paradedb.enable_range_partitioned_join TO {range_partitioned_join};"
         )
         .unwrap();
-        // Pin `min_rows_per_worker` low when we want parallel workers to be used.
+        writeln!(gucs, "{verb} paradedb.enable_rank_join TO {rank_join};").unwrap();
+        if *rank_join {
+            writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO 0;").unwrap();
+        } else {
+            writeln!(gucs, "{verb} paradedb.rank_join_min_rows TO DEFAULT;").unwrap();
+        }
+        // Pin `min_rows_per_worker` and `mpp_min_rows` low when we want parallel workers
+        // (and MPP distributed execution) to be used on the small property-test tables.
         if *parallel_workers {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO 10;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO 0;").unwrap();
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
+            writeln!(gucs, "{verb} paradedb.mpp_min_rows TO DEFAULT;").unwrap();
+        }
+        // In MPP distributed execution (with `paradedb.spill_to_disk` off by default),
+        // `RepartitionExec` at the top of a shuffle producer stage creates `W * T` output partition
+        // channels (`max_parallel_workers_per_gather * consumer_tasks`, up to 16 in qgen). Each
+        // output partition's `8192`-row `LimitedBatchCoalescer` pre-allocates `16,384` slots per
+        // column and does not shrink `Buffer::capacity()` on residual batches at EOF (~600 KB per
+        // partition for multi-column grouping sets), which can exceed the 4MB default `work_mem`
+        // across 8-16 partitions. Single-table MPP queries use a 16MB bound, while join-eligible
+        // MPP queries use 32MB because DataFusion's `HashJoinExec` and `NestedLoopJoinExec` do not
+        // spill to disk.
+        if *parallel_workers {
+            let limit = if *join_custom_scan { "32MB" } else { "16MB" };
+            writeln!(gucs, "{verb} work_mem TO '{limit}';").unwrap();
+        } else {
+            writeln!(gucs, "{verb} work_mem TO DEFAULT;").unwrap();
         }
         writeln!(
             gucs,
@@ -883,7 +935,7 @@ pub fn compare_outcome<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
@@ -908,7 +960,7 @@ pub fn compare_outcome_on<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     // A panic (vs a returned sqlx::Error) still becomes a Failure, so it trips the oracle and
@@ -956,7 +1008,7 @@ pub fn compare_outcome_retrying<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let sides = Sides::postgres_vs(gucs);
@@ -980,7 +1032,7 @@ pub fn compare_outcome_retrying_on<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     use crate::fixtures::fault_grace::{Attempt, RetryError};
@@ -1061,6 +1113,9 @@ pub fn compare_plan_retrying_on(
         ))
     };
 
+    // Use TEXT format rather than `FORMAT JSON` into `serde_json::Value`: `explain_physical_plan`
+    // emits each physical-plan line under the key `"  "`, so `serde_json::Map` overwrites all
+    // lines except the last one (hiding `DistributedExec` on the first line).
     let outcome = retry_transient(pool, "qgen plan check", |conn| {
         sql_attempt(
             sides
@@ -1073,8 +1128,8 @@ pub fn compare_plan_retrying_on(
         )
     });
 
-    let plan = match outcome {
-        Ok(Ok(plan)) => plan,
+    let plan_rows = match outcome {
+        Ok(Ok(rows)) => rows,
         Ok(Err(e)) => return fail(format!("{e}: EXPLAIN failed for '{candidate_query}'")),
         Err(RetryError::TimedOutUnderPause(e)) => {
             return fail(format!(
@@ -1084,7 +1139,7 @@ pub fn compare_plan_retrying_on(
         Err(RetryError::GraceExpired(reason)) => return fail(reason),
     };
 
-    let plan_str = plan
+    let plan_str = plan_rows
         .into_iter()
         .map(|(line,)| line)
         .collect::<Vec<_>>()
@@ -1095,7 +1150,7 @@ pub fn compare_plan_retrying_on(
     {
         let expected_desc = expected_any.join(" or ");
         return fail(format!(
-            "Query should use {expected_desc} but got plan: {plan_str}\nQuery: {candidate_query}"
+            "Query should use {expected_desc} but got plan:\n{plan_str}\nQuery: {candidate_query}"
         ));
     }
 
@@ -1104,9 +1159,18 @@ pub fn compare_plan_retrying_on(
         .find(|forbidden| plan_str.contains(**forbidden))
     {
         return fail(format!(
-            "Query should not use {forbidden} but got plan: {plan_str}\nQuery: {candidate_query}"
+            "Query should not use {forbidden} but got plan:\n{plan_str}\nQuery: {candidate_query}"
         ));
     }
+
+    crate::fixtures::ensure_dst_init();
+    dst::observe!(|| {
+        dst::assert_sometimes!(
+            plan_str.contains("DistributedExec"),
+            "qgen: custom scan produces a distributed MPP plan",
+            &serde_json::json!({})
+        );
+    });
 
     CaseOutcome::Match
 }
@@ -1120,7 +1184,7 @@ fn compare_outcome_inner<R, F>(
     run_query: F,
 ) -> CaseOutcome
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, QuerySide, &mut PgConnection) -> Result<R, sqlx::Error>,
 {
     let mut queries = || -> Result<(R, R), sqlx::Error> {
@@ -1183,7 +1247,7 @@ fn assert_results_match<R>(
     conn: &mut PgConnection,
 ) -> Result<(), TestCaseError>
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
 {
     prop_assert_eq!(
         baseline_result,
@@ -1215,7 +1279,7 @@ pub fn compare<R, F>(
     run_query: F,
 ) -> Result<(), TestCaseError>
 where
-    R: Eq + Debug,
+    R: PartialEq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
     match compare_outcome(

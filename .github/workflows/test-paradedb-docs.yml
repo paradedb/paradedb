@@ -39,7 +39,7 @@ jobs:
       - ram=16
       - image=ubuntu26-full-arm64
       - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +55,7 @@ jobs:
 
       # Reuse the shared cache without saving entries from this workflow.
       - name: Set Up pg_search Toolchain
+        id: toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}
@@ -152,12 +153,20 @@ jobs:
       - name: Check Documentation Snippet Coverage
         run: python3 .github/scripts/extract_code_snippets.py
 
+      - name: Restore pgrx-compiled Postgres
+        id: cache-pgrx-pg
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install
+          key: pgrx-install-v1-ubuntu26-full-arm64-${{ matrix.pg_version }}-${{ steps.toolchain.outputs.pgrx_version }}-${{ runner.os }}-${{ runner.arch }}
+
       - name: Set Up PostgreSQL (pgrx)
         id: postgres
         uses: ./.github/actions/setup-postgres
         with:
           pg_version: ${{ matrix.pg_version }}
           pg_impl: pgrx
+          pgrx_cache_hit: ${{ steps.cache-pgrx-pg.outputs.cache-hit == 'true' }}
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/

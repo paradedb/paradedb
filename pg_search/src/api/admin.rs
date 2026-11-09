@@ -378,7 +378,9 @@ fn index_info(
 /// explicitly rather than only the first one an index happens to carry. `segno`
 /// aligns with [`index_info`]'s so the two can be joined.
 ///
-/// The cluster columns are IVF-only (`NULL` for flat segments).
+/// The cluster and router columns are IVF-only (`NULL` for flat segments).
+/// `vector_router_levels` counts centroids per router level, bottom to top;
+/// the exact router has none.
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn vector_info(
@@ -398,6 +400,8 @@ fn vector_info(
             name!(vector_avg_cluster_size, Option<f64>),
             name!(vector_empty_clusters, Option<AnyNumeric>),
             name!(vector_total_rows, Option<AnyNumeric>),
+            name!(vector_router, Option<String>),
+            name!(vector_router_levels, Option<Vec<i32>>),
             name!(quantized, bool),
             name!(layers, Option<Vec<i32>>),
             name!(quantizer_kinds, Option<Vec<String>>),
@@ -419,7 +423,7 @@ fn vector_info(
         let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            let Some(info) = vector_index.info() else {
+            let Some(info) = vector_index.info()? else {
                 continue;
             };
             let quantized = info.quantized_layers.is_some();
@@ -438,9 +442,15 @@ fn vector_info(
                 .map(i32::try_from)
                 .transpose()
                 .context("quantized bytes per row exceeds SQL integer range")?;
+            let router_levels = info
+                .router_levels
+                .as_ref()
+                .map(|levels| levels.iter().map(|&size| i32::try_from(size)).collect())
+                .transpose()
+                .context("router level size exceeds SQL integer range")?;
             let cluster_stats = info.cluster_stats.as_ref();
             let total_rows = vector_index
-                .cluster_sizes()
+                .cluster_sizes()?
                 .map(|sizes| sizes.iter().map(|size| *size as u64).sum::<u64>());
             rows.push((
                 segment_reader.segment_id().short_uuid_string(),
@@ -457,6 +467,8 @@ fn vector_info(
                 cluster_stats.map(|stats| stats.avg_cluster_size),
                 cluster_stats.map(|stats| stats.empty_clusters.into()),
                 total_rows.map(Into::into),
+                info.router.map(|router| router.to_string()),
+                router_levels,
                 quantized,
                 layers,
                 quantizer_kinds,
@@ -530,7 +542,7 @@ fn vector_config(
     Ok(TableIterator::new(rows))
 }
 
-/// Per-cluster posting-list sizes and ball-bound radii for a single vector
+/// Per-cluster posting-list sizes for a single vector
 /// `field` of `index`, one row per segment that stores that field, in cluster
 /// order.
 #[pg_extern]
@@ -539,14 +551,7 @@ fn vector_clusters(
     index: IndexOid,
     field: String,
 ) -> anyhow::Result<
-    TableIterator<
-        'static,
-        (
-            name!(segno, String),
-            name!(cluster_sizes, Option<Vec<i64>>),
-            name!(cluster_radii, Option<Vec<f32>>),
-        ),
-    >,
+    TableIterator<'static, (name!(segno, String), name!(cluster_sizes, Option<Vec<i64>>))>,
 > {
     let index = index.read();
     let index_kind = IndexKind::for_index(index.clone())?;
@@ -562,18 +567,13 @@ fn vector_clusters(
         let (search_reader, vector_field, _) = open_vector_field(&index, &field)?;
         for segment_reader in search_reader.segment_readers() {
             let vector_index = segment_reader.vector_index(vector_field)?;
-            if vector_index.info().is_none() {
+            if vector_index.info()?.is_none() {
                 continue;
             }
             let sizes = vector_index
-                .cluster_sizes()
+                .cluster_sizes()?
                 .map(|sizes| sizes.into_iter().map(i64::from).collect());
-            let radii = vector_index.cluster_radii();
-            rows.push((
-                segment_reader.segment_id().short_uuid_string(),
-                sizes,
-                radii,
-            ));
+            rows.push((segment_reader.segment_id().short_uuid_string(), sizes));
         }
     }
 

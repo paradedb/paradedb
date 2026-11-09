@@ -736,6 +736,23 @@ impl pdb::Query {
         }
     }
 
+    /// [`SearchQueryInput::is_pushdown_filter`] for one field's query: a term counts only on a
+    /// field `term_is_filter` accepts, a score adjustment never does, and the remaining forms
+    /// count when their score is constant (ranges, exists, term sets).
+    ///
+    /// [`SearchQueryInput::is_pushdown_filter`]: crate::query::SearchQueryInput::is_pushdown_filter
+    pub(crate) fn is_pushdown_filter(
+        &self,
+        field: &FieldName,
+        term_is_filter: &dyn Fn(&FieldName) -> bool,
+    ) -> bool {
+        match self {
+            pdb::Query::Term { .. } => term_is_filter(field),
+            pdb::Query::ScoreAdjusted { .. } => false,
+            _ => self.is_constant_score(),
+        }
+    }
+
     pub(crate) fn is_constant_score(&self) -> bool {
         match self {
             pdb::Query::All
@@ -1667,10 +1684,12 @@ pub(crate) fn canonicalize_range_bounds_for_field(
             (lower, upper)
         }
         SearchFieldType::Json(_) => {
-            // For JSON fields, convert string numeric values to appropriate JSON types
+            // For JSON fields, convert string numeric values to appropriate JSON types.
+            // A JSON path can also hold fractional values, so integer bounds keep their kind
+            // rather than being canonicalized to the next integer.
             let lower = map_bound(lower_bound, string_to_json_numeric);
             let upper = map_bound(upper_bound, string_to_json_numeric);
-            check_range_bounds(typeoid, lower, upper, index_created_by_version)?
+            (lower, upper)
         }
         // Dates and times are stored in I64 fields, but they are not numbers
         SearchFieldType::I64(oid) if is_datetime_type(oid) => {

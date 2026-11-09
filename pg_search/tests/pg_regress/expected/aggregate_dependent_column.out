@@ -132,25 +132,23 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, kind
 ORDER BY id, kind
 LIMIT 6;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, (count(*))
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: id, kind, (count(*))
          Backend: DataFusion
          Indexes: dependent_col_items_idx (dependent_col_items)
-         Group By: id, kind
+         Group By: id
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : SortExec: TopK(fetch=6), expr=[id@0 ASC NULLS LAST, kind@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-           :     TantivyDecodeExec: decode=[kind]
-           :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-           :         TantivyFetchExec: fetch=[kind]
-           :           CooperativeExec
-           :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
-(16 rows)
+           : TantivyDecodeExec: decode=[kind]
+           :   SortExec: TopK(fetch=6), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :     AggregateExec: mode=Single, gby=[id@0 as id], aggr=[count(1) as agg_0, pdb_carry_value(dependent_col_items_0.kind) as row_1]
+           :       CooperativeExec
+           :         PgSearchScan: table=dependent_col_items, segments=1, fetch=[kind], dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(14 rows)
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
@@ -177,25 +175,23 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 8;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, account_id, price, created, (count(*)), (sum(price))
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: id, kind, account_id, price, created, (count(*)), (sum(price))
          Backend: DataFusion
          Indexes: dependent_col_items_idx (dependent_col_items)
-         Group By: account_id, created, id, kind, price
+         Group By: account_id, created, id, price
          Aggregates: COUNT(*), SUM(price)
          DataFusion Physical Plan: 
-           : SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-           :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind, account_id@2 as account_id, price@3 as price, created@4 as created], aggr=[count(1) as agg_0, sum(dependent_col_items_0.price) as agg_1]
-           :     TantivyDecodeExec: decode=[kind]
-           :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind, account_id@2 as account_id, price@3 as price, created@4 as created], aggr=[count(1) as agg_0, sum(dependent_col_items_0.price) as agg_1]
-           :         TantivyFetchExec: fetch=[kind]
-           :           CooperativeExec
-           :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
-(16 rows)
+           : TantivyDecodeExec: decode=[kind]
+           :   SortExec: TopK(fetch=8), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :     AggregateExec: mode=Single, gby=[id@0 as id, account_id@2 as account_id, price@3 as price, created@4 as created], aggr=[count(1) as agg_0, sum(dependent_col_items_0.price) as agg_1, pdb_carry_value(dependent_col_items_0.kind) as row_1]
+           :       CooperativeExec
+           :         PgSearchScan: table=dependent_col_items, segments=1, fetch=[kind], dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(14 rows)
 
 SELECT id, kind, account_id, price, created, COUNT(*), SUM(price)
 FROM dependent_col_items
@@ -265,25 +261,22 @@ GROUP BY id
 HAVING kind <> 'a'
 ORDER BY kind DESC, id
 LIMIT 5;
-                                                                                                                                     QUERY PLAN                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                         QUERY PLAN                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, (count(*))
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: id, kind, (count(*))
          Backend: DataFusion
          Indexes: dependent_col_items_idx (dependent_col_items)
-         Group By: id, kind
+         Group By: id
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : SortExec: TopK(fetch=5), expr=[kind@1 DESC, id@0 ASC NULLS LAST], preserve_partitioning=[false]
-           :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-           :     TantivyDecodeExec: decode=[kind]
-           :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-           :         TantivyFetchExec: fetch=[kind]
-           :           CooperativeExec
-           :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"a"}}]}}]}}
-(16 rows)
+           : SortExec: TopK(fetch=5), expr=[row_1@2 DESC, id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[id@0 as id], aggr=[count(1) as agg_0, pdb_carry_value(dependent_col_items_0.kind) as row_1]
+           :     CooperativeExec
+           :       PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":[{"exists":{"field":"kind"}}],"must_not":[{"term":{"field":"kind","value":"a"}}]}}]}}
+(13 rows)
 
 SELECT id, kind, COUNT(*)
 FROM dependent_col_items
@@ -309,24 +302,21 @@ FROM dependent_col_items
 WHERE id @@@ paradedb.all()
 GROUP BY id
 LIMIT 3;
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, (count(*))
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: id, kind, (count(*))
          Backend: DataFusion
          Indexes: dependent_col_items_idx (dependent_col_items)
-         Group By: id, kind
+         Group By: id
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-           :   TantivyDecodeExec: decode=[kind]
-           :     AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(1) as agg_0]
-           :       TantivyFetchExec: fetch=[kind]
-           :         CooperativeExec
-           :           PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
-(15 rows)
+           : AggregateExec: mode=Single, gby=[id@0 as id], aggr=[count(1) as agg_0, pdb_carry_value(dependent_col_items_0.kind) as row_1]
+           :   CooperativeExec
+           :     PgSearchScan: table=dependent_col_items, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
+(12 rows)
 
 -- The rows of a LIMIT with no ORDER BY are not stable, so this compares each
 -- row with the table.
@@ -474,25 +464,23 @@ WHERE id @@@ paradedb.all()
 GROUP BY id
 ORDER BY id
 LIMIT 6;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, kind, (pdb.agg('{"value_count": {"field": "price"}}'::jsonb))
    ->  Custom Scan (ParadeDB Aggregate Scan)
          Output: id, kind, (pdb.agg('{"value_count": {"field": "price"}}'::jsonb))
          Backend: DataFusion
          Indexes: dependent_col_items_idx (dependent_col_items)
-         Group By: id, kind
+         Group By: id
          Aggregates: pdb.agg({"value_count":{"field":"price"}})
          DataFusion Physical Plan: 
-           : SortExec: TopK(fetch=6), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
-           :   AggregateExec: mode=Final, gby=[id@0 as id, kind@1 as kind], aggr=[count(dependent_col_items_0.price) as __pdb_m0]
-           :     TantivyDecodeExec: decode=[kind]
-           :       AggregateExec: mode=Partial, gby=[id@0 as id, kind@1 as kind], aggr=[count(dependent_col_items_0.price) as __pdb_m0]
-           :         TantivyFetchExec: fetch=[kind]
-           :           CooperativeExec
-           :             PgSearchScan: table=dependent_col_items, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
-(16 rows)
+           : TantivyDecodeExec: decode=[kind]
+           :   SortExec: TopK(fetch=6), expr=[id@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :     AggregateExec: mode=Single, gby=[id@0 as id], aggr=[pdb_carry_value(dependent_col_items_0.kind) as row_1, count(dependent_col_items_0.price) as __pdb_m0]
+           :       CooperativeExec
+           :         PgSearchScan: table=dependent_col_items, segments=1, fetch=[kind], dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(14 rows)
 
 SELECT id, kind, pdb.agg('{"value_count": {"field": "price"}}'::jsonb)
 FROM dependent_col_items
@@ -860,10 +848,10 @@ ORDER BY 1;
          Output: ((code)::text), title, (count(*))
          Backend: DataFusion
          Indexes: dependent_col_codes_idx (dependent_col_codes)
-         Group By: code, title
+         Group By: code
          Aggregates: COUNT(*)
          DataFusion Physical Plan: 
-           : AggregateExec: mode=Single, gby=[code@0 as code, title@1 as title], aggr=[count(1) as agg_0]
+           : AggregateExec: mode=Single, gby=[code@0 as code], aggr=[count(1) as agg_0, pdb_carry_value(dependent_col_codes_0.title) as row_1]
            :   CooperativeExec
            :     PgSearchScan: table=dependent_col_codes, segments=1, eager=[code, title], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"title","value":"x"}}]}}
 (13 rows)

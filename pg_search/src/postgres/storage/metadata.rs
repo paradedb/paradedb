@@ -104,11 +104,27 @@ pub struct CleanupAdmission {
     mode: pg_sys::LOCKMODE,
 }
 
-crate::impl_safe_drop!(CleanupAdmission, |self| {
+struct LockReleaseOnMainThread {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+crate::impl_safe_drop!(LockReleaseOnMainThread, |self| {
     if unsafe { crate::postgres::utils::IsTransactionState() } {
         unsafe { pg_sys::LockRelease(&self.tag, self.mode, false) };
     }
 });
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the lock tag
+// and mode to `drop_on_main_thread`, where `LockReleaseOnMainThread` uses `impl_safe_drop!`.
+impl Drop for CleanupAdmission {
+    fn drop(&mut self) {
+        crate::postgres::customscan::mpp::drop_on_main_thread(LockReleaseOnMainThread {
+            tag: self.tag,
+            mode: self.mode,
+        });
+    }
+}
 
 impl MetaPage {
     pub unsafe fn init(indexrel: &PgSearchRelation) {
@@ -259,6 +275,21 @@ impl MetaPage {
         MergePins {
             _merge_barrier: self.bman.pinned_buffer(self.data.merge_lock),
             _cleanup_admission: cleanup_admission,
+        }
+    }
+
+    /// Returns `None` if VACUUM blocks merge admission, so the sweep can try other indexes.
+    pub(crate) fn try_pin_merge(&self) -> Option<MergePins> {
+        unsafe {
+            let relation = self.bman.buffer_access().rel().as_ptr();
+            let blockno = self.cleanup_lock_blockno();
+            let mode = pg_sys::ShareLock as pg_sys::LOCKMODE;
+            if !pg_sys::ConditionalLockPage(relation, blockno, mode) {
+                return None;
+            }
+            let pins = self.pin_merge();
+            pg_sys::UnlockPage(relation, blockno, mode);
+            Some(pins)
         }
     }
 
@@ -432,12 +463,18 @@ impl MetaPage {
     }
 
     pub(crate) unsafe fn freeze_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
+        self.freeze_mutable_segments_matching(|_| true)
+    }
+
+    pub(crate) unsafe fn freeze_mutable_segments_matching(
+        &self,
+        eligible: impl Fn(&SegmentMetaEntry) -> bool,
+    ) -> Vec<SegmentMetaEntry> {
+        let eligible = |entry: &SegmentMetaEntry| {
+            entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId && eligible(entry)
+        };
         let mut metas = self.segment_metas();
-        if !metas
-            .list(None)
-            .iter()
-            .any(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
-        {
+        if !metas.list(None).iter().any(&eligible) {
             return Vec::new();
         }
 
@@ -445,7 +482,7 @@ impl MetaPage {
         let mut entries = frozen
             .list(None)
             .into_iter()
-            .filter(|entry| entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId)
+            .filter(&eligible)
             .collect::<Vec<_>>();
         for entry in &mut entries {
             frozen

@@ -70,7 +70,7 @@ When a table experiences writes (`INSERT`, `UPDATE`, or `DELETE`), Postgres clea
 
 ### Diagnosing Visibility Map Staleness
 
-When a scan encounters a significantly stale visibility map (by default, at least `paradedb.visibility_map_warning_threshold = 10000` non-all-visible heap blocks across the table and at least 50% of scanned blocks not all-visible), ParadeDB emits a once-per-query `WARNING` (controlled by `paradedb.planner_warnings`).
+When a scan encounters a significantly stale visibility map (by default, at least `paradedb.visibility_map_warning_threshold = 10000` non-all-visible heap blocks across the table and at least 50% of scanned blocks not all-visible), ParadeDB emits a once-per-query `WARNING`. Setting `paradedb.planner_warnings = 'off'` suppresses this diagnostic; setting it to `'error'` aborts the query instead, including under `EXPLAIN ANALYZE`.
 
 You can also inspect `EXPLAIN ANALYZE` output to see how much heap visibility work a query performed:
 

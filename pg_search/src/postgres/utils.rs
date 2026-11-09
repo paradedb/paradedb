@@ -61,11 +61,17 @@ pub(crate) fn vacuum_delay_point() {
     }
 }
 
-/// Implements Drop that skips cleanup during panic unwinding or process exit.
+/// Implements `Drop` for a Postgres resource that must be cleaned up on the Postgres main thread,
+/// skipping cleanup during panic unwinding or process exit.
 ///
-/// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
-/// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
-/// which results in SIGABRT. This macro ensures cleanup is skipped during unwinding.
+/// Because panics on the Postgres main thread are used to propagate PostgreSQL errors via pgrx, it
+/// is almost never safe to interact with PostgreSQL APIs during panic unwinding - doing so can
+/// cause a double-panic which results in SIGABRT. This macro also enforces that the destructor runs
+/// on the Postgres main thread (printing via `eprintln!` so an off-main-thread drop during
+/// unwinding never double-panics, panicking in debug builds when not unwinding, and skipping the
+/// body in release builds). Types that can be dropped on background threads must wrap their inner
+/// Postgres resource in `crate::postgres::customscan::mpp::MainThread` or forward their cleanup
+/// payload via `crate::postgres::customscan::mpp::drop_on_main_thread` from a plain `impl Drop`.
 ///
 /// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
 /// when the transaction is aborted due to the error.
@@ -93,6 +99,20 @@ macro_rules! impl_safe_drop {
     ([$($generics:tt)*] $ty:ty, |$self:ident| $body:block) => {
         impl<$($generics)*> Drop for $ty {
             fn drop(&mut $self) {
+                if !$crate::postgres::customscan::mpp::interrupt::is_main_thread() {
+                    eprintln!(
+                        "BUG: Drop for {} ran off the Postgres main thread",
+                        stringify!($ty)
+                    );
+                    #[cfg(debug_assertions)]
+                    if !std::thread::panicking() {
+                        panic!(
+                            "BUG: Drop for {} ran off the Postgres main thread",
+                            stringify!($ty)
+                        );
+                    }
+                    return;
+                }
                 if std::thread::panicking() || $crate::postgres::utils::proc_exit_in_progress() {
                     return;
                 }
@@ -188,12 +208,6 @@ pub(crate) fn proc_exit_in_progress() -> bool {
 #[derive(Debug)]
 pub struct ExprContextGuard(*mut pg_sys::ExprContext);
 
-// SAFETY: PostgreSQL doesn't execute within threads, despite Tantivy expecting it.
-// The ExprContextGuard is used in Tantivy queries that require Send+Sync, but in practice
-// these are never actually shared across threads in our PostgreSQL context.
-unsafe impl Send for ExprContextGuard {}
-unsafe impl Sync for ExprContextGuard {}
-
 impl ExprContextGuard {
     /// Creates a new standalone expression context
     pub fn new() -> Self {
@@ -208,8 +222,9 @@ impl ExprContextGuard {
 
 impl_safe_drop!(ExprContextGuard, |self| {
     unsafe {
-        let is_commit = pg_sys::IsTransactionState();
-        pg_sys::FreeExprContext(self.0, is_commit);
+        if IsTransactionState() && !self.0.is_null() {
+            pg_sys::FreeExprContext(self.0, true);
+        }
     }
 });
 
@@ -443,7 +458,10 @@ pub enum FieldSource {
     Heap { attno: usize },
 
     /// Expression index (scalar result)
-    Expression { att_idx: usize },
+    Expression {
+        att_idx: usize,
+        attno: Option<usize>,
+    },
 
     /// Field extracted from a composite type
     CompositeField {
@@ -465,15 +483,10 @@ impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
     /// column's value as it is, so it names that column; a computed expression or a
     /// composite field has no single column to read back.
-    pub fn heap_attno(&self, index: &PgSearchRelation) -> Option<usize> {
+    pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),
-            FieldSource::Expression { att_idx } => {
-                let expr = index.index_expressions().get_ptr(att_idx)?;
-                let var = unsafe { nodecast!(Var, T_Var, strip_tokenizer_cast(expr.cast())) }?;
-                let varattno = unsafe { (*var).varattno };
-                (varattno > 0).then(|| (varattno - 1) as usize)
-            }
+            FieldSource::Expression { attno, .. } => attno,
             FieldSource::CompositeField { .. } => None,
         }
     }
@@ -563,7 +576,7 @@ pub unsafe fn resolve_field_value(
 ) -> (pg_sys::Datum, bool) {
     match source {
         FieldSource::Heap { attno } => (values[*attno], isnull[*attno]),
-        FieldSource::Expression { att_idx } => expr_results[*att_idx],
+        FieldSource::Expression { att_idx, .. } => expr_results[*att_idx],
         FieldSource::CompositeField {
             expression_idx,
             field_idx,
@@ -744,10 +757,14 @@ pub unsafe fn extract_field_attributes(
                 let Some((expression_idx, expression)) = expressions_iter.next() else {
                     panic!("Expected expression for index attribute {attno}.");
                 };
+                let node = expression.cast();
                 let source = FieldSource::Expression {
                     att_idx: expression_idx,
+                    attno: nodecast!(Var, T_Var, strip_tokenizer_cast(node))
+                        .map(|var| (*var).varattno)
+                        .filter(|&attno| attno > 0)
+                        .map(|attno| (attno - 1) as usize),
                 };
-                let node = expression.cast();
 
                 let typoid = pg_sys::exprType(node);
                 let mut attname = None;
@@ -1467,31 +1484,39 @@ pub fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::Tar
     }
 
     for var_ptr in expr.collect_nodes::<pg_sys::Var>() {
-        let varno = unsafe { (*var_ptr).varno } as pg_sys::Index;
-        let varattno = unsafe { (*var_ptr).varattno };
+        push_var_to_tlist_if_absent(var_ptr, tlist);
+    }
+}
 
-        if varno == 0 || varattno <= 0 {
-            continue;
+/// Append `var_ptr` as a resjunk `TargetEntry` to `tlist` if `var_ptr` is a positive-attribute
+/// base-relation `Var` and no `TargetEntry` for `(varno, varattno)` is already present.
+pub fn push_var_to_tlist_if_absent(
+    var_ptr: *mut pg_sys::Var,
+    tlist: &mut PgList<pg_sys::TargetEntry>,
+) {
+    let varno = unsafe { (*var_ptr).varno } as pg_sys::Index;
+    let varattno = unsafe { (*var_ptr).varattno };
+
+    if varno == 0 || varattno <= 0 {
+        return;
+    }
+
+    let already_present = tlist.iter_ptr().any(|te| {
+        let te = unsafe { &*te };
+        if unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_Var {
+            let existing = unsafe { &*(te.expr as *mut pg_sys::Var) };
+            existing.varno as pg_sys::Index == varno && existing.varattno == varattno
+        } else {
+            false
         }
+    });
 
-        let already_present = tlist.iter_ptr().any(|te| {
-            let te = unsafe { &*te };
-            if unsafe { (*te.expr).type_ } == pg_sys::NodeTag::T_Var {
-                let existing = unsafe { &*(te.expr as *mut pg_sys::Var) };
-                existing.varno as pg_sys::Index == varno && existing.varattno == varattno
-            } else {
-                false
-            }
-        });
-
-        if !already_present {
-            let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let new_var = unsafe { pg_sys::copyObjectImpl(var_ptr.cast()) }.cast::<pg_sys::Var>();
-            let te = unsafe {
-                pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true)
-            };
-            tlist.push(te);
-        }
+    if !already_present {
+        let resno = tlist.len() as pg_sys::AttrNumber + 1;
+        let new_var = unsafe { pg_sys::copyObjectImpl(var_ptr.cast()) }.cast::<pg_sys::Var>();
+        let te =
+            unsafe { pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true) };
+        tlist.push(te);
     }
 }
 

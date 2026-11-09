@@ -27,7 +27,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::synonym_rule_typoid;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, IndexType};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
@@ -107,7 +107,27 @@ pub fn rule_field_options(config: SearchFieldConfig) -> TextOptions {
     options.set_indexing_options(indexing)
 }
 
-/// Registers the rule tokenizer of a synonym index. Other indexes register nothing.
+/// Refuses a `pdb.synonym_rule` column in a search index. A document of a synonym index is one
+/// rule, so a rule column next to other columns would mix rules with other fields.
+pub fn refuse_synonym_rule_columns(options: &BM25IndexOptions) {
+    if let Some(column) = options.synonym_rule_columns().first() {
+        panic!("the `pdb.synonym_rule` column `{column}` must be the only column of its index");
+    }
+}
+
+pub fn validate_synonym_index(options: &BM25IndexOptions) {
+    let rule_field = options
+        .synonym_rule_field()
+        .expect("a synonym index has a rule field");
+    if options.attributes().len() != 1 {
+        panic!("a synonym index has one column, the `pdb.synonym_rule` column `{rule_field}`");
+    }
+    // A partitioned build indexes its rows after the scan, where the rule check does not run.
+    if !options.partition_by().is_empty() {
+        panic!("a synonym index cannot use `partition_by`");
+    }
+}
+
 pub fn register_rule_tokenizer(options: &BM25IndexOptions, manager: &TokenizerManager) {
     let Some(field) = options.synonym_rule_field() else {
         return;
@@ -144,8 +164,11 @@ pub struct RuleCheck {
 }
 
 impl RuleCheck {
-    /// `None` when the index is not a synonym index.
+    /// `None` for a search index.
     pub fn for_index(schema: &SearchIndexSchema, options: &BM25IndexOptions) -> Option<Self> {
+        if options.index_type() == IndexType::Search {
+            return None;
+        }
         let name = options.synonym_rule_field()?;
         let field = schema.search_field(name.as_ref())?.field();
         Some(Self {

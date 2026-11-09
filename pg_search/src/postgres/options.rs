@@ -410,8 +410,16 @@ struct LazyInfo {
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
-    is_synonym_index: Rc<Cell<Option<bool>>>,
+    index_type: Rc<Cell<Option<IndexType>>>,
     synonym_rule_field: Rc<RefCell<Option<Option<FieldName>>>>,
+}
+
+/// What a `paradedb` index is for. A synonym index holds the rules that expand the queries on
+/// other indexes, so no scan reads it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IndexType {
+    Search,
+    Synonym,
 }
 
 #[derive(Clone, Debug)]
@@ -457,7 +465,7 @@ impl BM25IndexOptions {
     pub fn explicit_target_segment_count(&self) -> Option<usize> {
         // An expansion looks a token up in every segment of a synonym index, so its merges fold
         // it back to one.
-        if self.is_synonym_index() {
+        if self.index_type() == IndexType::Synonym {
             return Some(1);
         }
         let global_tsc = global_target_segment_count();
@@ -471,7 +479,7 @@ impl BM25IndexOptions {
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
         // A lookup reads the terms of the rule field, and a mutable segment holds only ctids.
-        if self.is_synonym_index() {
+        if self.index_type() == IndexType::Synonym {
             return None;
         }
         match gucs::global_mutable_segment_rows() {
@@ -517,7 +525,7 @@ impl BM25IndexOptions {
 
     /// The rule column of a synonym index, its one key column, typed `pdb.synonym_rule`.
     pub fn synonym_rule_field(&self) -> Option<FieldName> {
-        if !self.is_synonym_index() {
+        if self.index_type() == IndexType::Search {
             return None;
         }
         if self.lazy.synonym_rule_field.borrow().is_none() {
@@ -547,12 +555,17 @@ impl BM25IndexOptions {
             .collect()
     }
 
-    pub fn is_synonym_index(&self) -> bool {
-        if self.lazy.is_synonym_index.get().is_none() {
-            let is_synonym_index = unsafe { is_synonym_index_relation(self.indexrel) };
-            self.lazy.is_synonym_index.set(Some(is_synonym_index));
+    pub fn index_type(&self) -> IndexType {
+        if let Some(index_type) = self.lazy.index_type.get() {
+            return index_type;
         }
-        self.lazy.is_synonym_index.get().unwrap_or_default()
+        let index_type = if unsafe { is_synonym_index_relation(self.indexrel) } {
+            IndexType::Synonym
+        } else {
+            IndexType::Search
+        };
+        self.lazy.index_type.set(Some(index_type));
+        index_type
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,

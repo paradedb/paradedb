@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, IndexType};
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
@@ -54,12 +54,12 @@ pub unsafe extern "C-unwind" fn amcostestimate(
         indexrel.as_ptr(),
         pg_sys::ForkNumber::MAIN_FORKNUM,
     );
-    let is_synonym_index = BM25IndexOptions::from_relation(indexrel.as_ptr()).is_synonym_index();
+    let index_type = BM25IndexOptions::from_relation(indexrel.as_ptr()).index_type();
     drop(indexrel);
 
     // The rule field of a synonym index holds the keys of rules, so it can't answer a query on
     // its own table.
-    if is_synonym_index {
+    if index_type == IndexType::Synonym {
         *index_startup_cost = SYNONYM_INDEX_SCAN_COST;
         *index_total_cost = SYNONYM_INDEX_SCAN_COST;
         *index_selectivity = 1.0;

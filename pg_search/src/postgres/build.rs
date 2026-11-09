@@ -19,13 +19,15 @@ use crate::api::version::VersionInfo;
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::synonym_index::rule_field_options;
+use crate::index::synonym_index::{
+    refuse_synonym_rule_columns, rule_field_options, validate_synonym_index,
+};
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::build_partitioning::{
     check_fast_dims, normalized_dims, partition_vector_field,
 };
 use crate::postgres::catalog::OidExt;
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, IndexType};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
@@ -66,7 +68,7 @@ pub extern "C-unwind" fn ambuild(
 
     // A synonym index serves no query on its table, so a table can hold several of them, such as
     // a partial index per set or one per tokenizer.
-    if !is_reindex && !index_relation.options().is_synonym_index() {
+    if !is_reindex && index_relation.index_type() == IndexType::Search {
         for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
             if existing_index.oid() == index_relation.oid() {
                 // the index we're about to build already exists on the table.
@@ -76,7 +78,7 @@ pub extern "C-unwind" fn ambuild(
             let rd_rel = unsafe { &*existing_index.rd_rel };
             if rd_rel.relam.is_paradedb_am()
                 && !is_concurrent
-                && !existing_index.options().is_synonym_index()
+                && existing_index.index_type() == IndexType::Search
             {
                 panic!("a relation may only have one ParadeDB index");
             }
@@ -237,21 +239,9 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
-    // A document of a synonym index is one rule, so a rule column next to other columns would
-    // mix rules with other fields.
-    if !options.is_synonym_index()
-        && let Some(column) = options.synonym_rule_columns().first()
-    {
-        panic!("the `pdb.synonym_rule` column `{column}` must be the only column of its index");
-    }
-    if let Some(rule_field) = options.synonym_rule_field() {
-        if options.attributes().len() != 1 {
-            panic!("a synonym index has one column, the `pdb.synonym_rule` column `{rule_field}`");
-        }
-        // A partitioned build indexes its rows after the scan, where the rule check does not run.
-        if !options.partition_by().is_empty() {
-            panic!("a synonym index cannot use `partition_by`");
-        }
+    match options.index_type() {
+        IndexType::Search => refuse_synonym_rule_columns(options),
+        IndexType::Synonym => validate_synonym_index(options),
     }
 
     // Validate that `sort_by` and `partition_by` fields are single-valued

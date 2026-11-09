@@ -25,6 +25,7 @@ use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, Segm
 use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
+use crate::postgres::options::IndexType;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
@@ -169,7 +170,7 @@ pub fn rel_get_bm25_index(
             .filter(|index| {
                 pg_sys::get_index_isvalid(index.oid())
                     && (*index.rd_rel).relam.is_paradedb_am()
-                    && !index.options().is_synonym_index()
+                    && index.index_type() == IndexType::Search
             })
             .max_by_key(|i| i.oid().to_u32())?
     };

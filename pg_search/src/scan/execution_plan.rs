@@ -92,6 +92,7 @@ use crate::scan::pre_filter::{
     InListLinearFallback, PreFilter, collect_filters, try_dynamic_filter_pushdown,
 };
 use crate::scan::range_partitioning::{RangePartitioning, RangeSplitPoints};
+use crate::scan::rank_join_rule::RankJoinDeclineReason;
 
 /// Ingredients needed to construct a Scanner for deferred search.
 #[derive(Clone)]
@@ -123,24 +124,19 @@ pub struct ScanState {
     pub reader: SearchIndexReader,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum ExecutionMode {
-    Serial,
-    Parallel,
-}
-
 impl VectorRouting {
-    fn from_execution_mode(
-        mode: ExecutionMode,
+    fn from_parallel(
+        is_parallel: bool,
         prepared_plan: Option<Arc<dyn VectorRoutingPlanProvider>>,
     ) -> Result<Self> {
-        match mode {
-            ExecutionMode::Serial => Ok(Self::Local),
-            ExecutionMode::Parallel => prepared_plan.map(Self::Shared).ok_or_else(|| {
+        if is_parallel {
+            prepared_plan.map(Self::Shared).ok_or_else(|| {
                 DataFusionError::Internal(
                     "shared vector scan requires a prepared global routing plan".into(),
                 )
-            }),
+            })
+        } else {
+            Ok(Self::Local)
         }
     }
 }
@@ -155,7 +151,7 @@ pub enum ExecutionState {
     /// In Shared mode, we optionally load-balance via ParallelScanState.
     /// The state is consumed at most once by this plan or one of its task variants.
     Shared {
-        execution_mode: ExecutionMode,
+        is_parallel: bool,
         parallel_state: Option<
             crate::postgres::customscan::mpp::MainThread<*mut crate::postgres::ParallelScanState>,
         >,
@@ -362,11 +358,7 @@ impl PgSearchScanPlan {
                     }
                 } else {
                     ExecutionState::Shared {
-                        execution_mode: if parallel_state.is_some() {
-                            ExecutionMode::Parallel
-                        } else {
-                            ExecutionMode::Serial
-                        },
+                        is_parallel: parallel_state.is_some(),
                         parallel_state: parallel_state
                             .map(crate::postgres::customscan::mpp::MainThread::new),
                         scan_state: Box::new(crate::postgres::customscan::mpp::MainThread::new(s)),
@@ -469,7 +461,7 @@ impl PgSearchScanPlan {
                 match std::mem::replace(&mut *state_guard, ExecutionState::Uninitialized) {
                     ExecutionState::RangePartitioned { scan_state, .. }
                     | ExecutionState::Shared { scan_state, .. } => ExecutionState::Shared {
-                        execution_mode: ExecutionMode::Serial,
+                        is_parallel: false,
                         parallel_state: None,
                         scan_state,
                     },
@@ -513,11 +505,11 @@ impl PgSearchScanPlan {
             let state_guard = self.state.lock().unwrap();
             match &*state_guard {
                 ExecutionState::Shared {
-                    execution_mode,
+                    is_parallel,
                     parallel_state,
                     scan_state,
                 } => ExecutionState::Shared {
-                    execution_mode: *execution_mode,
+                    is_parallel: *is_parallel,
                     parallel_state: parallel_state.clone(),
                     scan_state: scan_state.clone(),
                 },
@@ -617,8 +609,8 @@ impl PgSearchScanPlan {
         );
         let mut variant = self.clone();
         variant.assigned_partition = Some(assigned);
-        if let ExecutionState::Shared { execution_mode, .. } = variant.state.get_mut().unwrap() {
-            *execution_mode = ExecutionMode::Parallel;
+        if let ExecutionState::Shared { is_parallel, .. } = variant.state.get_mut().unwrap() {
+            *is_parallel = true;
         }
         let new_properties = Arc::new(
             PlanProperties::clone(variant.properties.as_ref())
@@ -667,12 +659,12 @@ impl PgSearchScanPlan {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let ExecutionState::Shared {
-            execution_mode,
+            is_parallel,
             parallel_state,
             ..
         } = &mut *state_guard
         {
-            *execution_mode = ExecutionMode::Parallel;
+            *is_parallel = true;
             if self
                 .lazy_sort
                 .as_ref()
@@ -715,6 +707,10 @@ impl PgSearchScanPlan {
     /// partitions the way `partition_statistics` divides it.
     pub fn planner_estimated_rows(&self) -> u64 {
         self.planner_estimated_rows
+    }
+
+    pub fn table_alias(&self) -> &str {
+        &self.table_alias
     }
 
     fn segment_pruning(&self) -> SegmentPruningEstimate {
@@ -828,21 +824,25 @@ impl PgSearchScanPlan {
         &self,
         elided_tags: &std::collections::BTreeSet<String>,
         matched_tags: &mut std::collections::BTreeSet<String>,
-    ) -> Option<(Self, Vec<Option<usize>>)> {
+    ) -> std::result::Result<(Self, Vec<Option<usize>>), RankJoinDeclineReason> {
         let crate::scan::ScanMode::Tagged {
             base_query,
             local_queries,
         } = &self.scan_mode
         else {
-            return None;
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
         };
         if local_queries.is_empty()
             || !local_queries
                 .iter()
                 .all(|tq| elided_tags.contains(&tq.tag_name))
-            || base_query.has_heap_filters()
         {
-            return None;
+            return Err(RankJoinDeclineReason::DisjunctiveFilterNotPureOr);
+        }
+        if base_query.has_heap_filters() {
+            return Err(RankJoinDeclineReason::DisjunctiveLeafHasHeapFilter {
+                table: self.table_alias.clone(),
+            });
         }
         {
             let state = self
@@ -863,7 +863,11 @@ impl PgSearchScanPlan {
                 }
             };
             if !is_pushdown {
-                return None;
+                return Err(
+                    RankJoinDeclineReason::DisjunctiveLeafBaseNotPushdownFilter {
+                        table: self.table_alias.clone(),
+                    },
+                );
             }
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
@@ -907,7 +911,7 @@ impl PgSearchScanPlan {
             });
         }
         drop(state);
-        Some((plan, old_to_new))
+        Ok((plan, old_to_new))
     }
 
     fn rebuild_properties_with_schema(&mut self, schema: SchemaRef) {
@@ -1914,12 +1918,12 @@ impl PgSearchScanPlan {
         drop(state_guard);
 
         // Handle state transitions for execution.
-        let (scan_state, parallel_state, range_boundaries, execution_mode) = match state {
+        let (scan_state, parallel_state, range_boundaries, is_parallel) = match state {
             ExecutionState::Shared {
-                execution_mode,
+                is_parallel,
                 parallel_state,
                 scan_state,
-            } => (scan_state, parallel_state, None, execution_mode),
+            } => (scan_state, parallel_state, None, is_parallel),
             ExecutionState::RangePartitioned {
                 range_boundaries,
                 scan_state,
@@ -1932,12 +1936,7 @@ impl PgSearchScanPlan {
                     )));
                 }
 
-                (
-                    scan_state,
-                    None,
-                    Some(range_boundaries),
-                    ExecutionMode::Parallel,
-                )
+                (scan_state, None, Some(range_boundaries), true)
             }
             ExecutionState::Consumed => {
                 return Err(DataFusionError::Internal(format!(
@@ -1997,8 +1996,8 @@ impl PgSearchScanPlan {
 
         let vector_routing = if self.vector_order_by().is_some() {
             crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
-                VectorRouting::from_execution_mode(
-                    execution_mode,
+                VectorRouting::from_parallel(
+                    is_parallel,
                     scan_state.get(token).reader.vector_routing_plan.clone(),
                 )
             })?

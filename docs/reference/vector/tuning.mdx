@@ -12,8 +12,9 @@ SET paradedb.vector_cluster_max_probe = 100;
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={100}>
   Controls the global probe-work budget in average-cluster units. One unit
-  covers opening an average cluster and scoring its rows. Must be a whole number
-  between `1` and `100000`; fractional values are rejected. The budget
+  covers opening an average cluster and scoring its rows. Accepts integers
+  between `1` and `100000`. PostgreSQL rounds fractional input to the nearest
+  integer. The budget
   is shared across segments and checked between clusters.
 
 Selective filters score fewer rows, so the same budget can probe more clusters.

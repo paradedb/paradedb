@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::guc::{GucCheckError, GucEnum};
+use pgrx::guc::GucEnum;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
@@ -331,26 +331,11 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
 /// Global IVF probe-work budget in average-cluster units.
-static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(100.0);
-
-#[pgrx::pg_guard]
-unsafe extern "C-unwind" fn check_vector_cluster_max_probe(
-    new_value: *mut f64,
-    _extra: *mut *mut std::ffi::c_void,
-    _source: pg_sys::GucSource::Type,
-) -> bool {
-    if unsafe { *new_value }.fract() != 0.0 {
-        unsafe {
-            GucCheckError::new("paradedb.vector_cluster_max_probe must be a whole number").apply();
-        }
-        return false;
-    }
-    true
-}
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<i32> = GucSetting::<i32>::new(100);
 
 /// Returns the global IVF probe-work budget.
-pub fn vector_cluster_max_probe() -> f64 {
-    VECTOR_CLUSTER_MAX_PROBE.get()
+pub fn vector_cluster_max_probe() -> usize {
+    VECTOR_CLUSTER_MAX_PROBE.get() as usize
 }
 
 static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
@@ -722,21 +707,16 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    unsafe {
-        GucRegistry::define_float_guc_with_hooks(
-            c"paradedb.vector_cluster_max_probe",
-            c"Global IVF probe-work budget in whole average-cluster units for vector ORDER BY queries",
-            c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
-            &VECTOR_CLUSTER_MAX_PROBE,
-            1.0,
-            100_000.0,
-            GucContext::Userset,
-            GucFlags::default(),
-            Some(check_vector_cluster_max_probe),
-            None,
-            None,
-        );
-    }
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_cluster_max_probe",
+        c"Global IVF probe-work budget in whole average-cluster units for vector ORDER BY queries",
+        c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
+        &VECTOR_CLUSTER_MAX_PROBE,
+        1,
+        100_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_fixed_probe_cost_rows",
@@ -1454,26 +1434,27 @@ mod tests {
             "RESET paradedb.vector_cluster_max_probe; SET paradedb.vector_adaptive_probing = on;",
         )
         .unwrap();
-        assert_eq!(vector_cluster_max_probe(), 100.0);
+        assert_eq!(vector_cluster_max_probe(), 100);
         assert!(vector_adaptive_probing().is_some());
         for budget in [1, 100_000, 25] {
             Spi::run(&format!(
                 "SET paradedb.vector_cluster_max_probe = {budget};"
             ))
             .unwrap();
-            assert_eq!(vector_cluster_max_probe(), f64::from(budget));
+            assert_eq!(vector_cluster_max_probe(), budget);
         }
-        assert_eq!(vector_cluster_max_probe(), 25.0);
+        assert_eq!(vector_cluster_max_probe(), 25);
         Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
         assert!(vector_adaptive_probing().is_none());
-        assert_eq!(vector_cluster_max_probe(), 25.0);
+        assert_eq!(vector_cluster_max_probe(), 25);
         Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
-        assert_eq!(vector_cluster_max_probe(), 100.0);
+        assert_eq!(vector_cluster_max_probe(), 100);
     }
 
-    #[pg_test(error = "paradedb.vector_cluster_max_probe must be a whole number")]
-    fn test_vector_probe_budget_rejects_fraction() {
+    #[pg_test]
+    fn test_vector_probe_budget_rounds_fraction() {
         Spi::run("SET paradedb.vector_cluster_max_probe = 25.5;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 26);
     }
 
     #[pg_test(

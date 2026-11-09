@@ -3,19 +3,20 @@
 import copy
 import unittest
 
-from prepare_k6 import PROBE, QUERIES, operating_points, summary
+from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
 from verify_plans import verify
 
 
-def reports():
-    """Build three reports with shared probes and an unreached r99 target."""
+def reports(dataset="cohere"):
+    """Build reports with shared probes and an unreached r99 target."""
     return [
         {
             "kind": "search",
             "config": {
-                "dataset": {"size": "1m"},
+                "dataset": {"name": dataset, "size": "1m"},
                 "search": {
                     "query": query,
+                    "k": neighbors,
                     "sweep": {
                         "min": 1.0,
                         "max": 100_000.0,
@@ -30,8 +31,8 @@ def reports():
                 "query_vectors": 100,
                 "variants": {
                     query: {
-                        "query": "SELECT _id FROM cohere_wiki ORDER BY emb <=> "
-                        "current_setting('cohere.qvec')::vector(1024) LIMIT 10",
+                        "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
+                        f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
                         "targets": {
                             "0.9": {"value": "100", "recall": 0.96},
                             "0.95": {"value": "100", "recall": 0.96},
@@ -40,7 +41,7 @@ def reports():
                             {
                                 "value": "100",
                                 "metrics": {
-                                    "recall": {"recall": 0.96},
+                                    "recall": {"recall": 0.96, "k": neighbors},
                                     "buffers": {
                                         "queries_measured": 100,
                                         "shared_hit_mean": 1234.5,
@@ -53,7 +54,7 @@ def reports():
                 },
             },
         }
-        for query in QUERIES
+        for query, neighbors in SUITES[dataset].items()
     ]
 
 
@@ -100,6 +101,51 @@ class OperatingPointsTest(unittest.TestCase):
                     selected["value"] = value
                 with self.assertRaisesRegex(ValueError, "invalid selected point"):
                     operating_points(inputs)
+
+    def test_msmarco_exports_both_neighbor_counts_and_preserves_reports(self):
+        """Keep top-10 and top-100 selections distinct in the shared handoff."""
+        inputs = reports("msmarco")
+        original = copy.deepcopy(inputs)
+        points = operating_points(inputs, dataset="msmarco")
+        self.assertEqual(len(points), 6)
+        for point in points:
+            self.assertEqual(point["neighbors"], SUITES["msmarco"][point["query"]])
+            self.assertIn(f"LIMIT {point['neighbors']}", point["sql"])
+            self.assertIn("$1::vector(1024)", point["sql"])
+        self.assertIn("| 100 |", summary(points))
+        self.assertEqual(inputs, original)
+        with self.assertRaisesRegex(ValueError, "Missing recall sweeps"):
+            operating_points(inputs[:1], dataset="msmarco")
+
+    def test_msmarco_rejects_wrong_recall_k_and_loose_top100_tolerance(self):
+        """Reject recall measurements that use the wrong denominator."""
+        inputs = reports("msmarco")
+        result = inputs[1]["data"]["variants"]["knn_top100_unfiltered"]
+        result["points"][0]["metrics"]["recall"]["k"] = 10
+        with self.assertRaisesRegex(ValueError, "expected recall@100"):
+            operating_points(inputs, dataset="msmarco")
+        inputs = reports("msmarco")
+        inputs[1]["config"]["search"]["k"] = 10
+        with self.assertRaisesRegex(ValueError, "expected recall@100"):
+            operating_points(inputs, dataset="msmarco")
+        inputs = reports("msmarco")
+        for report in inputs:
+            report["config"]["search"]["sweep"]["tolerance"] = 0.0001
+        with self.assertRaisesRegex(ValueError, "strict recall targets"):
+            operating_points(inputs, dataset="msmarco")
+
+    def test_top100_plan_requires_cosine_topk_inside_paradedb(self):
+        """Reject plans that do not push the requested TopK into the index."""
+        scan = {
+            "Custom Plan Provider": "ParadeDB Base Scan",
+            "   TopK Limit": 100,
+            "   TopK Order By": "emb <=> vector asc",
+        }
+        plan = [{"Plan": scan}]
+        verify(plan, filtered=False, neighbors=100)
+        scan["   TopK Limit"] = 10
+        with self.assertRaisesRegex(ValueError, "TopK with limit 100"):
+            verify(plan, filtered=False, neighbors=100)
 
     def test_refuses_mixed_sessions_and_incomplete_query_sets(self):
         """Reject mismatched or missing sweep reports."""

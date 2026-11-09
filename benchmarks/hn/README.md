@@ -32,9 +32,22 @@ cached locally. The exported k6 vectors must match those first 100 embeddings
 exactly as float32. Ground truth is imported for the `hn_items` corpus; it is
 never recomputed with the approximate index.
 
-The ten workloads cover unfiltered search, `score >= 10`, `type = 'story'`, their
-conjunction, three timestamp thresholds, and three exact authors. Author and
-type columns use `pdb.literal`; score is an integer and time is `timestamptz`.
+The six workloads cover three timestamp ranges and three exact authors.
+Names use approximate selectivity among the 24,138,153 rows with embeddings:
+
+| Query name             | Published GT workload | Matching vectors |
+| ---------------------- | --------------------- | ---------------: |
+| `range_10pct`          | `knn_top10_time_1`    |        2,413,816 |
+| `range_1pct`           | `knn_top10_time_2`    |          241,382 |
+| `range_0.1pct`         | `knn_top10_time_3`    |           24,139 |
+| `single_term_0.1pct`   | `knn_top10_author_1`  |           24,150 |
+| `single_term_0.01pct`  | `knn_top10_author_2`  |            2,414 |
+| `single_term_0.001pct` | `knn_top10_author_3`  |              241 |
+
+Decimal points are preserved in query filenames, pdbench identities, and result
+labels. GT imports map the published workload names to these CI names; SQL
+contents and neighbor IDs stay unchanged. The index includes the exact author
+column with `pdb.literal`, the `timestamptz` time column, the ID, and the embedding.
 The shared EXPLAIN gate requires every filtered field and cosine TopK inside
 ParadeDB, rejecting residual PostgreSQL filters and heap filtering.
 

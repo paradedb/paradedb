@@ -15,6 +15,14 @@ SOURCE = "https://paradedb-benchmark.s3.us-east-1.amazonaws.com/datasets/hackern
 MANIFEST_SHA256 = "1394cce89acddb820d564ace048179184e6f053f6f0b8192dca82a375851e2b6"
 GROUND_TRUTH_SHA256 = "f3372b78ab359abc121666b053c30e1ce0328efabcd461c6f9ae91bafdafc0dd"
 ASSETS = Path(__file__).parent / "assets/hn"
+WORKLOADS = {
+    "range_10pct": "knn_top10_time_1",
+    "range_1pct": "knn_top10_time_2",
+    "range_0.1pct": "knn_top10_time_3",
+    "single_term_0.1pct": "knn_top10_author_1",
+    "single_term_0.01pct": "knn_top10_author_2",
+    "single_term_0.001pct": "knn_top10_author_3",
+}
 
 
 def fetch(key, checksum, output):
@@ -100,9 +108,8 @@ def prepare(output):
             )
         with (output / "ground_truth.csv").open("w", newline="") as stream:
             writer = csv.writer(stream)
-            for workload in truth["filters"]:
-                query = workload["name"]
-                key = f"ground_truth/queries/{query}.sql"
+            for query, published in WORKLOADS.items():
+                key = f"ground_truth/queries/{published}.sql"
                 if (
                     hashlib.sha256(
                         (ASSETS / "queries" / f"{query}.sql").read_bytes()
@@ -112,7 +119,7 @@ def prepare(output):
                     raise ValueError(
                         f"Query differs from published ground truth: {query}"
                     )
-                key = f"queries/ground_truth_{query}_28m.parquet"
+                key = f"queries/ground_truth_{published}_28m.parquet"
                 path = fetch(key, truth["artifacts"][key]["sha256"], output)
                 rows = db.execute(
                     "SELECT query_id, gt_ids FROM read_parquet(?) ORDER BY query_id",
@@ -123,7 +130,7 @@ def prepare(output):
                     ("hn_items", query, query_id, "{" + ",".join(ids) + "}")
                     for query_id, ids in rows
                 )
-                key = f"ground_truth/{query}_boundary.parquet"
+                key = f"ground_truth/{published}_boundary.parquet"
                 fetch(key, truth["artifacts"][key]["sha256"], output)
 
     schema = (
@@ -172,7 +179,7 @@ DELETE FROM pdbench_ground_truth WHERE corpus = 'hn_items';
 \\copy pdbench_ground_truth FROM '{csv_path}' WITH (FORMAT csv)
 """)
     print(
-        "Verified HN fixtures: 1,000 held-out queries, ten published top-10 workloads"
+        "Verified HN fixtures: 1,000 held-out queries, six published top-10 workloads"
     )
 
 

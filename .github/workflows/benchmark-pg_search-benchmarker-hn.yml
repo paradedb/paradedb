@@ -266,7 +266,7 @@ jobs:
           } > benchmark-artifacts/tool-commits.txt
           {
             cat <<CONTEXT
-          HN vector 28m: ten top-10 workloads at R90/R95/R99 (unfiltered, score, story, story + score, three time ranges, three exact authors).
+          HN vector 28m: six top-10 workloads at R90/R95/R99. Time ranges: range_10pct, range_1pct, range_0.1pct. Exact authors: single_term_0.1pct, single_term_0.01pct, single_term_0.001pct. Selectivity is relative to rows with embeddings.
 
           pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
 

@@ -127,18 +127,38 @@ class OperatingPointsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "strict recall targets"):
             operating_points(inputs, dataset="msmarco")
 
-    def test_hn_exports_dimensions_and_scalar_fields_for_all_ten_workloads(self):
+    def test_hn_exports_six_selectivity_names_with_dimensions_and_scalar_fields(self):
         """Keep HN's dimensions and predicate identities through the handoff."""
         inputs = reports("hn")
         points = operating_points(inputs, dataset="hn")
-        self.assertEqual(len(points), 30)
+        self.assertEqual(len(points), 18)
+        self.assertEqual(
+            {point["query"] for point in points},
+            {
+                "range_10pct",
+                "range_1pct",
+                "range_0.1pct",
+                "single_term_0.1pct",
+                "single_term_0.01pct",
+                "single_term_0.001pct",
+            },
+        )
         for point in points:
+            self.assertEqual(
+                point["name"], f"{point['query']}@r{round(point['target'] * 100)}"
+            )
             self.assertEqual(point["dimensions"], 1536)
             self.assertEqual(point["neighbors"], 10)
             self.assertEqual(point["filter_fields"], HN_FILTER_FIELDS[point["query"]])
             self.assertIn("$1::vector(1536)", point["sql"])
         with self.assertRaisesRegex(ValueError, "Missing recall sweeps"):
             operating_points(inputs[:-1], dataset="hn")
+        removed = copy.deepcopy(inputs)
+        removed[0]["data"]["variants"]["knn_top10_unfiltered"] = removed[0]["data"][
+            "variants"
+        ].pop("range_10pct")
+        with self.assertRaisesRegex(ValueError, "Unexpected or duplicate query"):
+            operating_points(removed, dataset="hn")
         inputs[0]["config"]["dataset"]["dims"] = 1024
         with self.assertRaisesRegex(ValueError, "1536-dimensional"):
             operating_points(inputs, dataset="hn")

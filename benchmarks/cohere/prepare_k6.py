@@ -6,16 +6,12 @@ from pathlib import Path
 
 QUERIES = ("knn_top10_unfiltered", "knn_top10_10pct", "knn_top10_1pct")
 HN_FILTER_FIELDS = {
-    "knn_top10_unfiltered": [],
-    "knn_top10_score": ["score"],
-    "knn_top10_story": ["type"],
-    "knn_top10_story_score": ["type", "score"],
-    "knn_top10_time_1": ["time"],
-    "knn_top10_time_2": ["time"],
-    "knn_top10_time_3": ["time"],
-    "knn_top10_author_1": ["by"],
-    "knn_top10_author_2": ["by"],
-    "knn_top10_author_3": ["by"],
+    "range_10pct": ["time"],
+    "range_1pct": ["time"],
+    "range_0.1pct": ["time"],
+    "single_term_0.1pct": ["by"],
+    "single_term_0.01pct": ["by"],
+    "single_term_0.001pct": ["by"],
 }
 SUITES = {
     "cohere": dict.fromkeys(QUERIES, 10),

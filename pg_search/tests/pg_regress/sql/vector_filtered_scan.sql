@@ -2,6 +2,7 @@ SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
+SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 0.1;
 SET paradedb.vector_stats = on;
@@ -146,4 +147,5 @@ DROP FUNCTION filtered_scan_segment(text);
 DROP FUNCTION filtered_scan_vector(integer, integer);
 RESET paradedb.vector_stats;
 RESET paradedb.vector_cluster_max_probe;
+RESET paradedb.vector_adaptive_probing;
 RESET paradedb.vector_clustering_threshold;

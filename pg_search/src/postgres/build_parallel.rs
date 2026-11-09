@@ -2099,55 +2099,6 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_partitioned_build_reduces_active_participants() {
-        Spi::run(
-            r#"
-            CREATE TABLE build_fewer_partitions (id bigint, tenant_id bigint, name text);
-            INSERT INTO build_fewer_partitions
-            SELECT i, i % 3, 'searchable' FROM generate_series(1, 3000) i;
-            SET LOCAL max_parallel_workers = 8;
-            SET LOCAL max_parallel_maintenance_workers = 4;
-            SET LOCAL maintenance_work_mem = '128MB';
-            "#,
-        )
-        .unwrap();
-        for leader in [false, true] {
-            Spi::run(&format!(
-                "SET LOCAL parallel_leader_participation = {leader};"
-            ))
-            .unwrap();
-            Spi::run(
-                "CREATE INDEX build_fewer_partitions_idx ON build_fewer_partitions
-                 USING paradedb (id, tenant_id, name)
-                 WITH (partition_by = 'tenant_id', target_segment_count = 8);",
-            )
-            .unwrap();
-            assert_eq!(
-                Spi::get_one::<i64>(
-                    "SELECT count(*) FROM paradedb.index_info('build_fewer_partitions_idx')"
-                )
-                .unwrap(),
-                Some(3)
-            );
-            assert_eq!(
-                Spi::get_one::<i64>(
-                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('build_fewer_partitions_idx')"
-                )
-                .unwrap(),
-                Some(3000)
-            );
-            assert_eq!(
-                Spi::get_one::<i64>(
-                    "SELECT count(*) FROM build_fewer_partitions WHERE name ||| 'searchable'"
-                )
-                .unwrap(),
-                Some(3000)
-            );
-            Spi::run("DROP INDEX build_fewer_partitions_idx;").unwrap();
-        }
-    }
-
-    #[pg_test]
     fn test_vector_build_preserves_clustering_threshold() {
         Spi::run(
             r#"

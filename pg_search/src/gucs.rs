@@ -103,6 +103,7 @@ static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
 static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+// TODO: `paradedb.enable_fast_field_exec` is unread since #2908; deprecate and remove it.
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -267,27 +268,14 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// scale and the smallest winning one.
 static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 
-/// Per-inbox ring size in bytes. Each MPP query lays out one MPSC inbox per proc
-/// (leader plus workers), so the mesh region is about `N × mpp_queue_size`, and
-/// Postgres commits the whole region on creation (`posix_fallocate` in the Linux
-/// DSM path, to avoid a later SIGBUS under overcommit), so the region size is a
-/// fixed per-query launch cost. The default keeps that cost inside Docker's
-/// default 64 MiB `/dev/shm` with room to spare: at N=4 it reserves ~32 MiB per
-/// query. Frames larger than a ring stream through it in chunks, so the size
-/// bounds backpressure granularity and launch cost, not what a query can carry.
-/// The runtime tuning reach is the reason it's a GUC instead of a `pub const`.
-///
-/// The inboxes already multiplex tagged frames from every stage; if this knob
-/// changes shape, the right user knob is more likely a per-query DSM cap than
-/// a raw per-inbox byte count.
+/// Per-query DSM ring budget divided across the `2 * W^2` SPSC byte rings in an MPP mesh with `W`
+/// producer workers (`mpp_queue_size / (2 * W^2)`, floored at `16 KiB` and rounded down to a power
+/// of two). With the default `8 MiB` setting, each ring is `1 MiB` at `W = 2`, `256 KiB` at
+/// `W = 3..=4`, `64 KiB` at `W = 8`, and `16 KiB` at `W = 16`, keeping the per-query DSM
+/// allocation bounded within Docker's default `64 MiB` `/dev/shm` across worker counts. Messages
+/// larger than a ring stream through it in chunks, so the size bounds backpressure granularity and
+/// launch cost, not what a query can carry.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
-
-/// Longest a worker fragment waits for its next partition-execution request with none
-/// of its partitions running. Consumers issue every request while building their
-/// streams, so the wait is normally over in milliseconds; a stall this long means a
-/// consumer stopped requesting and the fragment (and the leader waiting on it) would
-/// otherwise wait forever. `0` disables the guard.
-static MPP_REQUEST_TIMEOUT: GucSetting<i32> = GucSetting::<i32>::new(300);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -405,7 +393,23 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
+    VECTOR_ADAPTIVE_PROBING
+        .get()
+        .then_some(tantivy::vector::AdaptiveProbeParams::default())
+}
+
 pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_adaptive_probing",
+        c"Stop vector probing early using admission-rate decay",
+        c"Uses the same routing and work budgets as fixed probing. May stop probing early after competitive-candidate admission decays.",
+        &VECTOR_ADAPTIVE_PROBING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
@@ -705,8 +709,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_max_probe",
-        c"Per-segment IVF cluster probe ceiling, as a fraction of cluster count, for vector ORDER BY queries",
-        c"Resolved per segment as ceil(fraction * cluster_count), with at least one cluster. 1.0 probes every cluster.",
+        c"IVF probe-work budget, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
         &VECTOR_CLUSTER_MAX_PROBE,
         0.000001,
         1.0,
@@ -757,7 +761,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_router_recall_target",
         c"Registered for compatibility; nothing reads it",
-        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
         &VECTOR_ROUTER_RECALL_TARGET,
         0.000001,
         1.0,
@@ -768,7 +772,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_recall_target",
         c"Registered for compatibility; nothing reads it",
-        c"Accepted so existing settings keep working. Nothing reads it. Vector probes stop on paradedb.vector_cluster_max_probe or when ranked clusters run out.",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
         &VECTOR_RECALL_TARGET,
         0.000001,
         1.0,
@@ -1072,35 +1076,20 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
-        c"Per-inbox ring size for MPP shuffles",
-        c"Sets the per-inbox ring size for MPP shuffles. Accepts standard \
-          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Each query lays out \
-          one inbox per proc, so total DSM per query is about `N x mpp_queue_size`; \
-          at the default 8MB and N=4 that is ~32MB per query, within Docker's \
-          default 64MB /dev/shm. Frames larger than a ring stream through it in \
-          chunks. Lower this on memory-constrained boxes; raise it when shuffle \
-          batches routinely back up the ring.",
+        c"Queue size budget for MPP DSM SPSC byte rings",
+        c"Sets the per-query DSM ring budget divided across all 2 * W^2 SPSC rings in an MPP \
+          mesh (`mpp_queue_size / (2 * W^2)`, floored at 16kB and rounded down to a power of \
+          two). Accepts standard Postgres byte units (e.g. '64MB', '1GB', '512kB'). With the \
+          default 8MB setting, each ring is 1MB at W=2, 256kB at W=3..4, 64kB at W=8, and 16kB \
+          at W=16, keeping the per-query DSM allocation bounded within Docker's default 64MB \
+          /dev/shm across worker counts. Payloads larger than a ring stream through it in \
+          chunks. Lower this on memory-constrained boxes; raise it when shuffle batches \
+          routinely back up the ring.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
-    );
-
-    GucRegistry::define_int_guc(
-        c"paradedb.mpp_request_timeout",
-        c"Longest an MPP worker fragment waits for its next partition request",
-        c"Bounds how long an MPP worker fragment waits for the next partition-execution \
-          request while none of its partitions are running. Consumers issue every \
-          request while building their streams, so the wait is normally over in \
-          milliseconds; a stall this long means a consumer stopped requesting and the \
-          query would otherwise hang. Accepts standard Postgres time units. 0 disables \
-          the guard.",
-        &MPP_REQUEST_TIMEOUT,
-        0,
-        i32::MAX,
-        GucContext::Userset,
-        GucFlags::UNIT_S,
     );
 }
 
@@ -1161,6 +1150,7 @@ pub fn enable_filter_pushdown() -> bool {
     ENABLE_FILTER_PUSHDOWN.get()
 }
 
+#[allow(dead_code)]
 pub fn is_fast_field_exec_enabled() -> bool {
     ENABLE_FAST_FIELD_EXEC.get()
 }
@@ -1383,10 +1373,6 @@ pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
 }
 
-pub fn mpp_request_timeout_secs() -> i32 {
-    MPP_REQUEST_TIMEOUT.get()
-}
-
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
 }
@@ -1440,6 +1426,23 @@ mod tests {
                 diff
             );
         }};
+    }
+
+    #[pg_test]
+    fn test_adaptive_vector_probe_settings() {
+        Spi::run(
+            "RESET paradedb.vector_cluster_max_probe; SET paradedb.vector_adaptive_probing = on;",
+        )
+        .unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
+        assert!(vector_adaptive_probing().is_some());
+        Spi::run("SET paradedb.vector_cluster_max_probe = 0.005;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
+        assert!(vector_adaptive_probing().is_none());
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
     }
 
     #[pg_test]

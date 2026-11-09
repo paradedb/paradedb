@@ -214,8 +214,9 @@ impl RangePartitioning {
 }
 
 /// The split points a partitioned build stamped on an index's segments, kept as raw points
-/// rather than a static `RangePartitioning`, so that `TaskEstimator`s and distributed
-/// execution engines can ask for their preferred number of partitions at runtime.
+/// rather than a static `RangePartitioning`, so that `on_desired_task_count_event` /
+/// `on_task_specialization_event` hooks and distributed execution engines can ask for their
+/// preferred number of partitions at runtime.
 ///
 /// **Precondition**: `points` must be sorted ascending, otherwise the generated
 /// boundaries will produce overlapping or gapped ranges that silently drop or duplicate rows.

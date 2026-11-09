@@ -136,14 +136,14 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
 
     Ok(Box::new(QueryWithContext {
         query: tantivy_query,
-        _context: Arc::new(context),
+        _context: Arc::new(crate::postgres::customscan::mpp::MainThread::new(context)),
     }))
 }
 
 /// Wraps a Query with its ExprContextGuard to extend the context's lifetime.
 struct QueryWithContext {
     query: Box<dyn Query>,
-    _context: Arc<ExprContextGuard>,
+    _context: Arc<crate::postgres::customscan::mpp::MainThread<ExprContextGuard>>,
 }
 
 impl Query for QueryWithContext {

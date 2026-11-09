@@ -165,7 +165,7 @@ impl PartitionRouter {
                         .as_slice()
                         .project(ctid, created_by_version, get_field)?
                 };
-                Ok(model.route(&point))
+                Ok(model.route(&point, ctid))
             }
             Self::Vector { model, projection } => {
                 let vector = unsafe { projection.project(ctid, created_by_version, get_field)? };
@@ -323,8 +323,7 @@ impl VectorPartitioning {
 ///
 /// `snapshot` is the one the build scan itself uses: `SnapshotAny` for a plain build, or the
 /// registered MVCC snapshot of a `CONCURRENTLY` build. The sample then covers the same rows the
-/// workers are about to index. `target_partitions` is the number of leaves to aim for; the tree
-/// can come out smaller when the sample lacks the distinct values to cut further (see
+/// workers are about to index. `target_partitions` is the number of leaves to aim for (see
 /// [`KdTree::from_sample`]).
 pub(super) fn plan_partition_boundaries(
     heaprel: &PgSearchRelation,
@@ -366,7 +365,7 @@ pub(super) fn plan_partition_boundaries(
                 snapshot,
                 &projection,
                 sample_rows,
-                |row, vector| sample.insert(row, vector),
+                |row, vector, _| sample.insert(row, vector),
             )?
         };
         return Ok(Some(BuildPartitioning::Vector(VectorPartitioning::train(
@@ -378,6 +377,25 @@ pub(super) fn plan_partition_boundaries(
     }
     let projection = PartitionField::resolve_dims(&partition_by, &categorized_fields)?;
     let mut sample = Vec::new();
+    let mut ctid_fallback: Option<Vec<u64>> = if !partition_by.iter().any(|f| f.is_ctid()) {
+        Some(Vec::new())
+    } else {
+        None
+    };
+    let collect = |row, point, ctid| {
+        if row == sample.len() {
+            sample.push(point);
+            if let Some(ctids) = ctid_fallback.as_mut() {
+                ctids.push(ctid);
+            }
+        } else {
+            sample[row] = point;
+            if let Some(ctids) = ctid_fallback.as_mut() {
+                ctids[row] = ctid;
+            }
+        }
+        Ok(())
+    };
     unsafe {
         sample_partition_fields(
             heaprel,
@@ -385,20 +403,14 @@ pub(super) fn plan_partition_boundaries(
             snapshot,
             projection.as_slice(),
             sample_rows,
-            |row, point| {
-                if row == sample.len() {
-                    sample.push(point);
-                } else {
-                    sample[row] = point;
-                }
-                Ok(())
-            },
-        )?
-    };
+            collect,
+        )?;
+    }
     Ok(Some(BuildPartitioning::Range(KdTree::from_sample(
         partition_by,
         sample,
         target_partitions,
+        ctid_fallback,
     ))))
 }
 
@@ -657,7 +669,7 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     snapshot: pg_sys::Snapshot,
     projection: &P,
     sample_rows: usize,
-    mut collect: impl FnMut(usize, P::Point) -> Result<()>,
+    mut collect: impl FnMut(usize, P::Point, u64) -> Result<()>,
 ) -> anyhow::Result<()> {
     let nblocks = unsafe {
         pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
@@ -797,7 +809,7 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                     pg_sys::ExecClearTuple(slot);
                     let point = point?;
 
-                    collect(target_slot, point)?;
+                    collect(target_slot, point, ctid_u64)?;
                 }
                 anyhow::Ok(())
             });
@@ -863,6 +875,7 @@ unsafe fn project_row<P: PartitionProjection + ?Sized>(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use crate::index::kdtree::DimHandle;
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::open_index;
     use pgrx::datum::DatumWithOid;
@@ -1086,20 +1099,37 @@ mod tests {
         )
     }
 
+    /// Plans range partitioning for `index` on `table` the way a plain build would.
+    fn plan_tree(table: &str, index: &str, target_partitions: usize) -> KdTree {
+        let (heaprel, indexrel) = open_rels(table, index);
+        let BuildPartitioning::Range(tree) =
+            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), target_partitions)
+                .unwrap()
+                .expect("index declares partition_by")
+        else {
+            panic!("expected range partitioning")
+        };
+        tree
+    }
+
     /// Routes every row of `table` through `tree` and returns the per-partition counts.
     fn route_all(tree: &KdTree, table: &str, columns: &str) -> Vec<usize> {
         let mut counts = vec![0usize; tree.partition_count()];
         Spi::connect(|client| {
             let args: [DatumWithOid; 0] = [];
-            let rows = client.select(&format!("SELECT {columns} FROM {table}"), None, &args)?;
+            let rows =
+                client.select(&format!("SELECT {columns}, ctid FROM {table}"), None, &args)?;
             for row in rows {
-                let point: Point = (1..=row.columns())
+                let point: Point = (1..row.columns())
                     .map(|i| match row.get::<i64>(i)? {
                         Some(v) => Ok(PdbOwnedValue::I64(v)),
                         None => Ok(PdbOwnedValue::Null),
                     })
                     .collect::<Result<_, pgrx::spi::Error>>()?;
-                counts[tree.route(&point)] += 1;
+                let ctid = row
+                    .get::<pg_sys::ItemPointerData>(row.columns())?
+                    .expect("ctid is never null");
+                counts[tree.route(&point, item_pointer_to_u64(ctid))] += 1;
             }
             Ok::<(), pgrx::spi::Error>(())
         })
@@ -1121,25 +1151,12 @@ mod tests {
         )
         .unwrap();
 
-        let (heaprel, indexrel) = open_rels("sample_src", "sample_src_idx");
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_src", "sample_src_idx", 8);
         assert_eq!(tree.partition_count(), 8, "{tree}");
         assert_eq!(tree.dims().len(), 2);
 
         // Same heap, same seed, same boundaries.
-        let BuildPartitioning::Range(again) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-                .unwrap()
-                .unwrap()
-        else {
-            panic!("expected range partitioning")
-        };
+        let again = plan_tree("sample_src", "sample_src_idx", 8);
         assert_eq!(again, tree);
 
         // Under 4096 blocks and 30k rows, the sample is the whole table, so every partition
@@ -1154,7 +1171,7 @@ mod tests {
 
         // Both declared fields end up cutting the space.
         let bounded_dims = (0..8)
-            .flat_map(|p| tree.partition_bounds(p).unwrap())
+            .flat_map(|p| tree.partition_bounds(p).unwrap().dims)
             .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
             .count();
         assert!(bounded_dims > 8, "{tree}");
@@ -1174,14 +1191,7 @@ mod tests {
         )
         .unwrap();
 
-        let (heaprel, indexrel) = open_rels("sample_expr", "sample_expr_idx");
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_expr", "sample_expr_idx", 4);
         assert_eq!(tree.partition_count(), 4, "{tree}");
 
         // Split values come from the expression, so they are even numbers inside its range.
@@ -1192,7 +1202,7 @@ mod tests {
             };
             assert!(*v % 2 == 0 && (2..=10_000).contains(v), "{tree}");
         }
-        assert_eq!(tree.route(&[PdbOwnedValue::Null]), 0);
+        assert_eq!(tree.route(&[PdbOwnedValue::Null], 0), 0);
         let counts = route_all(&tree, "sample_expr", "base * 2");
         assert!(counts.iter().all(|&c| c > 0), "{counts:?}\n{tree}");
     }
@@ -1218,22 +1228,9 @@ mod tests {
                 .is_none()
         );
 
-        let (heaprel, indexrel) = open_rels("sample_empty", "sample_empty_idx");
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 8)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_empty", "sample_empty_idx", 8);
         assert_eq!(tree.partition_count(), 1);
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 1)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_empty", "sample_empty_idx", 1);
         assert_eq!(tree.partition_count(), 1);
     }
 
@@ -1288,25 +1285,27 @@ mod tests {
         )
         .unwrap();
 
-        let (heaprel, indexrel) = open_rels("sample_wide", "sample_wide_idx");
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_wide", "sample_wide_idx", 4);
         assert_eq!(tree.dims().len(), 2);
         assert!((2..=4).contains(&tree.partition_count()), "{tree}");
         // NULLs in both dimensions route to the lowest partition.
-        assert_eq!(tree.route(&[PdbOwnedValue::Null, PdbOwnedValue::Null]), 0);
+        assert_eq!(
+            tree.route(&[PdbOwnedValue::Null, PdbOwnedValue::Null], 0),
+            0
+        );
 
         // Every `label` split value is a fully detoasted string of the generated width, not a
         // truncated or corrupt copy. `32 * 2` hex chars, repeated 40 times, plus a 10-char tail.
         let label_width = 32 * 2 * 40 + 10;
         let mut saw_label_split = false;
         for p in 0..tree.partition_count() {
-            for (dim, (lower, upper)) in tree.partition_bounds(p).unwrap().into_iter().enumerate() {
+            for (dim, (lower, upper)) in tree
+                .partition_bounds(p)
+                .unwrap()
+                .dims
+                .into_iter()
+                .enumerate()
+            {
                 for bound in [lower, upper] {
                     let value = match bound {
                         std::ops::Bound::Included(v) | std::ops::Bound::Excluded(v) => Some(v),
@@ -1343,29 +1342,27 @@ mod tests {
             CREATE INDEX sample_multi_ctid_idx ON sample_multi_ctid
                 USING paradedb (id, tenant_id, name)
                 WITH (partition_by = 'tenant_id, ctid');
+
+            CREATE TABLE sample_fallback_ctid (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO sample_fallback_ctid (tenant_id, name)
+            SELECT i % 2, 'row ' || i FROM generate_series(1, 1000) i;
+            CREATE INDEX sample_fallback_ctid_idx ON sample_fallback_ctid
+                USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'tenant_id');
             "#,
         )
         .unwrap();
 
-        let (heaprel, indexrel) = open_rels("sample_ctid", "sample_ctid_idx");
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_ctid", "sample_ctid_idx", 4);
         assert_eq!(tree.dims(), &[FieldName::from("ctid")]);
         assert_eq!(tree.partition_count(), 4, "{tree}");
+        // A declared ctid is an ordinary dimension: every split names it by index.
+        assert!(
+            tree.split_dims().iter().all(|d| *d == DimHandle::Index(0)),
+            "{tree}"
+        );
 
-        let (heaprel, indexrel) = open_rels("sample_multi_ctid", "sample_multi_ctid_idx");
-        let BuildPartitioning::Range(tree) =
-            plan_partition_boundaries(&heaprel, &indexrel, snapshot_any(), 4)
-                .unwrap()
-                .expect("index declares partition_by")
-        else {
-            panic!("expected range partitioning")
-        };
+        let tree = plan_tree("sample_multi_ctid", "sample_multi_ctid_idx", 4);
         assert_eq!(
             tree.dims(),
             &[FieldName::from("tenant_id"), FieldName::from("ctid")]
@@ -1374,9 +1371,78 @@ mod tests {
 
         // Both declared fields end up cutting the space.
         let bounded_dims = (0..4)
-            .flat_map(|p| tree.partition_bounds(p).unwrap())
+            .flat_map(|p| tree.partition_bounds(p).unwrap().dims)
             .filter(|b| !matches!(b, (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded)))
             .count();
         assert!(bounded_dims > 4, "{tree}");
+        // ctid is a declared field, so the fallback is never filled.
+        let fallback_dims = (0..4)
+            .flat_map(|p| tree.partition_bounds(p).unwrap().ctid_fallback)
+            .count();
+        assert_eq!(fallback_dims, 0, "{tree}");
+
+        // With ctid declared there is no fallback, so ctid competes with `tenant_id` as an
+        // equal. Ctid is unique and so wider than ten tenants, and it takes the root cut.
+        let splits = tree.split_dims();
+        assert_eq!(splits[0], DimHandle::Index(1), "{tree}");
+        assert!(!splits.contains(&DimHandle::Ctid), "{tree}");
+
+        // Without ctid declared, the fallback only cuts once `tenant_id` cannot: the root
+        // separates the two tenants even though ctid is wider, and ctid splits each tenant.
+        let tree = plan_tree("sample_fallback_ctid", "sample_fallback_ctid_idx", 4);
+        assert_eq!(tree.partition_count(), 4, "{tree}");
+        assert_eq!(
+            tree.split_dims(),
+            vec![DimHandle::Index(0), DimHandle::Ctid, DimHandle::Ctid],
+            "{tree}"
+        );
+    }
+
+    /// A partition key where 99% of the rows share one value cannot be cut there on its own, so
+    /// the ctid fallback has to split the hot value's rows to keep the partitions balanced.
+    #[pg_test]
+    fn ctid_fallback_balances_a_skewed_partition_key() {
+        Spi::run(
+            r#"
+            CREATE TABLE sample_skewed (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            -- 9900 rows have tenant_id 0; the other 100 each get a distinct tenant_id in 1..=100.
+            INSERT INTO sample_skewed (tenant_id, name)
+            SELECT CASE WHEN i % 100 = 0 THEN i / 100 ELSE 0 END, 'row ' || i
+            FROM generate_series(1, 10000) i;
+            CREATE INDEX sample_skewed_idx ON sample_skewed
+                USING paradedb (id, tenant_id, name)
+                WITH (partition_by = 'tenant_id');
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM sample_skewed WHERE tenant_id = 0").unwrap(),
+            Some(9900)
+        );
+
+        let tree = plan_tree("sample_skewed", "sample_skewed_idx", 8);
+        assert_eq!(tree.dims(), &[FieldName::from("tenant_id")]);
+        // `tenant_id` alone offers one useful cut, at 1, so it could only make two partitions;
+        // the ctid fallback splits the hot value's rows to reach the target.
+        assert_eq!(tree.partition_count(), 8, "{tree}");
+
+        // The table is far under the sample cap, so the sample is the whole table and the
+        // partition sizes reflect the real rows.
+        let counts = route_all(&tree, "sample_skewed", "tenant_id");
+        assert_eq!(counts.iter().sum::<usize>(), 10_000);
+
+        // The only `tenant_id` cut is at 1, so the 100 cold rows can never share a partition
+        // with the hot value. Leaves are handed out by row share, so they get exactly one
+        // partition, the last one (leaves are numbered in order and they sort after 0).
+        assert_eq!(counts[7], 100, "{counts:?}\n{tree}");
+
+        // The other seven split the 9900 hot rows on ctid. Ideal is ~1414 each; allow ~5%
+        // either way.
+        for count in &counts[..7] {
+            assert!(
+                (1343..=1485).contains(count),
+                "unbalanced partitions: {counts:?}\n{tree}"
+            );
+        }
     }
 }

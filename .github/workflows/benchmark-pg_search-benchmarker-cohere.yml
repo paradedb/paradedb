@@ -166,7 +166,6 @@ jobs:
             --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
             --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
             --repo-s3-key-type shared)
-          echo "max_worker_processes = 32" >> /home/runner/.pgrx/data-18/postgresql.auto.conf
           (cd pg_search && cargo pgrx start pg18)
 
       - name: Refresh pg_search and build index

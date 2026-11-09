@@ -30,6 +30,9 @@ use crate::postgres::customscan::joinscan::build::{
     RelationAlias, ScoreColumn, UnnestNode, VectorScoreColumn,
 };
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
+use crate::postgres::customscan::joinscan::window_func::{
+    WINDOW_SENTINEL_VARNO, WindowAggIndex, WindowAggList, rewrite_window_funcs_to_sentinels,
+};
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use crate::scan::ScanMode;
 use crate::schema::SearchFieldType;
@@ -241,16 +244,49 @@ impl<'a> PredicateTranslator<'a> {
         node: *mut pg_sys::Node,
         plan: Option<&'a RelNode>,
     ) -> bool {
+        Self::can_translate_inner(root, sources, node, plan, None)
+    }
+
+    /// Like [`Self::can_translate`], but also resolves embedded `WindowFunc`
+    /// subtrees against `window_aggs` (rewriting them to sentinel `Var`s with
+    /// placeholder `resno = 0` to match the execution path in
+    /// `translate_child_projection_expr`).
+    pub fn can_translate_with_windows(
+        root: Option<*mut pg_sys::PlannerInfo>,
+        sources: &'a [&'a JoinSource],
+        node: *mut pg_sys::Node,
+        plan: Option<&'a RelNode>,
+        window_aggs: &'a WindowAggList,
+    ) -> bool {
+        Self::can_translate_inner(root, sources, node, plan, Some(window_aggs))
+    }
+
+    fn can_translate_inner(
+        root: Option<*mut pg_sys::PlannerInfo>,
+        sources: &'a [&'a JoinSource],
+        node: *mut pg_sys::Node,
+        plan: Option<&'a RelNode>,
+        window_aggs: Option<&'a WindowAggList>,
+    ) -> bool {
         struct ValidationMapper<'a> {
             sources: &'a [&'a JoinSource],
             plan: Option<&'a RelNode>,
+            window_aggs: Option<&'a WindowAggList>,
         }
 
         impl<'a> ColumnMapper for ValidationMapper<'a> {
             /// Just confirm the source exists — field registration hasn't
             /// happened yet at this planning stage. Column validity is
             /// covered by all_vars_are_fast_fields_recursive which runs first.
-            fn map_var(&self, varno: pg_sys::Index, _varattno: pg_sys::AttrNumber) -> Option<Expr> {
+            fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+                if varno == WINDOW_SENTINEL_VARNO {
+                    let index = WindowAggIndex::from_sentinel_attno(varattno)?;
+                    let window_agg = self.window_aggs?.get(index)?;
+                    if window_agg.requires_udf_decode() {
+                        return None;
+                    }
+                    return Some(col("placeholder"));
+                }
                 if let Some(_source) = self.sources.iter().find(|s| s.contains_rti(varno)) {
                     return Some(col("placeholder"));
                 }
@@ -265,9 +301,32 @@ impl<'a> PredicateTranslator<'a> {
                 }
                 None
             }
+
+            fn udf_input(
+                &self,
+                varno: pg_sys::Index,
+                varattno: pg_sys::AttrNumber,
+            ) -> Option<(Expr, InputDecode)> {
+                if varno == WINDOW_SENTINEL_VARNO {
+                    let index = WindowAggIndex::from_sentinel_attno(varattno)?;
+                    let window_agg = self.window_aggs?.get(index)?;
+                    return Some((col("placeholder"), window_agg.udf_input_decode()));
+                }
+                None
+            }
         }
 
-        let mapper = ValidationMapper { sources, plan };
+        let node = match window_aggs {
+            Some(aggs) if !aggs.is_empty() => unsafe {
+                rewrite_window_funcs_to_sentinels(node, 0, aggs)
+            },
+            _ => node,
+        };
+        let mapper = ValidationMapper {
+            sources,
+            plan,
+            window_aggs,
+        };
         let mut translator = Self::new(sources).with_mapper(Box::new(mapper));
         if let Some(r) = root {
             translator = translator.with_planner_info(r);
@@ -1017,10 +1076,7 @@ mod tests {
         use datafusion::prelude::SessionContext;
         use std::sync::Arc;
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = crate::postgres::customscan::mpp::interrupt::PgTokioRuntime::new().unwrap();
 
         runtime.block_on(async {
             let ctx = SessionContext::new();

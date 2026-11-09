@@ -72,7 +72,7 @@ struct Case {
 // Each query matches nothing, so every segment is walked: md5 bodies are hex, and `extra` is
 // never negative. `extra` is not indexed, so it is evaluated per doc as a heap filter. In the last
 // case the heap filter's own `pg_sleep` acts on the die while the scorer is still being built.
-static CASES: [Case; 4] = [
+static CASES: [Case; 6] = [
     Case {
         name: "regex",
         gucs: PARALLEL_GUCS,
@@ -91,6 +91,26 @@ static CASES: [Case; 4] = [
             "Parallel Custom Scan (ParadeDB Base Scan)",
             "ColumnarExecState",
             "heap_filter",
+        ],
+    },
+    Case {
+        name: "parallel_normal_heapfilter",
+        gucs: PARALLEL_GUCS,
+        query: "SELECT extra FROM bs_cancel WHERE id @@@ paradedb.all() AND extra = -1",
+        plan_contains: &[
+            "Parallel Custom Scan (ParadeDB Base Scan)",
+            "NormalScanExecState",
+            "heap_filter",
+        ],
+    },
+    Case {
+        name: "topk_regex",
+        gucs: PARALLEL_GUCS,
+        query: "SELECT grp FROM bs_cancel WHERE id @@@ paradedb.regex('body', '.*q.*z.*') ORDER BY grp LIMIT 5",
+        plan_contains: &[
+            "Custom Scan (ParadeDB Base Scan)",
+            "TopKScanExecState",
+            "regex",
         ],
     },
     Case {

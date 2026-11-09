@@ -198,25 +198,35 @@ pub struct Buffer {
     blockno: pg_sys::BlockNumber,
 }
 
+struct UnlockReleaseBufferOnMainThread(pg_sys::Buffer);
+
+crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
+    unsafe {
+        if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState() {
+            pg_sys::UnlockReleaseBuffer(self.0);
+        }
+    }
+});
+
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
 // must run unconditionally (even during panic) for correct bookkeeping. The macro would
 // skip the entire body during panic, but we only want to skip the PostgreSQL API call.
 impl Drop for Buffer {
     fn drop(&mut self) {
-        unsafe {
-            if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                // block_tracker bookkeeping must run unconditionally
-                block_tracker::forget!(self.blockno);
+        if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+            // block_tracker bookkeeping must run unconditionally
+            block_tracker::forget!(self.blockno);
 
-                // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
-                // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
-                if !std::thread::panicking()
-                    && pg_sys::InterruptHoldoffCount > 0
-                    && crate::postgres::utils::IsTransactionState()
-                {
-                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
-                }
+            // Skip PostgreSQL cleanup during main-thread panic unwinding to prevent double-panics.
+            if (crate::postgres::customscan::mpp::interrupt::is_main_thread()
+                && std::thread::panicking())
+                || crate::postgres::utils::proc_exit_in_progress()
+            {
+                return;
             }
+            crate::postgres::customscan::mpp::drop_on_main_thread(UnlockReleaseBufferOnMainThread(
+                self.pg_buffer,
+            ));
         }
     }
 }
@@ -260,13 +270,20 @@ impl Buffer {
     /// changed until all pins are dropped and/or a transaction horizon has passed (as enforced by
     /// the FSM, for example).
     pub unsafe fn into_immutable_page(mut self) -> ImmutablePage {
+        let (ptr, len) = {
+            let page = self.page();
+            let slice = page.as_slice();
+            (slice.as_ptr(), slice.len())
+        };
         // Unlock the buffer, but preserve our pin.
         pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         let pg_buffer =
             std::mem::replace(&mut self.pg_buffer, pg_sys::InvalidBuffer as pg_sys::Buffer);
         block_tracker::forget!(self.blockno);
         ImmutablePage {
-            pinned_buffer: PinnedBuffer::new(pg_buffer),
+            _pinned_buffer: PinnedBuffer::new(pg_buffer),
+            ptr,
+            len,
         }
     }
 
@@ -444,20 +461,34 @@ pub struct PinnedBuffer {
     blockno: pg_sys::BlockNumber,
 }
 
+struct ReleaseBufferOnMainThread(pg_sys::Buffer);
+
+crate::impl_safe_drop!(ReleaseBufferOnMainThread, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            pg_sys::ReleaseBuffer(self.0);
+        }
+    }
+});
+
 // NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
 // must run unconditionally (even during panic) for correct bookkeeping. The macro would
 // skip the entire body during panic, but we only want to skip the PostgreSQL API call.
 impl Drop for PinnedBuffer {
     fn drop(&mut self) {
-        unsafe {
-            // block_tracker bookkeeping must run unconditionally
-            block_tracker::forget!(self.blockno);
+        // block_tracker bookkeeping must run unconditionally
+        block_tracker::forget!(self.blockno);
 
-            // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics
-            if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
-                pg_sys::ReleaseBuffer(self.pg_buffer);
-            }
+        // Skip PostgreSQL cleanup during main-thread panic unwinding to prevent double-panics
+        if (crate::postgres::customscan::mpp::interrupt::is_main_thread()
+            && std::thread::panicking())
+            || crate::postgres::utils::proc_exit_in_progress()
+        {
+            return;
         }
+        crate::postgres::customscan::mpp::drop_on_main_thread(ReleaseBufferOnMainThread(
+            self.pg_buffer,
+        ));
     }
 }
 
@@ -1146,22 +1177,18 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
 
 #[derive(Debug)]
 pub struct ImmutablePage {
-    pinned_buffer: PinnedBuffer,
+    _pinned_buffer: PinnedBuffer,
+    ptr: *const u8,
+    len: usize,
 }
 
 impl Deref for ImmutablePage {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        let pg_page = unsafe { pg_sys::BufferGetPage(self.pinned_buffer.pg_buffer) };
-        let page = Page {
-            pg_page,
-            _buffer: None,
-        };
-        let slice = page.as_slice();
-        // It's safe to extend the lifetime of this slice because `self` owns the `Buffer`,
+        // It's safe to form this slice because `self` owns `_pinned_buffer`,
         // which keeps the underlying page data alive and pinned in memory.
-        unsafe { &*(slice as *const [u8]) }
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 

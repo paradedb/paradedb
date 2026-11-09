@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+`paradedb.mpp_queue_size` now specifies the per-query DSM byte budget across all SPSC rings in an MPP mesh (default `8MB`, accepting standard PostgreSQL byte units such as `'8MB'` or `'64MB'`) rather than a message count. The `paradedb.mpp_request_timeout` GUC has been removed now that MPP stages stream over event-driven gRPC channels in shared memory.

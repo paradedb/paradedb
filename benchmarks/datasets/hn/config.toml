@@ -1,0 +1,10 @@
+sampling_seed = 42
+load_format = "parquet"
+pg_null_byte_replacement = ""
+parquet_load_workers = 16
+s3_base_path = "s3://paradedb-benchmark/datasets/hn/v1"
+tables = []
+
+[root_table]
+name = "hn_items"
+primary_key = "id"

@@ -2,7 +2,7 @@
 #
 # Generate Benchmark Heap Snapshots
 #
-# Stack Overflow, Cohere, and MS MARCO: native pgrx clusters backed up with pgBackRest to
+# Stack Overflow, Cohere, MS MARCO, and HN: native pgrx clusters backed up with pgBackRest to
 # s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/. Sampled source
 # data must exist at datasets/{dataset}/v1/sampled/{size}/{csv|parquet}/ in that bucket.
 # Stack Exchange and Wikipedia: benchmarker Docker heaps archived to
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Which dataset(s) to snapshot. MS MARCO requires explicit selection; it is excluded from all."
+        description: "Which dataset(s) to snapshot. MS MARCO and HN require explicit selection; they are excluded from all."
         required: false
         type: choice
         options:
@@ -23,15 +23,16 @@ on:
           - stackoverflow
           - cohere
           - msmarco
+          - hn
           - stackexchange
           - wikipedia
         default: all
       size:
-        description: "Optional size for stackoverflow/cohere/msmarco (e.g. 100k, 1m, 20m, 113m). Blank = all sizes. Not supported for stackexchange/wikipedia."
+        description: "Optional size for native datasets (e.g. 100k, 1m, 20m, 113m, full). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
         default: ""
       load_workers:
-        description: "MS MARCO Parquet loader workers. Positive integer; blank uses the dataset default (16)."
+        description: "MS MARCO/HN Parquet loader workers. Positive integer; blank uses the dataset default (16)."
         required: false
         type: string
         default: ""
@@ -71,8 +72,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$LOAD_WORKERS" ]; then
-            if [[ "$DATASET" != msmarco || ! "$LOAD_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
-              echo "load_workers must be a positive integer and requires dataset=msmarco" >&2
+            if [[ ( "$DATASET" != msmarco && "$DATASET" != hn ) || ! "$LOAD_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+              echo "load_workers must be a positive integer and requires dataset=msmarco or hn" >&2
               exit 1
             fi
           fi
@@ -85,6 +86,8 @@ jobs:
           ]'
           if [ "$DATASET" = msmarco ]; then
             all='[{"dataset":"msmarco","size":"113m"}]'
+          elif [ "$DATASET" = hn ]; then
+            all='[{"dataset":"hn","size":"full"}]'
           fi
           include=$(echo "$all" | jq -c \
             --arg ds "${DATASET:-all}" --arg sz "${SIZE}" \
@@ -104,7 +107,7 @@ jobs:
       contents: read
       id-token: write
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
-    timeout-minutes: ${{ matrix.dataset == 'msmarco' && 720 || 360 }}
+    timeout-minutes: ${{ contains(fromJSON('["msmarco", "hn"]'), matrix.dataset) && 720 || 360 }}
     needs: prep
     if: github.ref == 'refs/heads/main' && needs.prep.outputs.native != '[]'
     runs-on:
@@ -151,8 +154,27 @@ jobs:
         with:
           pg_version: ${{ env.pg_version }}
 
-      - name: Refresh AWS credentials for MS MARCO load
-        if: matrix.dataset == 'msmarco'
+      - name: Install HN fixture reader
+        if: matrix.dataset == 'hn'
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: python3-venv
+
+      - name: Prepare verified HN artifacts
+        if: matrix.dataset == 'hn'
+        timeout-minutes: 90
+        run: |
+          set -euo pipefail
+          python3 -m venv .hn-fixtures
+          .hn-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
+          HN_TEST_DATABASE_URL="postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
+            .hn-fixtures/bin/python -m unittest discover -s .github/scripts -p 'test_prepare_hn_heap.py'
+          .hn-fixtures/bin/python .github/scripts/prepare_hn_heap.py \
+            --source s3://paradedb-benchmark/datasets/hn/v1 \
+            --output "$RUNNER_TEMP/hn-heap"
+
+      - name: Refresh AWS credentials for large heap load
+        if: contains(fromJSON('["msmarco", "hn"]'), matrix.dataset)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
@@ -164,7 +186,7 @@ jobs:
 
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap
-        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 300 || 360 }}
+        timeout-minutes: ${{ contains(fromJSON('["msmarco", "hn"]'), matrix.dataset) && 300 || 360 }}
         working-directory: benchmarks/
         env:
           LOAD_WORKERS: ${{ inputs.load_workers }}
@@ -173,6 +195,9 @@ jobs:
           load_args=()
           if [ -n "$LOAD_WORKERS" ]; then
             load_args+=(--parquet-load-workers "$LOAD_WORKERS")
+          fi
+          if [ "${{ matrix.dataset }}" = hn ]; then
+            load_args+=(--data-source "$RUNNER_TEMP/hn-heap/load-source")
           fi
           cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
@@ -186,8 +211,14 @@ jobs:
           psql "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
             -X -v ON_ERROR_STOP=1 -f benchmarks/datasets/msmarco/verify_heap.sql
 
-      - name: Refresh AWS credentials for MS MARCO backup
-        if: matrix.dataset == 'msmarco'
+      - name: Verify and vacuum HN heap
+        if: matrix.dataset == 'hn'
+        run: |
+          psql "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
+            -X -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/hn-heap/verify_heap.sql"
+
+      - name: Refresh AWS credentials for large heap backup
+        if: contains(fromJSON('["msmarco", "hn"]'), matrix.dataset)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
@@ -218,7 +249,7 @@ jobs:
         run: cargo pgrx stop pg${{ env.pg_version }}
 
       - name: Snapshot Heap
-        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 330 || 360 }}
+        timeout-minutes: ${{ contains(fromJSON('["msmarco", "hn"]'), matrix.dataset) && 330 || 360 }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail
@@ -233,6 +264,17 @@ jobs:
             --repo-endpoint "${BACKREST_REPO_ENDPOINT}" \
             --repo-s3-key-type "${BACKREST_REPO_S3_KEY_TYPE}" \
             --process-max 8
+
+      - name: Record HN snapshot provenance
+        if: matrix.dataset == 'hn'
+        run: |
+          set -euo pipefail
+          destination="s3://${BACKREST_REPO_BUCKET}/snapshots/hn/v1/full"
+          aws s3 cp "$RUNNER_TEMP/hn-heap/dataset/manifest.json" \
+            "$destination/dataset-manifest.json" --only-show-errors
+          aws s3 cp "$RUNNER_TEMP/hn-heap/verify_heap.sql" \
+            "$destination/verify_heap.sql" --only-show-errors
+          echo "HN PostgreSQL 18 heap snapshot: \`$destination/pg_backrest/\`" >> "$GITHUB_STEP_SUMMARY"
 
   generate-benchmarker:
     permissions:

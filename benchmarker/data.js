@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794212637150,
+  "lastUpdate": 1794213881051,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -78960,6 +78960,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13609850297-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0d55a93132b2a78e3480ec81afe1f30104e54c41",
+          "message": "chore: Generate Dockerfiles for v0.26.6 (#7326)\n\nUpdates generated Dockerfiles for v0.26.6 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-09T04:12:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0d55a93132b2a78e3480ec81afe1f30104e54c41"
+        },
+        "date": 1794213879971,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.673,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.502,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.565,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.45,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.613,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.853,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.176,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13657736477-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -79152,6 +79220,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13609850297-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb-github-bot[bot]",
+            "username": "paradedb-github-bot[bot]",
+            "email": "282009505+paradedb-github-bot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0d55a93132b2a78e3480ec81afe1f30104e54c41",
+          "message": "chore: Generate Dockerfiles for v0.26.6 (#7326)\n\nUpdates generated Dockerfiles for v0.26.6 after the Docker images were\npublished.\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-09T04:12:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0d55a93132b2a78e3480ec81afe1f30104e54c41"
+        },
+        "date": 1794213881037,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6979.058724899102,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7427.74314498287,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.032315830425944,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13657736477-throughput"
       }
     ]
   }

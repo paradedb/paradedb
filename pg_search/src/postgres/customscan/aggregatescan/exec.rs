@@ -649,9 +649,7 @@ impl AggregationResults {
 /// The planner picks this sentinel only for a column in a key-based ORDER BY, so bucket order at
 /// these levels is always key order.
 fn place_null_groups_around_empty_strings(results: &mut HashMap<String, TantivyAggregationResult>) {
-    let has_key = |bucket: &BucketEntry, expected: &str| {
-        matches!(&bucket.key, Key::Str(key) if key == expected)
-    };
+    let has_key = |bucket: &BucketEntry, expected: &str| matches!(&bucket.key, Key::Str(key) if key == expected);
 
     for result in results.values_mut() {
         match result {

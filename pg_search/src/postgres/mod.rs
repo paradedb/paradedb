@@ -1275,7 +1275,7 @@ impl ParallelScanState {
     }
 
     /// Workers wait here until the leader publishes the routing plan, then read it from shared memory.
-    pub unsafe fn vector_routing_plan(
+    pub unsafe fn poll_vector_routing_plan(
         &mut self,
         area: *mut pg_sys::dsa_area,
     ) -> anyhow::Result<Option<VectorRoutingPlan>> {

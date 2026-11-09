@@ -47,7 +47,7 @@ impl VectorRoutingPlanProvider for ParallelVectorRoutingPlan {
             .get_or_init(|| {
                 run_on_main_thread(|token| {
                     let (state, area) = *self.shared.get(token);
-                    unsafe { (*state).vector_routing_plan(area) }
+                    unsafe { (*state).poll_vector_routing_plan(area) }
                         .map_err(|err| TantivyError::SystemError(err.to_string()))?
                         .ok_or_else(|| {
                             TantivyError::InternalError(

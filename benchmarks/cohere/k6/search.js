@@ -51,6 +51,6 @@ export function search() {
   if (result.deadlineReached) return;
   check(result, {
     "query succeeds": (r) => !r.error,
-    "returns 10 neighbors": (r) => r.hits === 10,
+    [`returns ${point.neighbors} neighbors`]: (r) => r.hits === point.neighbors,
   });
 }

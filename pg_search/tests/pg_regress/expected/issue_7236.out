@@ -1,0 +1,245 @@
+-- Regression test for issue #7236.
+-- The Aggregate Scan placed the empty string group before NULL under
+-- ASC NULLS FIRST and after NULL under DESC NULLS LAST. Each query runs with the
+-- custom scan on and off, and both must return the same order.
+DROP TABLE IF EXISTS issue_7236;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE issue_7236 (id int, s text, t text, n int);
+CREATE INDEX issue_7236_idx ON issue_7236 USING paradedb (
+    id,
+    (s::pdb.literal),
+    (t::pdb.literal),
+    n
+);
+INSERT INTO issue_7236 VALUES
+    (1, '', 'x', 1),
+    (2, '', '', 2),
+    (3, '', NULL, 3),
+    (4, NULL, 'x', 4),
+    (5, NULL, '', 5),
+    (6, NULL, NULL, 6),
+    (7, 'a', 'x', 7),
+    (8, 'a', '', 8),
+    (9, 'a', NULL, 9),
+    (10, NULL, NULL, 10);
+\pset null '<null>'
+EXPLAIN (COSTS OFF)
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST;
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on issue_7236
+   Index: issue_7236_idx
+   Tantivy Query: {"with_index":{"query":{"const_score":{"query":"all","score":1.0}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: s
+     Aggregate Definition: {"grouped":{"terms":{"field":"s","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+-- Runs each query with the custom scan on, then off.
+SET paradedb.enable_aggregate_custom_scan = on;
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST;
+   s    | count 
+--------+-------
+ <null> |     4
+        |     3
+ a      |     3
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST;
+   s    | count 
+--------+-------
+ a      |     3
+        |     3
+ <null> |     4
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS LAST;
+   s    | count 
+--------+-------
+        |     3
+ a      |     3
+ <null> |     4
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS FIRST;
+   s    | count 
+--------+-------
+ <null> |     4
+ a      |     3
+        |     3
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST LIMIT 1;
+   s    | count 
+--------+-------
+ <null> |     4
+(1 row)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST LIMIT 2;
+ s | count 
+---+-------
+ a |     3
+   |     3
+(2 rows)
+
+SELECT s, t, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s, t ORDER BY s ASC NULLS FIRST, t DESC NULLS LAST;
+   s    |   t    | count 
+--------+--------+-------
+ <null> | x      |     1
+ <null> |        |     1
+ <null> | <null> |     2
+        | x      |     1
+        |        |     1
+        | <null> |     1
+ a      | x      |     1
+ a      |        |     1
+ a      | <null> |     1
+(9 rows)
+
+SELECT s, t, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s, t ORDER BY s DESC NULLS LAST, t ASC NULLS FIRST;
+   s    |   t    | count 
+--------+--------+-------
+ a      | <null> |     1
+ a      |        |     1
+ a      | x      |     1
+        | <null> |     1
+        |        |     1
+        | x      |     1
+ <null> | <null> |     2
+ <null> |        |     1
+ <null> | x      |     1
+(9 rows)
+
+SELECT s, COUNT(*) FILTER (WHERE n <= 5), COUNT(*) FILTER (WHERE n > 5)
+FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST;
+   s    | count | count 
+--------+-------+-------
+ <null> |     2 |     2
+        |     3 |     0
+ a      |     0 |     3
+(3 rows)
+
+SELECT s, COUNT(*) FILTER (WHERE n <= 5), COUNT(*) FILTER (WHERE n > 5)
+FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST;
+   s    | count | count 
+--------+-------+-------
+ a      |     0 |     3
+        |     3 |     0
+ <null> |     2 |     2
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST;
+   s    | count 
+--------+-------
+ <null> |     4
+        |     3
+ a      |     3
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST;
+   s    | count 
+--------+-------
+ a      |     3
+        |     3
+ <null> |     4
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS LAST;
+   s    | count 
+--------+-------
+        |     3
+ a      |     3
+ <null> |     4
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS FIRST;
+   s    | count 
+--------+-------
+ <null> |     4
+ a      |     3
+        |     3
+(3 rows)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST LIMIT 1;
+   s    | count 
+--------+-------
+ <null> |     4
+(1 row)
+
+SELECT s, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST LIMIT 2;
+ s | count 
+---+-------
+ a |     3
+   |     3
+(2 rows)
+
+SELECT s, t, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s, t ORDER BY s ASC NULLS FIRST, t DESC NULLS LAST;
+   s    |   t    | count 
+--------+--------+-------
+ <null> | x      |     1
+ <null> |        |     1
+ <null> | <null> |     2
+        | x      |     1
+        |        |     1
+        | <null> |     1
+ a      | x      |     1
+ a      |        |     1
+ a      | <null> |     1
+(9 rows)
+
+SELECT s, t, COUNT(*) FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s, t ORDER BY s DESC NULLS LAST, t ASC NULLS FIRST;
+   s    |   t    | count 
+--------+--------+-------
+ a      | <null> |     1
+ a      |        |     1
+ a      | x      |     1
+        | <null> |     1
+        |        |     1
+        | x      |     1
+ <null> | <null> |     2
+ <null> |        |     1
+ <null> | x      |     1
+(9 rows)
+
+SELECT s, COUNT(*) FILTER (WHERE n <= 5), COUNT(*) FILTER (WHERE n > 5)
+FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST;
+   s    | count | count 
+--------+-------+-------
+ <null> |     2 |     2
+        |     3 |     0
+ a      |     0 |     3
+(3 rows)
+
+SELECT s, COUNT(*) FILTER (WHERE n <= 5), COUNT(*) FILTER (WHERE n > 5)
+FROM issue_7236 WHERE issue_7236 @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST;
+   s    | count | count 
+--------+-------+-------
+ a      |     0 |     3
+        |     3 |     0
+ <null> |     2 |     2
+(3 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE issue_7236;

@@ -13,7 +13,7 @@ CREATE INDEX issue_7236_idx ON issue_7236 USING paradedb (
     (s::pdb.literal),
     (t::pdb.literal),
     n
-) WITH (key_field = 'id');
+);
 
 INSERT INTO issue_7236 VALUES
     (1, '', 'x', 1),

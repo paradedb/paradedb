@@ -15,6 +15,9 @@ ignore = [
   "RUSTSEC-2026-0403",
   # The affected allocator shim is wasm32-only; PostgreSQL builds are native.
   "RUSTSEC-2026-0410",
+  # Optional dependency of sqlx (`sqlx-sqlite`) that we never enable, so it is
+  # in Cargo.lock but unreachable from `cargo tree -i` on any target.
+  "RUSTSEC-2026-0459",
 ]
 
 # Unmaintained crates are warnings, not failures.

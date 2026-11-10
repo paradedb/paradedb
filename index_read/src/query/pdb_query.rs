@@ -2351,6 +2351,34 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
         .collect()
 }
 
+/// Whether the synonym index `index` turns `value` into a group of alternatives. The tokens come
+/// from the tokenizer in the index options, since the planner has no searcher. The selectivity
+/// estimate builds the query before this, so a synonym index that fails to open has failed the
+/// query there.
+pub(crate) fn match_expands_with_synonyms(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    value: &str,
+    index: pg_sys::Oid,
+) -> bool {
+    let Some(mut analyzer) = query_tokenizer(search_field, schema)
+        .as_ref()
+        .and_then(SearchTokenizer::to_tantivy_tokenizer)
+    else {
+        return false;
+    };
+    let mut stream = analyzer.token_stream(value);
+    let mut tokens = Vec::new();
+    while stream.advance() {
+        tokens.push(stream.token().text.clone());
+    }
+    expand_match(index, search_field, schema, None, &tokens).is_ok_and(|expansions| {
+        expansions
+            .iter()
+            .any(|expansion| !expansion.is_single_term())
+    })
+}
+
 /// The tokenizer of a query on `search_field`, from the index options.
 fn query_tokenizer(
     search_field: &SearchField,

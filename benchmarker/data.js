@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794340421525,
+  "lastUpdate": 1794349972393,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -69749,6 +69749,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13788077839-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "61edff0ab14c68cbaa0bb54d02ccadab2da87131",
+          "message": "fix: correct Tantivy revision after clustering update (#7365)\n\n## What\n\nRestore compilation on main by pinning Tantivy to\n`05b861b5ef138c4f4a3d93544d3b174e1994e207`, the merged revision of\nparadedb/tantivy#392.\n\n## Why\n\n#7346 pinned the pre-merge branch commit `1c7c2150`, which lacks the\nvector-routing APIs already required by #7295, including\n`VectorSearchBudget`, `AtomicVectorWork`, and\n`TopClustersBySimilarityCollector`. Both\n[HN](https://github.com/paradedb/paradedb/actions/runs/42894121461) and\n[MS\nMARCO](https://github.com/paradedb/paradedb/actions/runs/42894122837)\npg_vectorsearch runs failed while compiling `pg_search` during cluster\nsetup.\n\n## How\n\nUpdate all four Tantivy dependency/patch pins and the ten Tantivy-family\nlockfile entries. The merged revision retains the geometric\n`target_leaf_size` changes and includes the required routing APIs. No\nother dependency versions change. The existing Nix CI workflow will\nrefresh `cargoHash` for the updated lockfile.\n\n## Tests\n\n- `cargo metadata --format-version 1 --locked`: all ten Tantivy-family\npackages resolve to the new revision.\n- `cargo check --workspace --all-targets --locked`: passed locally with\nPostgreSQL 18, including `index_read` and `pg_search`.\n- Applicable pre-commit hooks and `git diff --check`: passed.",
+          "timestamp": "2026-11-10T20:34:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/61edff0ab14c68cbaa0bb54d02ccadab2da87131"
+        },
+        "date": 1794349967464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 11.07,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 13.049,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.5,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 14.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 17.182,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 17.876,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 38.275,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 56.544,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 62.397,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 11.364,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 12.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 13.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 13.221,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 16.246,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 16.792,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 29.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 35.984,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 40.256,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 4.379,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 5.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.522,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 7.86,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 8.967,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 9.977,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 30.987,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 32.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 35.312,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13809306135-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -73411,6 +73569,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13788077839-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "61edff0ab14c68cbaa0bb54d02ccadab2da87131",
+          "message": "fix: correct Tantivy revision after clustering update (#7365)\n\n## What\n\nRestore compilation on main by pinning Tantivy to\n`05b861b5ef138c4f4a3d93544d3b174e1994e207`, the merged revision of\nparadedb/tantivy#392.\n\n## Why\n\n#7346 pinned the pre-merge branch commit `1c7c2150`, which lacks the\nvector-routing APIs already required by #7295, including\n`VectorSearchBudget`, `AtomicVectorWork`, and\n`TopClustersBySimilarityCollector`. Both\n[HN](https://github.com/paradedb/paradedb/actions/runs/42894121461) and\n[MS\nMARCO](https://github.com/paradedb/paradedb/actions/runs/42894122837)\npg_vectorsearch runs failed while compiling `pg_search` during cluster\nsetup.\n\n## How\n\nUpdate all four Tantivy dependency/patch pins and the ten Tantivy-family\nlockfile entries. The merged revision retains the geometric\n`target_leaf_size` changes and includes the required routing APIs. No\nother dependency versions change. The existing Nix CI workflow will\nrefresh `cargoHash` for the updated lockfile.\n\n## Tests\n\n- `cargo metadata --format-version 1 --locked`: all ten Tantivy-family\npackages resolve to the new revision.\n- `cargo check --workspace --all-targets --locked`: passed locally with\nPostgreSQL 18, including `index_read` and `pg_search`.\n- Applicable pre-commit hooks and `git diff --check`: passed.",
+          "timestamp": "2026-11-10T20:34:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/61edff0ab14c68cbaa0bb54d02ccadab2da87131"
+        },
+        "date": 1794349969377,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 89.01071194071044,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 69.96148275325135,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 25.27795112864796,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 86.64460571273283,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 73.95861317503248,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 34.016631545941145,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 225.9286216542102,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 128.32353317782844,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 39.73919548204312,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13809306135-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -75063,6 +75289,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13788077839-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "61edff0ab14c68cbaa0bb54d02ccadab2da87131",
+          "message": "fix: correct Tantivy revision after clustering update (#7365)\n\n## What\n\nRestore compilation on main by pinning Tantivy to\n`05b861b5ef138c4f4a3d93544d3b174e1994e207`, the merged revision of\nparadedb/tantivy#392.\n\n## Why\n\n#7346 pinned the pre-merge branch commit `1c7c2150`, which lacks the\nvector-routing APIs already required by #7295, including\n`VectorSearchBudget`, `AtomicVectorWork`, and\n`TopClustersBySimilarityCollector`. Both\n[HN](https://github.com/paradedb/paradedb/actions/runs/42894121461) and\n[MS\nMARCO](https://github.com/paradedb/paradedb/actions/runs/42894122837)\npg_vectorsearch runs failed while compiling `pg_search` during cluster\nsetup.\n\n## How\n\nUpdate all four Tantivy dependency/patch pins and the ten Tantivy-family\nlockfile entries. The merged revision retains the geometric\n`target_leaf_size` changes and includes the required routing APIs. No\nother dependency versions change. The existing Nix CI workflow will\nrefresh `cargoHash` for the updated lockfile.\n\n## Tests\n\n- `cargo metadata --format-version 1 --locked`: all ten Tantivy-family\npackages resolve to the new revision.\n- `cargo check --workspace --all-targets --locked`: passed locally with\nPostgreSQL 18, including `index_read` and `pg_search`.\n- Applicable pre-commit hooks and `git diff --check`: passed.",
+          "timestamp": "2026-11-10T20:34:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/61edff0ab14c68cbaa0bb54d02ccadab2da87131"
+        },
+        "date": 1794349972382,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 4.104399258283333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43173.9140625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13809306135-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -78338,6 +78597,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13788077839-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "61edff0ab14c68cbaa0bb54d02ccadab2da87131",
+          "message": "fix: correct Tantivy revision after clustering update (#7365)\n\n## What\n\nRestore compilation on main by pinning Tantivy to\n`05b861b5ef138c4f4a3d93544d3b174e1994e207`, the merged revision of\nparadedb/tantivy#392.\n\n## Why\n\n#7346 pinned the pre-merge branch commit `1c7c2150`, which lacks the\nvector-routing APIs already required by #7295, including\n`VectorSearchBudget`, `AtomicVectorWork`, and\n`TopClustersBySimilarityCollector`. Both\n[HN](https://github.com/paradedb/paradedb/actions/runs/42894121461) and\n[MS\nMARCO](https://github.com/paradedb/paradedb/actions/runs/42894122837)\npg_vectorsearch runs failed while compiling `pg_search` during cluster\nsetup.\n\n## How\n\nUpdate all four Tantivy dependency/patch pins and the ten Tantivy-family\nlockfile entries. The merged revision retains the geometric\n`target_leaf_size` changes and includes the required routing APIs. No\nother dependency versions change. The existing Nix CI workflow will\nrefresh `cargoHash` for the updated lockfile.\n\n## Tests\n\n- `cargo metadata --format-version 1 --locked`: all ten Tantivy-family\npackages resolve to the new revision.\n- `cargo check --workspace --all-targets --locked`: passed locally with\nPostgreSQL 18, including `index_read` and `pg_search`.\n- Applicable pre-commit hooks and `git diff --check`: passed.",
+          "timestamp": "2026-11-10T20:34:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/61edff0ab14c68cbaa0bb54d02ccadab2da87131"
+        },
+        "date": 1794349970858,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 6919.53,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 9294.17,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 35459.42,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 7701.9,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 9909.35,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 29320.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1425.88,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2799.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 9634.32,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13809306135-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

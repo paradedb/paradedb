@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794298007741,
+  "lastUpdate": 1794298034007,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -182481,6 +182481,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13657601393-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919",
+          "message": "chore: Split `pg_search` into 9 crates. (#7318)\n\n## What\n\nSplits the `pg_search` crate (~182k lines) into 8 internal `rlib`\nworkspace crates (`common`, `storage`, `index_read`, `index_write`,\n`scan`, `planner`, `basescan`, `joinscan`) plus the top-level\n`pg_search` `cdylib` crate.\n\n## Why\n\nBreaking the monolithic crate into a DAG reduces per-crate size (each\ncrate is now 8k to 33k lines) and allows parallel compilation as well as\nfaster incremental rebuilds.\n\n## How\n\nSee the comments in `Cargo.toml`s around crate responsibilities and\ndependency restrictions.\n\n## Tests\n\n| Scenario | `main` | `branch` | Change | Speedup |\n| --- | ---: | ---: | ---: | ---: |\n| `clean_extension_build` (`cargo clean -p <ext_crates>`) | `547.32s` |\n`282.38s` | `-48.4%` | `1.94x` |\n| `incremental_basescan_leaf` (`basescan/.../mod.rs`) | `548.59s` |\n`244.25s` | `-55.5%` | `2.25x` |\n| `incremental_joinscan_leaf` (`joinscan/.../mod.rs`) | `548.23s` |\n`314.03s` | `-42.7%` | `1.75x` |\n| `incremental_index_write_leaf` (`index_write/.../insert.rs`) |\n`549.47s` | `218.90s` | `-60.2%` | `2.51x` |\n| `incremental_scan_mid` (`scan/src/scan/rank_join_exec.rs`) | `552.01s`\n| `264.17s` | `-52.1%` | `2.09x` |\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-10T05:48:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919"
+        },
+        "date": 1794298031304,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 157.3492521478296,
+            "unit": "median tps",
+            "extra": "avg tps: 155.35801466457445, max tps: 167.3959345885186, count: 59071"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 545.5322107477415,
+            "unit": "median tps",
+            "extra": "avg tps: 561.6522217625402, max tps: 4858.914330217975, count: 59071"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2985.6486409804793,
+            "unit": "median tps",
+            "extra": "avg tps: 2980.959891106954, max tps: 3030.0296572127977, count: 59071"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 192.08972519474867,
+            "unit": "median tps",
+            "extra": "avg tps: 189.71037934044494, max tps: 207.51290748194876, count: 59071"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 273.7790801817243,
+            "unit": "median tps",
+            "extra": "avg tps: 377.574031246452, max tps: 2824.25073592782, count: 118142"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.28147239728446,
+            "unit": "median tps",
+            "extra": "avg tps: 29.870325451289904, max tps: 47.95430530156425, count: 59071"
+          }
+        ],
+        "publication_id": "13744303236-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -231890,6 +231949,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13657601393-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919",
+          "message": "chore: Split `pg_search` into 9 crates. (#7318)\n\n## What\n\nSplits the `pg_search` crate (~182k lines) into 8 internal `rlib`\nworkspace crates (`common`, `storage`, `index_read`, `index_write`,\n`scan`, `planner`, `basescan`, `joinscan`) plus the top-level\n`pg_search` `cdylib` crate.\n\n## Why\n\nBreaking the monolithic crate into a DAG reduces per-crate size (each\ncrate is now 8k to 33k lines) and allows parallel compilation as well as\nfaster incremental rebuilds.\n\n## How\n\nSee the comments in `Cargo.toml`s around crate responsibilities and\ndependency restrictions.\n\n## Tests\n\n| Scenario | `main` | `branch` | Change | Speedup |\n| --- | ---: | ---: | ---: | ---: |\n| `clean_extension_build` (`cargo clean -p <ext_crates>`) | `547.32s` |\n`282.38s` | `-48.4%` | `1.94x` |\n| `incremental_basescan_leaf` (`basescan/.../mod.rs`) | `548.59s` |\n`244.25s` | `-55.5%` | `2.25x` |\n| `incremental_joinscan_leaf` (`joinscan/.../mod.rs`) | `548.23s` |\n`314.03s` | `-42.7%` | `1.75x` |\n| `incremental_index_write_leaf` (`index_write/.../insert.rs`) |\n`549.47s` | `218.90s` | `-60.2%` | `2.51x` |\n| `incremental_scan_mid` (`scan/src/scan/rank_join_exec.rs`) | `552.01s`\n| `264.17s` | `-52.1%` | `2.09x` |\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-10T05:48:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919"
+        },
+        "date": 1794298033915,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.552941,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.880965046861359, max cpu: 38.15201, count: 59071"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.73267709620626, max mem: 50.734375, count: 59071"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3991122454368465, max cpu: 41.319942, count: 59071"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.395248276438522, max mem: 31.3984375, count: 59071"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.952704853320578, max cpu: 18.303146, count: 59071"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 47.75,
+            "unit": "median mem",
+            "extra": "avg mem: 47.05547230768905, max mem: 51.875, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2519,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2524.895244705524, max block_count: 2557.0, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.5415733357586456, max cpu: 4.5933013, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.949313114726348, max mem: 29.015625, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.65697211829832, max segment_count: 36.0, count: 59071"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.476187026941185, max cpu: 33.7011, count: 59071"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 61.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.02580779379899, max mem: 61.02734375, count: 59071"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.455553551492669, max cpu: 41.538464, count: 118142"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.81239545155406, max mem: 57.29296875, count: 118142"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.147213,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.433617170781009, max cpu: 18.382, count: 59071"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.66260708776303, max mem: 47.68359375, count: 59071"
+          }
+        ],
+        "publication_id": "13744303236-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

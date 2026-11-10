@@ -2,4 +2,4 @@
 header: breaking
 ---
 
-A row-level security policy, or the condition of a security-barrier view, no longer adds a constant to `pdb.score`. Previously such a condition added `1.0` per clause in base scans and hash joins and `0.0` in the rank join, so the same statement returned different scores depending on the plan. Conditions the statement itself writes are unchanged.
+A row-level security policy, or the condition of a security-barrier view, no longer adds a constant to `pdb.score`. Previously such a condition added `1.0` per clause in base scans and hash joins and `0.0` in the rank join, so the same statement returned different scores depending on the plan. Conditions the statement itself writes are unchanged; see #7368.

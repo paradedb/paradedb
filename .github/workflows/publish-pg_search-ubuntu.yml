@@ -9,11 +9,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_call:
-    inputs:
-      package_test:
-        type: boolean
-        default: false
   workflow_dispatch:
     inputs:
       version:
@@ -299,14 +294,6 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      - name: Assemble Package Test Migration
-        if: inputs.package_test
-        run: |
-          PREV_VERSION=$(./scripts/release.sh latest-sql-version)
-          ./scripts/release.sh set-version 999.0.0 --skip-nix
-          cargo pgrx migrate assemble 999.0.0 --package pg_search \
-            --prev-version "${PREV_VERSION#v}" --preserve-fragments --allow-empty
-
       - name: Build Native DEB Package
         env:
           PG_CONFIG: /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
@@ -325,20 +312,17 @@ jobs:
         run: ./scripts/test-linux-package.sh
 
       - name: Install Cosign
-        if: ${{ !inputs.package_test }}
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2; Upstream does not publish a moving @v4 tag
 
       # Keyless Sigstore signature over the .deb. Works without GitHub Enterprise;
       # the .cosign.bundle is uploaded next to the package for `cosign verify-blob`.
       - name: Sign .deb with Cosign (keyless)
-        if: ${{ !inputs.package_test }}
         env:
           COSIGN_YES: "true"
           DEB: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
         run: cosign sign-blob --yes --bundle "${DEB}.cosign.bundle" "$DEB"
 
       - name: Retrieve GitHub Release Upload URL
-        if: ${{ !inputs.package_test }}
         id: upload_url
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -354,7 +338,6 @@ jobs:
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
       - name: Upload pg_search .deb to GitHub Release
-        if: ${{ !inputs.package_test }}
         uses: shogo82148/actions-upload-release-asset@73f83b114970a3485e1423ecc1fb93d887c9b096 # v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -364,7 +347,6 @@ jobs:
           overwrite: true
 
       - name: Upload pg_search .deb Cosign Bundle to GitHub Release
-        if: ${{ !inputs.package_test }}
         uses: shogo82148/actions-upload-release-asset@73f83b114970a3485e1423ecc1fb93d887c9b096 # v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -374,7 +356,7 @@ jobs:
           overwrite: true
 
       - name: Notify Slack on Failure
-        if: ${{ failure() && !inputs.package_test }}
+        if: failure()
         uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           webhook_url: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

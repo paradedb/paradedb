@@ -30,9 +30,9 @@ use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::deparse::node_to_string_owned;
 use crate::postgres::node::NodeExt;
 use cost::{
-    CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, TopKPrunability,
-    WorkerDecisionReason, WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism,
-    estimate_path_cost, parallel_divisor, topk_can_prune_for_method,
+    CostMemo, DriveCost, EstimationQuery, ScanParallelismInputs, WorkerDecisionReason,
+    WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
+    parallel_divisor, topk_can_prune_for_method,
 };
 
 use std::ffi::CStr;
@@ -1296,12 +1296,9 @@ impl CustomScan for BaseScan {
                         parallel_leader_participates,
                         is_join_context,
                         has_grouping,
-                        // Only a candidate for the short-circuit pays for the plan-time expansion.
-                        expands_with_synonyms: matches!(
-                            prunability,
-                            TopKPrunability::PrunableCandidate
-                        ) && query.is_topk_prunable()
-                            && query.expands_with_synonyms(&source_context.schema().unwrap()),
+                        expands_with_synonyms: &|| {
+                            query.expands_with_synonyms(&source_context.schema().unwrap())
+                        },
                     })
                 };
                 let reason = policy.reason();

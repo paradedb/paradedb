@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794332828487,
+  "lastUpdate": 1794340421525,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -80770,6 +80770,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13766367220-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794340418689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 14.981,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 19.036,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 22.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 32.683,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 52.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 58.685,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.576,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 8.105,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.32,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 36.266,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 38.987,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13796848680-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -80858,6 +80941,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13766367220-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794340419852,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 71.45824868266378,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 30.079125187093947,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 174.31043717548835,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 60.76207450862767,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13796848680-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -80946,6 +81072,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13766367220-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794340420717,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 4995.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 13353.09,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1921.58,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 7137.58,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13796848680-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -81034,6 +81203,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13766367220-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794340421517,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 135.28492660931667,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 478659.046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx parallel workers",
+            "value": 7,
+            "unit": "workers"
+          },
+          {
+            "name": "msmarco_bm25_idx peak summed RSS",
+            "value": 102.23933410644531,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13796848680-index"
       }
     ]
   }

@@ -45,7 +45,7 @@ set -e
 test "$status" -ne 0 && test "$status" -ne 124
 
 docker events --since "$(docker inspect --format '{{.Created}}' "$container")" \
-  --until "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --filter "container=$container" \
+  --until "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" --filter "container=$container" \
   --filter event=oom --format '{{json .}}' >"$output/oom-events.jsonl"
 jq -se 'length > 0' "$output/oom-events.jsonl"
 jq -e '.status == "failed" and .error != null' "$output"/failure/load/*_load/run.json

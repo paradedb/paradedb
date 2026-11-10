@@ -11,7 +11,7 @@ docker exec "$PARADEDB_CONTAINER" sh -c '
   done
 ' >"$output/cgroup-memory.log" 2>&1 || true
 docker events --since "$(docker inspect --format '{{.Created}}' "$PARADEDB_CONTAINER")" \
-  --until "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --filter "container=$PARADEDB_CONTAINER" \
+  --until "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" --filter "container=$PARADEDB_CONTAINER" \
   --filter event=oom --format '{{json .}}' >"$output/oom-events.jsonl" || true
 sudo dmesg -T | tail -200 >"$output/kernel.log" || true
 

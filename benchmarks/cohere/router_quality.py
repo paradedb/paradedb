@@ -8,7 +8,7 @@ with adaptive probing on.
 
     configs  write router-<arm>.toml for every arm from a Cohere profile
     measure  rerun pdbench's selected budgets under EXPLAIN and record per-segment work
-    render   write router_quality.{json,md,html} and router-metrics.json
+    render   write router_quality.{json,md,html} and the router history metrics
 """
 
 import argparse
@@ -434,6 +434,7 @@ UNFILTERED = "knn_top10_unfiltered"
 MAIN_TARGETS = (0.9, 0.95)
 VECTORS_WORSE = 0.10  # Flat or adaptive-on vectors probed, relative increase.
 ADAPTIVE_RATIO_RISE = 0.05  # Adaptive-on / Router vectors probed, absolute increase.
+RATIO_RISE = 0.05  # Router vs flat above MAX_RATIO flags only past main's ratio by this much.
 ROUTING_WORSE = 0.25  # Router routing time, relative increase ...
 ROUTING_WORSE_MS = 0.1  # ... and absolute increase in ms.
 CELLS_NOTE = "Each cell is this commit's value with main's in brackets."
@@ -508,16 +509,23 @@ def table_rows(query):
 def flags(current, baseline):
     """Flags on the unfiltered table, keyed by (row id, target). Filtered tables never flag.
 
-    A Router-vs-flat ratio above MAX_RATIO is ❌ at r90 and r95 and ⚠️ at r99. Against main, at r90
-    and r95, a cell is ⚠️ when Flat or adaptive-on vectors probed rose by more than VECTORS_WORSE,
-    when adaptive-on / Router vectors probed rose by more than ADAPTIVE_RATIO_RISE, or when Router
-    routing time rose by more than ROUTING_WORSE and ROUTING_WORSE_MS.
+    A Router-vs-flat ratio above MAX_RATIO is ❌ at r90 and r95 and ⚠️ at r99. With a main baseline
+    the ratio must also exceed main's by more than RATIO_RISE, so a router already above MAX_RATIO
+    on main does not flag every run; a cell main did not reach keeps the absolute rule. Against
+    main, at r90 and r95, a cell is ⚠️ when Flat or adaptive-on vectors probed rose by more than
+    VECTORS_WORSE, when adaptive-on / Router vectors probed rose by more than ADAPTIVE_RATIO_RISE,
+    or when Router routing time rose by more than ROUTING_WORSE and ROUTING_WORSE_MS.
     """
     query, found = UNFILTERED, {}
     for row, key in (("ratio:clusters", "clusters"), ("ratio:vectors", "vectors_probed")):
         for target in TARGETS:
             current_ratio = ratio_of(current, query, target, key)
-            if current_ratio is not None and current_ratio > MAX_RATIO:
+            main_ratio = ratio_of(baseline, query, target, key)
+            if (
+                current_ratio is not None
+                and current_ratio > MAX_RATIO
+                and (main_ratio is None or current_ratio - main_ratio > RATIO_RISE)
+            ):
                 found[(row, target)] = {
                     "row": row,
                     "target": target,
@@ -578,7 +586,19 @@ def noun(row):
     return "clusters" if row == "ratio:clusters" else "vectors probed"
 
 
-def verdict(current, flagged, baseline_note, baseline_commit):
+def worst_above_max(current, baseline):
+    """The worst r90 / r95 Router-vs-flat ratio above MAX_RATIO, with its target and main's
+    ratio, or None."""
+    cells = [
+        (ratio_of(current, UNFILTERED, target, key), target, ratio_of(baseline, UNFILTERED, target, key))
+        for key in ("clusters", "vectors_probed")
+        for target in MAIN_TARGETS
+    ]
+    cells = [cell for cell in cells if cell[0] is not None and cell[0] > MAX_RATIO]
+    return max(cells, key=lambda cell: (cell[0], -cell[1])) if cells else None
+
+
+def verdict(current, flagged, baseline_note, baseline_commit, baseline=None):
     """The verdict line and its mark. `baseline_note` ends the line when main has no comparable
     baseline."""
     ratio_failures = [f for f in flagged.values() if f["kind"] == "ratio" and f["mark"] == "❌"]
@@ -613,6 +633,13 @@ def verdict(current, flagged, baseline_note, baseline_commit):
             f" at {label(worst_flag['target'])}"
         )
         mark = "⚠️"
+    elif baseline_note is None and (above := worst_above_max(current, baseline)) is not None:
+        current_ratio, target, main_ratio = above
+        text = (
+            f"✅ No regression against main {baseline_commit[:7]}. Router is at "
+            f"{ratio_text(current_ratio)} flat at {label(target)} (main {ratio_text(main_ratio)})"
+        )
+        mark = "✅"
     else:
         ratios = [
             (ratio_of(current, UNFILTERED, target, key), target)
@@ -631,7 +658,7 @@ def verdict(current, flagged, baseline_note, baseline_commit):
         mark = "✅"
     if baseline_note is not None:
         text += f" · {baseline_note}"
-    if mark != "✅":
+    if mark != "✅" or text.startswith("✅ No regression"):
         text += "."
     return text, mark
 
@@ -717,8 +744,12 @@ def markdown(report, baseline):
     return "\n".join(lines) + "\n"
 
 
+RATIO_HISTORY = ("router vs flat, clusters", "adaptive on vs off, vectors probed")
+
+
 def history_metrics(report):
-    """Unfiltered metrics for the benchmark history, lower is better: `{name, unit, value}`."""
+    """Unfiltered metrics for the benchmark history, lower is better: `{name, unit, value}`. The
+    two ratios form the alerting `(router)` suite; the rest form `(router detail)`."""
     metrics = []
     for target in TARGETS:
         tag = f"{UNFILTERED}@{label(target)}"
@@ -865,7 +896,7 @@ def html_report(report):
 
 
 def render(measurements, output, commit, pdbench, baseline=None, report_url=None):
-    """Writes router_quality.json, router_quality.md, router_quality.html and router-metrics.json."""
+    """Writes router_quality.{json,md,html}, router-metrics.json and router-detail-metrics.json."""
     report = dict(measurements)
     size = report["dataset"].get("size", "")
     note = None
@@ -874,7 +905,7 @@ def render(measurements, output, commit, pdbench, baseline=None, report_url=None
     elif baseline.get("fingerprint") != report["fingerprint"]:
         note, baseline = "main baseline configuration differs", None
     flagged = flags(report, baseline)
-    line, mark = verdict(report, flagged, note, baseline["commit"] if baseline else "")
+    line, mark = verdict(report, flagged, note, baseline["commit"] if baseline else "", baseline)
     report |= {
         "commit": commit,
         "pdbench": pdbench,
@@ -890,7 +921,11 @@ def render(measurements, output, commit, pdbench, baseline=None, report_url=None
     (output / "router_quality.json").write_text(json.dumps(report, indent=2, default=str) + "\n")
     (output / "router_quality.md").write_text(markdown(report, baseline))
     (output / "router_quality.html").write_text(html_report(report))
-    (output / "router-metrics.json").write_text(json.dumps(history_metrics(report), indent=2) + "\n")
+    metrics = history_metrics(report)
+    ratios = [m for m in metrics if m["name"].split(" ", 1)[1] in RATIO_HISTORY]
+    details = [m for m in metrics if m not in ratios]
+    (output / "router-metrics.json").write_text(json.dumps(ratios, indent=2) + "\n")
+    (output / "router-detail-metrics.json").write_text(json.dumps(details, indent=2) + "\n")
     return report
 
 

@@ -177,14 +177,23 @@ arm reports.
   tolerated runs, plan shapes and config. CI copies it into the sweep reports
   directory, so the publisher puts it on gh-pages under
   `benchmarker-runs/<commit>/cohere-<size>/sweep/router_quality.html`.
-- `router-metrics.json`, five unfiltered values per target for the benchmark
-  history: Router vs flat clusters, adaptive on / off vectors probed, Flat
-  vectors probed, adaptive-on vectors probed, and Router routing time.
+- `router-metrics.json` and `router-detail-metrics.json`, unfiltered values per
+  target for the benchmark history. The publisher stores them as two suites:
+  `benchmarker cohere-<size> (router)` holds Router vs flat clusters and
+  adaptive on / off vectors probed and alerts like the other suites (115%,
+  commenting only on runs without a PR);
+  `benchmarker cohere-<size> (router detail)` holds Flat vectors probed,
+  adaptive-on vectors probed and Router routing time, without alerts. Neither adds rows to the PR comment's results
+  table.
 - `router_quality.json`, every number above with the commit and config
   fingerprint; the next run on main reads it as the baseline.
 
 Only the Unfiltered table flags. A Router vs flat ratio above 1.05 gets ❌ at r90
-and r95 and ⚠️ at r99. Against main, at r90 and r95, a cell turns bold with ⚠️
+and r95 and ⚠️ at r99; with a main baseline it must also exceed main's ratio by
+more than 0.05, so a router already above 1.05 on main does not flag every run.
+When ratios sit above 1.05 without a flag, the verdict reads "No regression
+against main" and names the worst r90 or r95 ratio next to main's. Against main,
+at r90 and r95, a cell turns bold with ⚠️
 when Flat or adaptive-on vectors probed rose by more than 10%, when adaptive-on
 / Router vectors probed rose by more than 0.05, or when Router routing time rose
 by more than 25% and 0.1 ms. These are policy thresholds for review, not derived

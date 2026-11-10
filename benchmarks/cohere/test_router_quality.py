@@ -369,6 +369,7 @@ class RenderTest(unittest.TestCase):
                     "router_quality.json",
                     "router_quality.html",
                     "router-metrics.json",
+                    "router-detail-metrics.json",
                 )
             }
         self.assertEqual(json.loads(files["router_quality.json"])["verdict"], report["verdict"])
@@ -451,6 +452,58 @@ class RenderTest(unittest.TestCase):
             "**❌ Router needs 1.30× flat's clusters at r95 · no main baseline yet.**",
             files["router_quality.md"],
         )
+
+    def test_with_a_baseline_a_ratio_above_max_flags_only_past_main_by_more_than_005(self):
+        high = {
+            ("knn_top10_unfiltered", 0.95, "stored"): arm_cell(clusters=113.0),
+            ("knn_top10_unfiltered", 0.99, "stored"): arm_cell(clusters=106.0),
+        }
+        base = self.baseline(high)
+        report, files = self.render(measurements(high), base)
+        text = files["router_quality.md"]
+        self.assertEqual(report["flags"], [])
+        self.assertIn(
+            f"**✅ No regression against main {'b' * 7}. Router is at 1.13× flat at r95 "
+            "(main 1.13×).**",
+            text,
+        )
+        rows = unfiltered_rows(text)
+        self.assertEqual(
+            rows["Clusters probed/Router vs flat"],
+            ["**1.00×** (1.00×)", "**1.13×** (1.13×)", "**1.06×** (1.06×)"],
+        )
+        worse = {
+            ("knn_top10_unfiltered", 0.95, "stored"): arm_cell(clusters=120.0),
+            ("knn_top10_unfiltered", 0.99, "stored"): arm_cell(clusters=112.0),
+        }
+        report, files = self.render(measurements(worse), base)
+        rows = unfiltered_rows(files["router_quality.md"])
+        self.assertEqual(
+            rows["Clusters probed/Router vs flat"],
+            ["**1.00×** (1.00×)", "**1.20×** ❌ (1.13×)", "**1.12×** ⚠️ (1.06×)"],
+        )
+        self.assertIn(
+            "**❌ Router needs 1.20× flat's clusters at r95.**", files["router_quality.md"]
+        )
+        # Up 0.04 at r99 only: no flag, and r99 is not named in the no-regression form.
+        report, files = self.render(
+            measurements({("knn_top10_unfiltered", 0.99, "stored"): arm_cell(clusters=110.0)}),
+            self.baseline({("knn_top10_unfiltered", 0.99, "stored"): arm_cell(clusters=106.0)}),
+        )
+        self.assertEqual(report["flags"], [])
+        self.assertIn(
+            f"**✅ Router matches flat ordering (worst 1.10× at r99) · no regression against main "
+            f"{'b' * 7}**",
+            files["router_quality.md"],
+        )
+
+    def test_with_a_baseline_a_cell_main_missed_keeps_the_absolute_rule(self):
+        base = self.baseline({("knn_top10_unfiltered", 0.9, "stored"): arm_cell(reached=False)})
+        cells = {("knn_top10_unfiltered", 0.9, "stored"): arm_cell(clusters=110.0)}
+        report, files = self.render(measurements(cells), base)
+        rows = unfiltered_rows(files["router_quality.md"])
+        self.assertEqual(rows["Clusters probed/Router vs flat"][0], "**1.10×** ❌")
+        self.assertEqual(report["verdict"], "❌")
 
     def test_vectors_ratio_names_vectors_and_r99_alone_warns(self):
         cells = {("knn_top10_unfiltered", 0.9, "stored"): arm_cell(vectors_probed=43_200.0)}
@@ -599,15 +652,18 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn("(100)", files["router_quality.md"])
         self.assertIsNone(report["baseline_commit"])
 
-    def test_history_metrics_are_fifteen_unfiltered_values(self):
+    def test_history_metrics_are_fifteen_unfiltered_values_in_two_suites(self):
         cells = {
             ("knn_top10_unfiltered", 0.9, "stored"): arm_cell(clusters=120.0, routing_ms=0.5),
             ("knn_top10_unfiltered", 0.9, "stored-adaptive"): arm_cell(vectors_probed=36_000.0),
         }
         _, files = self.render(measurements(cells))
-        metrics = json.loads(files["router-metrics.json"])
-        self.assertEqual(len(metrics), 15)
-        self.assertEqual({m["unit"] for m in metrics}, {"ratio", "vectors/query", "ms"})
+        ratios = json.loads(files["router-metrics.json"])
+        details = json.loads(files["router-detail-metrics.json"])
+        self.assertEqual((len(ratios), len(details)), (6, 9))
+        self.assertEqual({m["unit"] for m in ratios}, {"ratio"})
+        self.assertEqual({m["unit"] for m in details}, {"vectors/query", "ms"})
+        metrics = ratios + details
         values = {m["name"]: m["value"] for m in metrics}
         tag = "knn_top10_unfiltered@r90"
         self.assertEqual(values[f"{tag} router vs flat, clusters"], 1.2)
@@ -618,7 +674,8 @@ class RenderTest(unittest.TestCase):
         self.assertTrue(all(m["name"].startswith("knn_top10_unfiltered@") for m in metrics))
         cells = {("knn_top10_unfiltered", 0.99, "flat"): arm_cell(reached=False)}
         _, files = self.render(measurements(cells))
-        self.assertEqual(len(json.loads(files["router-metrics.json"])), 13)
+        self.assertEqual(len(json.loads(files["router-metrics.json"])), 1 + 2 + 2)
+        self.assertEqual(len(json.loads(files["router-detail-metrics.json"])), 2 + 3 + 3)
 
     def test_full_report_holds_what_left_the_comment(self):
         measured = measurements()

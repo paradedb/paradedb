@@ -35,6 +35,14 @@ inputs:
     description: "Optional JSON metrics for shared buffer hits per query"
     required: false
     default: ""
+  router_metrics_file:
+    description: "Optional JSON router-quality ratios; published with regression alerts, not added to the comment table"
+    required: false
+    default: ""
+  router_detail_metrics_file:
+    description: "Optional JSON router-quality detail metrics; published without alerts, not added to the comment table"
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -59,6 +67,8 @@ runs:
         THROUGHPUT_METRICS_FILE: benchmarker/benchmarker_throughput_metrics.json
         INDEX_METRICS_FILE: ${{ inputs.index_metrics_file }}
         BUFFER_METRICS_FILE: ${{ inputs.buffer_metrics_file }}
+        ROUTER_METRICS_FILE: ${{ inputs.router_metrics_file }}
+        ROUTER_DETAIL_METRICS_FILE: ${{ inputs.router_detail_metrics_file }}
       run: |
         set -euo pipefail
         shopt -s nullglob
@@ -74,6 +84,14 @@ runs:
         fi
         if [ -n "$BUFFER_METRICS_FILE" ]; then
           cp "$BUFFER_METRICS_FILE" _buffer_metrics.json
+        fi
+        printf '[]\n' > _router_metrics.json
+        printf '[]\n' > _router_detail_metrics.json
+        if [ -n "$ROUTER_METRICS_FILE" ]; then
+          cp "$ROUTER_METRICS_FILE" _router_metrics.json
+        fi
+        if [ -n "$ROUTER_DETAIL_METRICS_FILE" ]; then
+          cp "$ROUTER_DETAIL_METRICS_FILE" _router_detail_metrics.json
         fi
         for j in "${RESULTS_DIR}"/*.json; do
           case "$(basename "$j")" in
@@ -131,6 +149,8 @@ runs:
         fi
         echo "present=$(jq 'length > 0' "${METRICS_FILE}")" >> "$GITHUB_OUTPUT"
         echo "buffers_present=$(jq 'length > 0' _buffer_metrics.json)" >> "$GITHUB_OUTPUT"
+        echo "router_present=$(jq 'length > 0' _router_metrics.json)" >> "$GITHUB_OUTPUT"
+        echo "router_detail_present=$(jq 'length > 0' _router_detail_metrics.json)" >> "$GITHUB_OUTPUT"
 
     - name: Publish Latency Metrics (p50, p95, and p99)
       id: publish_latency
@@ -201,6 +221,34 @@ runs:
       run: |
         sed '1s/^window.BENCHMARK_DATA = //' "${{ steps.publish_buffers.outputs.comparison_file }}" |
           jq --arg suite "benchmarker ${DATASET} (buffers)" '.entries[$suite][-2] // {}' > _buffer_baseline.json
+
+    # Router-quality history: two suites so only the ratios alert. Neither is read back for the
+    # comment's results table.
+    - name: Publish Router Ratio Metrics
+      if: steps.metrics.outputs.router_present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-router
+        name: "benchmarker ${{ inputs.dataset }} (router)"
+        ref: ${{ inputs.ref }}
+        metrics_file: _router_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: ${{ inputs.pr_number == '' }}
+
+    - name: Publish Router Detail Metrics
+      if: steps.metrics.outputs.router_detail_present == 'true'
+      uses: ./.github/actions/publish-benchmark-results
+      with:
+        publication_id: ${{ env.BENCHMARK_PUBLICATION_ID }}-router-detail
+        name: "benchmarker ${{ inputs.dataset }} (router detail)"
+        ref: ${{ inputs.ref }}
+        metrics_file: _router_detail_metrics.json
+        github_token: ${{ inputs.github_token }}
+        pages_directory: benchmarker
+        publish_baseline: ${{ inputs.publish_baseline == 'true' }}
+        comment_on_regression: false
 
     - name: Publish Index Build Metrics
       id: publish_index

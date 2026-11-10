@@ -466,7 +466,9 @@ jobs:
              "context_file":"benchmark-artifacts/context.md",
              "sweep_reports_dir":"benchmark-artifacts/comparison",
              "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
-             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json",
+             "router_metrics_file":"benchmark-artifacts/router/router-metrics.json",
+             "router_detail_metrics_file":"benchmark-artifacts/router/router-detail-metrics.json"}
 
       - name: Database logs
         if: failure() || cancelled()

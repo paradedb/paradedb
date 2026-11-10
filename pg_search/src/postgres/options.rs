@@ -15,14 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
+use crate::index::synonym_index::is_synonym_index_relation;
 use crate::parallel_worker::WorkerStyle;
+use crate::postgres::catalog::synonym_rule_typoid;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType, VectorQuantizationConfig};
 
@@ -408,6 +410,16 @@ struct LazyInfo {
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
+    index_type: Rc<Cell<Option<IndexType>>>,
+    synonym_rule_field: Rc<RefCell<Option<Option<FieldName>>>>,
+}
+
+/// What a `paradedb` index is for. A synonym index holds the rules that expand the queries on
+/// other indexes, so no scan reads it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IndexType {
+    Search,
+    Synonym,
 }
 
 #[derive(Clone, Debug)]
@@ -451,6 +463,11 @@ impl BM25IndexOptions {
 
     /// The target the user asked for, by GUC or reloption, or `None` when the default applies.
     pub fn explicit_target_segment_count(&self) -> Option<usize> {
+        // An expansion looks a token up in every segment of a synonym index, so its merges fold
+        // it back to one.
+        if self.index_type() == IndexType::Synonym {
+            return Some(1);
+        }
         let global_tsc = global_target_segment_count();
         if global_tsc != 0 {
             return Some(global_tsc as usize);
@@ -461,6 +478,10 @@ impl BM25IndexOptions {
     }
 
     pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
+        // A lookup reads the terms of the rule field, and a mutable segment holds only ctids.
+        if self.index_type() == IndexType::Synonym {
+            return None;
+        }
         match gucs::global_mutable_segment_rows() {
             Some(rows) if rows > 0 => NonZeroUsize::new(rows),
             Some(0) => None,
@@ -502,9 +523,62 @@ impl BM25IndexOptions {
         self.options_data().search_tokenizer()
     }
 
+    /// The rule column of a synonym index, its one key column, typed `pdb.synonym_rule`.
+    pub fn synonym_rule_field(&self) -> Option<FieldName> {
+        if self.index_type() == IndexType::Search {
+            return None;
+        }
+        if self.lazy.synonym_rule_field.borrow().is_none() {
+            let field = self.synonym_rule_columns().into_iter().next();
+            *self.lazy.synonym_rule_field.borrow_mut() = Some(field);
+        }
+        self.lazy.synonym_rule_field.borrow().clone().flatten()
+    }
+
+    /// The fields that read a `pdb.synonym_rule` column, in any index.
+    pub fn synonym_rule_columns(&self) -> Vec<FieldName> {
+        let Some(typoid) = synonym_rule_typoid() else {
+            return Vec::new();
+        };
+        // A tokenizer cast hides the domain in the field's types, so the type comes from the heap
+        // column the field reads.
+        let heaprelid = unsafe { (*(*self.indexrel).rd_index).indrelid };
+        self.attributes()
+            .iter()
+            .filter(|(_, attr)| {
+                attr.source.heap_attno().is_some_and(|attno| {
+                    let attnum = (attno + 1) as pg_sys::AttrNumber;
+                    unsafe { pg_sys::get_atttype(heaprelid, attnum) == typoid }
+                })
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub fn index_type(&self) -> IndexType {
+        if let Some(index_type) = self.lazy.index_type.get() {
+            return index_type;
+        }
+        let index_type = if unsafe { is_synonym_index_relation(self.indexrel) } {
+            IndexType::Synonym
+        } else {
+            IndexType::Search
+        };
+        self.lazy.index_type.set(Some(index_type));
+        index_type
+    }
+
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
     /// falling back to the default config for the field type.
     pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {
+        let mut config = self.field_config_or_type_default(field_name);
+        if self.synonym_rule_field().as_ref() == Some(field_name) {
+            config.set_synonym_rule_options();
+        }
+        config
+    }
+
+    fn field_config_or_type_default(&self, field_name: &FieldName) -> SearchFieldConfig {
         let field_type = self.get_field_type(field_name);
         match self.field_config(field_name) {
             Some(config) => match field_type {

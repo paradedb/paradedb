@@ -21,7 +21,7 @@ use crate::index::directory::utils::load_index_settings;
 use crate::index::set_ivf_clusterer;
 use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, IndexType};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
@@ -460,6 +460,10 @@ impl PgSearchRelation {
             // SAFETY: self.0 is always Some
             &self.0.as_ref().unwrap_unchecked().options
         }
+    }
+
+    pub fn index_type(&self) -> IndexType {
+        self.options().index_type()
     }
 
     pub fn schema(&self) -> Result<SearchIndexSchema, SchemaError> {

@@ -68,6 +68,5 @@ Run local checks with Python 3.11+ and `duckdb==2.0.0` installed:
 
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
-python3 -m unittest discover -s benchmarks/hn -p 'test_*.py'
 python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 ```

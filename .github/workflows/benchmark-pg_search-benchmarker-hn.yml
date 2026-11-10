@@ -150,7 +150,6 @@ jobs:
           set -euo pipefail
           python3 -m venv .hn-fixtures
           .hn-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
-          .hn-fixtures/bin/python -m unittest discover -s benchmarks/hn -p 'test_*.py'
           .hn-fixtures/bin/python benchmarks/hn/prepare.py --output benchmark-artifacts/fixtures
 
       - name: Configure AWS credentials

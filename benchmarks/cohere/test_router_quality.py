@@ -38,11 +38,20 @@ def segment(**overrides):
     return stats | overrides
 
 
-def plan(segments, execution_ms=10.0):
-    """An EXPLAIN (FORMAT JSON) plan whose scan carries Segment Info as a JSON string."""
-    info = {f"seg{i}": stats for i, stats in enumerate(segments)}
-    scan = {"Node Type": "Custom Scan", "Segment Info": json.dumps(info)}
-    return [{"Plan": {"Node Type": "Limit", "Plans": [scan]}, "Execution Time": execution_ms}]
+def plan(segments, execution_ms=10.0, ids=None, workers=0):
+    """An EXPLAIN (FORMAT JSON) plan whose scan carries Segment Info as a JSON string, under a
+    Gather when `workers` are planned."""
+    ids = ids or [f"seg{i}" for i in range(len(segments))]
+    info = dict(zip(ids, segments))
+    node = {"Node Type": "Custom Scan", "Segment Info": json.dumps(info)}
+    if workers:
+        node = {
+            "Node Type": "Gather Merge",
+            "Workers Planned": workers,
+            "Workers Launched": workers - 1,
+            "Plans": [node],
+        }
+    return [{"Plan": {"Node Type": "Limit", "Plans": [node]}, "Execution Time": execution_ms}]
 
 
 def arm_cell(reached=True, **values):
@@ -147,6 +156,23 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(totals["query_ms"], 20.0)
         self.assertTrue(totals["adaptive_stop"])
 
+    def test_reads_parallel_workers_from_the_plan(self):
+        serial, _ = rq.query_totals(plan([segment()]))
+        parallel, _ = rq.query_totals(plan([segment()], workers=8))
+        self.assertEqual((serial["parallel"], serial["workers_launched"]), (False, 0))
+        self.assertEqual((parallel["parallel"], parallel["workers_launched"]), (True, 7))
+        summary = rq.summarize([serial, parallel])
+        self.assertEqual((summary["parallel_plans"], summary["workers_launched"]), (1, 3.5))
+
+    def test_index_facts_cover_every_segment_id_across_plans(self):
+        seen = {}
+        seen.update(rq.segment_entries(plan([segment(), segment()], ids=["a", "b"])))
+        seen.update(rq.segment_entries(plan([segment(segment_clusters=50)], ids=["c"])))
+        facts = rq.index_facts(seen.values())
+        self.assertEqual(facts["segments"], 3)
+        self.assertEqual(facts["clusters"], 250)
+        self.assertEqual(facts["rows_per_cluster"], 150_000 / 250)
+
     def test_summary_reports_means_tail_share_and_adaptive_stops(self):
         per_query = [
             rq.query_totals(plan([segment(routing_ns=ns, termination=t)], execution_ms=10.0))[0]
@@ -203,6 +229,7 @@ class StatsTest(unittest.TestCase):
 
 class MeasureTest(unittest.TestCase):
     def setUp(self):
+        self.parallel = {"stored", "flat"}
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.runs = Path(self.temp.name)
@@ -247,11 +274,18 @@ class MeasureTest(unittest.TestCase):
         if unfiltered:
             stats |= {"pruned_filter": 0}
         count = script.split("\\o\n")[1].count("EXECUTE")
-        return "\n".join(json.dumps(plan([stats, stats])) for _ in range(count))
+        workers = 8 if audit in self.parallel else 0
+        ids = ["seg0", "seg1"] if "'50'" in script else ["seg1", "seg2"]
+        return "\n".join(
+            json.dumps(plan([stats, stats], ids=ids, workers=workers)) for _ in range(count)
+        )
 
     def test_measures_every_arm_with_adaptive_stop_counts(self):
         result = rq.measure(self.runs, ["[1]", "[2]"], run=self.fake_run)
         self.assertEqual(result["index"]["segments"], 2)
+        self.assertEqual(result["plan_shapes"], {query: ["parallel"] for query in QUERIES})
+        self.assertEqual(result["checks"]["plan_length_rule"]["failed"], 0)
+        self.assertEqual(result["results"]["knn_top10_10pct"]["0.9"]["flat"]["parallel_plans"], 2)
         self.assertEqual(result["index"]["rerank_factor"], "2")
         self.assertEqual(set(result["arms"]), set(rq.ARMS))
         cell = result["results"]["knn_top10_10pct"]["0.9"]
@@ -264,6 +298,19 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual(result["checks"]["routed"]["failed"], 0)
         self.assertEqual(result["terminations"]["stored"], {"Ceiling": 2 * 2 * 9})
         self.assertEqual(result["terminations"]["stored-adaptive"], {rq.ADAPTIVE_STOP: 2 * 2 * 8})
+
+    def test_index_facts_union_segment_ids_and_plan_shapes_must_agree(self):
+        for path in (self.runs / "stored").rglob("*_search.json"):
+            report = json.loads(path.read_text())
+            (variant,) = report["data"]["variants"].values()
+            variant["targets"]["0.95"]["value"] = "51"
+            path.write_text(json.dumps(report))
+        self.parallel = {"stored"}
+        result = rq.measure(self.runs, ["[1]"], run=self.fake_run)
+        self.assertEqual(result["index"]["segments"], 3)
+        self.assertEqual(result["plan_shapes"]["knn_top10_1pct"], ["parallel", "serial"])
+        self.assertEqual(result["checks"]["plan_length_rule"]["failed"], 3)
+        self.assertFalse(result["checks_passed"])
 
     def test_rejects_arms_that_differ_beyond_the_audit_settings(self):
         for path in (self.runs / "flat").rglob("*_search.json"):
@@ -296,7 +343,7 @@ class RenderTest(unittest.TestCase):
         self.assertIn(rq.ROUTING_NOTE, text)
         self.assertIn("No main baseline yet.", text)
         self.assertEqual(text.count("**With adaptive probing on** (clusters probed per query)"), 3)
-        self.assertIn("| r90 | 100 | 100 | 1.00× | +0% | ✅ |", text)
+        self.assertIn("| r90 | 100 | 100 | 1.00× | 0% | ✅ |", text)
         self.assertIn("| Unfiltered | r90 | stored-adaptive | `100` |", text)
         self.assertIn("| 0/100 |", text)
 
@@ -344,7 +391,7 @@ class RenderTest(unittest.TestCase):
         self.assertIn("| r90 | 89 | 100 | 0.89× | −11% | ✅ |", text)
         self.assertIn("| r95 | 120 | 100 | 1.20× | +20% | ⚠️ |", text)
         self.assertIn("| r99 | not reached | 100 |  |  | ⚠️ |", text)
-        self.assertIn("| r99 | 100 | not reached |  | +0% | — |", text)
+        self.assertIn("| r99 | 100 | not reached |  | 0% | — |", text)
         self.assertEqual(report["verdict"], "✅")
         self.assertIn(
             "**✅ Router matches flat at r90 and r95.** "

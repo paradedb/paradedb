@@ -139,22 +139,26 @@ centroid on the same index. `paradedb.vector_router_audit` selects the arm:
 `stored` routes every segment through its stored router, and `flat` scores every
 centroid of every segment exactly from the raw centroid rows. Both disable the
 located path, so every segment routes, and both keep the caller's `router_k`,
-budget, and charging. The setting is a diagnostic and is not documented for
-users.
+budget, and charging. The scan bounds both rankings the same way: a parallel
+plan keeps the best `router_k` candidates, and a serial plan takes the whole
+ranking. The setting is a diagnostic and is not documented for users.
 
 `router_quality.py configs` writes four arm profiles from the size's profile,
 each adding only the audit setting and `paradedb.vector_adaptive_probing`:
 `stored` and `flat` with adaptive probing off, and `stored-adaptive` and
 `flat-adaptive` with it on. `pdbench search` sweeps each arm and query to
 r90/r95/r99 into `benchmark-artifacts/router/<arm>`, separate from the
-operating-point sweeps. `router_quality.py measure` reruns all 100 vectors at
+operating-point sweeps and without HTML reports. `router_quality.py measure` reruns all 100 vectors at
 each selected budget under `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` with
 `paradedb.vector_stats` on, after one discarded warm pass, and sums each query's
 per-segment statistics. It also checks that each statistic means what the
 comment says: every segment routes, only the flat arms report
 `routing_mode = flat`, filtered queries satisfy
-`vectors_visited = layer0_eligible + pruned_filter + pruned_dead`, and
-fixed-probe arms never stop adaptively.
+`vectors_visited = layer0_eligible + pruned_filter + pruned_dead`, fixed-probe
+arms never stop adaptively, and each query runs the same plan shape (parallel
+or serial) in every arm. Segment count and K come from every segment id the
+stored arm reports; a routed segment the ranking gives no cluster still reports
+its size, router metrics, and ranking time.
 
 `router_quality.py render` writes `router_quality.json` and the comment section
 under the operating-point table. Ratios are stored / flat in clusters probed and

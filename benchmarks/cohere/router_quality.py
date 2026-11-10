@@ -79,6 +79,10 @@ CHECKS = {
     ),
     "unfiltered_rows": "unfiltered query: vectors_visited > 0 and pruned_filter = 0",
     "fixed_no_adaptive_stop": f"fixed-probe arms: no segment reports termination {ADAPTIVE_STOP}",
+    "plan_length_rule": (
+        "per query, every arm and target runs all-parallel or all-serial plans, so every arm "
+        "gets the same candidate-list bound"
+    ),
 }
 
 
@@ -121,20 +125,38 @@ def configs(profile, output):
 # --- measure ---
 
 
-def segment_stats(plan):
-    """Per-segment statistics of every ParadeDB scan in one EXPLAIN (FORMAT JSON) plan.
-
-    The leader's Segment Info already holds the segments its parallel workers scanned.
-    """
+def plan_nodes(plan):
     nodes = [plan[0]["Plan"]]
-    segments = []
     while nodes:
         node = nodes.pop()
+        yield node
+        nodes.extend(node.get("Plans", []))
+
+
+def segment_entries(plan):
+    """(segment id, statistics) for every segment of every ParadeDB scan in one EXPLAIN
+    (FORMAT JSON) plan. The leader's Segment Info already holds the segments its parallel workers
+    scanned."""
+    entries = []
+    for node in plan_nodes(plan):
         info = node.get("Segment Info")
         if info is not None:
-            segments.extend((json.loads(info) if isinstance(info, str) else info).values())
-        nodes.extend(node.get("Plans", []))
-    return segments
+            entries.extend((json.loads(info) if isinstance(info, str) else info).items())
+    return entries
+
+
+def segment_stats(plan):
+    return [stats for _, stats in segment_entries(plan)]
+
+
+def workers(plan):
+    """(planned, launched) parallel workers. A planned Gather makes the scan parallel, which
+    caps the routed candidate list at the router's k; a serial scan takes the whole ranking."""
+    planned = launched = 0
+    for node in plan_nodes(plan):
+        planned += node.get("Workers Planned", 0)
+        launched += node.get("Workers Launched", 0)
+    return planned, launched
 
 
 def query_totals(plan):
@@ -151,6 +173,9 @@ def query_totals(plan):
     totals["routing_ms"] = totals.pop("routing_ns") / 1e6
     totals["query_ms"] = plan[0]["Execution Time"]
     totals["adaptive_stop"] = any(s.get("termination") == ADAPTIVE_STOP for s in segments)
+    planned, launched = workers(plan)
+    totals["parallel"] = planned > 0
+    totals["workers_launched"] = launched
     return totals, segments
 
 
@@ -164,6 +189,8 @@ def summarize(per_query):
         summary["routing_ms"] / summary["query_ms"] if summary["query_ms"] else None
     )
     summary["adaptive_stops"] = sum(query["adaptive_stop"] for query in per_query)
+    summary["parallel_plans"] = sum(query["parallel"] for query in per_query)
+    summary["workers_launched"] = sum(query["workers_launched"] for query in per_query) / count
     return summary
 
 
@@ -304,7 +331,9 @@ def measure(runs, vectors, run=psql):
 
     checks = Checks()
     terminations = {arm: collections.Counter() for arm in ARMS}
-    index = None
+    segments_seen = {}
+    rerank_factor = None
+    shapes = collections.defaultdict(set)
     results = {}
     for arm in ARMS:
         for query in QUERIES:
@@ -331,17 +360,28 @@ def measure(runs, vectors, run=psql):
                         checks.observe(arm, query, segments)
                         terminations[arm].update(s.get("termination") for s in segments)
                         per_query.append(totals)
-                        if index is None and arm == "stored":
-                            index = index_facts(segments)
-                            index["rerank_factor"] = run(
-                                "".join(f"SET {k} = '{v}';\n" for k, v in session.items())
-                                + "SHOW paradedb.vector_router_rerank_factor;\n"
-                            ).strip()
+                        if arm == "stored":
+                            segments_seen.update(segment_entries(plan))
+                    if rerank_factor is None and arm == "stored":
+                        rerank_factor = run(
+                            "".join(f"SET {k} = '{v}';\n" for k, v in session.items())
+                            + "SHOW paradedb.vector_router_rerank_factor;\n"
+                        ).strip()
                     cell |= {
                         "budget": selected["value"],
                         "recall": selected["recall"],
                     } | summarize(per_query)
+                    shapes[query].add(plan_shape(cell["parallel_plans"], len(vectors)))
                 results.setdefault(query, {}).setdefault(str(target), {})[arm] = cell
+    for query in QUERIES:
+        checks.record(
+            "plan_length_rule",
+            len(shapes[query]) == 1 and "mixed" not in shapes[query],
+            {"query": query, "shapes": sorted(shapes[query])},
+        )
+    index = index_facts(segments_seen.values()) if segments_seen else None
+    if index is not None:
+        index["rerank_factor"] = rerank_factor
     return {
         "dataset": configs_by_arm["stored"]["dataset"],
         "fingerprint": fingerprint(configs_by_arm),
@@ -353,11 +393,20 @@ def measure(runs, vectors, run=psql):
         # Segment `termination` values seen per arm; only ADAPTIVE_STOP counts as the adaptive stop.
         "adaptive_stop": ADAPTIVE_STOP,
         "terminations": {arm: dict(counter) for arm, counter in terminations.items()},
+        "plan_shapes": {query: sorted(shapes[query]) for query in QUERIES},
         "results": results,
     }
 
 
+def plan_shape(parallel_plans, count):
+    if parallel_plans == count:
+        return "parallel"
+    return "serial" if parallel_plans == 0 else "mixed"
+
+
 def index_facts(segments):
+    """Segment count, K and rows per cluster over every segment id the stored arm reported."""
+    segments = list(segments)
     clusters = sum(segment["segment_clusters"] for segment in segments)
     return {
         "segments": len(segments),
@@ -501,8 +550,9 @@ def ms(value):
 
 
 def percent(value):
-    """Signed percentage with a typographic minus."""
-    return f"{value:+.0%}".replace("-", "−")
+    """Signed percentage with a typographic minus; a change that rounds to zero has no sign."""
+    text = f"{value:+.0%}"
+    return "0%" if text in ("+0%", "-0%") else text.replace("-", "−")
 
 
 def ratio_text(value):
@@ -711,6 +761,13 @@ def markdown(report, baseline):
             f"`{key} = {value}`" for key, value in report["arms"][arm]["session"].items()
         )
         lines.append(f"- {arm}: {settings}")
+    shapes = report.get("plan_shapes", {})
+    lines.append(
+        "- Plans: "
+        + " · ".join(f"{LABELS[q]} {'/'.join(shapes.get(q, [])) or '?'}" for q in QUERIES)
+        + " (parallel plans cap each arm's candidate list at the router's k; serial plans take "
+        "the whole ranking)"
+    )
     lines += [
         f"- pg_search `{report['commit']}`, pdbench `{report['pdbench']}`",
         f"- Artifact `{report['artifact']}`, config fingerprint `{report['fingerprint'][:12]}`",

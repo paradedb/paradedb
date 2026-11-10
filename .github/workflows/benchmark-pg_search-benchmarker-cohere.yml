@@ -347,7 +347,7 @@ jobs:
               echo "::group::${arm} ${query}"
               pdbench search --url "$PARADEDB_URL" --config "benchmark-artifacts/router/router-${arm}.toml" \
                 --assets-dir benchmarks/cohere/assets --runs-dir "benchmark-artifacts/router/${arm}" \
-                --query "$query" --no-compare --html
+                --query "$query" --no-compare
               echo "::endgroup::"
               echo "${arm} ${query} finished at $(date -u +%FT%TZ)"
             done

@@ -3,8 +3,23 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
+
+# A text predicate whose query string comes from a session setting stays an expression until
+# execution. It is accepted only in this exact form, which names the field it searches.
+SETTING_DRIVEN_FIELD = re.compile(
+    r"paradedb\.with_index\('[^']+'::regclass, "
+    r"paradedb\.parse_with_field\('(?P<field>[^']+)'::paradedb\.fieldname, "
+    r"current_setting\('[^']+'::text\), NULL::boolean, NULL::boolean\)\)"
+)
+
+
+def setting_driven_field(expression, required):
+    """The required field a `postgres_expression` searches, or None for any other expression."""
+    match = SETTING_DRIVEN_FIELD.fullmatch(str(expression.get("expr", {}).get("expr_desc", "")))
+    return match["field"] if match and match["field"] in required else None
 
 
 def verify(plan, filtered, neighbors=None, fields=None):
@@ -29,6 +44,15 @@ def verify(plan, filtered, neighbors=None, fields=None):
         while pending:
             part = pending.pop()
             if isinstance(part, dict):
+                expression = part.get("postgres_expression")
+                field = (
+                    setting_driven_field(expression, required)
+                    if isinstance(expression, dict) and len(part) == 1
+                    else None
+                )
+                if field is not None:
+                    indexed_fields.add(field)
+                    continue
                 if {"heap_filter", "postgres_expression"} & part.keys():
                     raise ValueError(
                         "Predicate uses heap filtering or an unresolved expression"

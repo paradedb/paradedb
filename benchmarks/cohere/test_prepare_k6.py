@@ -1,7 +1,9 @@
 """Regression checks for the pdbench-to-k6 handoff."""
 
 import copy
+import json
 import unittest
+from pathlib import Path
 
 from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
 from verify_plans import verify
@@ -171,6 +173,39 @@ class OperatingPointsTest(unittest.TestCase):
             verify(plan, filtered=False)
         with self.assertRaisesRegex(ValueError, "Expected a ParadeDB scan"):
             verify([{"Plan": {"Node Type": "Seq Scan"}}], filtered=False)
+
+    def test_plan_guard_accepts_a_setting_driven_filter_on_a_required_field(self):
+        """Accept the Cohere filtered plan, whose query string comes from a session setting."""
+        fixture = Path(__file__).parent / "fixtures" / "knn_top10_10pct_plan.json"
+        plan = json.loads(fixture.read_text())
+        verify(plan, filtered=True, neighbors=10, fields=["text"])
+        with self.assertRaisesRegex(ValueError, "unresolved expression"):
+            verify(plan, filtered=True, neighbors=10, fields=["title"])
+        scan = plan[0]["Plan"]["Plans"][0]["Plans"][0]
+        expression = json.loads(scan["Tantivy Query"])["postgres_expression"]["expr"]
+        setting_driven = expression["expr_desc"]
+        for desc in (
+            setting_driven.replace("current_setting('cohere.titles_10pct'::text)", "'year'::text"),
+            setting_driven.replace("parse_with_field", "parse"),
+            "upper(" + setting_driven + ")",
+        ):
+            expression["expr_desc"] = desc
+            scan["Tantivy Query"] = json.dumps({"postgres_expression": {"expr": expression}})
+            with self.assertRaisesRegex(ValueError, "unresolved expression"):
+                verify(plan, filtered=True, neighbors=10, fields=["text"])
+        expression["expr_desc"] = setting_driven
+        scan["Tantivy Query"] = json.dumps(
+            {
+                "boolean": {
+                    "must": [
+                        {"postgres_expression": {"expr": expression}},
+                        {"heap_filter": {"field_filters": []}},
+                    ]
+                }
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "heap filtering"):
+            verify(plan, filtered=True, neighbors=10, fields=["text"])
 
 
 if __name__ == "__main__":

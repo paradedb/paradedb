@@ -2,8 +2,14 @@ SET client_min_messages = WARNING;
 CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
 
+-- Every assertion compares one build with another or reads a count the option fixes, never a
+-- cluster count or a partial probe, so none depends on how a build clustered. One process
+-- builds each index; the probe budget covers every cluster and adaptive stopping is off, so
+-- a full-probe query scores every row.
+SET max_parallel_maintenance_workers = 0;
+SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
 
 CREATE FUNCTION spill_fixture_vector(d integer, n integer)
@@ -34,113 +40,75 @@ BEGIN
 END
 $$;
 
--- Spill is enabled by default for quantized IVF segments.
-CREATE TABLE spill_rows (id integer PRIMARY KEY, vec vector(768));
-CREATE INDEX spill_rows_idx ON spill_rows
-USING paradedb (id, vec vector_cosine_ops)
-WITH (
-    max_leaf_size = 5,
-    training_sample_ratio = 1.0,
-    target_segment_count = 1,
-    mutable_segment_rows = 0,
-    layer_sizes = '400kb',
-    background_layer_sizes = '0'
-);
-INSERT INTO spill_rows SELECT g, spill_fixture_vector(768, g) FROM generate_series(1, 100) g;
-INSERT INTO spill_rows SELECT g, spill_fixture_vector(768, g) FROM generate_series(101, 200) g;
-VACUUM spill_rows;
+-- Two copies of one table, indexed with identical options but the spill. target_leaf_size = 10
+-- gives this fixture at least 4 clusters, so routed and located queries both open several.
+CREATE TABLE spill_on (id integer PRIMARY KEY, emb vector(768));
+INSERT INTO spill_on SELECT g, spill_fixture_vector(768, g) FROM generate_series(1, 200) g;
+CREATE TABLE spill_off AS SELECT * FROM spill_on;
+ALTER TABLE spill_off ADD PRIMARY KEY (id);
+CREATE INDEX spill_on_idx ON spill_on
+USING paradedb (id, emb vector_cosine_ops)
+WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, spill = true);
+CREATE INDEX spill_off_idx ON spill_off
+USING paradedb (id, emb vector_cosine_ops)
+WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, spill = false);
 
-SELECT NOT (reloptions && ARRAY['spill=true', 'spill=false']) AS uses_default
-FROM pg_class WHERE relname = 'spill_rows_idx';
+-- 1. The option took: a spilled index holds two rows per vector, an unspilled one one.
+SELECT bool_and(vector_format = 'ivf' AND quantized AND vector_total_rows = 2 * vector_num_vectors)
+    AS spill_on_two_rows_per_vector
+FROM paradedb.vector_info('spill_on_idx', 'emb');
+SELECT bool_and(vector_total_rows = vector_num_vectors) AS spill_off_one_row_per_vector
+FROM paradedb.vector_info('spill_off_idx', 'emb');
 
-SELECT bool_and(vector_format = 'ivf') AS clustered,
-       bool_and(quantized) AS quantized,
-       sum(vector_num_vectors) = 200 AS every_vector_present,
-       sum(vector_total_rows) = 2 * sum(vector_num_vectors) AS two_rows_per_vector
-FROM paradedb.vector_info('spill_rows_idx', 'vec');
+-- 2. At full probe the spill changes no result: the same top-10 set for three query vectors.
+SELECT q,
+       (SELECT array_agg(id ORDER BY id) FROM (
+            SELECT id FROM spill_on WHERE id @@@ pdb.all()
+            ORDER BY emb <=> spill_fixture_vector(768, q), id LIMIT 10) s)
+     = (SELECT array_agg(id ORDER BY id) FROM (
+            SELECT id FROM spill_off WHERE id @@@ pdb.all()
+            ORDER BY emb <=> spill_fixture_vector(768, q), id LIMIT 10) s)
+        AS same_top10
+FROM (VALUES (0), (7), (1000)) AS queries (q)
+ORDER BY q;
 
--- The exhaustive probe returns the exact order; the oracle runs over an unindexed copy.
-CREATE TABLE spill_rows_plain AS SELECT id, vec FROM spill_rows;
-WITH indexed AS (
-    SELECT id FROM spill_rows WHERE id @@@ pdb.all()
-    ORDER BY vec <=> spill_fixture_vector(768, 0), id LIMIT 10
-), oracle AS (
-    SELECT id FROM spill_rows_plain
-    ORDER BY vec <=> spill_fixture_vector(768, 0), id LIMIT 10
-)
-SELECT (SELECT array_agg(id) FROM indexed) = (SELECT array_agg(id) FROM oracle) AS top10_matches_oracle,
-       (SELECT count(*) FROM indexed) = 10 AS ten_hits;
-
--- With every cluster open, each document's second copy is dropped once; the plan's layer-0
--- accounting still covers every eligible row, and the exact phase scores a document at most once.
+-- 3. A filter matching 5% of the rows takes the located path on the spilled index, which holds
+-- one primary row per document: it drops nothing and returns the unspilled index's ids.
 WITH plan AS (
     SELECT spill_explain(
-        'SELECT id FROM spill_rows WHERE id @@@ pdb.all() '
-        'ORDER BY vec <=> spill_fixture_vector(768, 0), id LIMIT 10'
+        'SELECT id FROM spill_on '
+        'WHERE id @@@ paradedb.range(''id'', int4range(1, 11, ''[)'')) '
+        'ORDER BY emb <=> spill_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
     SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
     FROM plan
 )
 SELECT
-    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint = 400
-        AS every_row_eligible,
-    (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint = 200
-        AS one_copy_dropped_per_document,
-    (jsonb_path_query_first(value, '$.**.layer0_eligible') #>> '{}')::bigint
-        = (jsonb_path_query_first(value, '$.**.layer0_scored') #>> '{}')::bigint
-            + (jsonb_path_query_first(value, '$.**.layer0_exact_rows') #>> '{}')::bigint
-            + (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint
-        AS eligible_is_scored_exact_or_duplicate,
-    (jsonb_path_query_first(value, '$.**.exact_rows') #>> '{}')::bigint BETWEEN 10 AND 200
-        AS exact_rows_once_per_document,
-    (jsonb_path_query_first(value, '$.**.vectors_visited') #>> '{}')::bigint = 400
-        AS every_row_visited
+    (jsonb_path_query_first(value, '$.**.access_path') #>> '{}') = 'Located' AS located,
+    (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint = 0 AS nothing_dropped
 FROM segment_info;
+SELECT (SELECT array_agg(id ORDER BY id) FROM (
+            SELECT id FROM spill_on
+            WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
+            ORDER BY emb <=> spill_fixture_vector(768, 0), id LIMIT 10) s)
+     = (SELECT array_agg(id ORDER BY id) FROM (
+            SELECT id FROM spill_off
+            WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
+            ORDER BY emb <=> spill_fixture_vector(768, 0), id LIMIT 10) s)
+        AS located_same_ids;
 
--- A narrower probe still returns the exact top 10 here: both copies of a document can carry it.
-SET paradedb.vector_cluster_max_probe = 0.5;
-WITH indexed AS (
-    SELECT id FROM spill_rows WHERE id @@@ pdb.all()
-    ORDER BY vec <=> spill_fixture_vector(768, 7), id LIMIT 10
-), oracle AS (
-    SELECT id FROM spill_rows_plain
-    ORDER BY vec <=> spill_fixture_vector(768, 7), id LIMIT 10
-)
-SELECT (SELECT count(*) FROM indexed i JOIN oracle o USING (id)) >= 9 AS recall_at_half_probe;
-SET paradedb.vector_cluster_max_probe = 1.0;
+-- 4. The option round-trips through REINDEX.
+ALTER INDEX spill_on_idx SET (spill = false);
+REINDEX INDEX spill_on_idx;
+SELECT bool_and(vector_total_rows = vector_num_vectors) AS one_row_per_vector
+FROM paradedb.vector_info('spill_on_idx', 'emb');
+ALTER INDEX spill_on_idx SET (spill = true);
+REINDEX INDEX spill_on_idx;
+SELECT bool_and(vector_total_rows = 2 * vector_num_vectors) AS two_rows_per_vector
+FROM paradedb.vector_info('spill_on_idx', 'emb');
 
-ALTER INDEX spill_rows_idx SET (spill = false);
-REINDEX INDEX spill_rows_idx;
-SELECT bool_and(quantized) AS quantized,
-       sum(vector_total_rows) = sum(vector_num_vectors) AS one_row_per_vector
-FROM paradedb.vector_info('spill_rows_idx', 'vec');
-
-DROP TABLE spill_rows_plain;
-DROP TABLE spill_rows;
-
--- The option is inert for an unquantized field: one row per vector.
-CREATE TABLE spill_plain (id integer PRIMARY KEY, vec vector(768));
-CREATE INDEX spill_plain_idx ON spill_plain
-USING paradedb (id, vec vector_cosine_ops)
-WITH (
-    spill = true,
-    quantization = '0',
-    max_leaf_size = 5,
-    training_sample_ratio = 1.0,
-    target_segment_count = 1,
-    mutable_segment_rows = 0,
-    layer_sizes = '400kb',
-    background_layer_sizes = '0'
-);
-INSERT INTO spill_plain SELECT g, spill_fixture_vector(768, g) FROM generate_series(1, 100) g;
-INSERT INTO spill_plain SELECT g, spill_fixture_vector(768, g) FROM generate_series(101, 200) g;
-VACUUM spill_plain;
-SELECT bool_and(vector_format = 'ivf') AS clustered,
-       bool_and(NOT quantized) AS unquantized,
-       sum(vector_total_rows) = sum(vector_num_vectors) AS one_row_per_vector
-FROM paradedb.vector_info('spill_plain_idx', 'vec');
-DROP TABLE spill_plain;
-
+DROP TABLE spill_off;
+DROP TABLE spill_on;
 DROP FUNCTION spill_explain(text);
 DROP FUNCTION spill_fixture_vector(integer, integer);

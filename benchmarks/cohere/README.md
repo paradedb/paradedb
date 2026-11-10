@@ -148,7 +148,12 @@ each adding only the audit setting and `paradedb.vector_adaptive_probing`:
 `stored` and `flat` with adaptive probing off, and `stored-adaptive` and
 `flat-adaptive` with it on. `pdbench search` sweeps each arm and query to
 r90/r95/r99 into `benchmark-artifacts/router/<arm>`, separate from the
-operating-point sweeps and without HTML reports. `router_quality.py measure` reruns all 100 vectors at
+operating-point sweeps and without HTML reports. pdbench saves each run's report
+before building its console projection, which can fail on a parallel plan with
+"representative layer0 has no scan stage". The router sweep keeps such a run
+when that invocation saved a report for the query, records it in
+`tolerated.txt`, the job summary, and the section's Config details, and fails on
+any other error. `router_quality.py measure` reruns all 100 vectors at
 each selected budget under `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` with
 `paradedb.vector_stats` on, after one discarded warm pass, and sums each query's
 per-segment statistics. It also checks that each statistic means what the
@@ -162,9 +167,11 @@ its size, router metrics, and ranking time.
 
 `router_quality.py render` writes `router_quality.json` and the comment section
 under the operating-point table. Ratios are stored / flat in clusters probed and
-in vectors probed (unfiltered) or filter-valid vectors (filtered). A fixed-probe
-row passes at a ratio of at most 1.05; r90 and r95 fail above it and r99 warns.
-The adaptive tables are reported, not gated. Routing time is the `routing_ns`
+in vectors probed (unfiltered) or filter-valid vectors (filtered). Only the
+unfiltered tables carry a status: a fixed-probe row passes at a ratio of at most
+1.05, r90 and r95 fail above it, and r99 warns; the adaptive table is reported,
+not gated. Filtered tables keep their numbers and ratios but carry no status and
+do not set the verdict, since they run with forced routing on parallel plans. Routing time is the `routing_ns`
 stage, which includes row gating. The section compares with the latest main
 run's `cohere-<size>-router-quality` artifact when its configuration matches.
 Neither the verdict nor the checks fail the job.

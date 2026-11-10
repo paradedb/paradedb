@@ -44,6 +44,8 @@ LABELS = {
 }
 QVEC = "current_setting('cohere.qvec')"
 ROUTING_NOTE = "Routing time includes row gating."
+FILTERED_NOTE = "Filtered cells are informational: forced routing, parallel plans."
+TOLERATED = "tolerated.txt"
 
 # Per-query sums over segments and workers, from each segment's vector statistics.
 SUMS = {
@@ -379,6 +381,12 @@ def measure(runs, vectors, run=psql):
             len(shapes[query]) == 1 and "mixed" not in shapes[query],
             {"query": query, "shapes": sorted(shapes[query])},
         )
+    tolerated = []
+    if (runs / TOLERATED).exists():
+        for line in (runs / TOLERATED).read_text().splitlines():
+            if line.strip():
+                arm, query, report_path = line.split(maxsplit=2)
+                tolerated.append({"arm": arm, "query": query, "report": report_path})
     index = index_facts(segments_seen.values()) if segments_seen else None
     if index is not None:
         index["rerank_factor"] = rerank_factor
@@ -394,6 +402,8 @@ def measure(runs, vectors, run=psql):
         "adaptive_stop": ADAPTIVE_STOP,
         "terminations": {arm: dict(counter) for arm, counter in terminations.items()},
         "plan_shapes": {query: sorted(shapes[query]) for query in QUERIES},
+        # pdbench runs whose console projection failed after their report was saved.
+        "tolerated": tolerated,
         "results": results,
     }
 
@@ -443,6 +453,12 @@ def status(target, stored, flat, ratios):
     return "⚠️" if target >= 0.99 else "❌"
 
 
+def gated(query):
+    """Only the unfiltered query carries a status: filtered rows run with the located path forced
+    off and on parallel plans, so they are reported, not gated."""
+    return query.endswith("_unfiltered")
+
+
 def rows(results):
     out = []
     for query in QUERIES:
@@ -457,7 +473,7 @@ def rows(results):
                     "query": query,
                     "target": target,
                     "ratios": ratios,
-                    "status": status(target, stored, flat, ratios),
+                    "status": status(target, stored, flat, ratios) if gated(query) else "",
                 }
             )
     return out
@@ -492,7 +508,7 @@ def adaptive_rows(results):
                         else None
                     ),
                     "stops_short": fixed["reached"] and not stored["reached"],
-                    "status": adaptive_status(fixed, stored, flat, value),
+                    "status": adaptive_status(fixed, stored, flat, value) if gated(query) else "",
                 }
             )
     return out
@@ -529,7 +545,7 @@ def verdict(table, adaptive=()):
                 f" ({query}, reported, not gated)."
             )
     for row in adaptive:
-        if row["stops_short"]:
+        if row["stops_short"] and gated(row["query"]):
             line += (
                 f" ⚠️ Adaptive probing stops short of {label(row['target'])}"
                 f" on {LABELS[row['query']]}."
@@ -663,7 +679,10 @@ def markdown(report, baseline):
         if filtered:
             header += " Empty clusters |"
             align += "---:|"
-        lines += [f"**{LABELS[query]}**", "", header + " |", align + ":-:|"]
+        else:
+            header += " |"
+            align += ":-:|"
+        lines += [f"**{LABELS[query]}**", "", header, align]
         for target in TARGETS:
             cell = report["results"][query][str(target)]
             stored, flat = cell["stored"], cell["flat"]
@@ -678,14 +697,15 @@ def markdown(report, baseline):
                 ]
             if filtered:
                 cells.append(cell_text(stored, "empty_clusters"))
-            cells.append(row["status"])
+            else:
+                cells.append(row["status"])
             lines.append("| " + " | ".join(cells) + " |")
         lines += [
             "",
             "**With adaptive probing on** (clusters probed per query)",
             "",
-            "| Target | Router | Flat | ratio | Router vs fixed probes | |",
-            "|---|---:|---:|---:|---:|:-:|",
+            "| Target | Router | Flat | ratio | Router vs fixed probes |" + ("" if filtered else " |"),
+            "|---|---:|---:|---:|---:|" + ("" if filtered else ":-:|"),
         ]
         for target in TARGETS:
             cell = report["results"][query][str(target)]
@@ -696,10 +716,10 @@ def markdown(report, baseline):
                 cell_text(cell["flat-adaptive"], "clusters"),
                 "" if row["ratio"] is None else ratio_text(row["ratio"]),
                 "" if row["vs_fixed"] is None else percent(row["vs_fixed"]),
-                row["status"],
-            ]
+            ] + ([] if filtered else [row["status"]])
             lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
+    lines += [FILTERED_NOTE, ""]
 
     lines += [
         "**Routing time** (ms per query, mean; router's share of query time in brackets)",
@@ -768,6 +788,11 @@ def markdown(report, baseline):
         + " (parallel plans cap each arm's candidate list at the router's k; serial plans take "
         "the whole ranking)"
     )
+    for run in report.get("tolerated", []):
+        lines.append(
+            f"- Tolerated pdbench exit for `{run['arm']}` `{run['query']}`: "
+            f"\"representative layer0 has no scan stage\"; report saved to `{run['report']}`"
+        )
     lines += [
         f"- pg_search `{report['commit']}`, pdbench `{report['pdbench']}`",
         f"- Artifact `{report['artifact']}`, config fingerprint `{report['fingerprint'][:12]}`",
@@ -801,6 +826,7 @@ def render(measurements, output, commit, pdbench, baseline=None):
         "verdict": overall,
         "verdict_line": line,
         "routing_time_note": ROUTING_NOTE,
+        "filtered_note": FILTERED_NOTE,
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "router_quality.json").write_text(json.dumps(report, indent=2, default=str) + "\n")

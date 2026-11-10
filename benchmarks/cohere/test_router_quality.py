@@ -296,8 +296,25 @@ class MeasureTest(unittest.TestCase):
         self.assertFalse(result["results"]["knn_top10_1pct"]["0.99"]["stored-adaptive"]["reached"])
         self.assertEqual(result["checks"]["fixed_no_adaptive_stop"]["failed"], 0)
         self.assertEqual(result["checks"]["routed"]["failed"], 0)
+        self.assertEqual(result["tolerated"], [])
         self.assertEqual(result["terminations"]["stored"], {"Ceiling": 2 * 2 * 9})
         self.assertEqual(result["terminations"]["stored-adaptive"], {rq.ADAPTIVE_STOP: 2 * 2 * 8})
+
+    def test_reads_tolerated_runs(self):
+        (self.runs / rq.TOLERATED).write_text(
+            "flat knn_top10_10pct benchmark-artifacts/router/flat/x_search.json\n\n"
+        )
+        result = rq.measure(self.runs, ["[1]"], run=self.fake_run)
+        self.assertEqual(
+            result["tolerated"],
+            [
+                {
+                    "arm": "flat",
+                    "query": "knn_top10_10pct",
+                    "report": "benchmark-artifacts/router/flat/x_search.json",
+                }
+            ],
+        )
 
     def test_index_facts_union_segment_ids_and_plan_shapes_must_agree(self):
         for path in (self.runs / "stored").rglob("*_search.json"):
@@ -338,7 +355,8 @@ class RenderTest(unittest.TestCase):
         self.assertIn("#### Router quality: Cohere 1m, 8 segments", text)
         self.assertIn("K = 2,445 · 409 rows per cluster (mean) · quantized_stacked router", text)
         self.assertIn("| r90 | 100 | 100 | 1.00× | 40.0k | 40.0k | 1.00× | ✅ |", text)
-        self.assertIn("| r90 | 100 | 100 | 1.00× | 30.0k | 30.0k | 1.00× | 1.5 | ✅ |", text)
+        self.assertIn("| r90 | 100 | 100 | 1.00× | 30.0k | 30.0k | 1.00× | 1.5 |\n", text)
+        self.assertIn(rq.FILTERED_NOTE, text)
         self.assertIn("| Unfiltered | 0.8 (10%) | 0.8 |", text)
         self.assertIn(rq.ROUTING_NOTE, text)
         self.assertIn("No main baseline yet.", text)
@@ -347,25 +365,44 @@ class RenderTest(unittest.TestCase):
         self.assertIn("| Unfiltered | r90 | stored-adaptive | `100` |", text)
         self.assertIn("| 0/100 |", text)
 
-    def test_ratios_status_and_verdict(self):
+    def test_ratios_status_and_verdict_come_from_the_unfiltered_query_only(self):
         cells = {
-            ("knn_top10_10pct", 0.95, "stored"): arm_cell(clusters=130.0),
-            ("knn_top10_1pct", 0.99, "stored"): arm_cell(clusters=150.0),
-            ("knn_top10_unfiltered", 0.9, "stored"): arm_cell(vectors_probed=43_000.0),
+            ("knn_top10_unfiltered", 0.95, "stored"): arm_cell(clusters=130.0),
+            ("knn_top10_unfiltered", 0.99, "stored"): arm_cell(clusters=150.0),
+            ("knn_top10_10pct", 0.9, "stored"): arm_cell(clusters=300.0),
+            ("knn_top10_1pct", 0.9, "stored"): arm_cell(valid_vectors=60_000.0),
         }
         report, text = self.render(measurements(cells))
         statuses = {(row["query"], row["target"]): row["status"] for row in report["rows"]}
-        self.assertEqual(statuses[("knn_top10_10pct", 0.95)], "❌")
-        self.assertEqual(statuses[("knn_top10_1pct", 0.99)], "⚠️")
-        self.assertEqual(statuses[("knn_top10_unfiltered", 0.9)], "❌")
-        self.assertEqual(statuses[("knn_top10_unfiltered", 0.95)], "✅")
+        self.assertEqual(statuses[("knn_top10_unfiltered", 0.9)], "✅")
+        self.assertEqual(statuses[("knn_top10_unfiltered", 0.95)], "❌")
+        self.assertEqual(statuses[("knn_top10_unfiltered", 0.99)], "⚠️")
+        for query in ("knn_top10_10pct", "knn_top10_1pct"):
+            self.assertTrue(all(statuses[(query, t)] == "" for t in TARGETS))
         self.assertEqual(report["verdict"], "❌")
         self.assertIn(
-            "**❌ Router needs 1.30× flat's clusters at r95 (Filter 10%).** "
-            "⚠️ r99 needs 1.50× flat's clusters (Filter 1%, reported, not gated).",
+            "**❌ Router needs 1.30× flat's clusters at r95 (Unfiltered).** "
+            "⚠️ r99 needs 1.50× flat's clusters (Unfiltered, reported, not gated).",
             text,
         )
-        self.assertIn("| r95 | 130 | 100 | 1.30× |", text)
+        self.assertIn("| r95 | 130 | 100 | 1.30× | 40.0k | 40.0k | 1.00× | ❌ |", text)
+        self.assertIn("| r90 | 300 | 100 | 3.00× | 30.0k | 30.0k | 1.00× | 1.5 |\n", text)
+        self.assertIn("| r90 | 100 | 100 | 1.00× | 60.0k | 30.0k | 2.00× | 1.5 |\n", text)
+        self.assertEqual(text.count(rq.FILTERED_NOTE), 1)
+        self.assertLess(text.index("**Filter 1%**"), text.index(rq.FILTERED_NOTE))
+        self.assertLess(text.index(rq.FILTERED_NOTE), text.index("**Routing time**"))
+
+    def test_filtered_rows_alone_never_set_the_verdict(self):
+        cells = {
+            ("knn_top10_10pct", 0.95, "stored"): arm_cell(clusters=200.0),
+            ("knn_top10_1pct", 0.9, "stored"): arm_cell(reached=False),
+            ("knn_top10_1pct", 0.99, "stored-adaptive"): arm_cell(reached=False),
+        }
+        report, text = self.render(measurements(cells))
+        self.assertEqual(report["verdict"], "✅")
+        self.assertIn("**✅ Router matches flat at r90 and r95.**\n", text)
+        self.assertNotIn("Adaptive probing stops short", text)
+        self.assertIn("| r90 | not reached | 100 |  | not reached | 30.0k |  | not reached |\n", text)
 
     def test_unreached_targets_print_not_reached_and_no_ratio(self):
         cells = {
@@ -376,7 +413,7 @@ class RenderTest(unittest.TestCase):
         self.assertIn(
             "| r99 | not reached | 100 |  | not reached | 40.0k |  | ⚠️ |", text
         )
-        self.assertIn("| r99 | 100 | not reached |  | 30.0k | not reached |  | 1.5 | — |", text)
+        self.assertIn("| r99 | 100 | not reached |  | 30.0k | not reached |  | 1.5 |\n", text)
         self.assertIn("Router does not reach r99 (Unfiltered); flat does (reported, not gated).", text)
         self.assertEqual(report["verdict"], "✅")
 
@@ -384,6 +421,7 @@ class RenderTest(unittest.TestCase):
         cells = {
             ("knn_top10_unfiltered", 0.9, "stored-adaptive"): arm_cell(clusters=89.0),
             ("knn_top10_unfiltered", 0.95, "stored-adaptive"): arm_cell(clusters=120.0),
+            ("knn_top10_unfiltered", 0.99, "stored-adaptive"): arm_cell(reached=False),
             ("knn_top10_10pct", 0.99, "stored-adaptive"): arm_cell(reached=False),
             ("knn_top10_1pct", 0.99, "flat-adaptive"): arm_cell(reached=False),
         }
@@ -391,14 +429,27 @@ class RenderTest(unittest.TestCase):
         self.assertIn("| r90 | 89 | 100 | 0.89× | −11% | ✅ |", text)
         self.assertIn("| r95 | 120 | 100 | 1.20× | +20% | ⚠️ |", text)
         self.assertIn("| r99 | not reached | 100 |  |  | ⚠️ |", text)
-        self.assertIn("| r99 | 100 | not reached |  | 0% | — |", text)
+        self.assertIn("| r99 | not reached | 100 |  |  |\n", text)
+        self.assertIn("| r99 | 100 | not reached |  | 0% |\n", text)
         self.assertEqual(report["verdict"], "✅")
         self.assertIn(
             "**✅ Router matches flat at r90 and r95.** "
-            "⚠️ Adaptive probing stops short of r99 on Filter 10%.",
+            "⚠️ Adaptive probing stops short of r99 on Unfiltered.\n",
             text,
         )
         self.assertNotIn("❌", "".join(row["status"] for row in report["adaptive_rows"]))
+
+    def test_tolerated_runs_are_listed_in_config(self):
+        measured = measurements()
+        measured["tolerated"] = [
+            {"arm": "flat", "query": "knn_top10_10pct", "report": "router/flat/r.json"}
+        ]
+        _, text = self.render(measured)
+        self.assertIn(
+            "- Tolerated pdbench exit for `flat` `knn_top10_10pct`: "
+            '"representative layer0 has no scan stage"; report saved to `router/flat/r.json`',
+            text,
+        )
 
     def test_against_main_with_matching_and_differing_baselines(self):
         baseline_cells = {

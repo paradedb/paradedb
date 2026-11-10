@@ -130,11 +130,13 @@ impl VectorRouting {
         prepared_plan: Option<Arc<SharedVectorRouting>>,
     ) -> Result<Self> {
         if is_parallel {
-            prepared_plan.map(Self::Shared).ok_or_else(|| {
-                DataFusionError::Internal(
-                    "shared vector scan requires a prepared global routing plan".into(),
-                )
-            })
+            prepared_plan
+                .map(|plan| Self::Shared(plan, Default::default()))
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "shared vector scan requires a prepared global routing plan".into(),
+                    )
+                })
         } else {
             Ok(Self::Local)
         }

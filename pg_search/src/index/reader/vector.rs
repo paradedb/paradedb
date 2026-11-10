@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use pgrx::pg_sys;
 use tantivy::vector::{
@@ -82,6 +82,54 @@ impl SharedVectorRouting {
             })
             .as_ref()
             .map_err(Clone::clone)
+    }
+}
+
+impl super::index::VectorRouting {
+    pub(super) fn work_for_pull(&self) -> Option<Arc<dyn SharedVectorWork>> {
+        match self {
+            Self::Local => None,
+            Self::Shared(plan, spent) => Some(Arc::new(VectorPullWork {
+                shared: plan.work(),
+                spent: Arc::clone(spent),
+                credit: spent.charged(),
+                replayed: Mutex::new(0.0),
+            })),
+        }
+    }
+}
+
+// Expanding Top-K windows replay earlier probes. Only work beyond this stream's previous
+// charge consumes more of the shared budget; other streams cannot spend its replay credit.
+struct VectorPullWork {
+    shared: Arc<dyn SharedVectorWork>,
+    spent: Arc<AtomicVectorWork>,
+    credit: f64,
+    replayed: Mutex<f64>,
+}
+
+impl SharedVectorWork for VectorPullWork {
+    fn charge(&self, work: f64) {
+        let additional = if self.credit == 0.0 {
+            work
+        } else {
+            let mut replayed = self.replayed.lock().unwrap();
+            let before = (*replayed - self.credit).max(0.0);
+            *replayed += work;
+            (*replayed - self.credit).max(0.0) - before
+        };
+        if additional > 0.0 {
+            self.shared.charge(additional);
+            self.spent.charge(additional);
+        }
+    }
+
+    fn charged(&self) -> f64 {
+        if self.credit > 0.0 && *self.replayed.lock().unwrap() < self.credit {
+            0.0
+        } else {
+            self.shared.charged()
+        }
     }
 }
 
@@ -166,5 +214,41 @@ impl tantivy::query::Weight for VectorFilterWeight {
         doc: tantivy::DocId,
     ) -> tantivy::Result<tantivy::query::Explanation> {
         self.get(reader).explain(reader, doc)
+    }
+}
+
+#[cfg(test)]
+mod work_tests {
+    use super::*;
+
+    #[test]
+    fn vector_work_retries_replay_only_their_own_charges() {
+        let shared: Arc<dyn SharedVectorWork> = Arc::new(AtomicVectorWork::default());
+        let spent = Arc::new(AtomicVectorWork::default());
+        let pull = || VectorPullWork {
+            shared: Arc::clone(&shared),
+            spent: Arc::clone(&spent),
+            credit: spent.charged(),
+            replayed: Mutex::new(0.0),
+        };
+        let first = pull();
+        first.charge(10.0);
+        shared.charge(5.0);
+        assert_eq!(first.charged(), 15.0);
+        let retry = pull();
+        assert_eq!(retry.charged(), 0.0);
+        retry.charge(6.0);
+        assert_eq!(retry.charged(), 0.0);
+        assert_eq!(shared.charged(), 15.0);
+        retry.charge(6.0);
+        assert_eq!(retry.charged(), 17.0);
+        assert_eq!(shared.charged(), 17.0);
+        assert_eq!(spent.charged(), 12.0);
+        shared.charge(100.0);
+        let third = pull();
+        assert_eq!(third.charged(), 0.0);
+        third.charge(12.0);
+        assert_eq!(third.charged(), 117.0);
+        assert_eq!(shared.charged(), 117.0);
     }
 }

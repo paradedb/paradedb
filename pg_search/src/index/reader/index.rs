@@ -164,7 +164,10 @@ pub(crate) struct TopKWindow {
 
 pub enum VectorRouting {
     Local,
-    Shared(Arc<SharedVectorRouting>),
+    Shared(
+        Arc<SharedVectorRouting>,
+        Arc<tantivy::vector::AtomicVectorWork>,
+    ),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2560,7 +2563,7 @@ impl SearchIndexReader {
                             collected_ids.borrow_mut().push(reader.segment_id());
                         });
                 let batches: Box<dyn Iterator<Item = Vec<_>>> = match routing {
-                    VectorRouting::Shared(_) => Box::new(readers.map(|reader| vec![reader])),
+                    VectorRouting::Shared(..) => Box::new(readers.map(|reader| vec![reader])),
                     VectorRouting::Local => Box::new(std::iter::once(readers.collect())),
                 };
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
@@ -3311,6 +3314,7 @@ impl SearchIndexReader {
                 stats.end_segment(self.searcher.segment_reader(ord).segment_id());
             }
         };
+        let shared_work = routing.work_for_pull();
         let mut collector: Option<TopDocsByVectorSimilarity<f32, S>> = None;
         let mut fruits = Vec::new();
         let mut aggregation_fruits = Vec::new();
@@ -3370,13 +3374,13 @@ impl SearchIndexReader {
                             .expect("vector scan preparation should not fail"),
                     );
                 }
-                VectorRouting::Shared(shared) => {
+                VectorRouting::Shared(shared, _) => {
                     let prepared = builder
                         .prepare(&weight, &segments, shared.budget, on_segment)
                         .expect("vector filters should prepare");
                     let routing_segments = prepared.routing_segments();
                     let inputs = if routing_segments.is_empty() {
-                        prepared.with_candidates(Vec::new(), Some(shared.work()))
+                        prepared.with_candidates(Vec::new(), shared_work.clone())
                     } else {
                         let results = shared
                             .get()
@@ -3393,7 +3397,7 @@ impl SearchIndexReader {
                             })
                             .collect();
                         prepared
-                            .with_candidates(candidates, Some(shared.work()))
+                            .with_candidates(candidates, shared_work.clone())
                             .map(|inputs| {
                                 inputs.with_routing_statistics(
                                     results
@@ -5107,7 +5111,7 @@ mod tests {
                         } else {
                             SharedVectorRouting::from(results)
                         };
-                        VectorRouting::Shared(Arc::new(shared))
+                        VectorRouting::Shared(Arc::new(shared), Default::default())
                     } else {
                         VectorRouting::Local
                     };
@@ -5161,6 +5165,73 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[pg_test]
+    fn vector_topk_retry_replays_a_spent_shared_budget() {
+        use crate::api::QueryVector;
+        use crate::vector::metric::VectorMetric;
+        use tantivy::vector::SharedVectorWork;
+        Spi::run(
+            "SET paradedb.vector_clustering_threshold = 1;
+             SET paradedb.global_mutable_segment_rows = 0;
+             SET paradedb.vector_cluster_max_probe = 1;
+             CREATE TABLE retry_vectors (id bigint PRIMARY KEY, embedding vector(3));
+             CREATE INDEX retry_vectors_idx ON retry_vectors
+             USING paradedb (id, embedding vector_l2_ops)
+             WITH (partition_by = 'id', target_segment_count = 1, background_layer_sizes = '0');
+             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
+             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             REINDEX INDEX retry_vectors_idx;",
+        ).unwrap();
+        let index_rel = open_index("retry_vectors_idx");
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let field = FieldName::from("embedding");
+        let query = vec![1.0, 0.0, 0.0];
+        let plan = Arc::new(SharedVectorRouting::from(reader.vector_routing_plan(
+            &field,
+            &query,
+            1.0,
+            reader.vector_search_budget(&field),
+        )));
+        let spent = Arc::new(tantivy::vector::AtomicVectorWork::default());
+        let routing = VectorRouting::Shared(Arc::clone(&plan), Arc::clone(&spent));
+        let order = [OrderByInfo {
+            feature: OrderByFeature::VectorDistance {
+                name: field,
+                rti: 0,
+                query_vector: QueryVector::Resolved(query),
+                metric: VectorMetric::L2,
+            },
+            direction: SortDirection::AscNullsLast,
+        }];
+        let search = |limit, offset, routing: &VectorRouting| {
+            reader
+                .search_top_k_in_segments(
+                    reader.segment_ids().into_iter(),
+                    &order,
+                    limit,
+                    offset,
+                    None,
+                    None,
+                    routing,
+                )
+                .results
+                .into_iter()
+                .map(|(_, doc)| doc)
+                .collect::<Vec<_>>()
+        };
+        let expected = search(10, 0, &VectorRouting::Local);
+        assert_eq!(expected.len(), 10);
+        let mut actual = search(5, 0, &routing);
+        assert_eq!(actual.len(), 5);
+        assert!(spent.charged() > 0.0);
+        // A peer can finish its last cluster after the shared ceiling is reached.
+        plan.work().charge(1.0);
+        let charged = plan.work().charged();
+        actual.extend(search(5, 5, &routing));
+        assert_eq!(actual, expected);
+        assert_eq!(plan.work().charged(), charged);
     }
 
     #[pg_test]

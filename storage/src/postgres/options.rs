@@ -429,7 +429,7 @@ struct LazyInfo {
 /// What a `paradedb` index is for. A synonym index holds the rules that expand the queries on
 /// other indexes, so no scan reads it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum IndexType {
+pub(super) enum IndexType {
     Search,
     Synonym,
 }
@@ -573,7 +573,7 @@ impl BM25IndexOptions {
             .collect()
     }
 
-    pub fn index_type(&self) -> IndexType {
+    pub(super) fn index_type(&self) -> IndexType {
         if let Some(index_type) = self.lazy.index_type.get() {
             return index_type;
         }

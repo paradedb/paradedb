@@ -21,6 +21,9 @@ use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::directory::utils::load_index_settings;
 use crate::index::set_ivf_clusterer;
 use crate::index::setup_tokenizers;
+use crate::index::synonym_index::{
+    refuse_synonym_rule_columns, register_rule_tokenizer, validate_synonym_index,
+};
 use crate::postgres::catalog::OidExt;
 use crate::postgres::options::{BM25IndexOptions, IndexType};
 use crate::postgres::storage::metadata::MetaPage;
@@ -37,6 +40,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use tantivy::TantivyError;
 use tantivy::directory::RamDirectory;
 use tantivy::index::{Index, IndexSettings, Order};
+use tantivy::tokenizer::TokenizerManager;
 
 #[derive(Debug, Clone)]
 pub enum SchemaError {
@@ -463,8 +467,29 @@ impl PgSearchRelation {
         }
     }
 
-    pub fn index_type(&self) -> IndexType {
-        self.options().index_type()
+    /// False for a synonym index. It holds the rules that expand the queries on other indexes, so
+    /// no scan reads it and it is not the ParadeDB index of its table.
+    pub fn serves_queries(&self) -> bool {
+        match self.options().index_type() {
+            IndexType::Search => true,
+            IndexType::Synonym => false,
+        }
+    }
+
+    /// Registers the tokenizers that the kind of this index adds to those of its fields.
+    pub fn register_type_tokenizers(&self, manager: &TokenizerManager) {
+        match self.options().index_type() {
+            IndexType::Search => {}
+            IndexType::Synonym => register_rule_tokenizer(self.options(), manager),
+        }
+    }
+
+    /// Raises an ERROR when the columns or the options do not fit the kind of this index.
+    pub fn validate_index_type(&self) {
+        match self.options().index_type() {
+            IndexType::Search => refuse_synonym_rule_columns(self.options()),
+            IndexType::Synonym => validate_synonym_index(self.options()),
+        }
     }
 
     pub fn schema(&self) -> Result<SearchIndexSchema, SchemaError> {

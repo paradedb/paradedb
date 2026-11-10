@@ -35,7 +35,6 @@ use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::customscan::mpp::check_for_interrupts_or_cancel;
 use crate::postgres::locks::Spinlock;
-use crate::postgres::options::IndexType;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::SharedBitmapHandle;
@@ -86,7 +85,7 @@ pub fn rel_get_bm25_index(
             .filter(|index| {
                 pg_sys::get_index_isvalid(index.oid())
                     && (*index.rd_rel).relam.is_paradedb_am()
-                    && index.index_type() == IndexType::Search
+                    && index.serves_queries()
             })
             .max_by_key(|i| i.oid().to_u32())?
     };

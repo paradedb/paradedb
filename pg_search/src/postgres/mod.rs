@@ -255,6 +255,7 @@ struct ParallelScanPayloadLayout {
     /// multi-source MPP plan be partitioned across workers, not just the planner-chosen
     /// partitioning source.
     remaining_by_source: Range<usize>,
+    vector_work: Range<usize>,
     /// One `u32` per segment (all sources, `all_ids` order): the first count slot of the
     /// segment's [`SegmentViewDocs`]; see [`encode_docs`].
     all_max_docs: Range<usize>,
@@ -306,6 +307,10 @@ impl ParallelScanPayloadLayout {
         let remaining_layout = Layout::array::<u32>(n_sources)?;
         let (layout, remaining_offset) = layout.extend(remaining_layout)?;
         let remaining_range = remaining_offset..(remaining_offset + remaining_layout.size());
+
+        let work_layout = Layout::array::<tantivy::vector::AtomicVectorWork>(n_sources)?;
+        let (layout, work_offset) = layout.extend(work_layout)?;
+        let vector_work = work_offset..(work_offset + work_layout.size());
 
         // Per-segment view docs for every source: [u32; total_segs] x 2 and [u8; total_segs].
         let all_max_layout = Layout::array::<u32>(total_segs)?;
@@ -364,6 +369,7 @@ impl ParallelScanPayloadLayout {
             all_counts: all_counts_range,
             all_ids: all_ids_range,
             remaining_by_source: remaining_range,
+            vector_work,
             all_max_docs: all_max_docs_range,
             all_deleted_docs: all_deleted_docs_range,
             all_docs_flags: all_docs_flags_range,
@@ -408,6 +414,13 @@ impl ParallelScanPayload {
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[counts_range]).unwrap();
         for (source, target) in all_sources.iter().zip(counts_slice.iter_mut()) {
             *target = source.len() as u32;
+        }
+
+        for source in 0..all_sources.len() {
+            unsafe {
+                self.vector_work_ptr(source)
+                    .write(tantivy::vector::AtomicVectorWork::default());
+            }
         }
 
         // Every source's view, flattened in ascending source-index order. Each source keeps its
@@ -456,6 +469,18 @@ impl ParallelScanPayload {
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
         for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
             *target = source.len() as u32;
+        }
+    }
+
+    fn vector_work_ptr(&self, source: usize) -> *mut tantivy::vector::AtomicVectorWork {
+        assert!(source < self.all_counts().len());
+        unsafe {
+            std::ptr::addr_of!(self.data)
+                .cast::<u8>()
+                .add(self.layout.vector_work.start)
+                .cast::<tantivy::vector::AtomicVectorWork>()
+                .add(source)
+                .cast_mut()
         }
     }
 
@@ -1358,8 +1383,19 @@ impl ParallelScanState {
         {
             *slot = *count;
         }
+        for source in 0..counts.len() {
+            unsafe {
+                self.payload
+                    .vector_work_ptr(source)
+                    .write(tantivy::vector::AtomicVectorWork::default());
+            }
+        }
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.
+    }
+
+    pub(crate) fn vector_work(&self, source: usize) -> &tantivy::vector::AtomicVectorWork {
+        unsafe { &*self.payload.vector_work_ptr(source) }
     }
 
     /// Per-source frozen segment view for `MvccSatisfies::ParallelWorker(view)`. Lives
@@ -1442,6 +1478,34 @@ mod tests {
     use crate::index::reader::index::test_support::{range_query, segmented_index_fixture};
     use crate::index::segment_pruning::STATS_OPENS;
     use std::sync::atomic::Ordering::Relaxed;
+
+    #[pg_test]
+    fn vector_work_is_shared_per_source_and_reset_on_rescan() {
+        use tantivy::vector::SharedVectorWork;
+        let args = ParallelScanArgs {
+            all_sources: vec![SegmentView::new(vec![]), SegmentView::new(vec![])],
+            with_aggregates: false,
+            with_segment_info: false,
+        };
+        let size = ParallelScanState::size_of(&args.all_nsegments(), false, false);
+        unsafe {
+            let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
+            (*state).create_and_populate(args);
+            let first = crate::index::reader::vector::shared_vector_work(state, 0);
+            let peer = crate::index::reader::vector::shared_vector_work(state, 0);
+            let second = crate::index::reader::vector::shared_vector_work(state, 1);
+            first.charge(3.25);
+            peer.charge(1.75);
+            second.charge(9.0);
+            assert_eq!(first.charged(), 5.0);
+            assert_eq!(peer.charged(), 5.0);
+            assert_eq!(second.charged(), 9.0);
+            drop((first, peer, second));
+            (*state).reset();
+            assert_eq!((*state).vector_work(0).charged(), 0.0);
+            assert_eq!((*state).vector_work(1).charged(), 0.0);
+        }
+    }
 
     /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
     /// reads statistics for segments it does not own.

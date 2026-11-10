@@ -464,7 +464,13 @@ impl BaseScanState {
         let parallel = self.parallel.expect("parallel scan must be attached");
         unsafe { (*parallel.dsm_ptr()).publish_vector_routing_plan(query_area, plan.as_ref()) }
             .expect("should be able to publish the vector routing plan");
-        let plan = plan.map(|plan| Arc::new(SharedVectorRouting::from(plan)));
+        let plan = plan.map(|plan| {
+            let shared = SharedVectorRouting::from(plan);
+            shared.work.get_or_init(|| unsafe {
+                crate::index::reader::vector::shared_vector_work(parallel.dsm_ptr(), 0)
+            });
+            Arc::new(shared)
+        });
         self.vector_routing_plan = plan.clone();
         self.vector_routing_pending = false;
         if let Some(reader) = self.search_reader.as_mut() {

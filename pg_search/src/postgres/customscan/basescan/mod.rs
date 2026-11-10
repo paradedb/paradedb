@@ -2097,6 +2097,9 @@ impl CustomScan for BaseScan {
                     },
                     shared: Some(MainThread::new((parallel.dsm_ptr(), area))),
                     results: OnceLock::new(),
+                    work: OnceLock::from(unsafe {
+                        crate::index::reader::vector::shared_vector_work(parallel.dsm_ptr(), 0)
+                    }),
                 }));
                 let custom = state.custom_state_mut();
                 custom.vector_routing_plan = plan.clone();

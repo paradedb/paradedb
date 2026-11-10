@@ -15,11 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use pgrx::pg_sys;
 use tantivy::vector::{
-    Candidate, ClusterRef, ProbeParams, VectorRoutingBudget, VectorRoutingStats, VectorSearchBudget,
+    AtomicVectorWork, Candidate, ClusterRef, ProbeParams, SharedVectorWork, VectorRoutingStats,
+    VectorSearchBudget,
 };
 
 use crate::api::HashMap;
@@ -31,13 +32,13 @@ use crate::postgres::customscan::mpp::{MainThread, run_on_main_thread};
 pub struct VectorRoutingResults {
     pub budget: VectorSearchBudget,
     pub candidates: HashMap<tantivy::SegmentOrdinal, Vec<Candidate<ClusterRef>>>,
-    pub allocation: VectorRoutingBudget,
     pub statistics: Vec<VectorRoutingStats>,
 }
 
 pub struct SharedVectorRouting {
     pub budget: VectorSearchBudget,
     pub results: OnceLock<tantivy::Result<VectorRoutingResults>>,
+    pub(crate) work: OnceLock<Arc<dyn SharedVectorWork>>,
     pub(crate) shared: Option<MainThread<(*mut ParallelScanState, *mut pg_sys::dsa_area)>>,
 }
 
@@ -46,12 +47,20 @@ impl From<VectorRoutingResults> for SharedVectorRouting {
         Self {
             budget: results.budget,
             results: OnceLock::from(Ok(results)),
+            work: OnceLock::new(),
             shared: None,
         }
     }
 }
 
 impl SharedVectorRouting {
+    pub fn work(&self) -> Arc<dyn SharedVectorWork> {
+        Arc::clone(
+            self.work
+                .get_or_init(|| Arc::new(AtomicVectorWork::default())),
+        )
+    }
+
     pub fn get(&self) -> tantivy::Result<&VectorRoutingResults> {
         self.results
             .get_or_init(|| {
@@ -74,6 +83,34 @@ impl SharedVectorRouting {
             .as_ref()
             .map_err(Clone::clone)
     }
+}
+
+struct PgSharedVectorWork(*const AtomicVectorWork);
+
+// The scan owns the DSM mapping until every participant finishes; only atomics are accessed.
+unsafe impl Send for PgSharedVectorWork {}
+unsafe impl Sync for PgSharedVectorWork {}
+
+impl SharedVectorWork for PgSharedVectorWork {
+    fn charge(&self, work: f64) {
+        unsafe { &*self.0 }.charge(work);
+    }
+
+    fn charged(&self) -> f64 {
+        unsafe { &*self.0 }.charged()
+    }
+}
+
+/// Creates a work counter over initialized scan DSM.
+///
+/// # Safety
+/// The DSM must remain mapped until all returned handles are dropped.
+pub(crate) unsafe fn shared_vector_work(
+    state: *const ParallelScanState,
+    source: usize,
+) -> Arc<dyn SharedVectorWork> {
+    assert!(!state.is_null());
+    Arc::new(PgSharedVectorWork(unsafe { (*state).vector_work(source) }))
 }
 
 pub(super) fn probe_params() -> ProbeParams {

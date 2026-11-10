@@ -954,7 +954,6 @@ impl SearchIndexReader {
         VectorSearchBudget::for_segments(field, &probe_params(), &segments)
             .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
             .expect("vector budget should be valid")
-            .distributed()
     }
 
     pub(crate) fn vector_routing_plan(
@@ -1001,10 +1000,6 @@ impl SearchIndexReader {
             })
             .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
             .expect("vector routing should not fail");
-        // Workers choose located scans after publication; their size-based caps remain separate.
-        let allocation = budget
-            .allocate_routing(&candidates, match_fraction, 0.0)
-            .expect("vector routing budget should be valid");
         let mut by_segment = crate::api::HashMap::default();
         for candidate in candidates {
             by_segment
@@ -1015,7 +1010,6 @@ impl SearchIndexReader {
         VectorRoutingResults {
             budget,
             candidates: by_segment,
-            allocation,
             statistics: router.take_statistics(),
         }
     }
@@ -3382,11 +3376,7 @@ impl SearchIndexReader {
                         .expect("vector filters should prepare");
                     let routing_segments = prepared.routing_segments();
                     let inputs = if routing_segments.is_empty() {
-                        let allocation = shared
-                            .budget
-                            .allocate_routing(&[], 0.0, prepared.located_budget())
-                            .expect("empty routing budget should be valid");
-                        prepared.with_candidates(Vec::new(), &allocation)
+                        prepared.with_candidates(Vec::new(), Some(shared.work()))
                     } else {
                         let results = shared
                             .get()
@@ -3403,7 +3393,7 @@ impl SearchIndexReader {
                             })
                             .collect();
                         prepared
-                            .with_candidates(candidates, &results.allocation)
+                            .with_candidates(candidates, Some(shared.work()))
                             .map(|inputs| {
                                 inputs.with_routing_statistics(
                                     results
@@ -5111,6 +5101,7 @@ mod tests {
                             SharedVectorRouting {
                                 budget: results.budget,
                                 results: OnceLock::new(),
+                                work: OnceLock::new(),
                                 shared: None,
                             }
                         } else {

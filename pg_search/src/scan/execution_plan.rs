@@ -651,8 +651,8 @@ impl PgSearchScanPlan {
     /// Under the plan-first MPP launch the leader builds its plan before the DSM exists, so
     /// `Shared` scans start with `parallel_state: None`. Once the DSM is created and populated,
     /// the launch stamps the leader's pointer in here — before the first `execute()`, which is
-    /// the only reader of the field. `RangePartitioned` and `Uninitialized` scans never consult
-    /// the pointer, so they are left untouched.
+    /// the only reader of the field. Vector scans also bind their work counter to their source
+    /// in the DSM, including range-partitioned scans.
     pub(crate) fn set_parallel_state(&self, ps: *mut ParallelScanState) {
         let mut state_guard = self
             .state
@@ -673,6 +673,21 @@ impl PgSearchScanPlan {
                 *parallel_state = Some(crate::postgres::customscan::mpp::MainThread::new(ps));
             }
         }
+        run_on_main_thread(|token| {
+            let scan_state = match &*state_guard {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state.get(token),
+                _ => return,
+            };
+            if let Some(routing) = &scan_state.reader.vector_routing_plan {
+                routing.work.get_or_init(|| unsafe {
+                    crate::index::reader::vector::shared_vector_work(
+                        ps,
+                        scan_state.source_idx.unwrap_or(0),
+                    )
+                });
+            }
+        });
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -1359,7 +1374,18 @@ impl PgSearchScanPlan {
                     .decode(encoded)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
                 serde_cbor::from_slice::<VectorRoutingResults>(&bytes)
-                    .map(|plan| Arc::new(SharedVectorRouting::from(plan)))
+                    .map(|plan| {
+                        let routing = SharedVectorRouting::from(plan);
+                        if let Some(state) = parallel_state {
+                            routing.work.get_or_init(|| unsafe {
+                                crate::index::reader::vector::shared_vector_work(
+                                    state,
+                                    descriptor.source_idx.unwrap_or(0),
+                                )
+                            });
+                        }
+                        Arc::new(routing)
+                    })
                     .map_err(|e| DataFusionError::External(Box::new(e)))
             })
             .transpose()?;

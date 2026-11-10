@@ -559,8 +559,8 @@ LIMIT 3;
 (3 rows)
 
 -- =====================================================================
--- string_agg with a non-constant separator varies per row, so it falls back
--- instead of joining with the default ",". A constant separator still pushes down.
+-- string_agg with a separator column that is not in the index falls back.
+-- A constant separator still pushes down.
 -- =====================================================================
 CREATE TABLE fb_sa (id INT PRIMARY KEY, name TEXT, sep TEXT);
 CREATE TABLE fb_sb (id INT PRIMARY KEY, a_id INT);
@@ -572,7 +572,7 @@ SET paradedb.enable_join_custom_scan = off;
 SELECT string_agg(fb_sa.name, fb_sa.sep ORDER BY fb_sa.id)
 FROM fb_sa JOIN fb_sb ON fb_sb.a_id = fb_sa.id
 WHERE fb_sa.id @@@ pdb.all();
-WARNING:  Aggregate Scan (DataFusion) not used: string_agg with a non-constant separator is not supported for aggregate-on-join (table: join)
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument fb_sa.sep is not columnar indexed (table: join)
  string_agg 
 ------------
  x;y|z

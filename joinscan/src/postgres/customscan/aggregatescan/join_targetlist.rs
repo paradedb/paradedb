@@ -87,8 +87,8 @@ pub enum AggKind {
     BoolAnd,
     BoolOr,
     ArrayAgg,
-    /// STRING_AGG(col, separator) - stores the separator string.
-    StringAgg(String),
+    /// STRING_AGG(col, separator) - the separator string, or `None` when it is a column.
+    StringAgg(Option<String>),
     /// `pdb.agg(jsonb)`, lowered to grouping sets and metric expressions.
     PdbAgg(Box<PdbAggRequest>),
 }
@@ -504,8 +504,8 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
         "bool_and" | "every" => Some(AggKind::BoolAnd),
         "bool_or" => Some(AggKind::BoolOr),
         "array_agg" => Some(AggKind::ArrayAgg),
-        // STRING_AGG separator is extracted later in extract_aggregate_targetlist
-        "string_agg" => Some(AggKind::StringAgg(",".into())),
+        // The separator is filled in by extract_raw_aggregate_entry
+        "string_agg" => Some(AggKind::StringAgg(None)),
         _ => None,
     }
 }
@@ -1287,13 +1287,20 @@ unsafe fn extract_raw_aggregate_entry(
             "{agg_kind} uses a collation whose ordering cannot be pushed down"
         ));
     }
-    let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
-    if is_string_agg {
-        agg_kind = AggKind::StringAgg(extract_string_agg_separator(aggref).ok_or(
-            "string_agg with a non-constant separator is not supported for aggregate-on-join",
-        )?);
+    let mut field_args = None;
+    if matches!(agg_kind, AggKind::StringAgg(_)) {
+        let separator = extract_string_agg_separator(aggref)?;
+        if separator.is_none() && has_distinct {
+            return Err(
+                "string_agg(DISTINCT ...) with a non-constant separator is not supported \
+                 for aggregate-on-join"
+                    .into(),
+            );
+        }
+        field_args = Some(if separator.is_some() { 1 } else { 2 });
+        agg_kind = AggKind::StringAgg(separator);
     }
-    let field_refs = extract_aggref_field_refs(context, aggref, is_string_agg)?;
+    let field_refs = extract_aggref_field_refs(context, aggref, field_args)?;
     let order_by =
         extract_aggref_order_by(aggref, context.sources, context.plan, context.outer_root_id)?;
     let numeric = numeric_agg_field_type(&agg_kind, &field_refs, has_distinct)?;
@@ -1425,41 +1432,40 @@ pub unsafe fn lower_pdb_agg_call(
 /// Extract the separator string from a STRING_AGG's second argument.
 ///
 /// STRING_AGG(col, separator) stores the separator as the second TargetEntry.
-/// Returns `None` if the separator cannot be extracted (non-const, missing).
-unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<String> {
+/// Returns `None` if it is not a constant, so it is read per row.
+unsafe fn extract_string_agg_separator(
+    aggref: *mut pg_sys::Aggref,
+) -> Result<Option<String>, String> {
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-    if args.len() < 2 {
-        return None;
-    }
-    let second_arg = args.get_ptr(1)?;
+    let Some(second_arg) = args.get_ptr(1) else {
+        return Err("string_agg is missing its separator".into());
+    };
     let expr = (*second_arg).expr as *mut pg_sys::Node;
     if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_Const {
-        return None;
+        return Ok(None);
     }
     let konst = expr as *mut pg_sys::Const;
     if (*konst).constisnull {
-        return Some(String::new());
+        return Ok(Some(String::new()));
     }
     let datum = (*konst).constvalue;
     let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
     let cstr = pg_sys::text_to_cstring(text_ptr);
-    if cstr.is_null() {
-        return None;
-    }
-    let s = std::ffi::CStr::from_ptr(cstr).to_str().ok()?.to_owned();
-    Some(s)
+    std::ffi::CStr::from_ptr(cstr)
+        .to_str()
+        .map(|s| Some(s.to_owned()))
+        .map_err(|_| "string_agg separator constant is not valid UTF-8".into())
 }
 
 /// Extract the field reference from an `Aggref`'s arguments.
 ///
 /// For `COUNT(*)`: returns empty (no field).
 /// For `COUNT(col)`, `SUM(col)`, etc.: returns the column reference.
-/// For `STRING_AGG(col, sep)`: only processes the first arg (column),
-/// skipping the separator which is handled by `extract_string_agg_separator`.
+/// For `STRING_AGG(col, sep)`: `field_args` keeps only the value and a column separator.
 unsafe fn extract_aggref_field_refs(
     context: &RawColumnContext<'_>,
     aggref: *mut pg_sys::Aggref,
-    is_string_agg: bool,
+    field_args: Option<usize>,
 ) -> Result<Vec<JoinAggColRef>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
@@ -1471,9 +1477,7 @@ unsafe fn extract_aggref_field_refs(
         return Err("aggregate function has no arguments".into());
     }
 
-    // For STRING_AGG, only the first arg is the column reference;
-    // the second arg is the separator constant.
-    let num_field_args = if is_string_agg { 1 } else { args.len() };
+    let num_field_args = field_args.unwrap_or(args.len());
 
     let mut refs = Vec::with_capacity(num_field_args);
     for (arg_idx, arg_ptr) in args.iter_ptr().enumerate() {

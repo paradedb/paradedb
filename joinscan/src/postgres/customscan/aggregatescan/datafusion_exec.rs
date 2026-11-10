@@ -53,6 +53,7 @@ use crate::postgres::customscan::datafusion::numeric_agg::{
     numeric_bytes_avg_udaf, numeric_bytes_sum_udaf, numeric64_avg_udaf, numeric64_sum_udaf,
 };
 use crate::postgres::customscan::datafusion::pdb_agg_udaf::{pdb_combine_agg, pdb_precombine_agg};
+use crate::postgres::customscan::datafusion::string_agg::string_agg as pg_string_agg;
 use crate::postgres::customscan::datafusion::timestamp_to_date::timestamp_to_date_udf;
 use crate::postgres::customscan::datafusion::topk_agg::{
     TOPK_AGG_ROWS_COL_NAME, topk_as_agg, topk_as_agg_static,
@@ -301,7 +302,20 @@ pub async fn build_join_aggregate_plan(
                         )))
                     }
                 }
-                AggKind::StringAgg(ref sep) => {
+                AggKind::StringAgg(None) => {
+                    let [value, separator] = <[Expr; 2]>::try_from(agg_field_cols(agg, plan)?)
+                        .map_err(|_| {
+                            DataFusionError::Internal(
+                                "string_agg with a column separator needs two fields".into(),
+                            )
+                        })?;
+                    Ok(pg_string_agg(
+                        value,
+                        separator,
+                        agg_order_by_exprs(&agg.order_by, plan),
+                    ))
+                }
+                AggKind::StringAgg(Some(ref sep)) => {
                     let col_expr = agg_field_col(agg, plan)?;
                     let sep_lit = lit(sep.clone());
                     if agg.order_by.is_empty() {

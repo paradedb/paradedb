@@ -298,8 +298,8 @@ ORDER BY 1 DESC
 LIMIT 3;
 
 -- =====================================================================
--- string_agg with a non-constant separator varies per row, so it falls back
--- instead of joining with the default ",". A constant separator still pushes down.
+-- string_agg with a separator column that is not in the index falls back.
+-- A constant separator still pushes down.
 -- =====================================================================
 CREATE TABLE fb_sa (id INT PRIMARY KEY, name TEXT, sep TEXT);
 CREATE TABLE fb_sb (id INT PRIMARY KEY, a_id INT);

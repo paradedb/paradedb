@@ -27,6 +27,7 @@ pub mod carry_value;
 pub mod memory;
 pub mod numeric_agg;
 pub mod spill;
+pub mod string_agg;
 pub mod timestamp_to_date;
 pub mod topk_agg;
 

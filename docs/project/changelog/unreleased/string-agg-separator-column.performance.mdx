@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+The Aggregate Scan runs `string_agg(value, separator)` when the separator is an indexed column, such as `string_agg(name, sep ORDER BY id)` over a join, instead of falling back to PostgreSQL. Each value follows its own row's separator, as in PostgreSQL (#7198).

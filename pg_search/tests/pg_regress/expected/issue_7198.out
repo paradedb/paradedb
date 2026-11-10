@@ -1,0 +1,260 @@
+-- string_agg with a separator column runs in the Aggregate Scan (#7198).
+-- Each view runs on the Aggregate Scan, then on PostgreSQL; the results must match.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_join_custom_scan = off;
+CREATE TABLE issue_7198_a (id int PRIMARY KEY, name text, sep text, grp int);
+CREATE TABLE issue_7198_b (id int PRIMARY KEY, a_id int, sep text);
+INSERT INTO issue_7198_a VALUES
+    (1, NULL, '#', 1), (2, 'b', '-', 1), (3, 'c', NULL, 1), (4, '', '+', 1), (5, 'é', '→ ', 1),
+    (6, 'x', '-', 2), (7, 'y', ';', 2), (8, 'z', '|', 2),
+    (9, NULL, '!', 3), (10, NULL, NULL, 3);
+INSERT INTO issue_7198_b
+SELECT g, g, CASE WHEN g = 7 THEN NULL ELSE '/' END FROM generate_series(1, 10) g;
+CREATE INDEX issue_7198_a_idx ON issue_7198_a
+USING paradedb (id, (name::pdb.literal), (sep::pdb.literal), grp);
+CREATE INDEX issue_7198_b_idx ON issue_7198_b USING paradedb (id, a_id, (sep::pdb.literal));
+-- The #7150 repro, with the separator column in the index.
+CREATE VIEW issue_7198_repro AS
+SELECT string_agg(a.name, a.sep ORDER BY a.id) AS s
+FROM issue_7198_a a JOIN issue_7198_b b ON b.a_id = a.id
+WHERE a.id @@@ pdb.all() AND a.grp = 2;
+-- Both orders, and a separator from the joined table.
+CREATE VIEW issue_7198_grouped AS
+SELECT a.grp,
+       string_agg(a.name, a.sep ORDER BY a.id) AS asc_sep,
+       string_agg(a.name, a.sep ORDER BY a.id DESC) AS desc_sep,
+       string_agg(a.name, b.sep ORDER BY a.id) AS join_sep
+FROM issue_7198_a a JOIN issue_7198_b b ON b.a_id = a.id
+WHERE a.id @@@ pdb.all()
+GROUP BY a.grp;
+-- Without ORDER BY the order is unspecified, so accept any valid order.
+CREATE VIEW issue_7198_unordered AS
+SELECT string_agg(a.name, a.sep)
+       IN ('x;y|z', 'x|z;y', 'y-x|z', 'y|z-x', 'z-x;y', 'z;y-x') AS valid
+FROM issue_7198_a a JOIN issue_7198_b b ON b.a_id = a.id
+WHERE a.id @@@ pdb.all() AND a.grp = 2;
+EXPLAIN (COSTS OFF) SELECT * FROM issue_7198_repro;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: issue_7198_a_idx (a), issue_7198_b_idx (b)
+   Aggregates: STRING_AGG(name, sep)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[pdb_string_agg(a_0.name, a_0.sep) ORDER BY [a_0.id ASC NULLS LAST] as agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, a_id@0)], projection=[name@0, sep@1, id@2]
+     :     CooperativeExec
+     :       PgSearchScan: table=a, segments=1, eager=[name, sep], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"grp","value":2}}]}}
+     :     CooperativeExec
+     :       PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(11 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM issue_7198_grouped ORDER BY grp;
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: a.grp
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: issue_7198_a_idx (a), issue_7198_b_idx (b)
+         Group By: grp
+         Aggregates: STRING_AGG(name, sep), STRING_AGG(name, sep), STRING_AGG(name, sep)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[grp@2 as grp], aggr=[pdb_string_agg(__common_expr_1, __common_expr_2) ORDER BY [a_0.id ASC NULLS LAST] as agg_0, pdb_string_agg(__common_expr_1, __common_expr_2) ORDER BY [a_0.id DESC NULLS FIRST] as agg_1, pdb_string_agg(__common_expr_1, b_1.sep) ORDER BY [a_0.id ASC NULLS LAST] as agg_2]
+           :   ProjectionExec: expr=[CAST(name@1 AS Utf8) as __common_expr_1, CAST(sep@2 AS Utf8) as __common_expr_2, grp@0 as grp, id@3 as id, sep@4 as sep]
+           :     TantivyDecodeExec: decode=[sep]
+           :       TantivyFetchExec: fetch=[sep]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, a_id@1)]
+           :           CooperativeExec
+           :             PgSearchScan: table=a, segments=1, eager=[name, sep], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :           CooperativeExec
+           :             PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+EXPLAIN (COSTS OFF) SELECT * FROM issue_7198_unordered;
+                                                                                             QUERY PLAN                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: issue_7198_a_idx (a), issue_7198_b_idx (b)
+   Aggregates: STRING_AGG(name, sep)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[pdb_string_agg(a_0.name, a_0.sep) as agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, a_id@0)], projection=[name@0, sep@1]
+     :     CooperativeExec
+     :       PgSearchScan: table=a, segments=1, eager=[name, sep], visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"grp","value":2}}]}}
+     :     CooperativeExec
+     :       PgSearchScan: table=b, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(11 rows)
+
+SELECT * FROM issue_7198_repro;
+   s   
+-------
+ x;y|z
+(1 row)
+
+SELECT * FROM issue_7198_grouped ORDER BY grp;
+ grp | asc_sep | desc_sep | join_sep 
+-----+---------+----------+----------
+   1 | bc+→ é  | é+c-b    | b/c//é
+   2 | x;y|z   | z;y-x    | xy/z
+   3 |         |          | 
+(3 rows)
+
+SELECT * FROM issue_7198_unordered;
+ valid 
+-------
+ t
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT * FROM issue_7198_repro;
+   s   
+-------
+ x;y|z
+(1 row)
+
+SELECT * FROM issue_7198_grouped ORDER BY grp;
+ grp | asc_sep | desc_sep | join_sep 
+-----+---------+----------+----------
+   1 | bc+→ é  | é+c-b    | b/c//é
+   2 | x;y|z   | z;y-x    | xy/z
+   3 |         |          | 
+(3 rows)
+
+SELECT * FROM issue_7198_unordered;
+ valid 
+-------
+ t
+(1 row)
+
+RESET paradedb.enable_aggregate_custom_scan;
+-- Still PostgreSQL: a separator expression, and DISTINCT.
+SELECT string_agg(a.name, a.sep || '' ORDER BY a.id)
+FROM issue_7198_a a JOIN issue_7198_b b ON b.a_id = a.id
+WHERE a.id @@@ pdb.all() AND a.grp = 2;
+WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: join)
+ string_agg 
+------------
+ x;y|z
+(1 row)
+
+SELECT string_agg(DISTINCT a.name, a.sep)
+FROM issue_7198_a a JOIN issue_7198_b b ON b.a_id = a.id
+WHERE a.id @@@ pdb.all() AND a.grp = 2;
+WARNING:  Aggregate Scan (DataFusion) not used: string_agg(DISTINCT ...) with a non-constant separator is not supported for aggregate-on-join (table: join)
+ string_agg 
+------------
+ x;y|z
+(1 row)
+
+-- MPP: workers run the Partial aggregate and the leader merges their states.
+-- Separate inserts create multiple index segments for MPP workers to scan.
+SET paradedb.global_mutable_segment_rows = 0;
+CREATE TABLE issue_7198_ma (id int PRIMARY KEY, name text, sep text, grp int);
+CREATE TABLE issue_7198_mb (id int PRIMARY KEY, a_id int);
+CREATE INDEX issue_7198_ma_idx ON issue_7198_ma
+USING paradedb (id, (name::pdb.literal), (sep::pdb.literal), grp);
+CREATE INDEX issue_7198_mb_idx ON issue_7198_mb USING paradedb (id, a_id);
+INSERT INTO issue_7198_ma
+SELECT g, CASE WHEN g % 7 = 0 THEN NULL ELSE 'v' || g END,
+       (ARRAY['-', ';', '|', NULL, ', '])[g % 5 + 1], g % 4
+FROM generate_series(1, 500) g;
+INSERT INTO issue_7198_ma
+SELECT g, CASE WHEN g % 7 = 0 THEN NULL ELSE 'v' || g END,
+       (ARRAY['-', ';', '|', NULL, ', '])[g % 5 + 1], g % 4
+FROM generate_series(501, 1000) g;
+INSERT INTO issue_7198_mb SELECT g, g FROM generate_series(1, 500) g;
+INSERT INTO issue_7198_mb SELECT g, g FROM generate_series(501, 1000) g;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE issue_7198_ma;
+ANALYZE issue_7198_mb;
+CREATE VIEW issue_7198_mpp AS
+SELECT a.grp,
+       md5(string_agg(a.name, a.sep ORDER BY a.id)) AS asc_sep,
+       md5(string_agg(a.name, a.sep ORDER BY a.id DESC)) AS desc_sep
+FROM issue_7198_ma a JOIN issue_7198_mb b ON b.a_id = a.id
+WHERE a.id @@@ pdb.all()
+GROUP BY a.grp;
+SET max_parallel_workers_per_gather = 3;
+SET max_parallel_workers = 8;
+SET min_parallel_table_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET paradedb.mpp_min_rows = 0;
+SET paradedb.enable_join_custom_scan = on;
+EXPLAIN (COSTS OFF) SELECT * FROM issue_7198_mpp ORDER BY grp;
+                                                                                                                                QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: a.grp
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: issue_7198_ma_idx (a), issue_7198_mb_idx (b)
+         Group By: grp
+         Aggregates: STRING_AGG(name, sep), STRING_AGG(name, sep)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[grp@0 as grp], aggr=[pdb_string_agg(__common_expr_1, __common_expr_2) ORDER BY [a_0.id ASC NULLS LAST] as agg_0, pdb_string_agg(__common_expr_1, __common_expr_2) ORDER BY [a_0.id DESC NULLS FIRST] as agg_1]
+           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([grp@0], 6), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[grp@2 as grp], aggr=[pdb_string_agg(__common_expr_1, __common_expr_2) ORDER BY [a_0.id ASC NULLS LAST] as agg_0, pdb_string_agg(__common_expr_1, __common_expr_2) ORDER BY [a_0.id DESC NULLS FIRST] as agg_1]
+           :     │     ProjectionExec: expr=[CAST(name@1 AS Utf8) as __common_expr_1, CAST(sep@2 AS Utf8) as __common_expr_2, grp@0 as grp, id@3 as id]
+           :     │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, a_id@0)]
+           :     │         CoalescePartitionsExec
+           :     │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │         DistributedLeafExec:
+           :     │           t0: PgSearchScan: table=b, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     │           t1: PgSearchScan: table=b, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     └──────────────────────────────────────────────────
+           :       ┌───── Stage 1 ── tasks=2, partitions=4
+           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :       │   DistributedLeafExec:
+           :       │     t0: PgSearchScan: table=a, segments=2, eager=[name, sep], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :       │     t1: PgSearchScan: table=a, segments=2, eager=[name, sep], visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :       └──────────────────────────────────────────────────
+(33 rows)
+
+SELECT * FROM issue_7198_mpp ORDER BY grp;
+ grp |             asc_sep              |             desc_sep             
+-----+----------------------------------+----------------------------------
+   0 | 219e4c1a445406853848d1fd35b737d0 | acc3cb04c90c33164c4182b220889d86
+   1 | b6dbde473a05bd0bac7ad0d2b9bebfe4 | 8b636eae52d17835dbdaa9a63ed95346
+   2 | 375d296b5fd754370689c82b8325a41d | ace7d1fad1aeaa78ced605ae8f29375c
+   3 | f2ca6bc5c88fc9fcc4a07339a945718d | 9fab6d6d40058868be516f3f6e6ddb2a
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan = off;
+SET max_parallel_workers_per_gather = 0;
+SELECT * FROM issue_7198_mpp ORDER BY grp;
+ grp |             asc_sep              |             desc_sep             
+-----+----------------------------------+----------------------------------
+   0 | 219e4c1a445406853848d1fd35b737d0 | acc3cb04c90c33164c4182b220889d86
+   1 | b6dbde473a05bd0bac7ad0d2b9bebfe4 | 8b636eae52d17835dbdaa9a63ed95346
+   2 | 375d296b5fd754370689c82b8325a41d | ace7d1fad1aeaa78ced605ae8f29375c
+   3 | f2ca6bc5c88fc9fcc4a07339a945718d | 9fab6d6d40058868be516f3f6e6ddb2a
+(4 rows)
+
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.mpp_min_rows;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET max_parallel_workers;
+RESET max_parallel_workers_per_gather;
+DROP VIEW issue_7198_mpp;
+DROP VIEW issue_7198_unordered;
+DROP VIEW issue_7198_grouped;
+DROP VIEW issue_7198_repro;
+DROP TABLE issue_7198_mb;
+DROP TABLE issue_7198_ma;
+DROP TABLE issue_7198_b;
+DROP TABLE issue_7198_a;

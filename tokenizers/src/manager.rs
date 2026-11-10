@@ -1723,9 +1723,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::language(r#"{"type": "default", "stemmer": "Spanish", "stopwords_language": "Spanish"}"#, &["sill", "niñ"])]
-    #[case::custom(r#"{"type": "default", "stemmer": "Spanish", "stopwords": ["para"]}"#, &["sill", "mas", "niñ"])]
-    #[case::accented(r#"{"type": "default", "stemmer": "Spanish", "ascii_folding": true, "stopwords": ["más"]}"#, &["sill", "par", "nin"])]
+    #[case::language(r#"{"type": "default", "stemmer": "Spanish", "stopwords_language": "Spanish"}"#, &["sill", "mader"])]
+    #[case::custom(r#"{"type": "default", "stemmer": "Spanish", "stopwords": ["para"]}"#, &["sill", "mas", "mader"])]
+    #[case::accented(r#"{"type": "default", "stemmer": "Spanish", "ascii_folding": true, "stopwords": ["más"]}"#, &["sill", "par", "mader"])]
     fn test_stopwords_removed_before_stemming_and_folding(
         #[case] json: &str,
         #[case] expected: &[&str],
@@ -1736,7 +1736,7 @@ mod tests {
         let tokenizer =
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
         let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
-        let mut token_stream = analyzer.token_stream("silla para más niños");
+        let mut token_stream = analyzer.token_stream("silla para más madera");
         let mut tokens = Vec::new();
         while token_stream.advance() {
             tokens.push(token_stream.token().text.clone());

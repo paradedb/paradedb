@@ -38,35 +38,27 @@ class PrismPlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "every HN predicate"):
             verify_prism([{"Plan": scan}], "hn_items_prism_idx", ["by"])
 
-    def test_exact_filtering_is_classified_separately(self):
-        """Recognize B-tree and sequential filtering without claiming ANN execution."""
-        for scan, expected in (
-            (
-                {
-                    "Node Type": "Index Scan",
-                    "Index Name": "hn_items_time_idx",
-                    "Index Cond": "time >= '2021-09-30'::timestamptz",
-                },
-                "btree-exact",
-            ),
-            (
-                {
-                    "Node Type": "Seq Scan",
-                    "Relation Name": "hn_items",
-                    "Filter": "time >= '2021-09-30'::timestamptz",
-                },
-                "seqscan-exact",
-            ),
+    def test_exact_filtering_is_rejected(self):
+        """Do not measure B-tree or sequential filtering as a PRISM workload."""
+        for scan in (
+            {
+                "Node Type": "Index Scan",
+                "Index Name": "hn_items_time_idx",
+                "Index Cond": "time >= '2021-09-30'::timestamptz",
+            },
+            {
+                "Node Type": "Seq Scan",
+                "Relation Name": "hn_items",
+                "Filter": "time >= '2021-09-30'::timestamptz",
+            },
         ):
             sort = {
                 "Node Type": "Sort",
                 "Sort Key": ["(emb <=> '[1,2,3]'::vector)"],
                 "Plans": [scan],
             }
-            self.assertEqual(
-                verify_prism([{"Plan": sort}], "hn_items_prism_idx", ["time"]),
-                expected,
-            )
+            with self.assertRaisesRegex(ValueError, "Expected a cosine PRISM"):
+                verify_prism([{"Plan": sort}], "hn_items_prism_idx", ["time"])
             with self.assertRaisesRegex(ValueError, "Expected a cosine PRISM"):
                 verify_prism([{"Plan": sort}], "hn_items_prism_idx", [])
 

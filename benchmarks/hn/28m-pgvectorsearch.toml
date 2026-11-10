@@ -29,6 +29,9 @@ warmup_runs = 1
 explain_sample = 100
 
 [search.session]
+enable_seqscan = "off"
+enable_bitmapscan = "off"
+enable_sort = "off"
 max_parallel_workers_per_gather = "8"
 jit = "off"
 plan_cache_mode = "force_custom_plan"

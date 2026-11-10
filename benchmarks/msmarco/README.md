@@ -41,8 +41,7 @@ statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
 
 ## pg_vectorsearch
 
-Apply `benchmark-msmarco-pg_vectorsearch` to run MS MARCO with PRISM, or
-`benchmark-pg-vectorsearch` to run both HN and MS MARCO. Manual runs accept
+Apply `benchmark-msmarco-pg_vectorsearch` to run MS MARCO with PRISM. Manual runs accept
 `engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
 
 The PRISM profile reuses the same heap, query vectors, ground truth, runner,

@@ -397,8 +397,8 @@ impl<'a> BuildWorker<'a> {
 
             THREAD_MEMORY_BUDGET.with(|b| {
                 b.set_budget(
-                    per_worker_memory_budget,
-                    Some(per_worker_memory_budget * 3 / 2),
+                    per_worker_memory_budget * 4,
+                    Some(per_worker_memory_budget * 8), // TODO: make less conservative
                 )
             });
 
@@ -487,6 +487,7 @@ impl<'a> BuildWorker<'a> {
             };
 
             check_if_thread_memory_budget_has_been_exceeded_with_error()?;
+            THREAD_MEMORY_BUDGET.with(|b| b.reset());
 
             if let Some(snapshot) = build_snapshot {
                 pg_sys::UnregisterSnapshot(snapshot);

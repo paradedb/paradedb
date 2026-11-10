@@ -6,10 +6,15 @@ use std::fmt::Display;
 
 /// Thread-local memory budget. All members are `Cell`s, and this makes heavy use of interior
 /// mutability, as we need the base struct to be a thread local `pub static`
+///
+/// peak and baseline are i64 to allow for sub-zero values. This will happen when anything allocated on
+/// one thread is freed on another. This shouldn't happen in production contexts, but is quite
+/// common in tests.
 pub struct Budget {
     soft_budget: Cell<usize>,
     hard_budget: Cell<usize>,
-    allocated: Cell<usize>,
+    baseline: Cell<i64>,
+    allocated: Cell<i64>,
     peak: Cell<usize>,
 }
 impl Budget {
@@ -17,9 +22,14 @@ impl Budget {
         Self {
             soft_budget: Cell::new(usize::MAX),
             hard_budget: Cell::new(usize::MAX),
+            baseline: Cell::new(0),
             allocated: Cell::new(0),
             peak: Cell::new(0),
         }
+    }
+
+    fn used(&self) -> usize {
+        (self.allocated.get() - self.baseline.get()).max(0) as usize
     }
 
     pub fn exceeded(&self) -> bool {
@@ -37,31 +47,26 @@ impl Budget {
         let hard = hard.unwrap_or(soft * 3 / 2); // default to 1.5x
         self.soft_budget.set(soft);
         self.hard_budget.set(hard);
-        self.clear();
-    }
-
-    pub fn clear(&self) {
-        self.allocated.set(0);
+        self.baseline.set(self.allocated.get());
         self.peak.set(0);
     }
 
-    pub fn reset_to_no_budget(&self) {
-        let no_budget = Self::new();
-        self.soft_budget.set(no_budget.soft_budget.get());
-        self.hard_budget.set(no_budget.hard_budget.get());
-        self.allocated.set(no_budget.allocated.get());
-        self.peak.set(no_budget.peak.get());
+    pub fn reset(&self) {
+        self.soft_budget.set(usize::MAX);
+        self.hard_budget.set(usize::MAX);
+        self.baseline.set(self.allocated.get());
+        self.peak.set(0);
     }
 
     #[inline(always)]
     unsafe fn charge(&self, size: usize) {
-        self.allocated.set(self.allocated.get() + size);
-        self.peak.set(self.peak.get().max(self.allocated.get())); // maybe update only on check or decrease
+        self.allocated.set(self.allocated.get() + size as i64);
+        self.peak.set(self.peak.get().max(self.used())); // maybe update only on check or decrease
     }
 
     #[inline(always)]
     unsafe fn release(&self, size: usize) {
-        self.allocated.set(self.allocated.get() - size);
+        self.allocated.set(self.allocated.get() - size as i64);
     }
 }
 impl Default for Budget {
@@ -122,6 +127,10 @@ unsafe impl GlobalAlloc for BudgetAlloc {
         unsafe {
             let current_size = allocated_size(ptr, layout);
             let reallocated = System.realloc(ptr, layout, new_size);
+            if reallocated.is_null() {
+                // null indicates failure, so we shouldn't update
+                return reallocated;
+            }
             let new_size = allocated_size(reallocated, layout);
             if new_size > current_size {
                 THREAD_MEMORY_BUDGET.with(|b| b.charge(new_size - current_size));
@@ -165,7 +174,10 @@ unsafe fn allocated_size(ptr: *mut u8, layout: std::alloc::Layout) -> usize {
     ))]
     {
         let _ = layout;
-        unsafe { libc::malloc_usable_size(ptr.cast::<c_void>()) }
+        unsafe {
+            use std::ffi::c_void;
+            libc::malloc_usable_size(ptr.cast::<c_void>())
+        }
     }
 
     #[cfg(target_vendor = "apple")]

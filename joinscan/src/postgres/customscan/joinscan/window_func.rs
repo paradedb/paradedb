@@ -586,7 +586,7 @@ pub fn is_supported_window_agg_node(node: *mut pg_sys::Node) -> bool {
     if node.is_null() {
         return false;
     }
-    if let Some(wf) = unsafe { nodecast!(WindowFunc, T_WindowFunc, node) } {
+    if let Some(wf) = unsafe { nodecast!(WindowFunc, node) } {
         let wf = unsafe { &*wf };
         return SupportedWindowAggType::from_funcoid(wf.winfnoid, wf.winstar).is_some()
             || is_agg_funcoid(wf.winfnoid.to_u32());
@@ -677,7 +677,7 @@ unsafe extern "C-unwind" fn placeholder_mutator(
         return std::ptr::null_mut();
     }
 
-    if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+    if let Some(wf) = nodecast!(WindowFunc, node) {
         let ctx = &mut *context.cast::<PlaceholderRewriter>();
         let placeholder_id = ctx.placeholder_id(wf);
 
@@ -743,7 +743,7 @@ unsafe fn describe_window_func(wf: &pg_sys::WindowFunc, root: *mut pg_sys::Plann
     if is_combine_agg_funcoid(wf.winfnoid.to_u32()) {
         let spec = args
             .get_ptr(0)
-            .and_then(|arg| nodecast!(Aggref, T_Aggref, strip_relabel(arg)))
+            .and_then(|arg| nodecast!(Aggref, strip_relabel(arg)))
             .and_then(|aggref| {
                 let agg_args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                 let first_te = agg_args.get_ptr(0)?;
@@ -823,7 +823,7 @@ unsafe extern "C-unwind" fn sentinel_mutator(
         return std::ptr::null_mut();
     }
 
-    if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+    if let Some(wf) = nodecast!(WindowFunc, node) {
         let ctx = context.cast::<SentinelRewriteCtx>();
         let ordinal = (*ctx).next_ordinal;
         (*ctx).next_ordinal += 1;

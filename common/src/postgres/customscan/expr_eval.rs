@@ -83,7 +83,7 @@ unsafe fn rewrite_var_nodes(expr: *mut pg_sys::Node, input_vars: &[InputVarInfo]
         .map(|(i, v)| ((v.rti as i32, v.attno), (i + 1) as pg_sys::AttrNumber))
         .collect();
     expr.visit(|node| {
-        if let Some(var) = crate::nodecast!(Var, T_Var, node)
+        if let Some(var) = crate::nodecast!(Var, node)
             && let Some(&new_attno) = var_map.get(&((*var).varno, (*var).varattno))
         {
             (*var).varno = pg_sys::INNER_VAR;

@@ -1822,7 +1822,7 @@ impl SearchIndexReader {
                 expressions
                     .get_ptr(att_idx)
                     .map(|expr| crate::postgres::utils::strip_tokenizer_cast(expr.cast()))
-                    .and_then(|node| crate::nodecast!(Var, T_Var, node))
+                    .and_then(|node| crate::nodecast!(Var, node))
                     .and_then(|var| crate::api::operator::attname_from_var(&heaprel, var))
                     .is_some_and(|attname| attname.as_ref() == column)
             };

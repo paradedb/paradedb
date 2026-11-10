@@ -126,7 +126,7 @@ impl SearchPredicate {
             });
         }
 
-        let function = nodecast!(FuncExpr, T_FuncExpr, node)?;
+        let function = nodecast!(FuncExpr, node)?;
         if !is_search_with_query_input_exec_procoid((*function).funcid) {
             return None;
         }
@@ -334,14 +334,14 @@ pub unsafe fn row_expr_from_indexed_expr(
     mut expr: *mut pg_sys::Expr,
 ) -> Option<*mut pg_sys::RowExpr> {
     loop {
-        if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
+        if let Some(row_expr) = nodecast!(RowExpr, expr) {
             return Some(row_expr);
         }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+        if let Some(coerce) = nodecast!(CoerceViaIO, expr) {
             expr = (*coerce).arg.cast();
             continue;
         }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(relabel) = nodecast!(RelabelType, expr) {
             expr = (*relabel).arg.cast();
             continue;
         }

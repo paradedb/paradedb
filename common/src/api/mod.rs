@@ -83,8 +83,18 @@ impl Regex {
     }
 }
 
+/// Casts `$node` to a `*mut pg_sys::$type_` when it is non-NULL and a node of that type.
+///
+/// `OpExpr`, `DistinctExpr` and `NullIfExpr` are one type in Rust with a node tag each, so
+/// `pgrx::IsA!` accepts none of them. Name the tag for those: `nodecast!(OpExpr, T_OpExpr, node)`.
 #[macro_export]
 macro_rules! nodecast {
+    ($type_:ident, $node:expr) => {{
+        let node = $node;
+        (!node.is_null() && pgrx::IsA!(node, pgrx::pg_sys::$type_).is_true())
+            .then(|| node.cast::<pgrx::pg_sys::$type_>())
+    }};
+
     ($type_:ident, $kind:ident, $node:expr) => {{
         let node = $node;
         $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
@@ -111,7 +121,7 @@ pub trait AsCStr {
 
 impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
-        let node = nodecast!(String, T_String, *self)?;
+        let node = nodecast!(String, *self)?;
         Some(std::ffi::CStr::from_ptr((*node).sval))
     }
 }

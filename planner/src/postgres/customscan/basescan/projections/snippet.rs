@@ -532,7 +532,7 @@ pub fn uses_snippets(
 ) -> Vec<SnippetType> {
     let mut snippet_types = Vec::new();
     node.visit(|node| unsafe {
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if let Some(funcexpr) = nodecast!(FuncExpr, node) {
             if let Some(snippet_type) =
                 extract_snippet(funcexpr, planning_rti, snippet_funcoids, attname_lookup)
             {

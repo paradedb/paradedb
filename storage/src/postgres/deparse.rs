@@ -281,7 +281,7 @@ unsafe fn deparse_with_single_relation(
 /// The expression should be cloned before calling this function.
 fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
     node.visit(|node| unsafe {
-        if let Some(param) = nodecast!(Param, T_Param, node)
+        if let Some(param) = nodecast!(Param, node)
             && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
         {
             (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
@@ -294,7 +294,7 @@ fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
 /// Remap varnos in an expression tree from old_varno to new_varno
 fn remap_varnos(node: *mut pg_sys::Node, old_varno: pg_sys::Index, new_varno: pg_sys::Index) {
     node.visit(|node| unsafe {
-        if let Some(var) = nodecast!(Var, T_Var, node) {
+        if let Some(var) = nodecast!(Var, node) {
             if (*var).varno as pg_sys::Index == old_varno {
                 (*var).varno = new_varno as _;
             }

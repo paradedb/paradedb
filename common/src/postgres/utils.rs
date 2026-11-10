@@ -645,7 +645,7 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
         return node;
     }
 
-    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+    if let Some(func) = unsafe { nodecast!(FuncExpr, node) } {
         let func = unsafe { &*func };
         if type_is_tokenizer(func.funcresulttype) {
             let args = unsafe { PgList::<pg_sys::Node>::from_pg(func.args) };
@@ -653,13 +653,13 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
                 return strip_tokenizer_cast(arg);
             }
         }
-    } else if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+    } else if let Some(relabel) = unsafe { nodecast!(RelabelType, node) } {
         // RelabelType doesn't change physical datum representation, so it is safe to strip.
         return strip_tokenizer_cast(unsafe { (*relabel).arg }.cast());
-    } else if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
+    } else if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, node) } {
         // CoerceToDomain doesn't change physical datum representation, so it is safe to strip.
         return strip_tokenizer_cast(unsafe { (*coerce).arg }.cast());
-    } else if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+    } else if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
         // CoerceViaIO (e.g. `text::int`) CAN change the underlying physical representation.
         // We must only strip it if it explicitly targets a tokenizer type.
         let coerce = unsafe { &*coerce };
@@ -693,23 +693,23 @@ pub fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::No
             return (node, found_unnest);
         }
 
-        if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+        if let Some(relabel) = unsafe { nodecast!(RelabelType, node) } {
             node = unsafe { (*relabel).arg }.cast();
             continue;
         }
-        if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
+        if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, node) } {
             node = unsafe { (*coerce).arg }.cast();
             continue;
         }
-        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
             node = unsafe { (*coerce).arg }.cast();
             continue;
         }
-        if let Some(phv) = unsafe { nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) } {
+        if let Some(phv) = unsafe { nodecast!(PlaceHolderVar, node) } {
             node = unsafe { (*phv).phexpr }.cast();
             continue;
         }
-        if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+        if let Some(func) = unsafe { nodecast!(FuncExpr, node) }
             && let func = unsafe { &*func }
             && is_unnest_func(func.funcid)
         {
@@ -1248,7 +1248,7 @@ pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sy
         if node.is_null() {
             return std::ptr::null_mut();
         }
-        if let Some(phv) = crate::nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) {
+        if let Some(phv) = crate::nodecast!(PlaceHolderVar, node) {
             return strip_phv_mutator((*phv).phexpr.cast(), context);
         }
 

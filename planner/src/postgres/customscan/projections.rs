@@ -276,7 +276,6 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     // computed within our Custom Scan execution context.
     if let Some(srs) = nodecast!(
         SupportRequestSimplify,
-        T_SupportRequestSimplify,
         arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>()
     ) {
         if (*srs).root.is_null() {
@@ -293,7 +292,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
             && (*(*root).parse).jointree.any(|node| {
                 (*node).type_ == pg_sys::NodeTag::T_JoinExpr
                     // Comma joins have multiple fromlist entries without a JoinExpr.
-                    || nodecast!(FromExpr, T_FromExpr, node).is_some_and(|from_expr| {
+                    || nodecast!(FromExpr, node).is_some_and(|from_expr| {
                         PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist).len() > 1
                     })
             });
@@ -348,7 +347,7 @@ pub unsafe fn pullout_funcexprs(
 ) -> Vec<(*mut pg_sys::FuncExpr, *mut pg_sys::Var, FieldName)> {
     let mut matches = Vec::new();
     node.walk(|node| {
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+        if let Some(funcexpr) = nodecast!(FuncExpr, node)
             && funcids.contains(&(*funcexpr).funcid)
         {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
@@ -503,7 +502,7 @@ pub unsafe fn inject_placeholders(
 
         #[inline(always)]
         unsafe fn inner(node: *mut pg_sys::Node, data: &mut Data) -> Option<*mut pg_sys::Node> {
-            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+            let funcexpr = nodecast!(FuncExpr, node)?;
 
             if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.score_var.cast());

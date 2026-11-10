@@ -44,8 +44,8 @@ pub unsafe fn extract_field_attributes(
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
     #[inline]
     unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression)
-            && let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
+        if let Some(coerce) = nodecast!(CoerceViaIO, expression)
+            && let Some(func_expr) = nodecast!(FuncExpr, (*coerce).arg)
             && (*func_expr).funcid == text_lower_funcoid()
         {
             return true;
@@ -73,7 +73,7 @@ pub unsafe fn extract_field_attributes(
                 let node = expression.cast();
                 let source = FieldSource::Expression {
                     att_idx: expression_idx,
-                    attno: nodecast!(Var, T_Var, strip_tokenizer_cast(node))
+                    attno: nodecast!(Var, strip_tokenizer_cast(node))
                         .map(|var| (*var).varattno)
                         .filter(|&attno| attno > 0)
                         .map(|attno| (attno - 1) as usize),
@@ -169,9 +169,7 @@ pub unsafe fn extract_field_attributes(
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
                         if is_text_lower(expression.cast()) {
                             normalizer = Some(SearchNormalizer::Lowercase);
-                        } else if let Some(relabel) =
-                            nodecast!(RelabelType, T_RelabelType, expression)
-                        {
+                        } else if let Some(relabel) = nodecast!(RelabelType, expression) {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
                             }
@@ -198,14 +196,14 @@ pub unsafe fn extract_field_attributes(
                             );
                         } else {
                             // if we have a non text field text to `pdb.alias`, unwrap it to get the inner typoid
-                            if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expression)
-                                && let Some(func) = nodecast!(FuncExpr, T_FuncExpr, (*relabel).arg)
+                            if let Some(relabel) = nodecast!(RelabelType, expression)
+                                && let Some(func) = nodecast!(FuncExpr, (*relabel).arg)
                             {
                                 let args = PgList::<pg_sys::Node>::from_pg((*func).args);
                                 if args.len() == 1
                                     && let Some(arg) = args.get_ptr(0)
                                 {
-                                    if let Some(inner_func) = nodecast!(FuncExpr, T_FuncExpr, arg) {
+                                    if let Some(inner_func) = nodecast!(FuncExpr, arg) {
                                         inner_typoid = (*inner_func).funcresulttype;
                                     } else if let Some(op_expr) = nodecast!(OpExpr, T_OpExpr, arg) {
                                         inner_typoid = (*op_expr).opresulttype;

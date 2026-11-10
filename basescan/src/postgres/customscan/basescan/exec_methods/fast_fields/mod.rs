@@ -157,8 +157,8 @@ pub unsafe fn pullup_fast_fields(
             // Complex expressions involving score which are not going to be solved in upper nodes are not supported.
             // See: https://github.com/paradedb/paradedb/issues/3978
         } else if crate::postgres::utils::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
-            || nodecast!(Const, T_Const, (*te).expr).is_some()
-            || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
+            || nodecast!(Const, (*te).expr).is_some()
+            || nodecast!(WindowFunc, (*te).expr).is_some()
         {
             let create_resname = |base: &str, te: &pg_sys::TargetEntry| {
                 let restype = (*te.expr).type_;

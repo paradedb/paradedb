@@ -430,15 +430,8 @@ pub unsafe fn find_var_relation(
                 )
             });
 
-            if !is_a((*cte).ctequery, pg_sys::NodeTag::T_Query) {
-                panic!("CTE is not a query")
-            }
-            let query = (*cte).ctequery.cast::<pg_sys::Query>();
-            let targetlist = if !(*query).returningList.is_null() {
-                PgList::<pg_sys::TargetEntry>::from_pg((*query).returningList)
-            } else {
-                PgList::<pg_sys::TargetEntry>::from_pg((*query).targetList)
-            };
+            let targetlist =
+                PgList::<pg_sys::TargetEntry>::from_pg(pgrx::GetCTETargetList!(cte).get());
             let (relation, attribute) = find_targetlist_relation(&targetlist, (*var).varattno);
             (relation, attribute, Some(targetlist))
         }

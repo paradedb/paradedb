@@ -537,7 +537,7 @@ pub(super) fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> 
     if !parse.targetList.is_null() {
         let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList) };
         for te in target_list.iter_ptr() {
-            let Some(func_expr) = (unsafe { nodecast!(FuncExpr, T_FuncExpr, (*te).expr) }) else {
+            let Some(func_expr) = (unsafe { nodecast!(FuncExpr, (*te).expr) }) else {
                 continue;
             };
 
@@ -610,7 +610,7 @@ fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetListSrf {
         if te.expr.is_null() || !unsafe { pg_sys::expression_returns_set(te.expr.cast()) } {
             continue;
         }
-        match unsafe { nodecast!(FuncExpr, T_FuncExpr, te.expr) } {
+        match unsafe { nodecast!(FuncExpr, te.expr) } {
             Some(func_expr)
                 if is_unnest_func(unsafe { (*func_expr).funcid })
                     && unsafe { unnest_arg_is_paradedb_srf(func_expr) } =>
@@ -642,7 +642,7 @@ unsafe fn unnest_arg_is_paradedb_srf(unnest_expr: *mut pg_sys::FuncExpr) -> bool
         return false;
     }
     let arg = args.get_ptr(0).unwrap_or(std::ptr::null_mut());
-    let Some(inner) = nodecast!(FuncExpr, T_FuncExpr, arg) else {
+    let Some(inner) = nodecast!(FuncExpr, arg) else {
         return false;
     };
     let inner_oid = (*inner).funcid;
@@ -2296,7 +2296,7 @@ unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
     }
 
     // Must have LIMIT 1 as a constant int8 (PostgreSQL's MIN/MAX always uses exactly LIMIT 1).
-    let Some(limit_const) = nodecast!(Const, T_Const, parse.limitCount) else {
+    let Some(limit_const) = nodecast!(Const, parse.limitCount) else {
         return false;
     };
     if (*limit_const).constisnull
@@ -2387,7 +2387,7 @@ unsafe fn window_funcs_are_position_only(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
     !parse.targetList.any(|node| {
-        nodecast!(WindowFunc, T_WindowFunc, node).is_some_and(|wfunc| {
+        nodecast!(WindowFunc, node).is_some_and(|wfunc| {
             !matches!(
                 (*wfunc).winfnoid.to_u32(),
                 pg_sys::F_ROW_NUMBER | pg_sys::F_RANK_ | pg_sys::F_DENSE_RANK_
@@ -2975,7 +2975,7 @@ fn replace_window_agg_with_placeholder(
     }
 
     // Check if this is the window_agg FuncExpr
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
         let funcexpr = unsafe { &*funcexpr };
         if funcexpr.funcid == window_agg_procid {
             // Found it! Replace with a placeholder Var node
@@ -3084,7 +3084,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     // Check reltarget exprs.
     let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);
     for rte in reltarget_exprs.iter_ptr() {
-        if let Some(var) = nodecast!(Var, T_Var, rte)
+        if let Some(var) = nodecast!(Var, rte)
             && (*var).varno as u32 == rte_index
         {
             referenced_columns.insert((*var).varattno);
@@ -3352,7 +3352,7 @@ fn has_left_join_lateral_pattern(node: *mut pg_sys::Node, query: *mut pg_sys::Qu
         return false;
     }
 
-    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, T_JoinExpr, node) } {
+    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, node) } {
         let join_expr = unsafe { &*join_expr };
         // Check if this is a LEFT JOIN
         if join_expr.jointype == pg_sys::JoinType::JOIN_LEFT {
@@ -3381,7 +3381,7 @@ fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bo
     }
 
     // Check if it's a RangeTblRef pointing to a LATERAL RTE
-    if let Some(rtref) = unsafe { nodecast!(RangeTblRef, T_RangeTblRef, node) } {
+    if let Some(rtref) = unsafe { nodecast!(RangeTblRef, node) } {
         let rtable = unsafe { (*query).rtable };
         if !rtable.is_null() {
             let rte = unsafe { pgrx::rt_fetch!((*rtref).rtindex as pg_sys::Index, rtable).get() };
@@ -3392,7 +3392,7 @@ fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bo
     }
 
     // For nested joins, recursively check
-    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, T_JoinExpr, node) } {
+    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, node) } {
         let join_expr = unsafe { &*join_expr };
         if is_lateral_subquery(join_expr.larg, query) {
             return true;
@@ -3426,7 +3426,7 @@ unsafe fn where_clause_only_references_left(
     };
 
     !quals.any(|node| {
-        nodecast!(Var, T_Var, node)
+        nodecast!(Var, node)
             .is_some_and(|var| (*var).varno as i32 != rti as i32 && (*var).varno > 0)
     })
 }

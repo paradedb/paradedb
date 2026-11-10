@@ -48,7 +48,7 @@
 //!    the `None` case (parameterized) with a fallback like
 //!    `planning_estimate()`.
 //!
-//! 5. **Watch out for `nodecast!(Const, T_Const, ...)` in new code.**
+//! 5. **Watch out for `nodecast!(Const, ...)` in new code.**
 //!    If you're extracting a value from a PG expression node at planning
 //!    time, ask: "will this work in GENERIC mode?" If the node could be a
 //!    `Param`, use `ParameterizedValue::from_node` instead of `nodecast!`.
@@ -100,7 +100,7 @@ where
             return None;
         }
 
-        if let Some(const_node) = unsafe { nodecast!(Const, T_Const, node) } {
+        if let Some(const_node) = unsafe { nodecast!(Const, node) } {
             let value =
                 unsafe { T::from_datum((*const_node).constvalue, (*const_node).constisnull)? };
             return Some(ParameterizedValue::Static(value));
@@ -208,7 +208,7 @@ fn unwrap_to_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
         return None;
     }
 
-    if let Some(param) = unsafe { nodecast!(Param, T_Param, node) } {
+    if let Some(param) = unsafe { nodecast!(Param, node) } {
         let param = unsafe { &*param };
         if param.paramkind == pg_sys::ParamKind::PARAM_EXTERN {
             return Some(param.paramid);
@@ -216,19 +216,19 @@ fn unwrap_to_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
         return None;
     }
 
-    if let Some(func_expr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+    if let Some(func_expr) = unsafe { nodecast!(FuncExpr, node) } {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg((*func_expr).args) };
         if args.len() == 1 {
             return unwrap_to_extern_param_id(args.get_ptr(0).unwrap());
         }
     }
 
-    if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+    if let Some(relabel) = unsafe { nodecast!(RelabelType, node) } {
         let relabel = unsafe { &*relabel };
         return unwrap_to_extern_param_id(relabel.arg.cast());
     }
 
-    if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+    if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
         let coerce = unsafe { &*coerce };
         return unwrap_to_extern_param_id(coerce.arg.cast());
     }

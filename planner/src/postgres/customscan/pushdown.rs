@@ -101,7 +101,7 @@ unsafe fn try_pushdown_ltree_descendant(
     //
     //   path <@ 'Top.Science'::ltree
     //           ^^^^^^^^^^^^^^^^^^^^^
-    let rhs_const = nodecast!(Const, T_Const, rhs).filter(|c| !(**c).constisnull)?;
+    let rhs_const = nodecast!(Const, rhs).filter(|c| !(**c).constisnull)?;
 
     // Be defensive: the caller already checked operator name and operand types,
     // but keep the invariant local to this function too.
@@ -183,11 +183,11 @@ impl PushdownField {
         let schema = indexrel.schema().ok()?;
         let mut var = var;
 
-        if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, var) {
+        if let Some(expr) = nodecast!(CoerceViaIO, var) {
             var = (*expr).arg.cast();
         }
 
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, var)
+        if let Some(relabel) = nodecast!(RelabelType, var)
             && !type_is_alias((*relabel).resulttype)
         {
             var = (*relabel).arg.cast();
@@ -284,7 +284,7 @@ pub unsafe fn try_build_pushdown_qual(
     // If <field> is an array, 'literal' = ANY(<field>) puts the value on the lhs.
     // In all other pushdown scenarios, the value is on the rhs.
     let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
-        && nodecast!(Var, T_Var, rhs)
+        && nodecast!(Var, rhs)
             .is_some_and(|var| unsafe { pgrx::type_is_array!((*var).vartype).is_true() })
     {
         (rhs, lhs, true)
@@ -294,7 +294,7 @@ pub unsafe fn try_build_pushdown_qual(
 
     // A NULL value can still be true against an empty array (`NULL <> ALL('{}')`),
     // which the index cannot see, so leave it to PostgreSQL.
-    if nodecast!(Const, T_Const, maybe_value).is_some_and(|c| (*c).constisnull) {
+    if nodecast!(Const, maybe_value).is_some_and(|c| (*c).constisnull) {
         return None;
     }
 

@@ -27,7 +27,6 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::access::IndexAccess;
 use crate::postgres::catalog::{lookup_namespace, split_relation_name};
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::options::IndexType;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::ActiveSnapshotGuard;
 use anyhow::anyhow;
@@ -55,7 +54,7 @@ pub fn open_synonym_index(
         _ => return Err(anyhow!("\"{name}\" is not an index")),
     }
     let index = IndexAccess::open(oid, pg_sys::AccessShareLock as _);
-    if index.index_type() != IndexType::Synonym {
+    if index.options().synonym_rule_field().is_none() {
         return Err(anyhow!("\"{name}\" is not a synonym index"));
     }
     if !unsafe { (*index.rd_index).indisvalid } {

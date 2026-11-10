@@ -48,11 +48,12 @@ Flat and located scans do not invoke a router and omit these counters.
 
 Router search policies can be adjusted at query time without rebuilding:
 
-| Setting                                    | Default | Effect                                                 |
-| ------------------------------------------ | ------: | ------------------------------------------------------ |
-| `paradedb.vector_router_rerank_factor`     |     2.0 | Fractional candidate multiplier before exact reranking |
-| `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level   |
-| `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists            |
+| Setting                                    | Default | Effect                                                           |
+| ------------------------------------------ | ------: | ---------------------------------------------------------------- |
+| `paradedb.vector_router_rerank_factor`     |     2.0 | Fractional candidate multiplier before exact reranking           |
+| `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level             |
+| `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists                      |
+| `paradedb.vector_router_audit`             |     off | Diagnostic: `stored` or `flat` routing with every segment routed |
 
 The rerank factor accepts fractional values from 1.0 through 16.0. Retention
 rounds up to whole candidates: for example, `1.25` retains up to four candidates
@@ -130,3 +131,36 @@ on PRs; the small handoff tests can be run with:
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 ```
+
+## Router quality
+
+After k6, CI compares the index's stored router with a flat ranking of every
+centroid on the same index. `paradedb.vector_router_audit` selects the arm:
+`stored` routes every segment through its stored router, and `flat` scores every
+centroid of every segment exactly from the raw centroid rows. Both disable the
+located path, so every segment routes, and both keep the caller's `router_k`,
+budget, and charging. The setting is a diagnostic and is not documented for
+users.
+
+`router_quality.py configs` writes four arm profiles from the size's profile,
+each adding only the audit setting and `paradedb.vector_adaptive_probing`:
+`stored` and `flat` with adaptive probing off, and `stored-adaptive` and
+`flat-adaptive` with it on. `pdbench search` sweeps each arm and query to
+r90/r95/r99 into `benchmark-artifacts/router/<arm>`, separate from the
+operating-point sweeps. `router_quality.py measure` reruns all 100 vectors at
+each selected budget under `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` with
+`paradedb.vector_stats` on, after one discarded warm pass, and sums each query's
+per-segment statistics. It also checks that each statistic means what the
+comment says: every segment routes, only the flat arms report
+`routing_mode = flat`, filtered queries satisfy
+`vectors_visited = layer0_eligible + pruned_filter + pruned_dead`, and
+fixed-probe arms never stop adaptively.
+
+`router_quality.py render` writes `router_quality.json` and the comment section
+under the operating-point table. Ratios are stored / flat in clusters probed and
+in vectors probed (unfiltered) or filter-valid vectors (filtered). A fixed-probe
+row passes at a ratio of at most 1.05; r90 and r95 fail above it and r99 warns.
+The adaptive tables are reported, not gated. Routing time is the `routing_ns`
+stage, which includes row gating. The section compares with the latest main
+run's `cohere-<size>-router-quality` artifact when its configuration matches.
+Neither the verdict nor the checks fail the job.

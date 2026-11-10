@@ -355,6 +355,29 @@ pub fn vector_router_aps() -> bool {
     VECTOR_ROUTER_APS.get()
 }
 
+/// Which routing a vector scan uses, for measuring router quality on one index.
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum VectorRouterAudit {
+    /// Routing as configured, including the located path.
+    #[default]
+    #[name = c"off"]
+    Off,
+    /// Every segment routes through its stored router; no segment takes the located path.
+    #[name = c"stored"]
+    Stored,
+    /// Every segment routes and ranks all of its centroids exactly instead of using its stored
+    /// router.
+    #[name = c"flat"]
+    Flat,
+}
+
+static VECTOR_ROUTER_AUDIT: GucSetting<VectorRouterAudit> =
+    GucSetting::<VectorRouterAudit>::new(VectorRouterAudit::Off);
+
+pub fn vector_router_audit() -> VectorRouterAudit {
+    VECTOR_ROUTER_AUDIT.get()
+}
+
 /// Fixed IVF cluster-open cost measured in fully scored rows.
 static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
     GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
@@ -755,6 +778,14 @@ pub fn init() {
         c"Allow stacked routing to stop after quiet lists",
         c"Applies to full-precision and quantized hierarchical routing.",
         &VECTOR_ROUTER_APS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_enum_guc(
+        c"paradedb.vector_router_audit",
+        c"Diagnostic, for measuring router quality",
+        c"'stored' routes every segment through its stored router and disables the located path. 'flat' also disables the located path and ranks every centroid of every segment exactly instead of using the stored router, under the same probe budget. 'off' routes as configured.",
+        &VECTOR_ROUTER_AUDIT,
         GucContext::Userset,
         GucFlags::default(),
     );

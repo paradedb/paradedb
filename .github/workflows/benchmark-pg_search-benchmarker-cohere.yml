@@ -333,6 +333,96 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
+      # Router quality runs after k6 so its flat sweeps do not change the cache k6 measures on.
+      - name: Write router-quality arm profiles
+        run: |
+          python3 benchmarks/cohere/router_quality.py configs \
+            --profile "benchmarks/cohere/${COHERE_SIZE}.toml" --output benchmark-artifacts/router
+
+      - name: Sweep max_probe per router-quality arm with pdbench
+        run: |
+          set -euo pipefail
+          for arm in stored flat stored-adaptive flat-adaptive; do
+            for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
+              echo "::group::${arm} ${query}"
+              pdbench search --url "$PARADEDB_URL" --config "benchmark-artifacts/router/router-${arm}.toml" \
+                --assets-dir benchmarks/cohere/assets --runs-dir "benchmark-artifacts/router/${arm}" \
+                --query "$query" --no-compare --html
+              echo "::endgroup::"
+              echo "${arm} ${query} finished at $(date -u +%FT%TZ)"
+            done
+          done
+
+      - name: Measure router quality at the selected budgets
+        run: |
+          python3 benchmarks/cohere/router_quality.py measure --runs benchmark-artifacts/router \
+            --vectors benchmark-artifacts/query_vectors.json \
+            --output benchmark-artifacts/router/measurements.json
+
+      - name: Find mainline router-quality baseline
+        id: router_baseline
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const name = `cohere-${process.env.COHERE_SIZE}-router-quality`;
+            const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
+              ...context.repo,
+              workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
+              branch: 'main', event: 'push', status: 'success', per_page: 100,
+            });
+            for await (const { data: runs } of pages) {
+              for (const run of runs) {
+                // Keep the baseline stable if a newer main run finishes first.
+                if (run.run_number >= context.runNumber) continue;
+                const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                  ...context.repo, run_id: run.id, per_page: 100,
+                });
+                const artifact = artifacts.find(a => a.name === name && !a.expired);
+                if (!artifact) continue;
+                core.setOutput('run_id', run.id);
+                core.setOutput('commit', run.head_sha);
+                core.setOutput('url', run.html_url);
+                core.info(`Baseline: ${run.html_url} (${run.head_sha})`);
+                return;
+              }
+            }
+            core.info(`No successful main push has an unexpired ${name} artifact.`);
+
+      - name: Download mainline router-quality baseline
+        if: steps.router_baseline.outputs.run_id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cohere-${{ matrix.size }}-router-quality
+          path: router-baseline
+          run-id: ${{ steps.router_baseline.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Render router-quality section
+        env:
+          CURRENT_COMMIT: ${{ steps.commit_info.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          baseline=()
+          if [ -f router-baseline/router_quality.json ]; then
+            baseline=(--baseline router-baseline)
+          fi
+          python3 benchmarks/cohere/router_quality.py render \
+            --measurements benchmark-artifacts/router/measurements.json \
+            --output benchmark-artifacts/router \
+            --commit "$CURRENT_COMMIT" --pdbench "$PDBENCH_REF" "${baseline[@]}"
+          cat benchmark-artifacts/router/router_quality.md >> "$GITHUB_STEP_SUMMARY"
+          cat benchmark-artifacts/operating_points.md benchmark-artifacts/router/router_quality.md \
+            > benchmark-artifacts/context.md
+
+      - name: Upload router-quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cohere-${{ matrix.size }}-router-quality
+          path: benchmark-artifacts/router/
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results
         with:
@@ -341,7 +431,7 @@ jobs:
             {"dataset":"cohere-${{ matrix.size }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
-             "context_file":"benchmark-artifacts/operating_points.md",
+             "context_file":"benchmark-artifacts/context.md",
              "sweep_reports_dir":"benchmark-artifacts/comparison",
              "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
              "index_metrics_file":"benchmark-artifacts/index-metrics.json"}

@@ -341,6 +341,9 @@ pub(super) struct ScanParallelismInputs<'a> {
     /// True when a `GROUP BY` / `SELECT DISTINCT` sits above this scan; routes it through the row
     /// heuristic because PG under-costs the serial HashAggregate for non-collapsing grouping.
     pub(super) has_grouping: bool,
+    /// True when a synonym rule turns the one token of the match into a group of alternatives,
+    /// which prunes less than one term.
+    pub(super) expands_with_synonyms: bool,
 }
 
 /// Decide how to shape a scan's paths. The numbered steps mirror the module-level decision tree;
@@ -364,12 +367,16 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
         parallel_leader_participates,
         is_join_context,
         has_grouping,
+        expands_with_synonyms,
     } = inputs;
 
     // 1. Prunable short-circuit -> serial only. Block-WAND keeps primarily score-DESC ordered top-k sublinear
     //    (#4664), so workers would only add overhead. A hard gate: the cost model can't see
     //    Block-WAND, and the predicate must actually prune, not just look like a term.
-    if matches!(prunability, TopKPrunability::PrunableCandidate) && query.is_topk_prunable() {
+    if matches!(prunability, TopKPrunability::PrunableCandidate)
+        && query.is_topk_prunable()
+        && !expands_with_synonyms
+    {
         return WorkerPathPolicy::SerialOnly {
             reason: WorkerDecisionReason::BlockWandPrunable,
         };

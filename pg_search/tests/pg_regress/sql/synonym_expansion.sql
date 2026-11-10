@@ -99,6 +99,15 @@ DELETE FROM shop_synonyms WHERE rule = 'sofa, settee';
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('settee', rule) FROM shop_synonyms) ORDER BY id;
 
+-- A one-token top-k by score stays serial, since Block-WAND prunes one term. A token that a rule
+-- turns into a group can take workers.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM products WHERE description ||| pdb.with_synonyms('stand', 'shop_synonyms_idx')
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM products WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx')
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+
 -- A backend keeps the rules it read, by segment, and checks the row of each rule on every
 -- query, so an update, a reused ctid after VACUUM or a REINDEX never expands with an old rule.
 INSERT INTO products VALUES (11, 'telly remote'), (12, 'monitor arm');

@@ -5,31 +5,46 @@ import json
 import unittest
 from pathlib import Path
 
-from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
+from prepare_k6 import (
+    DIMENSIONS,
+    NPROBE,
+    PROBE,
+    QUERIES,
+    SUITES,
+    operating_points,
+    summary,
+)
 from verify_plans import verify
 
 
-def reports(dataset="cohere"):
+def reports(dataset="cohere", engine="pg_search"):
     """Build reports with shared probes and an unreached r99 target."""
     return [
         {
             "kind": "search",
             "config": {
-                "dataset": {"name": dataset, "size": "1m", "dims": 1024},
+                "engine": engine,
+                "dataset": {
+                    "name": dataset,
+                    "table": "hn_items" if dataset == "hn" else dataset,
+                    "size": "1m",
+                    "dims": DIMENSIONS[dataset],
+                },
                 "search": {
                     "query": query,
                     "k": neighbors,
-                    "sweep": {"tolerance": 0.000001},
+                    "sweep": {"min": 1, "max": 4096, "tolerance": 0.000001},
                     "session": {"cohere.titles_10pct": "year", "jit": "off"},
                 },
             },
             "data": {
-                "sweep_param": PROBE,
+                "sweep_param": NPROBE if engine == "pg_vectorsearch" else PROBE,
                 "query_vectors": 100,
                 "variants": {
                     query: {
                         "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
-                        f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
+                        f"current_setting('{dataset}.qvec')::vector({DIMENSIONS[dataset]}) "
+                        f"LIMIT {neighbors}",
                         "targets": {
                             "0.9": {"value": "100", "recall": 0.96},
                             "0.95": {"value": "100", "recall": 0.96},
@@ -76,6 +91,52 @@ class OperatingPointsTest(unittest.TestCase):
                 self.assertEqual(point["recall"], 0.96)
         self.assertIn("Not reached", summary(points))
         self.assertEqual(inputs, original)
+
+    def test_prism_preserves_backend_and_integer_probe_for_both_datasets(self):
+        """Carry the chosen engine through the recall-to-k6 handoff."""
+        for dataset in ("hn", "msmarco"):
+            inputs = reports(dataset, "pg_vectorsearch")
+            original = copy.deepcopy(inputs)
+            points = operating_points(inputs, dataset)
+            for point in points:
+                self.assertEqual(point["engine"], "pg_vectorsearch")
+                self.assertEqual(point["backend"], "pg_vectorsearch")
+                self.assertEqual(point["param"], NPROBE)
+                self.assertEqual(point["dimensions"], DIMENSIONS[dataset])
+                self.assertEqual(
+                    point["index_name"],
+                    f"{inputs[0]['config']['dataset']['table']}_prism_idx",
+                )
+            self.assertIn("nprobe", summary(points))
+            self.assertEqual(inputs, original)
+
+    def test_prism_rejects_wrong_parameter_and_out_of_range_probes(self):
+        """Reject backend mismatches and invalid PRISM operating points."""
+        inputs = reports("msmarco", "pg_vectorsearch")
+        inputs[0]["data"]["sweep_param"] = PROBE
+        with self.assertRaisesRegex(ValueError, "probe search report"):
+            operating_points(inputs, "msmarco")
+        for value in ("0", "0.5", "100.5", "4097", "nan"):
+            inputs = reports("msmarco", "pg_vectorsearch")
+            result = inputs[0]["data"]["variants"]["knn_top10_unfiltered"]
+            for selected in result["targets"].values():
+                selected["value"] = value
+            result["points"][0]["value"] = value
+            with self.assertRaisesRegex(ValueError, "invalid selected point"):
+                operating_points(inputs, "msmarco")
+
+    def test_hn_fractional_paradedb_sweep_keeps_configured_bounds(self):
+        """HN's fractional max_probe remains valid when adding integer PRISM probes."""
+        inputs = reports("hn")
+        for report in inputs:
+            report["config"]["search"]["sweep"].update(min=0.0001, max=1)
+            for result in report["data"]["variants"].values():
+                for selected in result["targets"].values():
+                    selected["value"] = "0.005"
+                result["points"][0]["value"] = "0.005"
+        points = operating_points(inputs, "hn")
+        self.assertEqual(points[0]["probe"], "0.005")
+        self.assertEqual(points[0]["filter_fields"], ["time"])
 
     def test_refuses_below_target_point_even_when_pdbench_labels_it_selected(self):
         """Reject a below-target selection rather than relabeling it."""

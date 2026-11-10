@@ -64,6 +64,37 @@ index size, workers, and peak summed RSS. Diagnostics retain manifests, verified
 fixtures, configuration, tool revisions, plans, pdbench reports, k6 dashboards,
 and database logs.
 
+## pg_vectorsearch
+
+Apply `benchmark-hn-pg_vectorsearch` to run HN with PRISM, or
+`benchmark-pg-vectorsearch` to run both HN and MS MARCO. Manual runs accept
+`engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
+PRISM uses the existing heap and ground truth, the parallel-build memory fix
+at `paradedb/pg_vectorsearch@1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, automatic
+`nlist`, default replication, and an integer `prism.nprobe` sweep from 1 to 4096.
+Results use the separate `hackernews-vector-28m-pg-vectorsearch` history.
+
+The [PRISM tuning guide](https://github.com/timescale/pg_vectorsearch/blob/4899ffb57e7752a766b714621844d0abb4e6cad1/docs/tuning.md#prismquery_limit-guc-query-time)
+describes PostgreSQL post-filtering, selectivity-based candidate inflation, and
+the `work_mem` bound on candidate count. It recommends partial PRISM indexes
+for fixed filters when post-filtering cannot return enough neighbors.
+
+This comparison uses one global PRISM index and B-trees on `time` and `by`
+for rows with embeddings. It preserves the published timestamp ranges and exact
+author equality predicates. PostgreSQL can choose PRISM with post-filtering or
+filter first and sort exact distances; the B-trees do not push filters into
+PRISM. Planner methods remain enabled and `work_mem` is 256 MiB. Per-predicate
+partial PRISM indexes are not part of this comparison.
+
+`EXPLAIN (ANALYZE, VERBOSE, BUFFERS)` records the first query vector at each
+reached operating point. The guard rejects missing predicates and unexpected
+plans. HN dashboard names include `prism-postfilter`, `btree-exact`, or
+`seqscan-exact`, keeping exact search separate from ANN results and separating
+baselines when the chosen path changes. `nprobe` has no effect on an exact plan.
+Scalar index sizes and build logs are retained alongside the PRISM build report.
+Unreached recall targets are skipped; k6 still requires every measured query to
+return ten neighbors.
+
 Run local checks with Python 3.11+ and `duckdb==2.0.0` installed:
 
 ```sh

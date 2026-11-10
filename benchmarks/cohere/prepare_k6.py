@@ -21,6 +21,55 @@ SUITES = {
 DIMENSIONS = {"cohere": 1024, "msmarco": 1024, "hn": 1536}
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
+NPROBE = "prism.nprobe"
+
+
+def validated_config(report, dataset, config):
+    """Validate the engine, dataset, and shared recall settings."""
+    current = json.loads(json.dumps(report["config"]))
+    current["search"].pop("query", None)
+    current["search"].pop("k", None)
+    if config is not None and config != current:
+        raise ValueError(
+            "Recall sweeps must use the same dataset, index, and session settings"
+        )
+    param = {"pg_search": PROBE, "pg_vectorsearch": NPROBE}.get(
+        current.get("engine", "pg_search")
+    )
+    if (
+        report["kind"] != "search"
+        or param is None
+        or report["data"]["sweep_param"] != param
+        or current["dataset"]["name"] != dataset
+        or current["dataset"]["dims"] != DIMENSIONS[dataset]
+    ):
+        raise ValueError(
+            "Expected a pdbench probe search report with "
+            f"{DIMENSIONS[dataset]}-dimensional query vectors"
+        )
+    if report["data"]["query_vectors"] != 100:
+        raise ValueError("CI requires all 100 query vectors and strict recall targets")
+    return current
+
+
+def selected_metrics(selected, measured, sweep, param, target):
+    """Preserve valid recall selections without changing the chosen probes."""
+    if selected is None:
+        return None
+    value = float(selected["value"])
+    if not sweep.get("min", 1) <= value <= sweep.get("max", 100_000):
+        raise ValueError(f"invalid selected point for {target}: outside sweep range")
+    if param == NPROBE and not value.is_integer():
+        raise ValueError(
+            f"invalid selected point for {target}: PRISM requires an integer"
+        )
+    metrics = measured[selected["value"]]
+    if (
+        not target - 1e-12 <= selected["recall"] <= 1
+        or metrics["recall"]["recall"] != selected["recall"]
+    ):
+        raise ValueError(f"invalid selected point for {target}: recall mismatch")
+    return metrics
 
 
 def operating_points(reports, dataset="cohere"):
@@ -30,34 +79,14 @@ def operating_points(reports, dataset="cohere"):
     config = None
     qvec = f"current_setting('{dataset}.qvec')"
     for report in reports:
-        current = json.loads(json.dumps(report["config"]))
-        current["search"].pop("query", None)
-        current["search"].pop("k", None)
-        if config is not None and config != current:
-            raise ValueError(
-                "Recall sweeps must use the same dataset, index, and session settings"
-            )
-        config = current
-        if (
-            report["kind"] != "search"
-            or report["data"]["sweep_param"] != PROBE
-            or current["dataset"]["name"] != dataset
-            or current["dataset"]["dims"] != DIMENSIONS[dataset]
-        ):
-            raise ValueError(
-                "Expected a pdbench max_probe search report with "
-                f"{DIMENSIONS[dataset]}-dimensional query vectors"
-            )
-        if report["data"]["query_vectors"] != 100:
-            raise ValueError(
-                "CI requires all 100 query vectors and strict recall targets"
-            )
+        config = validated_config(report, dataset, config)
+        param = report["data"]["sweep_param"]
         for query, result in report["data"]["variants"].items():
             if query not in SUITES[dataset] or query in seen:
                 raise ValueError(f"Unexpected or duplicate query: {query}")
             seen.add(query)
             neighbors = SUITES[dataset][query]
-            if not 0 < current["search"]["sweep"]["tolerance"] < 1 / (100 * neighbors):
+            if not 0 < config["search"]["sweep"]["tolerance"] < 1 / (100 * neighbors):
                 raise ValueError("CI requires strict recall targets")
             if result["query"].count(qvec) != 1:
                 raise ValueError(f"{query}: expected exactly one query-vector operand")
@@ -68,13 +97,9 @@ def operating_points(reports, dataset="cohere"):
                 raise ValueError(f"{query}: expected recall@{neighbors}")
             for target in TARGETS:
                 selected = result["targets"].get(str(target))
-                metrics = measured[selected["value"]] if selected else None
-                if selected and (
-                    not 1 <= float(selected["value"]) <= 100_000
-                    or not target - 1e-12 <= selected["recall"] <= 1
-                    or metrics["recall"]["recall"] != selected["recall"]
-                ):
-                    raise ValueError(f"{query}: invalid selected point for {target}")
+                metrics = selected_metrics(
+                    selected, measured, config["search"]["sweep"], param, target
+                )
                 points.append(
                     {
                         "name": f"{query}@r{round(target * 100)}",
@@ -87,13 +112,21 @@ def operating_points(reports, dataset="cohere"):
                         "target": target,
                         "reached": selected is not None,
                         "probe": selected["value"] if selected else None,
+                        "param": param,
+                        "engine": config.get("engine", "pg_search"),
+                        "backend": "pg_vectorsearch"
+                        if config.get("engine") == "pg_vectorsearch"
+                        else "paradedb",
+                        "index_name": f"{config['dataset']['table']}_prism_idx"
+                        if config.get("engine") == "pg_vectorsearch"
+                        else None,
                         "recall": selected["recall"]
                         if selected
                         else max(
                             point["recall"]["recall"] for point in measured.values()
                         ),
                         "sql": result["query"].replace(qvec, "$1"),
-                        "session": current["search"]["session"],
+                        "session": config["search"]["session"],
                         "buffers": metrics["buffers"] if metrics else None,
                     }
                 )
@@ -104,9 +137,10 @@ def operating_points(reports, dataset="cohere"):
 
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
+    parameter = "nprobe" if points[0]["param"] == NPROBE else "max_probe"
     lines = [
         (
-            "| Workload / recall target | k | max_probe | Achieved recall@k "
+            f"| Workload / recall target | k | {parameter} | Achieved recall@k "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|---:|",
@@ -129,7 +163,7 @@ def summary(points):
             f"{point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects max_probe separately for each workload and recall target on this index. "
+        f"\npdbench selects {parameter} separately for each workload and recall target. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"

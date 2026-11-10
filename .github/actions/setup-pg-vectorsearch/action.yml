@@ -1,0 +1,39 @@
+name: Set Up pg_vectorsearch
+description: Build the pinned PRISM extension used by the vector benchmarks
+
+inputs:
+  ref:
+    description: "paradedb/pg_vectorsearch commit"
+    required: true
+  github_token:
+    description: "Token with read access to paradedb/pg_vectorsearch"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout pg_vectorsearch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        repository: paradedb/pg_vectorsearch
+        ref: ${{ inputs.ref }}
+        path: pg-vectorsearch
+        token: ${{ inputs.github_token }}
+        persist-credentials: false
+
+    - name: Install build tools
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+      with:
+        packages: meson ninja-build
+
+    - name: Build and install pg_vectorsearch
+      shell: bash
+      run: |
+        set -euo pipefail
+        pg_config="/usr/lib/postgresql/18/bin/pg_config"
+        CC="$("$pg_config" --cc)" meson setup pg-vectorsearch/build pg-vectorsearch --buildtype=release \
+          -Dnative=true -Dblas=enabled -Dpostgresql=enabled -Dtools=disabled -Dpg_config="$pg_config"
+        meson compile -C pg-vectorsearch/build -j 8
+        sudo meson install -C pg-vectorsearch/build
+        mkdir -p benchmark-artifacts
+        git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt

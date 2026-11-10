@@ -38,6 +38,23 @@ refresh the baseline; subsequent PRs compare with it. Diagnostics retain
 extension/tool revisions, configuration, the verified query hash, segment
 statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
 
+## pg_vectorsearch
+
+Apply `benchmark-msmarco-pg_vectorsearch` to run MS MARCO with PRISM, or
+`benchmark-pg-vectorsearch` to run both HN and MS MARCO. Manual runs accept
+`engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
+
+The PRISM profile reuses the same heap, query vectors, ground truth, runner,
+worker limits, and k6 measurement procedure. It pins the parallel-build memory
+fix at `paradedb/pg_vectorsearch@1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, uses
+automatic `nlist` and default replication, and sweeps integer `prism.nprobe`
+from 1 to 4096. The build must use parallel workers, and executed query plans
+must use the expected cosine PRISM index. k6 checks the correct neighbor count
+for both top-10 and top-100.
+
+Artifacts and baseline history use `msmarco-113m-pg-vectorsearch`, separately
+from ParadeDB. The shared publisher retains the same QPS/latency time series.
+
 Run the shared handoff tests locally with:
 
 ```sh

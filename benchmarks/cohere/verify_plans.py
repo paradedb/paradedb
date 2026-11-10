@@ -22,6 +22,49 @@ def setting_driven_field(expression, required):
     return match["field"] if match and match["field"] in required else None
 
 
+def verify_prism(plan, index_name, fields):
+    """Identify PRISM post-filtering or PostgreSQL exact filtering."""
+    pending = [plan[0]["Plan"]]
+    nodes = []
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        pending.extend(node.get("Plans", []))
+    if any(node.get("Custom Plan Provider") for node in nodes):
+        raise ValueError("Expected pg_vectorsearch or PostgreSQL, found a custom scan")
+    predicates = " ".join(
+        str(node.get(key, ""))
+        for node in nodes
+        for key in ("Filter", "Index Cond", "Recheck Cond")
+    )
+    if any(not re.search(rf"\b{re.escape(field)}\b", predicates) for field in fields):
+        raise ValueError("Expected every HN predicate in the PostgreSQL plan")
+    prism = [
+        node
+        for node in nodes
+        if node.get("Node Type") == "Index Scan"
+        and node.get("Index Name") == index_name
+        and "<=>" in node.get("Order By", "")
+    ]
+    if prism:
+        return "prism-postfilter" if fields else "prism"
+    if fields and any(
+        node.get("Node Type") in ("Sort", "Incremental Sort")
+        and "<=>" in str(node.get("Sort Key", ""))
+        for node in nodes
+    ):
+        filter_indexes = {f"hn_items_{field}_idx" for field in fields}
+        if any(node.get("Index Name") in filter_indexes for node in nodes):
+            return "btree-exact"
+        if any(
+            node.get("Node Type") == "Seq Scan"
+            and node.get("Relation Name") == "hn_items"
+            for node in nodes
+        ):
+            return "seqscan-exact"
+    raise ValueError("Expected a cosine PRISM scan or an exact HN filter-and-sort plan")
+
+
 def verify(plan, filtered, neighbors=None, fields=None):
     """Require cosine TopK and all scalar predicates inside the index."""
     required = set(fields if fields is not None else (["text"] if filtered else []))
@@ -87,11 +130,12 @@ if __name__ == "__main__":
     vector = json.loads((args.directory / "query_vectors.json").read_text())[0]
     output = args.directory / "plans"
     output.mkdir(exist_ok=True)
+    plan_modes = ["| Operating point | Execution path |", "|---|---|"]
     for point in points:
         if not point["reached"]:
             continue
         session = point["session"] | {
-            "paradedb.vector_cluster_max_probe": point["probe"]
+            point.get("param", "paradedb.vector_cluster_max_probe"): point["probe"]
         }
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()
@@ -115,10 +159,33 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
         )
         path = output / f"{point['name']}.json"
         path.write_text(result.stdout)
-        verify(
-            json.loads(result.stdout),
-            not point["query"].endswith("_unfiltered"),
-            point["neighbors"],
-            point["filter_fields"],
-        )
+        executed_plan = json.loads(result.stdout)
+        if point.get("engine") == "pg_vectorsearch":
+            mode = verify_prism(
+                executed_plan, point["index_name"], point["filter_fields"]
+            )
+            point["plan_mode"] = mode
+            plan_modes.append(f"| `{point['name']}` | `{mode}` |")
+            if point["filter_fields"]:
+                point["name"] += f"-{mode}"
+        else:
+            verify(
+                executed_plan,
+                not point["query"].endswith("_unfiltered"),
+                point["neighbors"],
+                point["filter_fields"],
+            )
         print(f"Verified {point['name']}: {path}")
+    (args.directory / "operating_points.json").write_text(
+        json.dumps(points, indent=2) + "\n"
+    )
+    if len(plan_modes) > 2:
+        report = "\n" + "\n".join(plan_modes) + "\n"
+        (args.directory / "plan-modes.md").write_text(report)
+        for destination in (
+            args.directory / "result-context.md",
+            os.environ.get("GITHUB_STEP_SUMMARY"),
+        ):
+            if destination:
+                with Path(destination).open("a", encoding="utf-8") as stream:
+                    stream.write(report)

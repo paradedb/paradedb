@@ -246,12 +246,16 @@ class OperatingPointsTest(unittest.TestCase):
         expression = json.loads(scan["Tantivy Query"])["postgres_expression"]["expr"]
         setting_driven = expression["expr_desc"]
         for desc in (
-            setting_driven.replace("current_setting('cohere.titles_10pct'::text)", "'year'::text"),
+            setting_driven.replace(
+                "current_setting('cohere.titles_10pct'::text)", "'year'::text"
+            ),
             setting_driven.replace("parse_with_field", "parse"),
             "upper(" + setting_driven + ")",
         ):
             expression["expr_desc"] = desc
-            scan["Tantivy Query"] = json.dumps({"postgres_expression": {"expr": expression}})
+            scan["Tantivy Query"] = json.dumps(
+                {"postgres_expression": {"expr": expression}}
+            )
             with self.assertRaisesRegex(ValueError, "unresolved expression"):
                 verify(plan, filtered=True, neighbors=10, fields=["text"])
         expression["expr_desc"] = setting_driven

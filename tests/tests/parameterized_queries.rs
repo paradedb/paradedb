@@ -40,6 +40,67 @@ fn plan_has_parallel_workers(v: &Value) -> bool {
 }
 
 #[rstest]
+#[case(0)]
+#[case(2)]
+fn explain_analyze_resolves_runtime_vector_filter(#[case] workers: usize, mut conn: PgConnection) {
+    r#"
+    SET parallel_setup_cost = 0;
+    SET parallel_tuple_cost = 0;
+    SET paradedb.min_rows_per_worker = 0;
+    CREATE TABLE runtime_vector_explain (id bigint PRIMARY KEY, text text, emb vector(3));
+    CREATE INDEX runtime_vector_explain_idx ON runtime_vector_explain
+    USING paradedb (id, text, emb vector_cosine_ops)
+    WITH (background_layer_sizes = '0', layer_sizes = '0');
+    SET paradedb.global_mutable_segment_rows = 0;
+    INSERT INTO runtime_vector_explain
+        SELECT g, CASE WHEN g % 2 = 0 THEN 'year' ELSE 'battle' END,
+               ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
+    INSERT INTO runtime_vector_explain
+        SELECT g, CASE WHEN g % 2 = 0 THEN 'year' ELSE 'battle' END,
+               ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+    PREPARE runtime_vector_query(vector(3)) AS
+        SELECT id FROM runtime_vector_explain
+        WHERE text @@@ current_setting('test.search_term')
+        ORDER BY emb <=> $1 LIMIT 10;
+    "#
+    .execute(&mut conn);
+    format!("SET max_parallel_workers_per_gather = {workers}").execute(&mut conn);
+
+    for term in ["year", "battle"] {
+        format!("SET test.search_term = '{term}'").execute(&mut conn);
+        for analyze in [false, true] {
+            let options = if analyze { "ANALYZE, " } else { "" };
+            let (plan,): (Value,) = format!(
+                "EXPLAIN ({options}VERBOSE, FORMAT JSON) EXECUTE runtime_vector_query('[1,1,0]')"
+            )
+            .fetch_one(&mut conn);
+            assert_eq!(plan_has_parallel_workers(&plan), workers > 0, "{plan}");
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            while let Some(node) = nodes.pop() {
+                if node["Index"] == "runtime_vector_explain_idx" {
+                    found = true;
+                    let query = node["Tantivy Query"].as_str().unwrap();
+                    assert_eq!(query.contains("postgres_expression"), !analyze, "{plan}");
+                    if analyze {
+                        assert!(query.contains(r#""field":"text""#), "{plan}");
+                        assert!(
+                            query.contains(&format!(r#""query_string":"{term}""#)),
+                            "{plan}"
+                        );
+                        assert!(!query.contains("heap_filter"), "{plan}");
+                    }
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
+        }
+    }
+}
+
+#[rstest]
 fn self_referencing_var(mut conn: PgConnection) {
     r#"
     DROP TABLE IF EXISTS test;

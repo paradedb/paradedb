@@ -1882,13 +1882,16 @@ impl CustomScan for BaseScan {
             }
         }
 
-        // Add a flag to indicate if the query is a full index scan
-        let base_query = state.custom_state().base_search_query_input();
+        let query = if explainer.is_analyze() && state.custom_state().search_reader.is_some() {
+            state.custom_state().search_query_input()
+        } else {
+            state.custom_state().base_search_query_input()
+        };
 
         // Only process the query if it's initialized
         // For EXPLAIN without ANALYZE, the query might not be initialized yet
-        if !matches!(base_query, SearchQueryInput::Uninitialized) {
-            if base_query.is_full_scan_query() {
+        if !matches!(query, SearchQueryInput::Uninitialized) {
+            if query.is_full_scan_query() {
                 explainer.add_bool("Full Index Scan", true);
             }
 
@@ -1902,7 +1905,7 @@ impl CustomScan for BaseScan {
                     if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
                         // EXPLAIN ANALYZE: use the existing search reader
                         search_reader
-                            .build_query_tree_with_estimates(base_query.without_heap_filters())
+                            .build_query_tree_with_estimates(query.without_heap_filters())
                             .expect("building query tree with estimates should not fail")
                     } else {
                         // EXPLAIN (without ANALYZE): create a temporary reader for estimates
@@ -1912,7 +1915,7 @@ impl CustomScan for BaseScan {
                             .as_ref()
                             .expect("indexrel should be open");
 
-                        let query_for_estimates = base_query.without_heap_filters();
+                        let query_for_estimates = query.without_heap_filters();
                         let mvcc_style =
                             SearchIndexReader::mvcc_for_estimation(indexrel, &query_for_estimates);
                         let temp_reader = SearchIndexReader::open_with_context(
@@ -1922,7 +1925,7 @@ impl CustomScan for BaseScan {
                             mvcc_style, // Use snapshot when prunable, largest segment otherwise
                             None,       // No expr_context needed for estimates
                             None,       // No planstate needed for estimates
-                            base_query.needs_tokenizer(),
+                            query.needs_tokenizer(),
                             None,
                         )
                         .expect("opening temporary search reader for estimates should not fail");
@@ -1935,7 +1938,7 @@ impl CustomScan for BaseScan {
                 explainer.add_query_with_estimates(&query_tree);
             } else {
                 // Regular display without estimates
-                explainer.add_query(base_query);
+                explainer.add_query(query);
             }
         } else {
             explainer.add_text("Tantivy Query", "(query not yet initialized)");

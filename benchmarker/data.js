@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794332800198,
+  "lastUpdate": 1794332828487,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -69591,6 +69591,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13659280582-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794332823013,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.596,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 12.484,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 13.065,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 13.4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 16.518,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 17.14,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 27.366,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 39.362,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 41.624,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 11.1,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 12.609,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 12.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 14.258,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 19.031,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 19.537,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 29.522,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 37.717,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 41.491,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 4.272,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.904,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.309,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.732,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.756,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 8.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 18.223,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 19.962,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 21.214,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13788077839-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -73185,6 +73343,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13659280582-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794332825343,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 92.63662837764615,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 72.98749175482267,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 35.40555767743152,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 89.4404235074148,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 68.39316028084328,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 33.32748620678635,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 233.18380691861378,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 150.45430051297365,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 63.23137459467242,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13788077839-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -74804,6 +75030,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13659280582-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794332828479,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 4.277651339849999,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 43200.40625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13788077839-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -78011,6 +78270,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13659280582-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492",
+          "message": "docs: redirect retired third-party extension guide (#7357)\n\n## What\nRedirect `/operate/deploy/third-party-extensions` to\n`/operate/deploy/self-hosted/extension`.\n\n## Why\nSearch Console reports the retired guide as a 404. The destination is\nthe current guide for installing ParadeDB in an existing Postgres\ncluster and includes the required pgvector setup.\n\n## How\nAdd an exact redirect to the existing Mintlify redirect configuration.\nThe sampled legacy canonical conflicts already redirect to current\npages, and release 0.26.4 is already excluded from the live sitemap, so\nthose historical reports need no further code change.\n\n## Tests\n- `mint validate`\n- `mint broken-links`\n- Verified the retired URL returns 404 and the destination returns 200\nin production.\n- `git diff --check`\n\nThe redirect takes effect after a Mintlify docs publication; this PR\ndoes not publish the docs.",
+          "timestamp": "2026-11-10T16:29:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ae65e9b2921ec5064d4a9a5cd7e92e0feefd9492"
+        },
+        "date": 1794332827234,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 6732.78,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 9149.87,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 22879.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 7740.48,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 10744,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 28785.99,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1392.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2370.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 6127.5,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13788077839-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [

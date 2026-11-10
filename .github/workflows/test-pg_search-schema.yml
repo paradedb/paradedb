@@ -13,10 +13,18 @@ on:
       - ".github/workflows/test-pg_search-schema.yml"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "basescan/**"
+      - "common/**"
+      - "index_read/**"
+      - "index_write/**"
+      - "joinscan/**"
       - "pg_search/**"
       - "!pg_search/README.md"
+      - "planner/**"
       - "rust-toolchain.toml"
+      - "scan/**"
       - "schemabot/**"
+      - "storage/**"
   workflow_dispatch:
 
 concurrency:

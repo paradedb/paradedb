@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::api::operator::search_with_query_input_exec_procoids;
 use crate::api::version::Version;
@@ -27,7 +28,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{resolve_field_value, row_to_search_document};
 use crate::postgres::var::{find_var_relation, system_column_var};
 use crate::query::SearchQueryInput;
-use crate::schema::{CategorizedFieldData, FieldSource, SearchField};
+use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchemaQueryExt};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
 use std::sync::OnceLock;

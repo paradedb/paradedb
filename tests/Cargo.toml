@@ -5,8 +5,10 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
-[lints]
-workspace = true
+# `tests` has ~75 separate `tests/*.rs` integration test binaries sharing one `Cargo.toml`,
+# each using a different subset of dependencies, so `unused_crate_dependencies` is omitted here.
+[lints.clippy]
+large_futures = "warn"
 
 [lib]
 crate-type = ["rlib"]

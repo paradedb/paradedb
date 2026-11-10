@@ -388,26 +388,31 @@ impl CreateUpperPathsHookArgs {
         false
     }
 
-    pub unsafe fn has_int8_sum_aggregate(&self) -> bool {
+    /// True when the query has an `int8` `sum`, `min` or `max` of a column or of
+    /// `COALESCE(column, constant)`, which Tantivy would compute in f64 and round past 2^53.
+    pub unsafe fn has_exact_int8_aggregate(&self) -> bool {
         let parse = self.root().parse;
         if parse.is_null() {
             return false;
         }
 
-        let is_int8_sum = |node: *mut pg_sys::Node| {
+        let is_exact_int8 = |node: *mut pg_sys::Node| {
             crate::nodecast!(Aggref, T_Aggref, node).is_some_and(|aggref| {
-                (*aggref).aggfnoid.to_u32() == pg_sys::F_SUM_INT8
-                    && PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
-                        .iter_ptr()
-                        .any(|arg| {
-                            aggregatescan::join_targetlist::unwrap_to_var((*arg).expr.cast())
-                                .is_some()
-                        })
+                matches!(
+                    (*aggref).aggfnoid.to_u32(),
+                    pg_sys::F_SUM_INT8 | pg_sys::F_MIN_INT8 | pg_sys::F_MAX_INT8
+                ) && PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
+                    .iter_ptr()
+                    .any(|arg| {
+                        let expr = (*arg).expr.cast();
+                        aggregatescan::join_targetlist::unwrap_to_var(expr).is_some()
+                            || aggregatescan::join_targetlist::unwrap_int8_coalesce(expr).is_some()
+                    })
             })
         };
 
-        (!(*parse).targetList.is_null() && (*parse).targetList.any(is_int8_sum))
-            || (!(*parse).havingQual.is_null() && (*parse).havingQual.any(is_int8_sum))
+        (!(*parse).targetList.is_null() && (*parse).targetList.any(is_exact_int8))
+            || (!(*parse).havingQual.is_null() && (*parse).havingQual.any(is_exact_int8))
     }
 
     pub unsafe fn has_date_group(&self) -> bool {

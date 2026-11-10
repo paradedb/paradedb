@@ -6,20 +6,6 @@ noindex: true
 
 See GitHub release: [v0.26.5](https://github.com/paradedb/paradedb/releases/tag/v0.26.5)
 
-## Performance Improvements 🚀
-
-- High-cardinality `GROUP BY` queries on the Aggregate Scan run faster: grouped results are turned into rows in one pass instead of re-searching the bucket tree for every row.
-
-## Stability Improvements 💪
-
-- `pdb.verify_index(..., heapallindexed => true)` and `pdb.verify_all_indexes()` lock each table before its index, including partition leaves, avoiding deadlocks with concurrent `REINDEX` or `VACUUM FULL`.
-
-- A `GROUP BY` on a float column now returns the aggregates of a `NaN` group instead of NULL, for queries without `FILTER` aggregates.
-
-- `NOT (field = ANY('{}'))` and `field <> ALL('{}')` with an empty array no longer drop every row when combined with a search.
-
-- Comparing a NULL value against an indexed array column, such as `NULL::text = ANY(tags)`, no longer raises `pushdown expression should not evaluate to NULL`.
-
 ## Breaking Changes 🚨
 
 ### Standalone index access permissions
@@ -47,3 +33,17 @@ including `vector_config()`, and content reads and verification retain the stric
 `merge_lock_garbage_collect()` requires `MAINTAIN` on the backing table on PostgreSQL 17
 and later, including privileges inherited from `pg_maintain`. Table owners qualify
 implicitly. PostgreSQL 15 and 16 require ownership of the backing table.
+
+## Performance Improvements 🚀
+
+- High-cardinality `GROUP BY` queries on the Aggregate Scan run faster: grouped results are turned into rows in one pass instead of re-searching the bucket tree for every row.
+
+## Stability Improvements 💪
+
+- `pdb.verify_index(..., heapallindexed => true)` and `pdb.verify_all_indexes()` lock each table before its index, including partition leaves, avoiding deadlocks with concurrent `REINDEX` or `VACUUM FULL`.
+
+- A `GROUP BY` on a float column now returns the aggregates of a `NaN` group instead of NULL, for queries without `FILTER` aggregates.
+
+- `NOT (field = ANY('{}'))` and `field <> ALL('{}')` with an empty array no longer drop every row when combined with a search.
+
+- Comparing a NULL value against an indexed array column, such as `NULL::text = ANY(tags)`, no longer raises `pushdown expression should not evaluate to NULL`.

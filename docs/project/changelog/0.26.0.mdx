@@ -6,6 +6,14 @@ noindex: true
 
 See GitHub release: [v0.26.0](https://github.com/paradedb/paradedb/releases/tag/v0.26.0)
 
+## Breaking Changes 🚨
+
+### Vector storage
+
+Vector storage uses per-segment metadata and a block-major layout. After upgrading to 0.26, every index containing a vector field, quantized or not, must be rebuilt with `REINDEX`.
+
+Vector searches fail with a rebuild-required error until `REINDEX` completes. Writes continue: merges skip segments with unsupported vector storage. `REINDEX CONCURRENTLY` can rebuild the index while writes proceed.
+
 ## New Features ✨
 
 ### Quantized Vector Search
@@ -146,14 +154,6 @@ To benefit from all of these improvements, existing indexes must be [reindexed](
 - Fixed `PgList does not contain pointers` when a prepared statement runs a `GROUP BY` aggregate on Aggregate Scan more than one time. The error came on the second run of a cached plan, which a driver that prepares its statements reaches when it sends the same query two times (#6136).
 
 - Fixed wrong results from Aggregate Scan for an aggregate with its own `ORDER BY`, such as `COUNT(id ORDER BY kind)`. On Postgres 16 and later, the scan grouped on the sort column and returned one row for each of its values (#6607).
-
-## Breaking Changes 🚨
-
-### Vector storage
-
-Vector storage uses per-segment metadata and a block-major layout. After upgrading to 0.26, every index containing a vector field, quantized or not, must be rebuilt with `REINDEX`.
-
-Vector searches fail with a rebuild-required error until `REINDEX` completes. Writes continue: merges skip segments with unsupported vector storage. `REINDEX CONCURRENTLY` can rebuild the index while writes proceed.
 
 ## Other Changes 🛠️
 

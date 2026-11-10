@@ -17,11 +17,11 @@ Please read the changelog carefully.
 - Indexing expressions is a new beta feature for advanced users.
 - `paradedb.snippet` now works for JSON.
 
-## Stability Improvements 💪
-
-- Fixed an issue where BM25 scores could be lost in JOIN queries.
-
 ## Performance Improvements 🚀
 
 - Optimized the insert code path, leading to 2X write throughput over single-row inserts/updates.
 - Improved query pushdown to use the BM25 index when we can, even if `@@@` is not present in the query.
+
+## Stability Improvements 💪
+
+- Fixed an issue where BM25 scores could be lost in JOIN queries.

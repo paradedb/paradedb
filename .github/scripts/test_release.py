@@ -11,6 +11,29 @@ from unittest.mock import patch
 import release
 
 
+class ChangelogSectionOrderTests(unittest.TestCase):
+    """Release notes put compatibility changes before improvements."""
+
+    def test_rendered_sections_follow_release_order(self):
+        root = Path(__file__).resolve().parents[2]
+        headers = release.load_headers_map(root / ".changelog_headers.json")
+        order = ["breaking", "features", "performance", "stability", "docs", "other"]
+        grouped = {key: [f"Change in {key}"] for key in reversed(order)}
+        rendered = release.render_changelog("0.26.5", headers, grouped, [])
+        positions = [rendered.index(headers[key]) for key in order]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_empty_sections_are_omitted(self):
+        root = Path(__file__).resolve().parents[2]
+        headers = release.load_headers_map(root / ".changelog_headers.json")
+        rendered = release.render_changelog(
+            "0.26.5", headers, {"stability": ["Fix a crash"]}, []
+        )
+        self.assertIn(headers["stability"], rendered)
+        for key in ["breaking", "features", "performance", "docs", "other"]:
+            self.assertNotIn(headers[key], rendered)
+
+
 class UpgradeVersionSelectionTests(unittest.TestCase):
     """New release tags must not disconnect an older checkout's migration chain."""
 

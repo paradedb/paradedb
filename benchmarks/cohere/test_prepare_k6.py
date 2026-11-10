@@ -13,7 +13,7 @@ def reports(dataset="cohere"):
         {
             "kind": "search",
             "config": {
-                "dataset": {"name": dataset, "size": "1m"},
+                "dataset": {"name": dataset, "size": "1m", "dims": 1024},
                 "search": {
                     "query": query,
                     "k": neighbors,
@@ -159,11 +159,11 @@ class OperatingPointsTest(unittest.TestCase):
         """Reject fallback scans and filters outside the index."""
         scan = {
             "Custom Plan Provider": "ParadeDB Base Scan",
-            "Tantivy Query": "text:year",
+            "Tantivy Query": {"term": {"field": "text", "value": "year"}},
         }
         plan = [{"Plan": {"Node Type": "Gather", "Plans": [scan]}}]
         verify(plan, filtered=True)
-        scan["Tantivy Query"] = "all"
+        scan["Tantivy Query"] = '"all"'
         with self.assertRaisesRegex(ValueError, "predicate pushed down"):
             verify(plan, filtered=True)
         scan["Filter"] = "text = 'year'"

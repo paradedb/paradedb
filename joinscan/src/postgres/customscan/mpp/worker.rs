@@ -529,7 +529,7 @@ mod tests {
     use crate::postgres::customscan::mpp::dsm_stream::{
         DEFAULT_SPSC_RING_CAPACITY, build_leader_streams, dsm_region_bytes, init_dsm_mesh,
     };
-    use crate::postgres::customscan::mpp::wakeup::WakeupSlot;
+    use crate::postgres::customscan::mpp::wakeup::reserve_wakeup_slots;
     use arrow_array::{Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::datasource::MemTable;
@@ -556,12 +556,14 @@ mod tests {
                 init_dsm_mesh(base, n_procs, DEFAULT_SPSC_RING_CAPACITY).unwrap();
             }
 
+            let reservation = reserve_wakeup_slots(n_procs as usize).unwrap();
+            let slots = reservation.slots();
             let handle = tokio::runtime::Handle::current();
 
             // Spawn 2 Tonic Worker servers over the DSM streams.
             let mut worker_tasks = Vec::new();
             for w in 1..=2 {
-                let mut w_disp = WakeupDispatcher::new(WakeupSlot(w));
+                let mut w_disp = WakeupDispatcher::new(slots[w as usize]);
                 w_disp.start(&handle).unwrap();
                 let w_streams =
                     unsafe { build_worker_streams(base, ServerProc(w), &w_disp).unwrap() };
@@ -602,7 +604,7 @@ mod tests {
             }
 
             // Leader setup.
-            let mut leader_disp = WakeupDispatcher::new(WakeupSlot(0));
+            let mut leader_disp = WakeupDispatcher::new(slots[0]);
             leader_disp.start(&handle).unwrap();
             let (leader_streams, shutdown_handle) =
                 unsafe { build_leader_streams(base, &leader_disp).unwrap() };

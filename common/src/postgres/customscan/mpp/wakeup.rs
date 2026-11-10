@@ -131,10 +131,21 @@ impl WakeupSocketPair {
 
 /// Index into the global `WAKEUP_POOL`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WakeupSlot(pub u32);
+pub struct WakeupSlot(u32);
 
 impl WakeupSlot {
     pub const UNSET: Self = Self(u32::MAX);
+
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Reconstruct a [`WakeupSlot`] from the raw `u32` stored in the DSM wakeup slot table.
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
 }
 
 struct WakeupPool {

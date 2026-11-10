@@ -53,7 +53,7 @@ struct SysCacheEntry {
 impl SysCacheEntry {
     unsafe fn search1(cache: pg_sys::SysCacheIdentifier::Type, key: pg_sys::Datum) -> Option<Self> {
         let tuple = pg_sys::SearchSysCache1(cache as _, key);
-        (!tuple.is_null()).then_some(Self { cache, tuple })
+        (!tuple.is_null()).then(|| Self { cache, tuple })
     }
 
     /// Note that borrowed values MUST be copied out before the guard drops

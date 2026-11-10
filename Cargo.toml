@@ -22,7 +22,18 @@ members = [
 # extension stack. Other members pull in dependencies the extension does not
 # need (`benchmarks`, for example, builds the bundled DuckDB from C++ source).
 # Build them with `-p <crate>` or `--workspace`.
-default-members = ["pg_search", "tokenizers"]
+default-members = [
+  "basescan",
+  "common",
+  "index_read",
+  "index_write",
+  "joinscan",
+  "pg_search",
+  "planner",
+  "scan",
+  "storage",
+  "tokenizers",
+]
 
 [workspace.package]
 version = "0.26.0"

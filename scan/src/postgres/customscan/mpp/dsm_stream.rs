@@ -214,7 +214,7 @@ pub unsafe fn init_dsm_mesh(
     let slots_ptr = unsafe { base.add(wakeup_slots_offset()) as *mut AtomicU32 };
     for i in 0..(n_procs as usize) {
         unsafe {
-            ptr::write(slots_ptr.add(i), AtomicU32::new(WakeupSlot::UNSET.0));
+            ptr::write(slots_ptr.add(i), AtomicU32::new(WakeupSlot::UNSET.raw()));
         }
     }
 
@@ -296,7 +296,7 @@ pub unsafe fn assign_wakeup_slots(base: *mut u8, slots: &[WakeupSlot]) -> Result
     for (i, slot) in slots.iter().enumerate() {
         let slot_ptr = unsafe { wakeup_slot_ptr(base, i as u32) };
         unsafe {
-            (*slot_ptr).store(slot.0, Ordering::SeqCst);
+            (*slot_ptr).store(slot.raw(), Ordering::SeqCst);
         }
     }
     Ok(())
@@ -316,7 +316,7 @@ pub unsafe fn proc_wakeup_slot(base: *const u8, proc_idx: u32) -> Result<WakeupS
     }
     let slot_ptr = unsafe { wakeup_slot_ptr(base, proc_idx) };
     let raw = unsafe { (*slot_ptr).load(Ordering::SeqCst) };
-    let slot = WakeupSlot(raw);
+    let slot = WakeupSlot::from_raw(raw);
     if slot == WakeupSlot::UNSET {
         return Err(format!("mpp: wakeup slot for proc {proc_idx} is unset"));
     }
@@ -356,7 +356,7 @@ impl DsmAsyncStream {
         // SAFETY: `peer_wakeup_slot` points into the DSM wakeup slot table for the lifetime of the
         // query.
         let raw_slot = unsafe { (*self.peer_wakeup_slot).load(Ordering::SeqCst) };
-        wake_slot(WakeupSlot(raw_slot));
+        wake_slot(WakeupSlot::from_raw(raw_slot));
     }
 
     fn wake_if_sleeping(&self, peer_sleeping: &AtomicBool) {
@@ -670,7 +670,7 @@ impl DsmLeaderShutdownHandle {
             for s in 1..self.n_procs {
                 let slot_ptr = wakeup_slot_ptr(self.base, s);
                 let raw_slot = (*slot_ptr).load(Ordering::SeqCst);
-                wake_slot(WakeupSlot(raw_slot));
+                wake_slot(WakeupSlot::from_raw(raw_slot));
             }
         }
     }
@@ -730,7 +730,7 @@ pub unsafe fn build_leader_streams(
 
     let leader_slot_ptr = unsafe { wakeup_slot_ptr(base, 0) };
     unsafe {
-        (*leader_slot_ptr).store(dispatcher.slot().0, Ordering::SeqCst);
+        (*leader_slot_ptr).store(dispatcher.slot().raw(), Ordering::SeqCst);
     }
 
     let mut client_streams = Vec::with_capacity(n_streams);
@@ -813,7 +813,7 @@ impl DsmWorkerDetachHandle {
                     );
                     if close_ring_pair(tx_hdr, rx_hdr) {
                         let raw_slot = (*wakeup_slot_ptr(self.base, s)).load(Ordering::SeqCst);
-                        wake_slot(WakeupSlot(raw_slot));
+                        wake_slot(WakeupSlot::from_raw(raw_slot));
                     }
                 }
             }
@@ -835,7 +835,7 @@ impl DsmWorkerDetachHandle {
                     );
                     if close_ring_pair(tx_hdr, rx_hdr) {
                         let raw_slot = (*wakeup_slot_ptr(self.base, c)).load(Ordering::SeqCst);
-                        wake_slot(WakeupSlot(raw_slot));
+                        wake_slot(WakeupSlot::from_raw(raw_slot));
                     }
                 }
             }
@@ -884,7 +884,7 @@ pub unsafe fn build_worker_streams(
     // flags, and before checking `shutdown_flag` in `shutdown_watcher`.
     let my_slot_ptr = unsafe { wakeup_slot_ptr(base, w) };
     unsafe {
-        (*my_slot_ptr).store(dispatcher.slot().0, Ordering::SeqCst);
+        (*my_slot_ptr).store(dispatcher.slot().raw(), Ordering::SeqCst);
     }
 
     let mut client_streams = Vec::with_capacity((n_procs - 2) as usize);
@@ -1000,10 +1000,13 @@ mod tests {
                 init_dsm_mesh(base, n_procs, ring_cap).unwrap();
             }
 
+            let reservation =
+                crate::postgres::customscan::mpp::wakeup::reserve_wakeup_slots(2).unwrap();
+            let slots = reservation.slots();
             let handle = tokio::runtime::Handle::current();
-            let mut leader_disp = WakeupDispatcher::new(WakeupSlot(0));
+            let mut leader_disp = WakeupDispatcher::new(slots[0]);
             leader_disp.start(&handle).unwrap();
-            let mut w1_disp = WakeupDispatcher::new(WakeupSlot(1));
+            let mut w1_disp = WakeupDispatcher::new(slots[1]);
             w1_disp.start(&handle).unwrap();
 
             let (mut leader_clients, shutdown) =
@@ -1065,12 +1068,15 @@ mod tests {
                 init_dsm_mesh(base, n_procs, ring_cap).unwrap();
             }
 
+            let reservation =
+                crate::postgres::customscan::mpp::wakeup::reserve_wakeup_slots(3).unwrap();
+            let slots = reservation.slots();
             let handle = tokio::runtime::Handle::current();
-            let mut leader_disp = WakeupDispatcher::new(WakeupSlot(0));
+            let mut leader_disp = WakeupDispatcher::new(slots[0]);
             leader_disp.start(&handle).unwrap();
-            let mut w1_disp = WakeupDispatcher::new(WakeupSlot(1));
+            let mut w1_disp = WakeupDispatcher::new(slots[1]);
             w1_disp.start(&handle).unwrap();
-            let mut w2_disp = WakeupDispatcher::new(WakeupSlot(2));
+            let mut w2_disp = WakeupDispatcher::new(slots[2]);
             w2_disp.start(&handle).unwrap();
 
             let (mut leader_clients, _shutdown) =

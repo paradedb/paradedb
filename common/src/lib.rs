@@ -85,6 +85,25 @@ pub mod pg_test {
             .expect("workspace root")
             .join("pg_search");
         unsafe {
+            // Strip per-crate Cargo test-runner environment variables inherited by the nested
+            // `cargo pgrx install` invocation in `pgrx-tests`. Without this, build scripts
+            // that emit `cargo:rerun-if-env-changed=CARGO_*` (such as `ring`) see values set by
+            // `cargo test` for the current test binary (`CARGO_CRATE_NAME`, `CARGO_PKG_*`, etc.)
+            // that were unset during the outer `cargo` build and recompile the workspace.
+            for (k, _) in std::env::vars() {
+                if k.starts_with("CARGO_PKG_")
+                    || matches!(
+                        k.as_str(),
+                        "CARGO_CRATE_NAME"
+                            | "CARGO_BIN_NAME"
+                            | "CARGO_PRIMARY_PACKAGE"
+                            | "CARGO_MANIFEST_PATH"
+                            | "CARGO_TARGET_TMPDIR"
+                    )
+                {
+                    std::env::remove_var(&k);
+                }
+            }
             std::env::set_var("CARGO_MANIFEST_DIR", &pg_search_dir);
             std::env::set_var("PGRX_MANIFEST_PATH", pg_search_dir.join("Cargo.toml"));
         }

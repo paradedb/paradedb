@@ -164,7 +164,7 @@ impl KdTree {
     /// The dimension of every split, root first then left before right (pre-order), so tests
     /// can tell a declared dimension from the ctid fallback.
     #[cfg(any(test, feature = "pg_test"))]
-    pub(crate) fn split_dims(&self) -> Vec<DimHandle> {
+    pub fn split_dims(&self) -> Vec<DimHandle> {
         fn walk(node: &KdNode, out: &mut Vec<DimHandle>) {
             if let KdNode::Split {
                 dim, left, right, ..

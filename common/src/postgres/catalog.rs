@@ -135,7 +135,9 @@ pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
             if tuple.is_null() {
                 break;
             }
-            let class = &*pgrx::GETSTRUCT!(tuple).get().cast::<pg_sys::FormData_pg_class>();
+            let class = &*pgrx::GETSTRUCT!(tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_class>();
             if class.relkind as u8 != pg_sys::RELKIND_INDEX
                 || class.relpersistence as u8 == pg_sys::RELPERSISTENCE_TEMP
                 || !class.relam.is_paradedb_am()
@@ -148,7 +150,9 @@ pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
             ) else {
                 continue;
             };
-            let index = &*pgrx::GETSTRUCT!(entry.tuple).get().cast::<pg_sys::FormData_pg_index>();
+            let index = &*pgrx::GETSTRUCT!(entry.tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_index>();
             if index.indisvalid && index.indisready {
                 indexes.push(class.oid);
             }

@@ -32,8 +32,8 @@ use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
-    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, check_for_interrupts,
-    pg_guard, pg_sys,
+    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, Spi,
+    check_for_interrupts, pg_guard, pg_sys,
 };
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;

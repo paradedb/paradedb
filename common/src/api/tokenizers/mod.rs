@@ -157,7 +157,8 @@ impl DatumWithType {
         //       any element of this type is prefixed with the valid C string
         //       `err`
         if vl_len < minimum_size
-            || pgrx::VARDATA_ANY!(ptr).get()
+            || pgrx::VARDATA_ANY!(ptr)
+                .get()
                 .byte_add(offset_of!(DatumWithTypeContents, magic))
                 .cast::<u32>()
                 .read_unaligned()
@@ -167,7 +168,9 @@ impl DatumWithType {
             return (pg_sys::Datum::from(ptr), None);
         }
 
-        let contents_ptr = pgrx::VARDATA_ANY!(ptr).get().cast::<DatumWithTypeContents>();
+        let contents_ptr = pgrx::VARDATA_ANY!(ptr)
+            .get()
+            .cast::<DatumWithTypeContents>();
         let contents = contents_ptr.read();
 
         let data_ptr = contents_ptr.add(1).cast();

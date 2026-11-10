@@ -1,9 +1,11 @@
 use std::alloc::{GlobalAlloc, System};
 use std::cell::Cell;
+use std::fmt::Display;
 
 // OPEN QUESTION: How to handle memory allocated before budget context, but dropped inside of?
 
-/// Thread-local memory budget
+/// Thread-local memory budget. All members are `Cell`s, and this makes heavy use of interior
+/// mutability, as we need the base struct to be a thread local `pub static`
 pub struct Budget {
     soft_budget: Cell<usize>,
     hard_budget: Cell<usize>,
@@ -21,6 +23,13 @@ impl Budget {
     }
 
     pub fn exceeded(&self) -> bool {
+        if self.peak > self.hard_budget {
+            panic!(
+                "hard budget of {} exceeded with peak of {}",
+                self.hard_budget.get(),
+                self.peak.get()
+            );
+        }
         self.peak > self.soft_budget
     }
 
@@ -36,15 +45,22 @@ impl Budget {
         self.peak.set(0);
     }
 
-    #[inline(always)]
-    unsafe fn increase(&self, size: usize) {
-        self.allocated.set(self.allocated.get() + size);
-        self.peak.set(self.peak.get().max(self.allocated.get())); // maybe update only on check or decrease
-        // TODO: panic on hard budget exceeded
+    pub fn reset_to_no_budget(&self) {
+        let no_budget = Self::new();
+        self.soft_budget.set(no_budget.soft_budget.get());
+        self.hard_budget.set(no_budget.hard_budget.get());
+        self.allocated.set(no_budget.allocated.get());
+        self.peak.set(no_budget.peak.get());
     }
 
     #[inline(always)]
-    unsafe fn decrease(&self, size: usize) {
+    unsafe fn charge(&self, size: usize) {
+        self.allocated.set(self.allocated.get() + size);
+        self.peak.set(self.peak.get().max(self.allocated.get())); // maybe update only on check or decrease
+    }
+
+    #[inline(always)]
+    unsafe fn release(&self, size: usize) {
         self.allocated.set(self.allocated.get() - size);
     }
 }
@@ -58,12 +74,46 @@ thread_local! {
     pub static THREAD_MEMORY_BUDGET: Budget = const { Budget::new() };
 }
 
+#[derive(Debug)]
+pub struct BudgetExceededError {
+    budget: usize,
+    peak: usize,
+}
+impl Display for BudgetExceededError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Memory budget of {} was exceeded with peak of {}",
+            self.budget, self.peak,
+        )
+    }
+}
+impl std::error::Error for BudgetExceededError {}
+
+pub fn thread_memory_budget_has_been_exceeded() -> bool {
+    THREAD_MEMORY_BUDGET.with(|b| b.exceeded())
+}
+
+pub fn check_if_thread_memory_budget_has_been_exceeded_with_error()
+-> Result<(), BudgetExceededError> {
+    THREAD_MEMORY_BUDGET.with(|b| {
+        if b.exceeded() {
+            Err(BudgetExceededError {
+                budget: b.soft_budget.get(),
+                peak: b.peak.get(),
+            })
+        } else {
+            Ok(())
+        }
+    })
+}
+
 pub struct BudgetAlloc;
 unsafe impl GlobalAlloc for BudgetAlloc {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
         unsafe {
             let ptr = System.alloc(layout);
-            THREAD_MEMORY_BUDGET.with(|b| b.increase(allocated_size(ptr, layout)));
+            THREAD_MEMORY_BUDGET.with(|b| b.charge(allocated_size(ptr, layout)));
             ptr
         }
     }
@@ -74,9 +124,9 @@ unsafe impl GlobalAlloc for BudgetAlloc {
             let reallocated = System.realloc(ptr, layout, new_size);
             let new_size = allocated_size(reallocated, layout);
             if new_size > current_size {
-                THREAD_MEMORY_BUDGET.with(|b| b.increase(new_size - current_size));
+                THREAD_MEMORY_BUDGET.with(|b| b.charge(new_size - current_size));
             } else {
-                THREAD_MEMORY_BUDGET.with(|b| b.decrease(current_size - new_size));
+                THREAD_MEMORY_BUDGET.with(|b| b.release(current_size - new_size));
             }
             reallocated
         }
@@ -85,7 +135,7 @@ unsafe impl GlobalAlloc for BudgetAlloc {
     unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
         unsafe {
             let ptr = System.alloc_zeroed(layout);
-            THREAD_MEMORY_BUDGET.with(|b| b.increase(allocated_size(ptr, layout)));
+            THREAD_MEMORY_BUDGET.with(|b| b.charge(allocated_size(ptr, layout)));
             ptr
         }
     }
@@ -94,7 +144,7 @@ unsafe impl GlobalAlloc for BudgetAlloc {
         unsafe {
             let size = allocated_size(ptr, layout);
             System.dealloc(ptr, layout);
-            THREAD_MEMORY_BUDGET.with(|b| b.decrease(size));
+            THREAD_MEMORY_BUDGET.with(|b| b.release(size));
         }
     }
 }

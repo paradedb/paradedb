@@ -17,9 +17,14 @@
 
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
+use common::alloc::{
+    check_if_thread_memory_budget_has_been_exceeded_with_error,
+    thread_memory_budget_has_been_exceeded,
+};
 use pgrx::pg_sys;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tantivy::TantivyError;
 use tantivy::index::SegmentId;
 use tantivy::indexer::merger::IndexMerger;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
@@ -215,6 +220,16 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+fn maybe_cancelled_due_to_mem_budget(err: TantivyError) -> anyhow::Error {
+    if let TantivyError::Cancelled = err {
+        // on cancellation, check if the merge was cancelled due to exceeding the budget
+        if let Err(budget_err) = check_if_thread_memory_budget_has_been_exceeded_with_error() {
+            return anyhow::anyhow!(budget_err);
+        }
+    }
+    anyhow::anyhow!(err)
+}
+
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
 /// Everything happens in the foreground, making it ideal for Postgres.
 pub struct SerialIndexWriter {
@@ -284,8 +299,10 @@ impl SerialIndexWriter {
                 for chunk in source.stream_file_chunks() {
                     pgrx::check_for_interrupts!();
                     target.write_all(&chunk?)?;
+                    check_if_thread_memory_budget_has_been_exceeded_with_error()?;
                 }
                 target.terminate()?;
+                check_if_thread_memory_budget_has_been_exceeded_with_error()?;
             }
             self.index.segment(meta.clone())
         } else {
@@ -298,14 +315,20 @@ impl SerialIndexWriter {
                 self.index.schema(),
                 self.index.settings().clone(),
                 &segments,
-                Box::new(move || directory.wants_cancel()),
+                Box::new(move || {
+                    directory.wants_cancel() || thread_memory_budget_has_been_exceeded()
+                }),
                 true,
-            )?;
+            )
+            .map_err(maybe_cancelled_due_to_mem_budget)?;
             let target = self.index.new_segment();
-            let num_docs = merger.write(&target)?;
+            let num_docs = merger
+                .write(&target)
+                .map_err(maybe_cancelled_due_to_mem_budget)?;
             target.with_max_doc(num_docs)
         };
         let meta = self.commit_segment(segment)?;
+        check_if_thread_memory_budget_has_been_exceeded_with_error()?;
         let build = self.build.as_ref().unwrap();
         for path in build
             .directory

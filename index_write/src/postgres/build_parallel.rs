@@ -44,6 +44,9 @@ use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
 };
 use crate::schema::{CategorizedFieldData, SearchField};
+use index_read::alloc::{
+    THREAD_MEMORY_BUDGET, check_if_thread_memory_budget_has_been_exceeded_with_error,
+};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     PgLogLevel, PgMemoryContexts, PgSqlErrorCode, PgTupleDesc, check_for_interrupts, function_name,
@@ -391,6 +394,14 @@ impl<'a> BuildWorker<'a> {
             let nparticipants = self.coordination.nparticipants();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nparticipants).get() / nparticipants;
+
+            THREAD_MEMORY_BUDGET.with(|b| {
+                b.set_budget(
+                    per_worker_memory_budget,
+                    Some(per_worker_memory_budget * 3 / 2),
+                )
+            });
+
             let target_segment_count = self.partitioning.as_ref().map_or_else(
                 || plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel),
                 BuildPartitioning::partition_count,
@@ -474,6 +485,9 @@ impl<'a> BuildWorker<'a> {
             } else {
                 build_state.commit()
             };
+
+            check_if_thread_memory_budget_has_been_exceeded_with_error()?;
+
             if let Some(snapshot) = build_snapshot {
                 pg_sys::UnregisterSnapshot(snapshot);
             }
@@ -999,6 +1013,7 @@ impl<'a> WorkerBuildState<'a> {
                 return Err(error);
             }
         };
+        check_if_thread_memory_budget_has_been_exceeded_with_error()?;
         if meta.is_some() {
             self.on_segment_flushed();
             self.nmerges += usize::from(segments.len() > 1);
@@ -1182,6 +1197,7 @@ impl<'a> WorkerBuildState<'a> {
                 }
                 unsafe { self.per_row_context.reset() };
                 self.count_tuple_done();
+                check_if_thread_memory_budget_has_been_exceeded_with_error()?;
             }
             // The sort is done with; release it before the partition's commit and merge stack on
             // top of the writer.

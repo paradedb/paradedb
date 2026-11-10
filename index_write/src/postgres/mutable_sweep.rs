@@ -182,8 +182,9 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
     }) else {
         return;
     };
-    // Debug installs use pgrx's temporary SQL version. Release workers must match
-    // their loaded library, even when a newer package has replaced the control file.
+    // TODO(pgcentralfoundation/pgrx#2483): Debug installs use pgrx's temporary SQL
+    // fragment version. Release workers must match their loaded library, even when a newer package
+    // has replaced the control file.
     let development_version = if cfg!(debug_assertions) {
         BackgroundWorker::transaction(|| {
             Spi::get_one::<String>(

@@ -7,14 +7,13 @@ Unified release artifact assembler for ParadeDB:
 - Registers new versions in docs navigation and installation examples
 """
 
-# pylint: disable=too-many-lines,fixme
+# pylint: disable=too-many-lines,too-many-locals,fixme
 
 import argparse
 import json
 import re
 import subprocess
 import sys
-from collections import defaultdict
 from pathlib import Path
 from textwrap import dedent
 
@@ -163,10 +162,12 @@ def assemble_sql_files(
     target_version,
     prev_version,
     preserve_fragments,
+    *,
     output_dir=None,
     update_control_default=False,
 ):
     """Delegate SQL assembly and fragment removal to cargo-pgrx."""
+    # pylint: disable=too-many-arguments
     command = [
         "cargo",
         "pgrx",
@@ -930,6 +931,9 @@ def is_release_branch(branch_name):
 
 def lint_sql_fragments(repo_root, base_sha):
     """Let pgrx check SQL dependencies and mixed released/unreleased objects."""
+    # TODO(pgcentralfoundation/pgrx#2484): `cargo pgrx migrate check` does not yet
+    # validate unresolved `depends-on` targets against `sql/` or flag a single
+    # fragment touching unreleased objects from multiple prerequisite fragments.
     command = [
         "cargo",
         "pgrx",
@@ -946,6 +950,8 @@ def lint_sql_fragments(repo_root, base_sha):
     return int(subprocess.run(command, cwd=repo_root, check=False).returncode != 0)
 
 
+# TODO(pgcentralfoundation/pgrx#2484): Delegate release-branch SQL prerequisite and
+# upstream-identity checks to `cargo pgrx migrate check` once supported natively.
 def _check_branch_fragment_dependencies(repo_root, unreleased_sql_dir, base_ref):
     errors = 0
     for fpath in unreleased_sql_dir.glob("*.sql"):

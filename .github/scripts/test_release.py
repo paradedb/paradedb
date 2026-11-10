@@ -243,15 +243,15 @@ class NativeMigrationTests(unittest.TestCase):
     """Preserve the release chain and fragment lifecycle when delegating to pgrx."""
 
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        # pylint: disable=consider-using-with
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         migration_project(self.root)
         self.sql = self.root / "pg_search/sql"
         self.fragments = self.sql / "unreleased"
         (self.sql / "pg_search--0.26.5--0.26.6.sql").write_text("SELECT 1;\n")
 
     def test_rcs_preserve_fragments_and_final_consumes_them(self):
+        """RC builds keep fragments in tree until the final release consumes them."""
         fragment = self.fragments / "123.example.sql"
         fragment.write_text("SELECT 'new schema';\n")
         for target in ["0.27.0-rc.1", "0.27.0-rc.2"]:
@@ -267,6 +267,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertFalse((self.sql / "pg_search--0.27.0-rc.2--0.27.0.sql").exists())
 
     def test_rerun_cannot_overwrite_an_existing_migration(self):
+        """Re-running assembly fails rather than clobbering an existing script."""
         fragment = self.fragments / "123.example.sql"
         fragment.write_text("SELECT 'original';\n")
         release.assemble_sql_files(self.root, "0.27.0", "0.26.6", True)
@@ -279,6 +280,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertTrue(fragment.exists())
 
     def test_dependency_order_overrides_fragment_numbers(self):
+        """Explicit depends-on headers take precedence over numeric PR order."""
         (self.fragments / "100.table.sql").write_text(
             "CREATE TABLE example (id integer);\n"
         )
@@ -290,6 +292,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.assertLess(script.index("CREATE TABLE"), script.index("CREATE INDEX"))
 
     def test_native_lint_rejects_an_undeclared_dependency(self):
+        """Fragment lint catches out-of-order SQL references via pgrx migrate check."""
         (self.fragments / "100.table.sql").write_text(
             "CREATE TABLE example (id integer);\n"
         )

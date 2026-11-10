@@ -309,6 +309,7 @@ jobs:
           PG_CONFIG: /usr/pgsql-${{ matrix.pg_version }}/bin/pg_config
           PACKAGE_FORMAT: rpm
           PACKAGE_PATH: ${{ github.workspace }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          PACKAGE_VERSION: ${{ steps.version.outputs.tag_version }}
         run: ./scripts/package-linux.sh
 
       - name: Install Cosign

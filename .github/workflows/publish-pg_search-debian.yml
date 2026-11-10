@@ -305,6 +305,7 @@ jobs:
           PG_CONFIG: /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           PACKAGE_FORMAT: deb
           PACKAGE_PATH: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          PACKAGE_VERSION: ${{ steps.version.outputs.tag_version }}
         run: ./scripts/package-linux.sh
 
       - name: Install Cosign

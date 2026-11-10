@@ -149,7 +149,11 @@ jobs:
           PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
           # Workaround for inttypes.h not being found under the default sysroot
           export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
-          cargo pgrx package --no-assemble-unreleased --pg-config $PG_CONFIG
+          PACKAGE_FLAGS=""
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            PACKAGE_FLAGS="--no-assemble-unreleased"
+          fi
+          cargo pgrx package $PACKAGE_FLAGS --pg-config $PG_CONFIG
 
       # Import the Developer ID Application + Installer certificates into a dedicated
       # temporary keychain so codesign/pkgbuild/productbuild can sign with them. The

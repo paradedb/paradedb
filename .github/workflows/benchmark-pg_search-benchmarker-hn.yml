@@ -246,18 +246,6 @@ jobs:
             -c 'VACUUM (ANALYZE) hn_items;' \
             | tee benchmark-artifacts/index-vacuum.log
 
-      - name: Build HN scalar filter indexes
-        if: matrix.engine == 'pg_vectorsearch'
-        run: |
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
-            -f benchmarks/hn/assets/hn/pg_vectorsearch/filters.sql \
-            | tee benchmark-artifacts/filter-index-build.log
-          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
-            -c "SELECT json_agg(s) FROM (
-                  SELECT indexrelname, pg_relation_size(indexrelid) AS bytes
-                  FROM pg_stat_user_indexes WHERE indexrelname IN ('hn_items_time_idx', 'hn_items_by_idx')
-                ) AS s" > benchmark-artifacts/filter-indexes.json
-
       - name: Verify eight-segment index
         if: matrix.engine == 'pg_search'
         run: |
@@ -319,7 +307,7 @@ jobs:
             printf 'Engine: `%s`; pg_search source: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_ENGINE" "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
             if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
               printf 'PRISM revision: `%s`. Automatic nlist, default replication, integer nprobe sweep 1..4096.\n\n' "$PG_VECTORSEARCH_REF"
-              printf 'HN has one global PRISM index plus B-trees on time and author for non-null embeddings. PostgreSQL may choose PRISM post-filtering or exact filter-first search. Executed plans are recorded; k6 series include the execution path. work_mem is 256 MiB.\n\n'
+              printf 'HN uses one global PRISM index with PostgreSQL post-filtering and no scalar filter indexes. Sequential scans, bitmap scans, and sorts are disabled; executed plans must use PRISM. k6 series are marked prism-postfilter. work_mem is 256 MiB.\n\n'
             else
               printf 'Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: `%s`.\n\n' "$TANTIVY_SHA"
             fi

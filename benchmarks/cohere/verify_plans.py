@@ -25,7 +25,7 @@ def setting_driven_field(expression, required):
 
 
 def verify_prism(plan, index_name, fields):
-    """Identify PRISM post-filtering or PostgreSQL exact filtering."""
+    """Require a cosine PRISM scan and every PostgreSQL filter predicate."""
     pending = [plan[0]["Plan"]]
     nodes = []
     while pending:
@@ -50,21 +50,7 @@ def verify_prism(plan, index_name, fields):
     ]
     if prism:
         return "prism-postfilter" if fields else "prism"
-    if fields and any(
-        node.get("Node Type") in ("Sort", "Incremental Sort")
-        and "<=>" in str(node.get("Sort Key", ""))
-        for node in nodes
-    ):
-        filter_indexes = {f"hn_items_{field}_idx" for field in fields}
-        if any(node.get("Index Name") in filter_indexes for node in nodes):
-            return "btree-exact"
-        if any(
-            node.get("Node Type") == "Seq Scan"
-            and node.get("Relation Name") == "hn_items"
-            for node in nodes
-        ):
-            return "seqscan-exact"
-    raise ValueError("Expected a cosine PRISM scan or an exact HN filter-and-sort plan")
+    raise ValueError(f"Expected a cosine PRISM scan on {index_name}")
 
 
 def verify(plan, filtered, neighbors=None, fields=None):

@@ -78,19 +78,17 @@ describes PostgreSQL post-filtering, selectivity-based candidate inflation, and
 the `work_mem` bound on candidate count. It recommends partial PRISM indexes
 for fixed filters when post-filtering cannot return enough neighbors.
 
-This comparison uses one global PRISM index and B-trees on `time` and `by`
-for rows with embeddings. It preserves the published timestamp ranges and exact
-author equality predicates. PostgreSQL can choose PRISM with post-filtering or
-filter first and sort exact distances; the B-trees do not push filters into
-PRISM. Planner methods remain enabled and `work_mem` is 256 MiB. Per-predicate
-partial PRISM indexes are not part of this comparison.
+This comparison uses one global PRISM index with PostgreSQL post-filtering and
+no scalar filter indexes. It preserves the published timestamp ranges and exact
+author equality predicates. Sequential scans, bitmap scans, and sorts are
+disabled to select PRISM scans, matching the other pg_vectorsearch profiles.
+`work_mem` is 256 MiB. Per-predicate partial PRISM indexes are not part of this
+comparison.
 
 `EXPLAIN (ANALYZE, VERBOSE, BUFFERS)` records the first query vector at each
-reached operating point. The guard rejects missing predicates and unexpected
-plans. HN dashboard names include `prism-postfilter`, `btree-exact`, or
-`seqscan-exact`, keeping exact search separate from ANN results and separating
-baselines when the chosen path changes. `nprobe` has no effect on an exact plan.
-Scalar index sizes and build logs are retained alongside the PRISM build report.
+reached operating point. The guard requires an ordered scan of the PRISM index
+and every filter predicate; exact filter-and-sort plans are rejected. HN
+dashboard names include `prism-postfilter` to identify the execution path.
 Unreached recall targets are skipped; k6 still requires every measured query to
 return ten neighbors.
 

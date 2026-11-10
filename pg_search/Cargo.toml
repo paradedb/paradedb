@@ -28,12 +28,8 @@ unreleased-sql-dir = "sql/unreleased"
 # The publish workflows and `make package` pass `--no-distrib-packages` and
 # still build their own packages.
 [package.metadata.rpm]
-maintainer = "ParadeDB <support@paradedb.com>"
-description = """Full-text search, vector retrieval, and aggregations for Postgres
-pg_search upgrades Postgres with a custom index for fast full-text and
-vector search, BM25 scoring, filtering, and aggregations. Your application
-data and search engine live in one database, with no second system to
-deploy and nothing to sync."""
+maintainer = "ParadeDB, Inc. <support@paradedb.com>"
+description = """One Postgres for your application data, full-text search, vector retrieval, and aggregations."""
 depends = ["postgresql${PG_MAJOR_VERSION}-server", "openblas"]
 files = [
   { source = "${BUILD_BASE_PATH}/${PG_PKGLIBDIR}/${LIB_FILE}", dest = "/usr/pgsql-${PG_MAJOR_VERSION}/lib/${LIB_FILE}", mode = "0755" },
@@ -41,12 +37,8 @@ files = [
 ]
 
 [package.metadata.deb]
-maintainer = "ParadeDB <support@paradedb.com>"
-description = """Full-text search, vector retrieval, and aggregations for Postgres
-pg_search upgrades Postgres with a custom index for fast full-text and
-vector search, BM25 scoring, filtering, and aggregations. Your application
-data and search engine live in one database, with no second system to
-deploy and nothing to sync."""
+maintainer = "ParadeDB, Inc. <support@paradedb.com>"
+description = """One Postgres for your application data, full-text search, vector retrieval, and aggregations."""
 section = "database"
 depends = ["postgresql-${PG_MAJOR_VERSION}", "libopenblas0"]
 files = [

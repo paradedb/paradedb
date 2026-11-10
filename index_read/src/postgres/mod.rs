@@ -31,7 +31,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
 use crate::index::reader::vector::VectorRoutingResults;
-use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::customscan::mpp::check_for_interrupts_or_cancel;
 use crate::postgres::locks::Spinlock;
@@ -65,13 +64,8 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
     }
 }
 
-/// Finds and returns the `USING paradedb` index on the specified relation with the highest OID,
-/// along with the heap relation. Returns [`None`] if there isn't one.
-///
-/// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
-/// or a failed `REINDEX`). When more than one valid ParadeDB index exists on the relation
-/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-ParadeDB-index
-/// check), the highest-OID one is chosen so that the index added most recently wins.
+/// Finds and returns the `USING paradedb` index on the specified relation, along with the heap
+/// relation. Returns [`None`] if there isn't one. [`PgSearchRelation::bm25_index`] picks the index.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
@@ -80,15 +74,7 @@ pub fn rel_get_bm25_index(
     }
 
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    let index = unsafe {
-        rel.indices(pg_sys::AccessShareLock as _)
-            .filter(|index| {
-                pg_sys::get_index_isvalid(index.oid())
-                    && (*index.rd_rel).relam.is_paradedb_am()
-                    && index.serves_queries()
-            })
-            .max_by_key(|i| i.oid().to_u32())?
-    };
+    let index = rel.bm25_index()?;
     Some((rel, index))
 }
 

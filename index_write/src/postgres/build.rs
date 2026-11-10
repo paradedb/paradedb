@@ -25,7 +25,6 @@ use crate::postgres::build_parallel::build_index;
 use crate::postgres::build_partitioning::{
     check_fast_dims, normalized_dims, partition_vector_field,
 };
-use crate::postgres::catalog::OidExt;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
@@ -65,20 +64,8 @@ pub extern "C-unwind" fn ambuild(
     let is_reindex = !index_tuple.indisvalid;
     let is_concurrent = unsafe { (*index_info).ii_Concurrent };
 
-    // A synonym index serves no query on its table, so a table can hold several of them, such as
-    // a partial index per set or one per tokenizer.
-    if !is_reindex && index_relation.serves_queries() {
-        for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
-            if existing_index.oid() == index_relation.oid() {
-                // the index we're about to build already exists on the table.
-                continue;
-            }
-
-            let rd_rel = unsafe { &*existing_index.rd_rel };
-            if rd_rel.relam.is_paradedb_am() && !is_concurrent && existing_index.serves_queries() {
-                panic!("a relation may only have one ParadeDB index");
-            }
-        }
+    if !is_reindex && !is_concurrent {
+        index_relation.refuse_second_index(&heap_relation);
     }
 
     let heap_tuples = build_index(heap_relation, index_relation.clone(), is_concurrent)

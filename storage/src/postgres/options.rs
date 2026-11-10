@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
-use std::cell::{Cell, Ref, RefCell};
+use std::cell::{Ref, RefCell};
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -422,16 +422,7 @@ struct LazyInfo {
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
-    index_type: Rc<Cell<Option<IndexType>>>,
     synonym_rule_field: Rc<RefCell<Option<Option<FieldName>>>>,
-}
-
-/// What a `paradedb` index is for. A synonym index holds the rules that expand the queries on
-/// other indexes, so no scan reads it.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(super) enum IndexType {
-    Search,
-    Synonym,
 }
 
 #[derive(Clone, Debug)]
@@ -473,19 +464,13 @@ impl BM25IndexOptions {
         self.options_data().replication as u8
     }
 
-    pub fn target_segment_count(&self) -> usize {
-        self.explicit_target_segment_count().unwrap_or_else(|| {
-            default_target_segment_count(WorkerStyle::Query.max(), self.partition_by().len())
-        })
+    pub(super) fn default_target_segment_count(&self) -> usize {
+        default_target_segment_count(WorkerStyle::Query.max(), self.partition_by().len())
     }
 
-    /// The target the user asked for, by GUC or reloption, or `None` when the default applies.
-    pub fn explicit_target_segment_count(&self) -> Option<usize> {
-        // An expansion looks a token up in every segment of a synonym index, so its merges fold
-        // it back to one.
-        if self.index_type() == IndexType::Synonym {
-            return Some(1);
-        }
+    /// The setting alone. `PgSearchRelation::explicit_target_segment_count` also knows the kind
+    /// of the index.
+    pub(super) fn explicit_target_segment_count(&self) -> Option<usize> {
         let global_tsc = global_target_segment_count();
         if global_tsc != 0 {
             return Some(global_tsc as usize);
@@ -495,11 +480,9 @@ impl BM25IndexOptions {
             .map(|count| count as usize)
     }
 
-    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
-        // A lookup reads the terms of the rule field, and a mutable segment holds only ctids.
-        if self.index_type() == IndexType::Synonym {
-            return None;
-        }
+    /// The setting alone. `PgSearchRelation::mutable_segment_rows` also knows the kind of the
+    /// index.
+    pub(super) fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
         match gucs::global_mutable_segment_rows() {
             Some(rows) if rows > 0 => NonZeroUsize::new(rows),
             Some(0) => None,
@@ -543,11 +526,10 @@ impl BM25IndexOptions {
 
     /// The rule column of a synonym index, its one key column, typed `pdb.synonym_rule`.
     pub fn synonym_rule_field(&self) -> Option<FieldName> {
-        if self.index_type() == IndexType::Search {
-            return None;
-        }
         if self.lazy.synonym_rule_field.borrow().is_none() {
-            let field = self.synonym_rule_columns().into_iter().next();
+            let field = unsafe { is_synonym_index_relation(self.indexrel) }
+                .then(|| self.synonym_rule_columns().into_iter().next())
+                .flatten();
             *self.lazy.synonym_rule_field.borrow_mut() = Some(field);
         }
         self.lazy.synonym_rule_field.borrow().clone().flatten()
@@ -571,19 +553,6 @@ impl BM25IndexOptions {
             })
             .map(|(name, _)| name.clone())
             .collect()
-    }
-
-    pub(super) fn index_type(&self) -> IndexType {
-        if let Some(index_type) = self.lazy.index_type.get() {
-            return index_type;
-        }
-        let index_type = if unsafe { is_synonym_index_relation(self.indexrel) } {
-            IndexType::Synonym
-        } else {
-            IndexType::Search
-        };
-        self.lazy.index_type.set(Some(index_type));
-        index_type
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -1504,14 +1473,14 @@ mod tests {
             .unwrap();
         let indexrel = PgSearchRelation::open(oid);
         Spi::run("SET max_parallel_workers_per_gather = 2;").unwrap();
-        assert_eq!(indexrel.options().target_segment_count(), 8);
+        assert_eq!(indexrel.target_segment_count(), 8);
         Spi::run("SET max_parallel_workers_per_gather = 8;").unwrap();
-        assert_eq!(indexrel.options().target_segment_count(), 16);
+        assert_eq!(indexrel.target_segment_count(), 16);
         drop(indexrel);
 
         Spi::run("ALTER INDEX segment_target_idx SET (target_segment_count = 3);").unwrap();
         let indexrel = PgSearchRelation::open(oid);
-        assert_eq!(indexrel.options().target_segment_count(), 3);
+        assert_eq!(indexrel.target_segment_count(), 3);
         unsafe {
             pg_sys::SetConfigOption(
                 c"paradedb.global_target_segment_count".as_ptr(),
@@ -1520,7 +1489,7 @@ mod tests {
                 pg_sys::GucSource::PGC_S_FILE,
             );
         }
-        assert_eq!(indexrel.options().target_segment_count(), 7);
+        assert_eq!(indexrel.target_segment_count(), 7);
         unsafe {
             pg_sys::SetConfigOption(
                 c"paradedb.global_target_segment_count".as_ptr(),
@@ -1529,7 +1498,7 @@ mod tests {
                 pg_sys::GucSource::PGC_S_FILE,
             );
         }
-        assert_eq!(indexrel.options().target_segment_count(), 3);
+        assert_eq!(indexrel.target_segment_count(), 3);
     }
 
     #[pg_test]

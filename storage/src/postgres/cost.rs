@@ -20,9 +20,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
-/// High enough that the planner picks any other path for a query on a synonym index's table.
-const SYNONYM_INDEX_SCAN_COST: f64 = 1.0e10;
-
 #[allow(clippy::too_many_arguments)]
 #[pg_guard(immutable, parallel_safe)]
 pub unsafe extern "C-unwind" fn amcostestimate(
@@ -55,14 +52,12 @@ pub unsafe extern "C-unwind" fn amcostestimate(
         indexrel.as_ptr(),
         pg_sys::ForkNumber::MAIN_FORKNUM,
     );
-    let serves_queries = PgSearchRelation::from_pg(indexrel.as_ptr()).serves_queries();
+    let unusable_scan_cost = PgSearchRelation::from_pg(indexrel.as_ptr()).unusable_scan_cost();
     drop(indexrel);
 
-    // The rule field of a synonym index holds the keys of rules, so it can't answer a query on
-    // its own table.
-    if !serves_queries {
-        *index_startup_cost = SYNONYM_INDEX_SCAN_COST;
-        *index_total_cost = SYNONYM_INDEX_SCAN_COST;
+    if let Some(cost) = unusable_scan_cost {
+        *index_startup_cost = cost;
+        *index_total_cost = cost;
         *index_selectivity = 1.0;
         *index_correlation = 0.0;
         *index_pages = 0.0;

@@ -51,8 +51,8 @@ column with `pdb.literal`, the `timestamptz` time column, the ID, and the embedd
 The shared EXPLAIN gate requires every filtered field and cosine TopK inside
 ParadeDB, rejecting residual PostgreSQL filters and heap filtering.
 
-The runner, cluster settings, pinned pdbench and Benchmarker revisions, and k6
-script match MS MARCO. Each run builds eight segments with a 0.32 training sample
+The runner, Docker configuration, pinned pdbench and Benchmarker revisions, and
+k6 script match MS MARCO. Each run builds eight segments with a 0.32 training sample
 ratio and quantized routing, then independently sweeps integer max_probe work
 budgets from 1 to 100,000, starting at 100, to reach R90/R95/R99 for each workload.
 Reached points run with one VU, 10 seconds of warmup, and
@@ -61,9 +61,12 @@ strict ID recall can leave targets unreached when multiple vectors tie at the
 top-10 boundary. Those points have no latency or QPS measurement.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, workers, and peak summed RSS. Diagnostics retain manifests, verified
-fixtures, configuration, tool revisions, plans, pdbench reports, k6 dashboards,
-and database logs.
+index size, and peak container memory with and without reclaimable file cache.
+The index is built with `pdbench-load finalize` after restoring the heap; no
+heap load is performed. See [build memory diagnostics](../vector/README.md) for
+retrieving the timeline after an OOM or another build failure. Diagnostics also
+retain manifests, verified fixtures, configuration, tool revisions, plans,
+pdbench reports, k6 dashboards, and database logs.
 
 ## pg_vectorsearch
 

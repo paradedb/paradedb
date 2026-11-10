@@ -75,13 +75,12 @@ jobs:
           ref: ${{ env.BENCHMARK_REF }}
           persist-credentials: false
 
-      - name: Record benchmark commit and connection
+      - name: Record benchmark commit
         id: commit_info
         run: |
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           tantivy="$(awk '/^name = "tantivy"$/ { found = 1 } found && /^source = / { sub(/.*#/, ""); gsub(/"/, ""); print; exit }' Cargo.lock)"
           echo "tantivy_sha=$tantivy" >> "$GITHUB_OUTPUT"
-          echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark workflow for backfills
         if: inputs.commit != ''
@@ -111,10 +110,10 @@ jobs:
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Set up benchmark cluster
-        uses: ./.github/actions/setup-benchmark-cluster
+      - name: Set up Docker benchmark
+        uses: ./.github/actions/setup-vector-benchmark-docker
         with:
-          pg_version: ${{ env.pg_version }}
+          ref: ${{ env.BENCHMARK_REF }}
 
       - name: Create pdbench checkout token
         id: pdbench_token
@@ -153,7 +152,7 @@ jobs:
       - name: Build pdbench
         working-directory: pdbench
         run: |
-          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load -p pdbench-report --target-dir target -j 16
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       - name: Set up Benchmarker
@@ -177,49 +176,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p benchmark-artifacts
-          (cd pg_search && cargo pgrx stop pg18)
           (cd benchmarks && cargo run --release -- restore-heap \
             --dataset msmarco --size "$MSMARCO_SIZE" \
-            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
+            --pgdata "$BENCHMARK_PGDATA" --stanza bench \
             --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
             --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
             --repo-s3-key-type shared)
-          (cd pg_search && cargo pgrx start pg18)
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET max_worker_processes = 32;"
-          (cd pg_search && cargo pgrx stop pg18 && cargo pgrx start pg18)
+          docker compose -f benchmarks/vector/docker-compose.yml up -d --wait --wait-timeout 600
 
-      - name: Build selected vector index
+      - name: Build index with memory tracking
+        uses: ./.github/actions/build-vector-benchmark-index
+        with:
+          config: ${{ env.MSMARCO_CONFIG }}
+          assets: benchmarks/msmarco/assets
+          artifact_name: ${{ env.RESULTS_DATASET }}-index-build
+
+      - name: Vacuum built index
         run: |
           set -euo pipefail
-          if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
-            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-              -c 'CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;' \
-              -c 'ALTER TABLE msmarco SET (parallel_workers = 8);'
-          else
-            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
-              -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
-          fi
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-            -c "SELECT name, setting, unit FROM pg_settings
-                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
-                               'max_worker_processes', 'max_parallel_maintenance_workers',
-                               'parallel_leader_participation', 'paradedb.global_target_segment_count',
-                               'paradedb.vector_router_rerank_factor', 'paradedb.vector_router_min_beam_fraction',
-                               'paradedb.vector_router_aps')
-                ORDER BY name;" \
-            | tee benchmark-artifacts/index-build-settings.log
-          pdbench build --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
-            --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
-            --force-rebuild \
-            | tee benchmark-artifacts/index-build.log
-          profile="$(basename "$MSMARCO_CONFIG" .toml)"
-          jq '.data | [
-            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
-            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
-            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
-            {name: (.index.name + " peak summed RSS"), unit: "GiB", value: (.metrics.resources.peak_rss_bytes / 1073741824)}
-          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -c 'VACUUM (ANALYZE) msmarco;' \
             | tee benchmark-artifacts/index-vacuum.log
@@ -347,7 +321,7 @@ jobs:
             else
               printf 'Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: `%s`.\n\n' "$TANTIVY_SHA"
             fi
-            printf 'Uses the existing heap snapshot and 100 held-out vectors. Eight build/query workers and a 32-process worker pool are available. Build RSS sums sampled processes, including shared mappings. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
+            printf 'Uses the existing heap snapshot and 100 held-out vectors. Eight build/query workers and a 32-process worker pool are available. Postgres runs in Docker with a 128 GiB memory limit and huge pages disabled. Build memory covers the container, counting shared mappings once; the index-build artifact preserves its timeline on failure. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
           if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then
@@ -401,7 +375,7 @@ jobs:
         if: always()
         run: |
           mkdir -p benchmark-artifacts
-          if [[ -f ~/.pgrx/18.log ]]; then cp ~/.pgrx/18.log benchmark-artifacts/postgres.log; fi
+          docker logs --timestamps "$PARADEDB_CONTAINER" > benchmark-artifacts/postgres.log 2>&1 || true
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()
@@ -416,12 +390,11 @@ jobs:
 
       - name: Database logs
         if: failure() || cancelled()
-        run: tail -200 ~/.pgrx/18.log
+        run: docker logs --tail 200 "$PARADEDB_CONTAINER" || true
 
       - name: Stop database
         if: always()
-        working-directory: pg_search
-        run: cargo pgrx stop pg18
+        run: docker stop --time 60 "$PARADEDB_CONTAINER" || true
 
   publish-results:
     name: Publish Benchmark Results

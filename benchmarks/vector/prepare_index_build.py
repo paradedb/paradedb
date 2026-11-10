@@ -11,21 +11,25 @@ import tomllib
 def prepare(config_path, assets, pdbench, output):
     """Write a finalize config using the profile's existing DDL and reloptions."""
     config = tomllib.loads(config_path.read_text())
-    if config.get("engine", "pg_search") != "pg_search":
-        raise ValueError("Expected a pg_search benchmark profile")
+    backend, suffix = {
+        "pg_search": ("paradedb", "bm25"),
+        "pg_vectorsearch": ("timescale", "prism"),
+    }[config.get("engine", "pg_search")]
     dataset = config["dataset"]
-    name = dataset["name"]
-    table = dataset["table"]
     directory = output.resolve() / "dataset"
-    scripts = directory / "paradedb"
+    scripts = directory / backend
     scripts.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(
-        pdbench / "datasets" / name / "schema.yaml", directory / "schema.yaml"
+        pdbench / "datasets" / dataset["name"] / "schema.yaml",
+        directory / "schema.yaml",
     )
-    shutil.copyfile(assets / name / "create_table.sql", scripts / "pre.sql")
+    shutil.copyfile(assets / dataset["name"] / "create_table.sql", scripts / "pre.sql")
+    index_assets = assets / dataset["name"]
+    if backend == "timescale":
+        index_assets /= "pg_vectorsearch"
     (scripts / "post.sql").write_text(
         "DROP INDEX IF EXISTS {{ index_name }};\n"
-        + (assets / name / "index.sql").read_text()
+        + (index_assets / "index.sql").read_text()
     )
     options = []
     for key, value in config["index"].items():
@@ -39,22 +43,21 @@ def prepare(config_path, assets, pdbench, output):
     load = {
         "datasource": {"path": dataset["s3_base_path"]},
         "datastore": {
-            "type": "paradedb",
+            "type": backend,
             "url": "${PARADEDB_URL}",
             "container": "${PARADEDB_CONTAINER}",
             "dataset": str(directory),
-            "table": table,
+            "table": dataset["table"],
             "settings": config["postgres"]["build"],
             "vars": {
-                "index_name": f"{table}_bm25_idx",
+                "index_name": f"{dataset['table']}_{suffix}_idx",
                 "with_options": ", ".join(options),
             },
         },
         "output": str(output.resolve() / "runs"),
     }
-    path = output / "load.json"
-    path.write_text(json.dumps(load, indent=2) + "\n")
-    return path
+    (output / "load.json").write_text(json.dumps(load, indent=2) + "\n")
+    return output / "load.json"
 
 
 if __name__ == "__main__":

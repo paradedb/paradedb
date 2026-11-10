@@ -7,6 +7,7 @@ on:
       - ".github/workflows/benchmark-pg_search-benchmarker-hn.yml"
       - ".github/workflows/benchmark-pg_search-benchmarker-msmarco.yml"
       - ".github/actions/setup-vector-benchmark-docker/**"
+      - ".github/actions/setup-pg-vectorsearch/**"
       - ".github/actions/build-vector-benchmark-index/**"
       - "benchmarks/vector/**"
   workflow_dispatch:
@@ -15,6 +16,59 @@ permissions:
   contents: read
 
 jobs:
+  prism-image:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PARADEDB_IMAGE: paradedb-vector:ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Create pg_vectorsearch checkout token
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pg_vectorsearch
+          permission-contents: read
+
+      - name: Prepare base image
+        run: |
+          docker pull paradedb/paradedb:latest-pg18
+          docker tag paradedb/paradedb:latest-pg18 "$PARADEDB_IMAGE"
+
+      - name: Build PRISM image
+        uses: ./.github/actions/setup-pg-vectorsearch
+        with:
+          ref: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+          github_token: ${{ steps.token.outputs.token }}
+
+      - name: Create PRISM index
+        run: |
+          set -euo pipefail
+          docker run -d --name prism-test -e POSTGRES_HOST_AUTH_METHOD=trust "$PARADEDB_IMAGE"
+          for _ in {1..60}; do
+            if docker exec prism-test pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec -i prism-test psql -U postgres -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;
+          CREATE TABLE fixture (emb vec32(3));
+          INSERT INTO fixture SELECT ARRAY[i, i % 7, i % 13]::real[]::vec32 FROM generate_series(1, 1000) i;
+          CREATE INDEX fixture_idx ON fixture USING prism (emb vec32_cosine_ops) WITH (nlist=0);
+          SELECT * FROM prism_index_settings('fixture_idx');
+          SQL
+
+      - name: Container diagnostics
+        if: always()
+        run: docker logs prism-test && docker rm -fv prism-test
+
   memory:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04

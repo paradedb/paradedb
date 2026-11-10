@@ -32,7 +32,7 @@ reached operating point runs with one VU, 10 seconds of discarded warmup, and
 50 seconds of measurement. Unreached targets remain explicit in the results.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, and peak container memory with and without reclaimable file cache
+index size, parallel workers, and peak container memory with and without reclaimable file cache
 under `benchmarker msmarco-113m`. The index is built with `pdbench-load finalize`
 after restoring the heap; no heap load is performed. See
 [build memory diagnostics](../vector/README.md) for retrieving the timeline
@@ -45,6 +45,8 @@ statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
 
 Apply `benchmark-msmarco-pg_vectorsearch` to run MS MARCO with PRISM. Manual runs accept
 `engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
+
+Both engines use the shared Docker setup and index-build memory tracking.
 
 The PRISM profile reuses the same heap, query vectors, ground truth, runner,
 worker limits, and k6 measurement procedure. It pins the parallel-build memory

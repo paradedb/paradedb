@@ -238,9 +238,8 @@ jobs:
         if: matrix.engine == 'pg_vectorsearch'
         run: |
           set -euo pipefail
-          profile="$(basename "$HN_CONFIG" .toml)"
-          jq -e '.data.index.access_method == "prism" and .data.metrics.workers.max_parallel_workers > 0' \
-            benchmark-artifacts/search/"$profile"/*_build.json
+          jq -e '.access_method == "prism"' benchmark-artifacts/index-build/index.json
+          jq -se 'map(.workers) | max > 0' benchmark-artifacts/index-build/workers.jsonl
           psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
             -c "SELECT json_agg(s) FROM prism_index_settings('hn_items_prism_idx') AS s" \
             > benchmark-artifacts/prism-settings.json

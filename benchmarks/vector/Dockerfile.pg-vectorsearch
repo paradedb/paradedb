@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1
+
+ARG BASE_IMAGE=paradedb-vector:ci
+FROM ${BASE_IMAGE} AS builder
+
+USER 0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-server-dev-18 build-essential meson ninja-build pkg-config \
+    libopenblas-dev git && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY . .
+RUN CC="$(/usr/lib/postgresql/18/bin/pg_config --cc)" \
+    meson setup build --buildtype=release -Dnative=true -Dblas=enabled \
+    -Dpostgresql=enabled -Dtools=disabled -Dpg_config=/usr/lib/postgresql/18/bin/pg_config && \
+    meson compile -C build -j 8 && meson install -C build --destdir /package
+
+FROM ${BASE_IMAGE} AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends libopenblas0 && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /package/ /

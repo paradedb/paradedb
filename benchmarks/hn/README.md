@@ -61,7 +61,7 @@ strict ID recall can leave targets unreached when multiple vectors tie at the
 top-10 boundary. Those points have no latency or QPS measurement.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, and peak container memory with and without reclaimable file cache.
+index size, parallel workers, and peak container memory with and without reclaimable file cache.
 The index is built with `pdbench-load finalize` after restoring the heap; no
 heap load is performed. See [build memory diagnostics](../vector/README.md) for
 retrieving the timeline after an OOM or another build failure. Diagnostics also
@@ -69,6 +69,8 @@ retain manifests, verified fixtures, configuration, tool revisions, plans,
 pdbench reports, k6 dashboards, and database logs.
 
 ## pg_vectorsearch
+
+Both engines use the shared Docker setup and index-build memory tracking.
 
 Apply `benchmark-hn-pg_vectorsearch` to run HN with PRISM. Manual runs accept
 `engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.

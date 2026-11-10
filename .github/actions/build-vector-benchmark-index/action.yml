@@ -23,8 +23,16 @@ runs:
       run: |
         set -euo pipefail
         python3 benchmarks/vector/prepare_index_build.py --config "$CONFIG" --assets "$ASSETS"
-        psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
-          -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+        if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
+          table=$(jq -r '.datastore.table' benchmark-artifacts/index-build/load.json)
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -v table="$table" <<'SQL'
+        CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;
+        ALTER TABLE :"table" SET (parallel_workers = 8);
+        SQL
+        else
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+        fi
         psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
           -c "SELECT name, setting, unit FROM pg_settings
               WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
@@ -39,7 +47,7 @@ runs:
       run: |
         set -euo pipefail
         /usr/bin/time --format=%e --output=benchmark-artifacts/index-build/seconds.txt \
-          pdbench-load finalize benchmark-artifacts/index-build/load.json \
+          python3 benchmarks/vector/build_index.py benchmark-artifacts/index-build/load.json \
           2>&1 | tee benchmark-artifacts/index-build/build.log
 
     - name: Export index metrics
@@ -47,17 +55,22 @@ runs:
       run: |
         set -euo pipefail
         index=$(jq -r '.datastore.vars.index_name' benchmark-artifacts/index-build/load.json)
-        bytes=$(psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -v index="$index" \
-          <<'SQL'
-        SELECT pg_total_relation_size(:'index'::regclass);
+        psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -v index="$index" \
+          > benchmark-artifacts/index-build/index.json <<'SQL'
+        SELECT json_build_object('name', c.relname, 'access_method', am.amname,
+                                 'size_bytes', pg_total_relation_size(c.oid))
+        FROM pg_class c JOIN pg_am am ON am.oid = c.relam
+        WHERE c.oid = :'index'::regclass;
         SQL
-        )
-        jq -s --arg index "$index" --argjson bytes "$bytes" \
+        jq -s --arg index "$index" \
+          --slurpfile metadata benchmark-artifacts/index-build/index.json \
+          --slurpfile workers benchmark-artifacts/index-build/workers.jsonl \
           --argjson seconds "$(cat benchmark-artifacts/index-build/seconds.txt)" '
           def peak($metric): [.[] | select(.type == "Point" and .metric == $metric) | .value] | max;
           [
             {name: ($index + " build time"), unit: "min", value: ($seconds / 60)},
-            {name: ($index + " index size"), unit: "MiB", value: ($bytes / 1048576)},
+            {name: ($index + " index size"), unit: "MiB", value: ($metadata[0].size_bytes / 1048576)},
+            {name: ($index + " parallel workers"), unit: "workers", value: ($workers | map(.workers) | max)},
             {name: ($index + " peak container memory"), unit: "GiB", value: (peak("container_memory") / 1073741824)},
             {name: ($index + " peak container memory including cache"), unit: "GiB", value: (peak("container_memory_usage") / 1073741824)}
           ]' benchmark-artifacts/index-build/runs/load/*_load/points.jsonl \

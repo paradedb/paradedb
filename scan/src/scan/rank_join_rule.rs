@@ -772,7 +772,9 @@ fn primary_sort_references_score(
     ordering: &LexOrdering,
 ) -> bool {
     let mut current_ordering = ordering.clone();
-    while let Ok(Some(next_ordering)) = map_ordering_through_passthrough(node, &current_ordering) {
+    while let Ok(Some(next_ordering)) =
+        map_ordering_through_passthrough(node, &current_ordering, DeferredPrimarySort::Reject)
+    {
         current_ordering = next_ordering;
         node = node.children()[0];
     }
@@ -1108,12 +1110,16 @@ fn apply_sa_initial_window(
     .map(|t| t.data)
 }
 
-fn collect_decode_tiebreaker_fields(
+/// Collects the deferred `decode` fields referenced by any sort key in `ordering` so
+/// `make_fields_eager` can decode them at the leaf scan. This includes the primary sort key, which
+/// is deferred when it is a string or bytes column (see `resolve_lazy_sort_primary_order_by`):
+/// a deferred column emits per-segment term ordinals, which are not comparable across segments.
+fn collect_decode_sort_fields(
     decode: &TantivyDecodeExec,
     ordering: &LexOrdering,
     out: &mut Vec<PhysicalDeferredField>,
 ) {
-    for sort_expr in ordering.iter().skip(1) {
+    for sort_expr in ordering.iter() {
         for col in collect_columns(&sort_expr.expr) {
             if let Some(field) = decode
                 .deferred_fields()
@@ -1144,7 +1150,9 @@ fn try_rewrite_scored_branch(
     ctx: ScoredBranchContext,
     eager_fields: &mut Vec<PhysicalDeferredField>,
 ) -> RewriteResult<(Arc<dyn ExecutionPlan>, SubtreeScoreStats)> {
-    if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
+    if let Some(child_ordering) =
+        map_ordering_through_passthrough(node, required_ordering, DeferredPrimarySort::Reject)?
+    {
         let child_key_sets = map_key_sets_through_passthrough(node, parent_key_sets)
             .ok_or(RankJoinDeclineReason::UnsupportedJoinKeys)?;
         let (new_child, stats) = try_rewrite_scored_branch(
@@ -1155,7 +1163,7 @@ fn try_rewrite_scored_branch(
             eager_fields,
         )?;
         if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-            collect_decode_tiebreaker_fields(decode, required_ordering, eager_fields);
+            collect_decode_sort_fields(decode, required_ordering, eager_fields);
         }
         let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
         return Ok((rebuilt, stats));
@@ -1945,7 +1953,9 @@ fn try_rewrite_lazy_sort_probe_join(
         );
     }
 
-    if let Some(child_ordering) = map_ordering_through_passthrough(node, required_ordering)? {
+    if let Some(child_ordering) =
+        map_ordering_through_passthrough(node, required_ordering, DeferredPrimarySort::Allow)?
+    {
         let mut child_ctx = ctx;
         let mapped_keys = map_key_sets_through_passthrough(node, probe_key_sets);
         if mapped_keys.is_none() {
@@ -1964,7 +1974,7 @@ fn try_rewrite_lazy_sort_probe_join(
             return Ok(None);
         };
         if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-            collect_decode_tiebreaker_fields(decode, required_ordering, eager_fields);
+            collect_decode_sort_fields(decode, required_ordering, eager_fields);
         }
         if node.is::<CoalescePartitionsExec>()
             && new_child.output_partitioning().partition_count() == 1
@@ -1979,8 +1989,7 @@ fn try_rewrite_lazy_sort_probe_join(
         if required_ordering.len() > crate::index::reader::index::MAX_TOPK_FEATURES {
             return Ok(None);
         }
-        let Some(primary_ob) =
-            resolve_scan_order_by(scan, &required_ordering[0], FieldSortPolicy::Allowed)
+        let Some(primary_ob) = resolve_lazy_sort_primary_order_by(scan, &required_ordering[0])
         else {
             return Ok(None);
         };
@@ -2171,7 +2180,9 @@ fn resolve_scan_order_by(
     } else if field_sort_policy == FieldSortPolicy::Allowed
         && scan.is_sortable_fast_field(col.index())
     {
-        // TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key:
+        // TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key
+        // in `RankJoinExec` (`try_rewrite_lazy_sort_probe_join` already does, via
+        // `resolve_lazy_sort_primary_order_by`):
         // <https://github.com/paradedb/paradedb/issues/7244>.
         OrderByFeature::Field {
             name: FieldName::from(field_name.clone()),
@@ -2182,6 +2193,36 @@ fn resolve_scan_order_by(
     };
     Some(OrderByInfo {
         feature,
+        direction: SortDirection::from(required_sort.options),
+    })
+}
+
+/// Like [`resolve_scan_order_by`], but also accepts any fast field sortable at position `0`
+/// (including string and bytes fields, which may still be `FieldDelivery::Deferred`) as the
+/// primary sort key.
+///
+/// Only valid for [`try_rewrite_lazy_sort_probe_join`]: the lazy-sorted probe leaf sorts by term
+/// ordinal / bytes (`SortByString` / `SortByBytes`) and `HashJoinExec` preserves that order,
+/// whereas `RankJoinExec` casts the primary sort value to `Float64`. The caller must promote the
+/// column to `FieldDelivery::Eager` (via `collect_decode_sort_fields` + `make_fields_eager`) so
+/// the leaf emits comparable values rather than per-segment term ordinals.
+fn resolve_lazy_sort_primary_order_by(
+    scan: &PgSearchScanPlan,
+    required_sort: &PhysicalSortExpr,
+) -> Option<OrderByInfo> {
+    if let Some(order_by) = resolve_scan_order_by(scan, required_sort, FieldSortPolicy::Allowed) {
+        return Some(order_by);
+    }
+    let col = required_sort.expr.downcast_ref::<Column>()?;
+    if !scan.is_sortable_tiebreaker_field(col.index(), 0) {
+        return None;
+    }
+    let field_name = scan.schema().fields().get(col.index())?.name().clone();
+    Some(OrderByInfo {
+        feature: OrderByFeature::Field {
+            name: FieldName::from(field_name),
+            rti: 0,
+        },
         direction: SortDirection::from(required_sort.options),
     })
 }
@@ -2263,12 +2304,24 @@ fn unproject_column(
     Some(Arc::new(Column::new(field.name(), in_idx)))
 }
 
+/// Whether [`map_ordering_through_passthrough`] may map a primary sort key (`ordering[0]`) through
+/// a `TantivyDecodeExec` / `TantivyFetchExec` that changes its `DataType` (a deferred column).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeferredPrimarySort {
+    /// `RankJoinExec` casts the primary sort value to `Float64`, so it must already be eager.
+    Reject,
+    /// `try_rewrite_lazy_sort_probe_join` sorts by a string / bytes primary key at the leaf and
+    /// promotes it to eager via `collect_decode_sort_fields` + `make_fields_eager`.
+    Allow,
+}
+
 /// Maps `ordering` across a pass-through single-child operator (`ProjectionExec`,
 /// `FilterExec`, `VisibilityFilterExec`, `TantivyDecodeExec`, `TantivyFetchExec`,
 /// `CoalescePartitionsExec`).
 fn map_ordering_through_passthrough(
     node: &Arc<dyn ExecutionPlan>,
     ordering: &LexOrdering,
+    deferred_primary: DeferredPrimarySort,
 ) -> Result<Option<LexOrdering>> {
     if let Some(proj) = node.downcast_ref::<ProjectionExec>() {
         let proj_exprs = proj.expr();
@@ -2303,12 +2356,14 @@ fn map_ordering_through_passthrough(
             collect_columns(&sort_expr.expr).iter().all(|col| {
                 let in_bounds = col.index() < out_schema.fields().len()
                     && col.index() < in_schema.fields().len();
-                // Primary score expression (`idx == 0`) cannot reference a deferred
-                // column whose DataType changes across `TantivyDecodeExec`. Secondary
-                // tiebreakers (`idx > 0`) may reference deferred columns, which will
-                // be converted to eager delivery if the join rewrite succeeds.
+                // Unless `deferred_primary` is `Allow`, the primary sort expression
+                // (`idx == 0`) cannot reference a deferred column whose DataType changes
+                // across `TantivyDecodeExec`. Secondary tiebreakers (`idx > 0`) may
+                // reference deferred columns, which will be converted to eager delivery if
+                // the join rewrite succeeds.
                 in_bounds
                     && (idx > 0
+                        || deferred_primary == DeferredPrimarySort::Allow
                         || out_schema.field(col.index()).data_type()
                             == in_schema.field(col.index()).data_type())
             })

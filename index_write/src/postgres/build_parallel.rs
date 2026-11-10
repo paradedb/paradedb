@@ -396,9 +396,10 @@ impl<'a> BuildWorker<'a> {
                 gucs::adjust_maintenance_work_mem(nparticipants).get() / nparticipants;
 
             THREAD_MEMORY_BUDGET.with(|b| {
+                // TODO: make less conservative
                 b.set_budget(
                     per_worker_memory_budget * 4,
-                    Some(per_worker_memory_budget * 8), // TODO: make less conservative
+                    Some(per_worker_memory_budget * 6),
                 )
             });
 

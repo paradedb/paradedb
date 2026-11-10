@@ -174,6 +174,16 @@
         ["start/configure-your-environment.mdx::fence-032", "34432fbe99ec1f8216d501a12691976a6524dcf76e5729df4fc452997640c989"],
         ["start/configure-your-environment.mdx::fence-034", "b0a512c838bec9edc67969cdb6a5ec60f1c9c58115766b945e675ae18c85c2a9"]
       ]
+    },
+    {
+      "reason": "Uses the 0.27 target_leaf_size option before the published ORM client packages ship support; the SQL fence runs in the standalone inventory.",
+      "fences": [
+        ["reference/indexing/indexing-vectors.mdx::fence-014", "53c92670d4bf64621e64b1db4aa59eb7476bfc799d4ba4134ef9fd8372135c15"],
+        ["reference/indexing/indexing-vectors.mdx::fence-015", "821236f776b5cb115dc2ea7124ab3edd9d7e2fa853164d4f00c2f0a98ad5bcc3"],
+        ["reference/indexing/indexing-vectors.mdx::fence-016", "cd2cc9292117f96cd302bdb88ca5a30074992a9ca9c106eb1d948e99df350d73"],
+        ["reference/indexing/indexing-vectors.mdx::fence-017", "61bbc3322127cc2c471e9e161cafbeae0ef27a0172362974e1fdcdbfd2078388"],
+        ["reference/indexing/indexing-vectors.mdx::fence-018", "e3cd48db5fa758ad4e47dfdf5c3426af64262a260ebdea73337ac4c56ef9bcf4"]
+      ]
     }
   ],
   "sql": {

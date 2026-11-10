@@ -56,9 +56,11 @@ ORDER BY paradedb.score(id) DESC LIMIT 1;
 ERROR:  field "metadata.color" requires columnar storage
 HINT:  Recreate the index with 'columnar=true' on the field's tokenizer, or use pdb.literal or pdb.literal_normalized, which enable columnar storage by default. For a JSON path, configure its parent JSON field.
 -- An unrelated collection failure must retain the underlying error.
+\set VERBOSITY terse
 SELECT pdb.agg('{"histogram":{"field":"id","interval":0}}')
 FROM field_requirements WHERE id @@@ pdb.all();
 ERROR:  should be able to collect in segment: InvalidArgument("interval must be a positive value")
+\set VERBOSITY default
 -- Both explicit columnar storage and literal's default support aggregation.
 DROP INDEX field_requirements_idx;
 CREATE INDEX field_requirements_idx ON field_requirements

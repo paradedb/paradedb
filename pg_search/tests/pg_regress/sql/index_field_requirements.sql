@@ -39,8 +39,10 @@ FROM field_requirements WHERE description ||| 'shoes'
 ORDER BY paradedb.score(id) DESC LIMIT 1;
 
 -- An unrelated collection failure must retain the underlying error.
+\set VERBOSITY terse
 SELECT pdb.agg('{"histogram":{"field":"id","interval":0}}')
 FROM field_requirements WHERE id @@@ pdb.all();
+\set VERBOSITY default
 
 -- Both explicit columnar storage and literal's default support aggregation.
 DROP INDEX field_requirements_idx;

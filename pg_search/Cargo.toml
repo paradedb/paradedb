@@ -147,6 +147,6 @@ basescan = { path = "../basescan", default-features = false, features = [
 joinscan = { path = "../joinscan", default-features = false, features = [
   "pg_test",
 ] }
-pgrx-tests.workspace = true
+pgrx-tests = { workspace = true, features = ["client"] }
 postgres.workspace = true
 proptest.workspace = true

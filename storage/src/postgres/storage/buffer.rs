@@ -297,10 +297,8 @@ impl Buffer {
         unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
 
-    // Without assertions, `BufferGetPageSize` is just `BLCKSZ` and pgrx marks it safe.
-    #[allow(unused_unsafe)]
     pub fn page_size(&self) -> pg_sys::Size {
-        unsafe { pgrx::BufferGetPageSize!(self.pg_buffer).get_usize() }
+        pgrx::BufferGetPageSize!(self.pg_buffer).get_usize()
     }
 
     pub fn upgrade(self, bman: &mut BufferManager) -> BufferMut {

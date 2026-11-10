@@ -4,14 +4,13 @@
   runCommand,
   rustPlatform,
   pkg-config,
-  openssl,
   zstd,
 }:
 let
-  version = "0.20.0-beta.0";
+  version = "0.20.0-beta.1";
   archive = fetchurl {
     url = "https://static.crates.io/crates/cargo-pgrx/cargo-pgrx-${version}.crate";
-    hash = "sha256-e37IpvL4A6oWgRRhSdi8UkzPQF+QQCFBj1we8c5+0AA=";
+    hash = "sha256-2fS+fHgNd5K6rX5gMPvSFllcDA17iph63t7AvCptkaM=";
   };
   # Use the published crate's lockfile without maintaining another copy here.
   source = runCommand "cargo-pgrx-${version}-source" { } ''
@@ -25,10 +24,7 @@ rustPlatform.buildRustPackage {
   src = source;
   cargoLock.lockFile = "${source}/Cargo.lock";
   nativeBuildInputs = [ pkg-config ];
-  buildInputs = [
-    openssl
-    zstd
-  ];
+  buildInputs = [ zstd ];
   cargoBuildFlags = [ "--bin=cargo-pgrx" ];
   # CLI integration tests require PostgreSQL installations outside this derivation.
   doCheck = false;

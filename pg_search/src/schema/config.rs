@@ -178,6 +178,32 @@ impl VectorQuantizationConfig {
 }
 
 impl SearchFieldConfig {
+    /// The options of the rule field of a synonym index. A lookup needs only the documents of a
+    /// key, and it reads the rule text from the table row, so the field has no column.
+    pub fn set_synonym_rule_options(&mut self) {
+        if let SearchFieldConfig::Text {
+            indexed,
+            fast,
+            fieldnorms,
+            pnorms,
+            record,
+            normalizer,
+            k1,
+            b,
+            ..
+        } = self
+        {
+            *indexed = true;
+            *fast = false;
+            *fieldnorms = false;
+            *pnorms = false;
+            *record = IndexRecordOption::Basic;
+            *normalizer = SearchNormalizer::Raw;
+            *k1 = None;
+            *b = None;
+        }
+    }
+
     pub fn set_normalizer(&mut self, normalizer: Option<SearchNormalizer>) {
         if let Some(replacement_normalizer) = normalizer {
             match self {

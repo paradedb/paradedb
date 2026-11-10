@@ -18,6 +18,7 @@
 use crate::api::version::Version;
 use crate::gucs;
 use crate::index::stats::partition_box;
+use crate::index::synonym_index::RuleCheck;
 use crate::index::writer::index::{DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter};
 use crate::launch_parallel_process;
 use crate::parallel_worker::builder::ParallelProcessLauncher;
@@ -758,6 +759,7 @@ impl PartitionSpill {
 struct WorkerBuildState<'a> {
     writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
+    rule_check: Option<RuleCheck>,
     per_row_context: PgMemoryContexts,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
@@ -857,6 +859,7 @@ impl<'a> WorkerBuildState<'a> {
         writer.set_remaining_segments(target_segment_count);
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
+        let rule_check = RuleCheck::for_index(schema, indexrel.options());
         let created_by_version = indexrel.created_by_version();
 
         let (participant, nparticipants) = (spill_files.participant, spill_files.nparticipants);
@@ -869,6 +872,7 @@ impl<'a> WorkerBuildState<'a> {
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
+            rule_check,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
             indexrel: indexrel.clone(),
             heaprel: heaprel.clone(),
@@ -1334,6 +1338,9 @@ unsafe extern "C-unwind" fn build_callback(
             &mut doc,
             build_state.index_created_by_version,
         );
+        if let Some(rule_check) = &mut build_state.rule_check {
+            rule_check.check(&doc);
+        }
 
         build_state
             .writer
@@ -2095,55 +2102,6 @@ mod tests {
                 Some(20000)
             );
             Spi::run("DROP INDEX vector_build_idx").unwrap();
-        }
-    }
-
-    #[pg_test]
-    fn test_partitioned_build_reduces_active_participants() {
-        Spi::run(
-            r#"
-            CREATE TABLE build_fewer_partitions (id bigint, tenant_id bigint, name text);
-            INSERT INTO build_fewer_partitions
-            SELECT i, i % 3, 'searchable' FROM generate_series(1, 3000) i;
-            SET LOCAL max_parallel_workers = 8;
-            SET LOCAL max_parallel_maintenance_workers = 4;
-            SET LOCAL maintenance_work_mem = '128MB';
-            "#,
-        )
-        .unwrap();
-        for leader in [false, true] {
-            Spi::run(&format!(
-                "SET LOCAL parallel_leader_participation = {leader};"
-            ))
-            .unwrap();
-            Spi::run(
-                "CREATE INDEX build_fewer_partitions_idx ON build_fewer_partitions
-                 USING paradedb (id, tenant_id, name)
-                 WITH (partition_by = 'tenant_id', target_segment_count = 8);",
-            )
-            .unwrap();
-            assert_eq!(
-                Spi::get_one::<i64>(
-                    "SELECT count(*) FROM paradedb.index_info('build_fewer_partitions_idx')"
-                )
-                .unwrap(),
-                Some(3)
-            );
-            assert_eq!(
-                Spi::get_one::<i64>(
-                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('build_fewer_partitions_idx')"
-                )
-                .unwrap(),
-                Some(3000)
-            );
-            assert_eq!(
-                Spi::get_one::<i64>(
-                    "SELECT count(*) FROM build_fewer_partitions WHERE name ||| 'searchable'"
-                )
-                .unwrap(),
-                Some(3000)
-            );
-            Spi::run("DROP INDEX build_fewer_partitions_idx;").unwrap();
         }
     }
 

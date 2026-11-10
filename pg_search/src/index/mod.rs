@@ -24,6 +24,7 @@ pub mod reader;
 pub mod search;
 pub(crate) mod segment_pruning;
 pub mod stats;
+pub mod synonym_index;
 pub mod writer;
 
 pub use directory::*;

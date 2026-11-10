@@ -122,6 +122,7 @@ fn resolve_column_to_provider<'a>(
                     .qualified_field_from_column(col)
                     .ok()?;
                 let provider = pg_search_provider_from_scan(scan)?;
+                // TODO: potentially co-partition by ctid as well if the segments used the ctid partitioning fallback
                 let partition_field = provider.scan_info.partition_by.iter().find_map(|field| {
                     if sf.name() == field.as_ref() {
                         Some(field.clone())

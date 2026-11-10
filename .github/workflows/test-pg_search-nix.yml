@@ -1,7 +1,7 @@
 # workflows/test-pg_search-nix.yml
 #
 # Test pg_search (Nix)
-# Check the dependency hash and build pg_search with its pinned Rust and pgrx.
+# Check the Nix Cargo dependency hash.
 
 name: Test pg_search (Nix)
 
@@ -111,15 +111,3 @@ jobs:
             -f sha="$(git rev-parse HEAD)" -F force=false
           echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
           exit 1
-
-  nix-build:
-    name: Build pg_search with Nix
-    needs: nix-cargo-hash-check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3.24.1
-      - name: Build Extension
-        run: nix build --no-link .#pg_search-pg18

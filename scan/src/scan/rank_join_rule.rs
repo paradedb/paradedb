@@ -41,9 +41,8 @@
 //!      two-sided score joins (falling back to the original `ScanMode::Tagged` subtree if the
 //!      join is single-sided or fails any gate). A leaf's single-table `base_query` (for
 //!      example a row-level security policy on an indexed column) is kept as a `0.0`-score
-//!      filter on both `SA` and `RA`; a base that is not a pushed SQL restriction
-//!      (`SearchQueryInput::is_pushdown_filter`), or one with heap filters, blocks the
-//!      conversion.
+//!      filter on both `SA` and `RA`; a base that scores (`SearchQueryInput::is_pushdown_filter`
+//!      refuses it), or one with heap filters, blocks the conversion.
 //!
 //! 2. **Gate 2 (Score Contribution Balance & Disjunctive Restriction)**:
 //!    - When both sides contribute to the monotonic `ORDER BY` expression (`uses_left &&
@@ -294,8 +293,8 @@ pub enum RankJoinDeclineReason {
     LimitExceedsMax { k: usize, max_k: usize },
     /// Cross-table `OR` leaf scan has a non-indexed heap filter alongside its tagged predicates.
     DisjunctiveLeafHasHeapFilter { table: String },
-    /// Cross-table `OR` leaf scan combines its tagged predicates with a scored or disjunctive
-    /// per-table `base_query` that `RankJoinExec` cannot evaluate as a `0.0`-score filter.
+    /// Cross-table `OR` leaf scan combines its tagged predicates with a scored per-table
+    /// `base_query` that `RankJoinExec` cannot evaluate as a `0.0`-score filter.
     DisjunctiveLeafBaseNotPushdownFilter { table: String },
     /// Cross-table search join filter is not a pure `OR` disjunction covering all tagged predicates.
     DisjunctiveFilterNotPureOr,
@@ -347,7 +346,7 @@ impl std::fmt::Display for RankJoinDeclineReason {
             ),
             Self::DisjunctiveLeafBaseNotPushdownFilter { table } => write!(
                 f,
-                "table \"{table}\" combines a cross-table OR predicate with a scored or disjunctive per-table predicate"
+                "table \"{table}\" combines a cross-table OR predicate with a scored per-table predicate"
             ),
             Self::DisjunctiveFilterNotPureOr => write!(
                 f,

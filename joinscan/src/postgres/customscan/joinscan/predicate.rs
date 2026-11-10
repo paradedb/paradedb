@@ -34,7 +34,9 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::node::CustomScanNodeExt;
 use crate::postgres::customscan::pullup::{Access, ResTarget};
-use crate::postgres::customscan::qual_inspect::{PlannerContext, QualExtractState, extract_quals};
+use crate::postgres::customscan::qual_inspect::{
+    PlannerContext, QualExtractState, extract_quals, user_clause_restrictinfo,
+};
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
@@ -237,13 +239,8 @@ pub unsafe fn extract_single_table_predicate(
 ) -> Option<crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate> {
     let (_, bm25_idx) = rel_get_bm25_index(side.heaprelid)?;
 
-    // Create a RestrictInfo wrapping the expression for extract_quals
     let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
-    let fake_ri =
-        pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>()) as *mut pg_sys::RestrictInfo;
-    (*fake_ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
-    (*fake_ri).clause = expr.cast();
-    ri_list.push(fake_ri);
+    ri_list.push(user_clause_restrictinfo(root, expr));
 
     let context = PlannerContext::from_planner(root);
     let mut state = QualExtractState::default();

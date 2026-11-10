@@ -137,6 +137,10 @@ pub enum Qual {
     And(Vec<Qual>),
     Or(Vec<Qual>),
     Not(Box<Qual>),
+    /// A clause PostgreSQL attached from a row-level security policy or a security-barrier
+    /// view: its `RestrictInfo.security_level` is below `PlannerInfo.qual_security_level`. It
+    /// restricts which rows the user may see, so it is lowered at a constant score of `0.0`.
+    Security(Box<Qual>),
 }
 
 impl Qual {
@@ -161,6 +165,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
+            Qual::Security(qual) => qual.contains_all(),
         }
     }
 
@@ -183,6 +188,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Not(qual) => qual.contains_external_var(),
+            Qual::Security(qual) => qual.contains_external_var(),
         }
     }
 
@@ -205,6 +211,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
             Qual::Not(qual) => qual.contains_correlated_param(root),
+            Qual::Security(qual) => qual.contains_correlated_param(root),
         }
     }
 
@@ -227,6 +234,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Not(qual) => qual.contains_exprs(),
+            Qual::Security(qual) => qual.contains_exprs(),
         }
     }
 
@@ -249,6 +257,7 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Not(qual) => qual.contains_score_exprs(),
+            Qual::Security(qual) => qual.contains_score_exprs(),
         }
     }
 
@@ -259,6 +268,7 @@ impl Qual {
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
+            Qual::Security(qual) => qual.collect_exprs(exprs),
             _ => {}
         }
     }
@@ -266,6 +276,9 @@ impl Qual {
     /// True if, as a top-level AND branch, [`optimize_quals_with_heap_expr`] merges this qual
     /// into the `indexed_query` of the innermost sibling heap filter.
     pub fn is_indexed_conjunct(&self) -> bool {
+        if let Qual::Security(inner) = self {
+            return inner.is_indexed_conjunct();
+        }
         matches!(
             self,
             Qual::OpExpr { .. }
@@ -296,6 +309,9 @@ impl Qual {
                 .collect::<Option<_>>()
                 .map(Qual::Or),
             Qual::Not(inner) if inner.contains_heap_expr() => None,
+            Qual::Security(inner) => inner
+                .without_heap_exprs()
+                .map(|inner| Qual::Security(Box::new(inner))),
             other => Some(other),
         }
     }
@@ -305,9 +321,23 @@ impl Qual {
         match self {
             Qual::HeapExpr { .. } => true,
             Qual::Not(inner) => inner.contains_heap_expr(),
+            Qual::Security(inner) => inner.contains_heap_expr(),
             Qual::And(quals) | Qual::Or(quals) => quals.iter().any(|q| q.contains_heap_expr()),
             _ => false,
         }
+    }
+}
+
+/// Wraps `qual` in [`Qual::Security`], descending through AND and OR. A heap filter is left
+/// as it is: the heap-filter machinery matches `Qual::HeapExpr` in place, and its indexed part
+/// is already the zero-score `All`. A score condition is left as it is too, since the AND
+/// lowering must see it at the top level.
+fn mark_security(qual: Qual) -> Qual {
+    match qual {
+        Qual::And(quals) => Qual::And(quals.into_iter().map(mark_security).collect()),
+        Qual::Or(quals) => Qual::Or(quals.into_iter().map(mark_security).collect()),
+        other if other.contains_heap_expr() || other.contains_score_exprs() => other,
+        other => Qual::Security(Box::new(other)),
     }
 }
 
@@ -674,6 +704,16 @@ impl From<&Qual> for SearchQueryInput {
                 }
             }
             Qual::Not(qual) => negated_search_query_input(qual.as_ref()),
+            Qual::Security(qual) => {
+                assert!(
+                    !qual.contains_heap_expr() && !qual.contains_score_exprs(),
+                    "Qual::Security must not wrap a heap filter or a score condition"
+                );
+                SearchQueryInput::ConstScore {
+                    query: Box::new(SearchQueryInput::from(qual.as_ref())),
+                    score: 0.0,
+                }
+            }
         }
     }
 }
@@ -848,6 +888,22 @@ pub unsafe fn has_leaky_heap_filter(
     })
 }
 
+/// A `RestrictInfo` for a clause the statement wrote, as `extract_quals` expects one. It
+/// carries `qual_security_level`, the level PostgreSQL gives such a clause; left at the
+/// zeroed default of a bare allocation, `extract_quals` would take it for a policy clause
+/// (`Qual::Security`).
+pub unsafe fn user_clause_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    clause: *mut pg_sys::Node,
+) -> *mut pg_sys::RestrictInfo {
+    let ri =
+        pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>()).cast::<pg_sys::RestrictInfo>();
+    (*ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
+    (*ri).clause = clause.cast();
+    (*ri).security_level = (*root).qual_security_level;
+    ri
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn extract_quals(
     context: &PlannerContext,
@@ -931,7 +987,7 @@ pub fn extract_quals(
             } else {
                 ri.clause
             };
-            extract_quals(
+            let qual = extract_quals(
                 context,
                 rti,
                 clause.cast(),
@@ -940,7 +996,17 @@ pub fn extract_quals(
                 convert_external_to_special_qual,
                 state,
                 attempt_pushdown,
-            )
+            )?;
+            // A clause below the query's `qual_security_level` came from the range table
+            // entry's `securityQuals`: a row-level security policy or a security-barrier view.
+            let from_security_qual = context
+                .planner_info()
+                .is_some_and(|root| ri.security_level < unsafe { (*root).qual_security_level });
+            Some(if from_security_qual {
+                mark_security(qual)
+            } else {
+                qual
+            })
         }
 
         pg_sys::NodeTag::T_OpExpr => unsafe {
@@ -2206,6 +2272,62 @@ mod tests {
             query: pdb::Query::Exists,
         };
         assert_eq!(got, want);
+    }
+
+    #[pg_test]
+    fn test_security_qual_scores_zero() {
+        let qual = Qual::Security(Box::new(Qual::And(vec![
+            Qual::PushdownVarEqTrue {
+                field: PushdownField::new("foo"),
+            },
+            Qual::Not(Box::new(Qual::PushdownIsNotNull {
+                field: PushdownField::new("bar"),
+            })),
+        ])));
+        let got = SearchQueryInput::from(&qual);
+        let want = SearchQueryInput::ConstScore {
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![
+                    SearchQueryInput::FieldedQuery {
+                        field: "foo".into(),
+                        query: pdb::Query::Term {
+                            value: PdbOwnedValue::Bool(true),
+                        },
+                    },
+                    SearchQueryInput::Boolean {
+                        must: vec![SearchQueryInput::All],
+                        should: vec![],
+                        must_not: vec![SearchQueryInput::FieldedQuery {
+                            field: "bar".into(),
+                            query: pdb::Query::Exists,
+                        }],
+                        minimum_should_match: None,
+                    },
+                ],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            }),
+            score: 0.0,
+        };
+        assert_eq!(got, want);
+
+        // A heap filter is never wrapped, so the heap-filter machinery still sees it in place.
+        let marked = mark_security(Qual::And(vec![
+            Qual::PushdownIsNotNull {
+                field: PushdownField::new("baz"),
+            },
+            Qual::HeapExpr {
+                expr_node: std::ptr::null_mut(),
+                expr_desc: "leaky(x)".to_string(),
+                search_query_input: Box::new(SearchQueryInput::All),
+            },
+        ]));
+        assert!(matches!(
+            &marked,
+            Qual::And(quals)
+                if matches!(quals[0], Qual::Security(_)) && matches!(quals[1], Qual::HeapExpr { .. })
+        ));
     }
 
     #[pg_test]

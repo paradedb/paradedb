@@ -501,12 +501,15 @@ impl SearchQueryInput {
         }
     }
 
-    /// Whether this is a plain SQL restriction as pushdown lowers it (`=`, `= ANY`, a range,
-    /// `IS NOT NULL`, `<>`, or an AND of those), which the rank join can keep as a `0.0`-score
-    /// filter. A term counts only on a field `term_is_filter` accepts. A `PostgresExpression` is
-    /// accepted for plain `EXPLAIN` (before `solve_postgres_expressions` resolves it at
-    /// execution). Every explicit `@@@` search (`WithIndex`), any boost or non-zero constant
-    /// score, an OR, and every other form is refused.
+    /// Whether the rank join can keep this as a `0.0`-score filter: a query that scores every
+    /// row it matches the same, so dropping its score reorders nothing. That is a pushed SQL
+    /// restriction (`=`, `= ANY`, a range, `IS NOT NULL`, `<>`), an explicit `@@@` of a
+    /// constant-score shape (a range, a term set, `exists`), an AND, OR, or NOT of those, or a
+    /// `0.0` constant over anything without a score condition, which is how a row-level
+    /// security policy arrives. A term counts only on a field `term_is_filter` accepts. A
+    /// `PostgresExpression` is accepted for plain `EXPLAIN` (before
+    /// `solve_postgres_expressions` resolves it at execution). A text search, a boost, and a
+    /// non-zero constant score are refused.
     pub fn is_pushdown_filter(&self, term_is_filter: &dyn Fn(&FieldName) -> bool) -> bool {
         match self {
             SearchQueryInput::All
@@ -514,23 +517,23 @@ impl SearchQueryInput {
             | SearchQueryInput::Null
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. } => true,
-            // The negation of a pushed filter guards NULLs with a `0.0` constant.
+            // A `0.0` constant is a filter whatever it wraps: a policy is lowered this way, and
+            // the negation of a pushed filter guards NULLs with it.
             SearchQueryInput::ConstScore { query, score } => {
-                *score == 0.0 && query.is_pushdown_filter(term_is_filter)
+                *score == 0.0 && !query.has_score_filter()
             }
+            SearchQueryInput::WithIndex { query, .. } => query.is_pushdown_filter(term_is_filter),
             // An excluded clause adds no score, but deciding what it excludes may need one.
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
                 ..
-            } => {
-                should.is_empty()
-                    && must
-                        .iter()
-                        .chain(must_not)
-                        .all(|q| q.is_pushdown_filter(term_is_filter))
-            }
+            } => must
+                .iter()
+                .chain(should)
+                .chain(must_not)
+                .all(|q| q.is_pushdown_filter(term_is_filter)),
             SearchQueryInput::FieldedQuery { field, query } => {
                 query.is_pushdown_filter(field, term_is_filter)
             }
@@ -2308,6 +2311,51 @@ mod tests {
             },
         };
 
+        let explicit_or_of_filters = SearchQueryInput::WithIndex {
+            oid: pgrx::pg_sys::Oid::INVALID,
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![],
+                should: vec![term_set.clone(), zero_const_over_filter.clone()],
+                must_not: vec![],
+                minimum_should_match: None,
+            }),
+        };
+        let explicit_text = SearchQueryInput::WithIndex {
+            oid: pgrx::pg_sys::Oid::INVALID,
+            query: Box::new(SearchQueryInput::FieldedQuery {
+                field: "test".into(),
+                query: pdb::Query::ParseWithField {
+                    query_string: "value".to_string(),
+                    lenient: None,
+                    conjunction_mode: None,
+                    fuzzy_data: None,
+                },
+            }),
+        };
+        let zero_const_over_text = SearchQueryInput::ConstScore {
+            query: Box::new(SearchQueryInput::WithIndex {
+                oid: pgrx::pg_sys::Oid::INVALID,
+                query: Box::new(SearchQueryInput::FieldedQuery {
+                    field: "test".into(),
+                    query: pdb::Query::ParseWithField {
+                        query_string: "value".to_string(),
+                        lenient: None,
+                        conjunction_mode: None,
+                        fuzzy_data: None,
+                    },
+                }),
+            }),
+            score: 0.0,
+        };
+        let zero_const_over_or = SearchQueryInput::ConstScore {
+            query: Box::new(or.clone()),
+            score: 0.0,
+        };
+        let zero_const_over_score_filter = SearchQueryInput::ConstScore {
+            query: Box::new(score_filter.clone()),
+            score: 0.0,
+        };
+
         let pg_expr =
             SearchQueryInput::postgres_expression(std::ptr::null_mut(), "expr".to_string());
         let and_pg_expr = SearchQueryInput::Boolean {
@@ -2328,15 +2376,22 @@ mod tests {
         assert!(!term.is_pushdown_filter(&no_filter));
         assert!(and.is_pushdown_filter(&filter));
         assert!(!and.is_pushdown_filter(&no_filter));
-        assert!(!or.is_pushdown_filter(&filter));
+        assert!(or.is_pushdown_filter(&filter));
+        assert!(!or.is_pushdown_filter(&no_filter));
         assert!(!score_filter.is_pushdown_filter(&filter));
         assert!(!not_score_filter.is_pushdown_filter(&filter));
         assert!(not_term.is_pushdown_filter(&filter));
         assert!(!not_term.is_pushdown_filter(&no_filter));
-        assert!(!explicit_term.is_pushdown_filter(&filter));
-        assert!(!explicit_term_set.is_pushdown_filter(&no_filter));
+        assert!(explicit_term.is_pushdown_filter(&filter));
+        assert!(!explicit_term.is_pushdown_filter(&no_filter));
+        assert!(explicit_term_set.is_pushdown_filter(&no_filter));
+        assert!(explicit_or_of_filters.is_pushdown_filter(&no_filter));
+        assert!(!explicit_text.is_pushdown_filter(&filter));
         assert!(!const_over_filter.is_pushdown_filter(&no_filter));
         assert!(zero_const_over_filter.is_pushdown_filter(&no_filter));
+        assert!(zero_const_over_text.is_pushdown_filter(&no_filter));
+        assert!(zero_const_over_or.is_pushdown_filter(&no_filter));
+        assert!(!zero_const_over_score_filter.is_pushdown_filter(&filter));
         assert!(!const_over_text.is_pushdown_filter(&no_filter));
         assert!(!cast_const_over_text.is_pushdown_filter(&filter));
         assert!(!cast_const_over_text.is_pushdown_filter(&no_filter));

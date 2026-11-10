@@ -16,8 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use pgrx::{FromDatum, IntoDatum, pg_sys};
-use std::ffi::CStr;
+use pgrx::{FromDatum, IntoDatum, PgList, pg_sys};
+use std::ffi::{CStr, CString, c_char};
 use std::sync::OnceLock;
 
 pub trait OidExt {
@@ -77,6 +77,31 @@ pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
         let namespace_oid = pg_sys::get_namespace_oid(namespace.as_ptr(), true);
         (namespace_oid != pg_sys::InvalidOid).then_some(namespace_oid)
     }
+}
+
+/// The schema and the name of a relation written as in SQL, such as `idx`, `shop.idx` or
+/// `"Shop"."Idx"`. `None` when the text is not one or two identifiers.
+pub fn split_relation_name(name: &str) -> Option<(Option<String>, String)> {
+    let name = CString::new(name).ok()?;
+    let mut parts = unsafe {
+        // `SplitIdentifierString` writes into its input, and the list points into it.
+        let raw = pg_sys::pstrdup(name.as_ptr());
+        let mut list = std::ptr::null_mut();
+        let valid = pg_sys::SplitIdentifierString(raw, b'.' as c_char, &mut list);
+        let parts = PgList::<c_char>::from_pg(list)
+            .iter_ptr()
+            .map(|part| CStr::from_ptr(part).to_str().map(str::to_owned).ok())
+            .collect::<Option<Vec<_>>>();
+        pg_sys::list_free(list);
+        pg_sys::pfree(raw.cast());
+        valid.then_some(parts).flatten()?
+    };
+    if parts.iter().any(String::is_empty) {
+        return None;
+    }
+    let relation = parts.pop()?;
+    let schema = parts.pop();
+    parts.is_empty().then_some((schema, relation))
 }
 
 pub fn lookup_extension_version(name: &CStr) -> Option<String> {

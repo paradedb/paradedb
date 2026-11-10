@@ -135,9 +135,8 @@ pub fn register_rule_tokenizer(options: &BM25IndexOptions, manager: &TokenizerMa
     }
 }
 
-/// The tokenizer that analyzes the keys of a synonym index. A query expands with the index only
-/// when its tokens come from the same tokenizer, since a key matches only the tokens it was
-/// analyzed into.
+/// A key matches only the tokens of the tokenizer that analyzed it, so a query compares its
+/// tokenizer with this one.
 pub fn rule_tokenizer(index: &PgSearchRelation) -> Option<SearchTokenizer> {
     let options = index.options();
     let field = options.synonym_rule_field()?;

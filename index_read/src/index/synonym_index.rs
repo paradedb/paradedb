@@ -17,7 +17,7 @@
 
 pub use storage::index::synonym_index::*;
 
-use std::ffi::{CString, c_char};
+use std::ffi::CString;
 use std::sync::Arc;
 
 use crate::gucs;
@@ -25,53 +25,69 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::access::IndexAccess;
-use crate::postgres::catalog::OidExt;
+use crate::postgres::catalog::{lookup_namespace, split_relation_name};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::IndexType;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::ActiveSnapshotGuard;
 use anyhow::anyhow;
-use pgrx::{FromDatum, IntoDatum, pg_sys};
+use pgrx::{FromDatum, pg_sys};
 use tantivy::synonyms::{CompiledRule, Expansion, KeyDocs, SegmentSynonyms, SynonymSource, expand};
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy::{DocId, SegmentOrdinal, SegmentReader};
 
-/// Opens the synonym index that a text index in `namespace` names. The name is resolved again on
-/// each query, so a rename or a `REINDEX` of the synonym index never leaves a stale reference.
-/// The owner of the text index attached the rules, so a query reads them with no check of the
-/// querying role's rights on the rules table.
-pub fn open_synonym_index(namespace: pg_sys::Oid, name: &str) -> anyhow::Result<IndexAccess> {
+/// The name is resolved on each call, so a rename or a `REINDEX` applies on the next query.
+/// `owner` owns the text index and attached the rules, so its rights on the rules are checked.
+pub fn open_synonym_index(
+    namespace: pg_sys::Oid,
+    owner: pg_sys::Oid,
+    name: &str,
+) -> anyhow::Result<IndexAccess> {
     let oid = resolve_relation(namespace, name)
         .ok_or_else(|| anyhow!("synonym index \"{name}\" does not exist"))?;
-    if unsafe { pg_sys::get_rel_relkind(oid) } != pg_sys::RELKIND_INDEX as c_char {
-        return Err(anyhow!("\"{name}\" is not an index"));
+    match unsafe { pg_sys::get_rel_relkind(oid) } as u8 {
+        pg_sys::RELKIND_INDEX => {}
+        pg_sys::RELKIND_PARTITIONED_INDEX => {
+            return Err(anyhow!(
+                "synonym index \"{name}\" cannot be a partitioned index"
+            ));
+        }
+        _ => return Err(anyhow!("\"{name}\" is not an index")),
     }
     let index = IndexAccess::open(oid, pg_sys::AccessShareLock as _);
-    if !unsafe { (*index.rd_rel).relam.is_paradedb_am() }
-        || index.index_type() != IndexType::Synonym
-    {
+    if index.index_type() != IndexType::Synonym {
         return Err(anyhow!("\"{name}\" is not a synonym index"));
+    }
+    if !unsafe { (*index.rd_index).indisvalid } {
+        return Err(anyhow!("synonym index \"{name}\" is not valid"));
+    }
+    if let Some(denial) = index.read_denial(owner) {
+        return Err(anyhow!(
+            "the owner of the index that names synonym index \"{name}\" {denial}"
+        ));
+    }
+    // A `DROP` or a `TRUNCATE` must wait for a transaction that expanded with these rules, so both
+    // locks stay until the transaction ends.
+    unsafe {
+        pg_sys::LockRelationOid(index.heap().oid(), pg_sys::AccessShareLock as _);
+        pg_sys::LockRelationOid(index.oid(), pg_sys::AccessShareLock as _);
     }
     Ok(index)
 }
 
-/// A bare name is looked up in `namespace` first, so the lookup does not depend on the
-/// `search_path` of the querying role.
+/// A bare name resolves in `namespace` only, so the `search_path` of the querying role cannot
+/// change it. No lookup checks a right of the querying role, which needs none.
 fn resolve_relation(namespace: pg_sys::Oid, name: &str) -> Option<pg_sys::Oid> {
-    let in_namespace = CString::new(name)
-        .ok()
-        .map(|name| unsafe { pg_sys::get_relname_relid(name.as_ptr(), namespace) })
-        .filter(|&oid| oid != pg_sys::InvalidOid);
-    in_namespace.or_else(|| {
-        unsafe {
-            pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::to_regclass, &[name.into_datum()])
-        }
-        .filter(|&oid| oid != pg_sys::InvalidOid)
-    })
+    let (schema, relation) = split_relation_name(name)?;
+    let namespace = match schema {
+        Some(schema) => lookup_namespace(&CString::new(schema).ok()?)?,
+        None => namespace,
+    };
+    let relation = CString::new(relation).ok()?;
+    let oid = unsafe { pg_sys::get_relname_relid(relation.as_ptr(), namespace) };
+    (oid != pg_sys::InvalidOid).then_some(oid)
 }
 
-/// Expands `tokens` with the rules of the synonym index, under the active snapshot and the
-/// limits of the `paradedb.synonyms_max_*` settings.
 pub fn expand_with_index(index: &IndexAccess, tokens: &[String]) -> anyhow::Result<Vec<Expansion>> {
     let _snapshot = ActiveSnapshotGuard::ensure();
     let reader = SearchIndexReader::empty(index, MvccSatisfies::Snapshot)?;

@@ -31,9 +31,6 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | Setting                                             | Default       | Context | Description                                                                                                                                                                            |
 | --------------------------------------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `paradedb.enable_custom_scan`                       | `on`          | user    | Enables ParadeDB's base custom scan, which replaces table scans with ParadeDB index scans.                                                                                             |
-| `paradedb.enable_synonyms`                          | `on`          | user    | Expands match queries with the synonym index of the index or field. See [Synonyms](/reference/tokenizers/synonyms).                                                                    |
-| `paradedb.synonyms_max_alternatives`                | `32`          | user    | Most alternatives one run of query words expands to. The typed words stay when a rule lists them.                                                                                      |
-| `paradedb.synonyms_max_rules_per_key`               | `1024`        | user    | Most rules one synonym word reads in a segment. A word in more rules reads only the first ones.                                                                                        |
 | `paradedb.enable_aggregate_custom_scan`             | `on`          | user    | Enables the aggregate custom scan for eligible `pdb.agg` and `GROUP BY` queries.                                                                                                       |
 | `paradedb.enable_join_custom_scan`                  | `on`          | user    | Enables the join custom scan, which pushes eligible joins into the ParadeDB executor.                                                                                                  |
 | `paradedb.enable_rank_join`                         | `on`          | user    | Enables `RankJoinExec` and lazy probe-side top-K execution for eligible joins with `ORDER BY ... LIMIT`.                                                                               |
@@ -48,6 +45,16 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.explain_recursive_estimates`              | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                                                                                 |
 | `paradedb.planner_warnings`                         | `warning`     | user    | Controls warnings when an optimized scan cannot be used, and `EXPLAIN` warnings explaining why a faster plan variant within a scan was not used. Accepts `off`, `warning`, or `error`. |
 | `paradedb.spill_to_disk`                            | `off`         | user    | Allows eligible join and aggregate queries to spill to disk when they exceed `work_mem`.                                                                                               |
+
+## Synonyms
+
+These settings affect match queries on an index or a field that names a synonym index. See [Synonyms](/reference/tokenizers/synonyms).
+
+| Setting                               | Default | Context | Description                                                                                       |
+| ------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_synonyms`            | `on`    | user    | Expands match queries with the synonym index of the index or field.                               |
+| `paradedb.synonyms_max_alternatives`  | `32`    | user    | Most alternatives one run of query words expands to. The typed words stay when a rule lists them. |
+| `paradedb.synonyms_max_rules_per_key` | `1024`  | user    | Most rules one synonym word reads in a segment. A word in more rules reads only the first ones.   |
 
 ## Top K
 

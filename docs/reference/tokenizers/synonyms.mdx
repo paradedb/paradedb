@@ -29,9 +29,9 @@ along. There are two kinds of rules:
   for `running shoes` stays as it is.
 
 A term can be more than one word, on either side. A multi-word term is matched as a phrase, so the field you search has to
-keep positions, which it does unless you set `record` to something else. If a term needs a comma, escape it with a
-backslash. Comments and blank lines are fine, so a synonym file can go in line by line. A rule that does not parse is
-rejected at `INSERT`, and the error tells you which rule and why.
+keep positions. Every tokenizer keeps them except [ngrams](/reference/tokenizers/available-tokenizers/ngrams), which needs
+`positions=true`. If a term needs a comma, escape it with a backslash. Comments and blank lines are fine, so a synonym file
+can go in line by line. A rule that does not parse is rejected at `INSERT`, and the error tells you which rule and why.
 
 If you have a synonym file, load it with a delimiter and a quote character that never appear in the file, so each line
 becomes one rule, backslashes included:
@@ -53,7 +53,9 @@ USING paradedb ((rule::pdb.simple('stemmer=english')));
 
 A synonym index set on the whole index covers the fields that use its tokenizer, and the other fields don't expand. A
 synonym index set on a field must use the field's tokenizer, or a query on that field fails with an error that names
-both tokenizers. If you search fields with different tokenizers, create one synonym index per tokenizer on the same table.
+both tokenizers. The tokenizer has to be written the same way on both, options included, so `pdb.simple` and
+`pdb.simple('lowercase=true')` count as two tokenizers. If you search fields with different tokenizers, create one synonym
+index per tokenizer on the same table.
 
 ### Several Sets in One Table
 
@@ -92,13 +94,16 @@ ALTER INDEX search_idx SET (synonyms = 'shop_synonyms_idx');
 ALTER INDEX search_idx RESET (synonyms);
 ```
 
-The setting holds the name of the synonym index. A bare name is looked up in the schema of the index you search, and a
-name such as `shop.shop_synonyms_idx` names its schema. Each query looks the name up again, so a `REINDEX` or a rename of
-the synonym index takes effect at once. The synonym index doesn't have to exist when you create the index. A query against
-a name that doesn't exist fails, and the error tells you which name.
+On a partitioned table, the index of each partition has its own setting, so change it on each one.
 
-A query reads the rules without a check of the querying role's rights on the rules table, since the owner of the index
-you search attached them. Row security on the rules table does not apply to that read.
+The setting holds the name of the synonym index, written as in SQL. A bare name is looked up in the schema of the index
+you search and never through `search_path`. A name such as `shop.shop_synonyms_idx` names its schema. Each query looks the
+name up again, so a `REINDEX` or a rename of the synonym index takes effect at once. The synonym index doesn't have to
+exist when you create the index. A query against a name that doesn't exist fails, and the error tells you which name.
+
+A query reads the rules with the rights of the owner of the index you search, the way a view reads its tables. That owner
+needs `SELECT` on the rules table and `USAGE` on its schema, and the role that runs the query needs neither. If row
+security on the rules table applies to the owner, the query fails.
 
 ## Which Queries Expand
 
@@ -120,6 +125,7 @@ A few things stay exact:
   a fuzzy word scores with the best of its alternatives.
 - A query that picks its own tokenizer, with a cast such as `'sofa'::pdb.simple` or the `tokenizer` argument of
   `pdb.match()`, searches the exact tokens with no synonyms. That is the way to turn synonyms off for one query.
+- A match on a text array, such as `description ||| ARRAY['sofa']`, searches each element as an exact token.
 - [Term](/reference/full-text/term), [phrase](/reference/full-text/phrase) and
   [query parser](/reference/full-text/query-parser) queries do not expand.
 
@@ -150,7 +156,8 @@ SET paradedb.enable_synonyms = off;
 
 ## Checking an Expansion
 
-`pdb.synonym_expansion` shows what the synonym index turns a query into, with the synonym index's own tokenizer:
+`EXPLAIN` shows a query as you wrote it. `pdb.synonym_expansion` shows what the synonym index turns it into, with the
+synonym index's own tokenizer:
 
 ```sql
 SELECT * FROM pdb.synonym_expansion('shop_synonyms_idx', 'red sofa');

@@ -1836,20 +1836,27 @@ fn stored_range(
     )
 }
 
+/// The `search_tokenizer` of the field, or else of the index.
+fn search_tokenizer_option(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<SearchTokenizer> {
+    search_field
+        .field_config()
+        .search_tokenizer()
+        .cloned()
+        .or_else(|| schema.index_search_tokenizer())
+}
+
 fn resolve_search_tokenizer(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     searcher: &Searcher,
 ) -> anyhow::Result<tantivy::tokenizer::TextAnalyzer> {
-    if let Some(st) = search_field.field_config().search_tokenizer() {
+    if let Some(st) = search_tokenizer_option(search_field, schema) {
         return Ok(st
             .to_tantivy_tokenizer()
-            .expect("field-level search_tokenizer should be a valid tantivy tokenizer"));
-    }
-    if let Some(ref st) = schema.index_search_tokenizer() {
-        return Ok(st
-            .to_tantivy_tokenizer()
-            .expect("index-level search_tokenizer should be a valid tantivy tokenizer"));
+            .expect("search_tokenizer should be a valid tantivy tokenizer"));
     }
     Ok(searcher.index().tokenizer_for_field(search_field.field())?)
 }
@@ -2223,7 +2230,9 @@ fn match_query(
                 .alternatives
                 .clone()
                 .unwrap_or_else(|| vec![expansion.tokens.clone()]);
-            seen.insert(group)
+            // Two fuzzy groups with the same alternatives differ in their typed tokens.
+            let typed = (distance > 0).then(|| expansion.tokens.clone());
+            seen.insert((typed, group))
         });
     }
 
@@ -2284,8 +2293,8 @@ fn match_query(
 /// The synonym index that a match on a field expands with.
 struct SynonymSetting {
     name: String,
-    /// The field names the synonym index itself, as opposed to the index naming it for all of
-    /// its fields.
+    /// True when the name comes from the option of the field, and false when it comes from the
+    /// option of the index.
     on_field: bool,
 }
 
@@ -2319,24 +2328,29 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
         .collect()
 }
 
-/// The keys of a synonym index are analyzed, so they match only the tokens of the same
-/// tokenizer. The index option covers the fields that share that tokenizer, so an index can hold
-/// fields such as a `literal` one next to the text it expands. A field that names the synonym
-/// index itself must share it.
+/// The tokenizer of a query on `search_field`, from the index options.
+fn query_tokenizer(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<SearchTokenizer> {
+    search_tokenizer_option(search_field, schema)
+        .or_else(|| search_field.field_config().tokenizer().cloned())
+}
+
+/// A key of a synonym index matches only the tokens of the tokenizer that analyzed it. The index
+/// option skips a field with another tokenizer, and a field option on such a field is an error.
 fn expand_match(
     synonyms: &SynonymSetting,
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     tokens: &[String],
 ) -> anyhow::Result<Vec<Expansion>> {
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
     let name = &synonyms.name;
-    let index = open_synonym_index(schema.index_namespace(), name)?;
-    let config = search_field.field_config();
-    let query_tokenizer = config
-        .search_tokenizer()
-        .cloned()
-        .or_else(|| schema.index_search_tokenizer())
-        .or_else(|| config.tokenizer().cloned());
+    let index = open_synonym_index(schema.index_namespace(), schema.index_owner(), name)?;
+    let query_tokenizer = query_tokenizer(search_field, schema);
     let rule_tokenizer = rule_tokenizer(&index);
     if query_tokenizer != rule_tokenizer {
         if !synonyms.on_field {
@@ -2379,9 +2393,8 @@ fn check_phrase_positions(
     Ok(())
 }
 
-/// The query of an expansion when the match is fuzzy. Only the typed tokens stay fuzzy, since the
-/// user typed them and fuzzing every alternative would multiply the dictionary scans. A directed
-/// rule drops the typed tokens, the same as without fuzzy.
+/// Only the typed tokens are fuzzy. An alternative comes from a rule, so the query matches it
+/// exactly.
 fn fuzzy_expansion_query(
     expansion: &Expansion,
     fuzzy: impl Fn(&str) -> Box<dyn TantivyQuery>,

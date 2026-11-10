@@ -17,7 +17,7 @@
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
 use crate::postgres::catalog::{
-    is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid,
+    is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid, split_relation_name,
 };
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
@@ -510,7 +510,12 @@ pub fn search_field_config_from_type(
     let synonyms = parsed_typmod
         .get("synonyms")
         .and_then(|p| p.as_str())
-        .map(str::to_string);
+        .map(|name| {
+            if split_relation_name(name).is_none() {
+                panic!("invalid synonyms: '{name}' is not an index name");
+            }
+            name.to_string()
+        });
 
     let k1 = parsed_typmod.get("k1").and_then(|p| p.as_f32());
     let b = parsed_typmod.get("b").and_then(|p| p.as_f32());

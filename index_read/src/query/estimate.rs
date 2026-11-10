@@ -18,7 +18,7 @@
 use tantivy::SegmentReader;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, Occur, PhraseQuery, Query,
-    TermQuery,
+    SynonymQuery, TermQuery,
 };
 
 pub trait QueryEstimate {
@@ -66,7 +66,8 @@ impl QueryEstimate for dyn Query {
             )*};
         }
         estimate_as! {
-            AllQuery, TermQuery, PhraseQuery, BooleanQuery, EmptyQuery, ConstScoreQuery, BoostQuery
+            AllQuery, TermQuery, SynonymQuery, PhraseQuery, BooleanQuery, EmptyQuery,
+            ConstScoreQuery, BoostQuery
         }
         // SearchQueryInput::All wraps AllQuery directly, without boxing it.
         if let Some(query) = self.downcast_ref::<ConstScoreQuery<AllQuery>>() {
@@ -124,6 +125,29 @@ impl QueryEstimate for TermQuery {
         Ok(Some(Estimate {
             matches: count as f64,
             cost: count as u64,
+        }))
+    }
+}
+
+impl QueryEstimate for SynonymQuery {
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // A group matches a document that has any of its terms, like an OR of the terms.
+        let field = self.terms()[0].field();
+        if !reader.schema().get_field_entry(field).is_indexed() {
+            return Ok(None);
+        }
+        let inverted_index = reader.inverted_index(field)?;
+        let total = reader.max_doc().max(1) as f64;
+        let mut no_match = 1.0;
+        let mut cost = 0u64;
+        for term in self.terms() {
+            let count = inverted_index.doc_freq(term)?;
+            no_match *= 1.0 - count as f64 / total;
+            cost = cost.saturating_add(count as u64);
+        }
+        Ok(Some(Estimate {
+            matches: (total * (1.0 - no_match)).clamp(0.0, total),
+            cost,
         }))
     }
 }
@@ -338,6 +362,11 @@ mod tests {
             count(&BooleanQuery::union(vec![term("alpha"), term("beta")])),
             48
         );
+        let group = SynonymQuery::new(vec![
+            Term::from_field_text(field, "alpha"),
+            Term::from_field_text(field, "beta"),
+        ]);
+        assert_eq!(estimate(&group, segment), Some((48, 64)));
         assert_eq!(
             count(&BooleanQuery::new(vec![
                 (Occur::Must, term("alpha")),

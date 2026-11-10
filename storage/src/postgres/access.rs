@@ -28,7 +28,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{PgSqlErrorCode, pg_sys};
-use std::ffi::CStr;
+use std::ffi::{CStr, c_char};
 
 /// A `regclass` argument without pgrx's implicit index lock.
 ///
@@ -153,6 +153,27 @@ impl IndexAccess {
     pub fn heap(&self) -> &PgSearchRelation {
         &self.heap
     }
+
+    /// What `role` lacks to read the backing table under the policy of [`IndexOid::read`], such
+    /// as `needs SELECT on table "t"`. `None` when the role can read it.
+    pub fn read_denial(&self, role: pg_sys::Oid) -> Option<String> {
+        check_read_as(&self.heap, role).err().map(|denied| unsafe {
+            let name = |name: *mut c_char| CStr::from_ptr(name).to_string_lossy();
+            match denied {
+                AccessDenied::Schema { namespace, .. } => format!(
+                    "needs USAGE on schema \"{}\"",
+                    name(pg_sys::get_namespace_name(namespace))
+                ),
+                AccessDenied::Table { relation, .. } => format!(
+                    "needs SELECT on table \"{}\"",
+                    name(pg_sys::get_rel_name(relation))
+                ),
+                AccessDenied::RowSecurity { table, .. } => {
+                    format!("must be exempt from row security on table \"{table}\"")
+                }
+            }
+        })
+    }
 }
 
 unsafe fn report_not_an_index(oid: pg_sys::Oid) -> ! {
@@ -237,10 +258,13 @@ fn check_metadata(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
 }
 
 fn check_read(heap: &PgSearchRelation) -> Result<(), AccessDenied> {
+    // GetUserId rather than the session user, so SET ROLE and SECURITY
+    // DEFINER apply.
+    check_read_as(heap, unsafe { pg_sys::GetUserId() })
+}
+
+fn check_read_as(heap: &PgSearchRelation, user: pg_sys::Oid) -> Result<(), AccessDenied> {
     unsafe {
-        // GetUserId rather than the session user, so SET ROLE and SECURITY
-        // DEFINER apply.
-        let user = pg_sys::GetUserId();
         // OID/regclass arguments do not necessarily perform name resolution,
         // so check schema USAGE explicitly even for numeric arguments.
         let namespace = (*heap.rd_rel).relnamespace;

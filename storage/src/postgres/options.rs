@@ -25,7 +25,7 @@ use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
 use crate::index::synonym_index::is_synonym_index_relation;
 use crate::parallel_worker::WorkerStyle;
-use crate::postgres::catalog::synonym_rule_typoid;
+use crate::postgres::catalog::{split_relation_name, synonym_rule_typoid};
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType, VectorQuantizationConfig};
 
@@ -192,13 +192,13 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
     }
 }
 
-/// Only the shape is checked here. A dump restores indexes in any order, so the synonym index can
-/// come after the index that names it, and a missing one is an error at query time instead.
+/// Only the syntax of the name is checked here. A dump restores indexes in any order, so the
+/// synonym index can come after the index that names it, and a missing one fails the query.
 #[pg_guard]
 extern "C-unwind" fn validate_synonyms(value: *const std::os::raw::c_char) {
     let s = cstr_to_rust_str(value);
-    if s.trim() != s {
-        panic!("invalid synonyms: '{s}'");
+    if !s.is_empty() && split_relation_name(&s).is_none() {
+        panic!("invalid synonyms: '{s}' is not an index name");
     }
 }
 
@@ -564,6 +564,10 @@ impl BM25IndexOptions {
 
     pub fn namespace(&self) -> pg_sys::Oid {
         unsafe { (*(*self.indexrel).rd_rel).relnamespace }
+    }
+
+    pub fn owner(&self) -> pg_sys::Oid {
+        unsafe { (*(*self.indexrel).rd_rel).relowner }
     }
 
     /// The rule column of a synonym index, its one key column, typed `pdb.synonym_rule`.

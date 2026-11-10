@@ -1,8 +1,9 @@
 -- A match query expands with the synonym index that its index or its field names.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
-DROP TABLE IF EXISTS products, en_products, shop_synonyms, en_synonyms CASCADE;
-DROP ROLE IF EXISTS synonym_expansion_reader;
+SET max_parallel_workers_per_gather = 2;
+DROP TABLE IF EXISTS products, owned_products, json_products, en_products, shop_synonyms, en_synonyms CASCADE;
+DROP ROLE IF EXISTS synonym_expansion_reader, synonym_expansion_owner;
 
 CREATE TABLE shop_synonyms (rule pdb.synonym_rule NOT NULL);
 INSERT INTO shop_synonyms VALUES
@@ -33,6 +34,11 @@ SELECT id FROM products WHERE description &&& 'red sofa' ORDER BY id;
 -- A multi-word alternative is a phrase, and a directed rule drops the typed word.
 SELECT id FROM products WHERE description ||| 'sneakers' ORDER BY id;
 
+-- A run of words that a rule lists is searched as a phrase, so `shoes for running` drops out.
+INSERT INTO shop_synonyms VALUES ('running shoes, trainers');
+SELECT id FROM products WHERE description ||| 'running shoes' ORDER BY id;
+DELETE FROM shop_synonyms WHERE rule = 'running shoes, trainers';
+
 -- A group scores as one term, so a row with two of its words scores a little above a row with
 -- one.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score
@@ -44,6 +50,8 @@ INSERT INTO products VALUES (10, 'two sofas');
 SELECT id FROM products WHERE description ||| 'sofa'::pdb.fuzzy(1) ORDER BY id;
 SELECT id FROM products WHERE description ||| 'couch'::pdb.fuzzy(1) ORDER BY id;
 SELECT id FROM products WHERE description ||| 'sneakers'::pdb.fuzzy(1) ORDER BY id;
+-- `&&&` keeps both fuzzy groups of one rule, and `sofas` matches only the first.
+SELECT id FROM products WHERE description &&& 'sofa couch'::pdb.fuzzy(1) ORDER BY id;
 DELETE FROM products WHERE id = 10;
 
 -- A parallel worker expands under the leader's snapshot.
@@ -69,33 +77,59 @@ SELECT id FROM products WHERE description ||| 'settee' ORDER BY id;
 DELETE FROM shop_synonyms WHERE rule = 'sofa, settee';
 SELECT id FROM products WHERE description ||| 'settee' ORDER BY id;
 
--- The owner of the index that names the rules attached them, so a query reads the rules with no
--- rights on the rules table, and row security on it does not apply.
-CREATE ROLE synonym_expansion_reader;
-GRANT SELECT ON products TO synonym_expansion_reader;
-ALTER TABLE shop_synonyms ENABLE ROW LEVEL SECURITY;
-SET ROLE synonym_expansion_reader;
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
-RESET ROLE;
-ALTER TABLE shop_synonyms DISABLE ROW LEVEL SECURITY;
-REVOKE SELECT ON products FROM synonym_expansion_reader;
-DROP ROLE synonym_expansion_reader;
-
--- A bare name is looked up in the schema of the index that names it, and a name can carry its
--- schema.
+-- The role that runs the query needs no rights on the rules table, or on the schema of a
+-- qualified name.
 CREATE SCHEMA shop;
 CREATE TABLE shop.synonyms (rule pdb.synonym_rule NOT NULL);
 INSERT INTO shop.synonyms VALUES ('sofa, settee');
 CREATE INDEX synonyms_idx ON shop.synonyms USING paradedb (rule);
+ALTER INDEX products_idx SET (synonyms = 'shop.synonyms_idx');
+CREATE ROLE synonym_expansion_reader;
+GRANT SELECT ON products TO synonym_expansion_reader;
+SET ROLE synonym_expansion_reader;
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+RESET ROLE;
+REVOKE SELECT ON products FROM synonym_expansion_reader;
+DROP ROLE synonym_expansion_reader;
+ALTER INDEX products_idx SET (synonyms = 'shop_synonyms_idx');
+
+-- The owner of the index that names the rules needs SELECT on the rules table, and must be exempt
+-- from row security on it.
+CREATE ROLE synonym_expansion_owner;
+CREATE TABLE owned_products (id int PRIMARY KEY, description text);
+INSERT INTO owned_products VALUES (1, 'red couch');
+CREATE INDEX owned_products_idx ON owned_products USING bm25 (id, description)
+    WITH (synonyms = 'shop_synonyms_idx');
+ALTER TABLE owned_products OWNER TO synonym_expansion_owner;
+SELECT id FROM owned_products WHERE description ||| 'sofa' ORDER BY id;
+GRANT SELECT ON shop_synonyms TO synonym_expansion_owner;
+SELECT id FROM owned_products WHERE description ||| 'sofa' ORDER BY id;
+ALTER TABLE shop_synonyms ENABLE ROW LEVEL SECURITY;
+SELECT id FROM owned_products WHERE description ||| 'sofa' ORDER BY id;
+ALTER TABLE shop_synonyms DISABLE ROW LEVEL SECURITY;
+DROP TABLE owned_products;
+REVOKE SELECT ON shop_synonyms FROM synonym_expansion_owner;
+DROP ROLE synonym_expansion_owner;
+
+-- A bare name resolves in the schema of the index that names it, whatever the `search_path`.
 CREATE TABLE shop.products (id int PRIMARY KEY, description text);
 INSERT INTO shop.products VALUES (1, 'a settee'), (2, 'a sofa');
 CREATE INDEX products_idx ON shop.products USING bm25 (id, description) WITH (synonyms = 'synonyms_idx');
 SET search_path = public;
 SELECT id FROM shop.products WHERE description ||| 'sofa' ORDER BY id;
-ALTER INDEX shop.products_idx SET (synonyms = 'shop.synonyms_idx');
+ALTER INDEX shop.products_idx SET (synonyms = 'shop_synonyms_idx');
 SELECT id FROM shop.products WHERE description ||| 'sofa' ORDER BY id;
 RESET search_path;
 DROP SCHEMA shop CASCADE;
+
+-- A JSON field expands the same way, with a group and with a phrase.
+CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);
+INSERT INTO json_products VALUES (1, '{"seat": "red couch"}'), (2, '{"shoes": "running shoes"}');
+CREATE INDEX json_products_idx ON json_products USING bm25 (id, attrs)
+    WITH (synonyms = 'shop_synonyms_idx');
+SELECT id FROM json_products WHERE attrs->>'seat' ||| 'sofa' ORDER BY id;
+SELECT id FROM json_products WHERE attrs->>'shoes' ||| 'sneakers' ORDER BY id;
+DROP TABLE json_products;
 
 -- The field option comes before the index option. Keys are stored analyzed, so the synonym
 -- index must use the tokenizer of the field.
@@ -122,13 +156,19 @@ CREATE INDEX mixed_products_idx ON mixed_products USING bm25 (
 SELECT id FROM mixed_products WHERE description ||| 'sofa';
 DROP TABLE mixed_products;
 
--- The name is resolved on each query, so these fail at query time.
+-- A name with more than two parts fails the `ALTER`. The name is resolved on each query, so the
+-- other errors come at query time.
+ALTER INDEX products_idx SET (synonyms = 'a.b.c');
 ALTER INDEX products_idx SET (synonyms = 'missing_idx');
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
 ALTER INDEX products_idx SET (synonyms = 'en_products_idx');
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
 ALTER INDEX products_idx SET (synonyms = 'shop_synonyms');
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'shop_synonyms_idx'::regclass;
+ALTER INDEX products_idx SET (synonyms = 'shop_synonyms_idx');
+SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+UPDATE pg_index SET indisvalid = true WHERE indexrelid = 'shop_synonyms_idx'::regclass;
 ALTER INDEX products_idx RESET (synonyms);
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
 

@@ -153,6 +153,10 @@ impl SearchIndexSchema {
         self.bm25_options.namespace()
     }
 
+    pub fn index_owner(&self) -> pg_sys::Oid {
+        self.bm25_options.owner()
+    }
+
     /// Convert sort_by configuration to Tantivy's IndexSortByField.
     ///
     /// Validates that the sort field exists in the schema and is columnar.

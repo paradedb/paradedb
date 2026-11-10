@@ -25,6 +25,9 @@ on:
       - ".github/workflows/check-released-migrations.yml"
       - ".github/workflows/publish-github-release.yml"
       - "pg_search/sql/**"
+      - "pg_search/Cargo.toml"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
 
 permissions:
   contents: read
@@ -40,11 +43,35 @@ jobs:
           fetch-depth: 0
           fetch-tags: true # Required: the check resolves release tags locally
 
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+        with:
+          rustflags: ""
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install cargo-pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install --locked cargo-pgrx --version "$STEP_PGRX_VERSION" --debug
+
       - name: Test Release Scripts
         run: |
           python3 -m pip install PyYAML==6.0.3
           python3 -m unittest discover -s .github/scripts
 
+      # TODO(pgcentralfoundation/pgrx#2484): Fold released-script immutability
+      # checking into `cargo pgrx migrate check`.
       - name: Reject Edits to Already-Released Migrations
         run: |
           fail=0

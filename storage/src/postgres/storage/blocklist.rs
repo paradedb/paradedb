@@ -316,7 +316,7 @@ pub mod builder {
                         None => break,
                     }
                 } else {
-                    pgrx::check_for_interrupts!();
+                    pgrx::check_for_interrupts();
                     // this chunk doesn't fit on this page, so allocate another page
                     let mut next_block = bman.new_buffer();
                     next_block.init_page();

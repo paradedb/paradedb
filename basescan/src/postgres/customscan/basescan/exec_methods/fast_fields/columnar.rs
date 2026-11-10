@@ -396,7 +396,7 @@ impl ExecMethod for ColumnarExecState {
                 let tle = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
                 if !tle.is_null()
                     && !(*tle).expr.is_null()
-                    && let Some(expr) = nodecast!(Const, T_Const, (*tle).expr)
+                    && let Some(expr) = nodecast!(Const, (*tle).expr)
                 {
                     self.const_values
                         .insert(i as usize, ((*expr).constvalue, (*expr).constisnull));

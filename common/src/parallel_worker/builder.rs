@@ -300,7 +300,7 @@ impl ParallelProcessFinish {
 
         // this is a blocking call and we'll keep trying to recv until all message queues are detached
         loop {
-            check_for_interrupts!();
+            check_for_interrupts();
 
             if self
                 .worker_states
@@ -417,7 +417,7 @@ impl Iterator for ParallelProcessMessageQueue {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            check_for_interrupts!();
+            check_for_interrupts();
 
             if let Some(next) = self.batch.pop() {
                 return Some(next);

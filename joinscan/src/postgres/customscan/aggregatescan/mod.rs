@@ -244,7 +244,7 @@ unsafe fn validate_and_detect_combine_agg(parse: *mut pg_sys::Query) -> bool {
             return;
         }
         let _ = root_node.any(|node| {
-            if let Some(aggref) = crate::nodecast!(Aggref, T_Aggref, node)
+            if let Some(aggref) = crate::nodecast!(Aggref, node)
                 && combine_oid != pg_sys::InvalidOid.to_u32()
                 && (*aggref).aggfnoid.to_u32() == combine_oid
             {
@@ -253,7 +253,7 @@ unsafe fn validate_and_detect_combine_agg(parse: *mut pg_sys::Query) -> bool {
                 );
             }
 
-            if let Some(wf) = crate::nodecast!(WindowFunc, T_WindowFunc, node) {
+            if let Some(wf) = crate::nodecast!(WindowFunc, node) {
                 let winfnoid = (*wf).winfnoid.to_u32();
                 if paradedb_agg_oids.contains(&winfnoid) {
                     if has_group_by {
@@ -3083,10 +3083,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
         // For all other nodes, use the standard mutator to walk children
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            let fnptr = aggref_mutator as *const ();
-            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-                std::mem::transmute(fnptr);
-            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+            pg_sys::expression_tree_mutator(node, Some(aggref_mutator), context)
         }
 
         #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]

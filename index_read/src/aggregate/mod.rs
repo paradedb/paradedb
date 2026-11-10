@@ -84,7 +84,7 @@ pub mod interrupt_collector {
             self.docs_since_check += docs;
             if self.docs_since_check >= super::COLLECTOR_BATCH_SIZE {
                 self.docs_since_check = 0;
-                pgrx::check_for_interrupts!();
+                pgrx::check_for_interrupts();
             }
         }
     }

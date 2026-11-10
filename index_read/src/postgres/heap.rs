@@ -672,7 +672,7 @@ impl VisibilityChecker {
         let mut ranges: Vec<Range<BlockNumber>> = Vec::new();
         let mut dirty_count = 0u64;
         while block < blocks.end {
-            check_for_interrupts!();
+            check_for_interrupts();
             let span = util::HEAPBLOCKS_PER_PAGE - block % util::HEAPBLOCKS_PER_PAGE;
             let words = (blocks.end - block).min(span).div_ceil(32) as usize;
             let missing = &mut scratch[..words];
@@ -734,7 +734,7 @@ impl VisibilityChecker {
         assert!(first_block.is_multiple_of(32));
         let mut block = u64::from(first_block);
         while !blocks.is_empty() && block < u64::from(self.nblocks) {
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
             let blockno = block as u32;
             let page_offset = blockno % util::HEAPBLOCKS_PER_PAGE;
             let words = blocks
@@ -747,7 +747,8 @@ impl VisibilityChecker {
             self.is_block_all_visible(blockno);
             if self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 let map = unsafe {
-                    pg_sys::PageGetContents(pg_sys::BufferGetPage(self.vmbuff))
+                    pgrx::PageGetContents!(pgrx::BufferGetPage!(self.vmbuff))
+                        .get()
                         .cast::<u8>()
                         .add((page_offset / util::HEAPBLOCKS_PER_BYTE) as usize)
                 };
@@ -1482,7 +1483,7 @@ impl HeapFetchState {
         call_again: &mut bool,
         all_dead: &mut bool,
     ) -> bool {
-        let blockno = pgrx::itemptr::item_pointer_get_block_number(ctid);
+        let (blockno, _) = pgrx::itemptr::item_pointer_get_both(*ctid);
         if blockno >= self.nblocks {
             return false;
         }
@@ -1919,8 +1920,7 @@ mod util {
     /// The page header is NOT available for the bitmap, so this is smaller than `BLCKSZ`.
     const MAPSIZE: u32 = {
         // SizeOfPageHeaderData == offsetof(PageHeaderData, pd_linp); see pgrx `SizeOfPageHeaderData`.
-        let header =
-            unsafe { pg_sys::MAXALIGN(std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp)) };
+        let header = pg_sys::maxalign(std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp));
         pg_sys::BLCKSZ - header as u32
     };
 

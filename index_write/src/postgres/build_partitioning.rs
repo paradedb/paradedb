@@ -32,7 +32,8 @@ use anyhow::{Result, bail};
 use std::ptr::addr_of_mut;
 use std::sync::Arc;
 
-use pgrx::itemptr::item_pointer_set_all;
+use crate::postgres::utils::item_pointer_set_all;
+use pgrx::cmacros::c::Pointer;
 use pgrx::{FromDatum, PgMemoryContexts, check_for_interrupts, pg_sys};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -697,12 +698,12 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     let mut result: anyhow::Result<()> = Ok(());
     unsafe {
         while pg_sys::BlockSampler_HasMore(addr_of_mut!(sampler)) {
-            check_for_interrupts!();
+            check_for_interrupts();
             let blockno = pg_sys::BlockSampler_Next(addr_of_mut!(sampler));
 
             let buffer = HeapBufferPin::read(heaprel, blockno);
             let buf = buffer.buffer();
-            let page = pg_sys::BufferGetPage(buf);
+            let page = pgrx::BufferGetPage!(buf).get();
 
             // Under the content lock, only test visibility (which also sets hint bits) and record
             // the offsets to index. Detoast, expression evaluation, and projection run afterward
@@ -711,9 +712,9 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
             indexed_offsets.clear();
             {
                 let _content_lock = BorrowedBuffer::from_pg(buf);
-                let max_offset = pg_sys::PageGetMaxOffsetNumber(page);
+                let max_offset = pgrx::PageGetMaxOffsetNumber!(Pointer::from(page)).get_as();
                 for offset in pg_sys::FirstOffsetNumber..=max_offset {
-                    let item_id = pg_sys::PageGetItemId(page, offset);
+                    let item_id = pgrx::PageGetItemId!(Pointer::from(page), offset).get();
                     if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
                         continue;
                     }
@@ -723,7 +724,9 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                         t_len: (*item_id).lp_len(),
                         t_self,
                         t_tableOid: heaprel.oid(),
-                        t_data: pg_sys::PageGetItem(page, item_id).cast(),
+                        t_data: pgrx::PageGetItem!(Pointer::from(page), item_id)
+                            .get()
+                            .cast(),
                     };
                     if is_indexed(addr_of_mut!(tuple), buf) {
                         indexed_offsets.push(offset);
@@ -747,14 +750,16 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                         j
                     };
 
-                    let item_id = pg_sys::PageGetItemId(page, offset);
+                    let item_id = pgrx::PageGetItemId!(Pointer::from(page), offset).get();
                     let mut t_self = pg_sys::ItemPointerData::default();
                     item_pointer_set_all(&mut t_self, blockno, offset);
                     let mut tuple = pg_sys::HeapTupleData {
                         t_len: (*item_id).lp_len(),
                         t_self,
                         t_tableOid: heaprel.oid(),
-                        t_data: pg_sys::PageGetItem(page, item_id).cast(),
+                        t_data: pgrx::PageGetItem!(Pointer::from(page), item_id)
+                            .get()
+                            .cast(),
                     };
                     pg_sys::ExecStoreBufferHeapTuple(addr_of_mut!(tuple), slot, buf);
                     pg_sys::slot_getallattrs(slot);

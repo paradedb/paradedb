@@ -107,7 +107,7 @@ pub(super) fn query_input_selectivity(
     let args = unsafe { PgList::<pg_sys::Node>::from_pg(args) };
     let Some(var) = args
         .get_ptr(0)
-        .and_then(|lhs| unsafe { nodecast!(Var, T_Var, lhs) })
+        .and_then(|lhs| unsafe { nodecast!(Var, lhs) })
     else {
         return UNKNOWN_SELECTIVITY;
     };

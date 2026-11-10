@@ -757,7 +757,7 @@ fn replace_in_node(node: *mut pg_sys::Node, window_tl: &TargetList) -> *mut pg_s
     }
 
     // Check if this is a WindowFunc
-    if unsafe { nodecast!(WindowFunc, T_WindowFunc, node) }.is_some() {
+    if unsafe { nodecast!(WindowFunc, node) }.is_some() {
         // Replace with a window_agg(json) placeholder call
         let json =
             serde_json::to_string(window_tl).expect("Failed to serialize WindowSpecification");
@@ -776,7 +776,7 @@ fn replace_in_node(node: *mut pg_sys::Node, window_tl: &TargetList) -> *mut pg_s
     }
 
     // Check if this is a FuncExpr that might contain a WindowFunc
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
         let funcexpr = unsafe { &*funcexpr };
         let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
         let mut new_args = PgList::<pg_sys::Node>::new();

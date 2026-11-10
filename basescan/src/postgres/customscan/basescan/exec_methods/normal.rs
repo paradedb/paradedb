@@ -234,7 +234,7 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
-        pgrx::check_for_interrupts!();
+        pgrx::check_for_interrupts();
 
         if self.batch_idx >= self.prepared_batch.len() && !self.refill_batch(state) {
             return ExecState::Eof;

@@ -730,7 +730,7 @@ impl JoinScan {
                         "JoinScan not used: score function references a relation outside the join",
                     ));
                 }
-            } else if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, check_expr) {
+            } else if let Some(wf) = nodecast!(WindowFunc, check_expr) {
                 let window_agg = match extract_window_agg(
                     wf,
                     root,
@@ -2134,7 +2134,7 @@ unsafe fn add_vars_and_scores_to_tlist(
             }
         }
 
-        if let Some(var_ptr) = nodecast!(Var, T_Var, node) {
+        if let Some(var_ptr) = nodecast!(Var, node) {
             crate::postgres::utils::push_var_to_tlist_if_absent(var_ptr, tlist);
             return crate::postgres::node::WalkControl::SkipChildren;
         }

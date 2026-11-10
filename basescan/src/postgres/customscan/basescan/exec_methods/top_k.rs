@@ -469,7 +469,7 @@ impl ExecMethod for TopKScanExecState {
     }
 
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
-        check_for_interrupts!();
+        check_for_interrupts();
 
         if self.found >= self.limit() {
             return ExecState::Eof;

@@ -175,7 +175,10 @@ WITH (training_sample_ratio=0.32, target_leaf_size=200);
 import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing
-  .paradedbIndex("search_idx", { trainingSampleRatio: 0.32, targetLeafSize: 200 })
+  .paradedbIndex("search_idx", {
+    trainingSampleRatio: 0.32,
+    targetLeafSize: 200,
+  })
   .on(
     mockItems.id,
     mockItems.description,

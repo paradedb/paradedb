@@ -138,28 +138,26 @@ impl PathKeyInfo {
 pub use common::postgres::customscan::orderby::{sortable_at_position, text_lower_funcoid};
 
 unsafe fn extract_score_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+    if let Some(funcexpr) = nodecast!(FuncExpr, node)
         && score_funcoids().contains(&(*funcexpr).funcid)
     {
         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
         if args.len() == 1 {
-            return nodecast!(Var, T_Var, args.get_ptr(0).unwrap());
+            return nodecast!(Var, args.get_ptr(0).unwrap());
         }
     }
     None
 }
 
 unsafe fn extract_lower_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
+    let funcexpr = nodecast!(FuncExpr, node)?;
     if (*funcexpr).funcid == text_lower_funcoid() {
         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
         if args.len() == 1 {
-            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+            if let Some(var) = nodecast!(Var, args.get_ptr(0).unwrap()) {
                 return Some(var);
-            } else if let Some(relabel) =
-                nodecast!(RelabelType, T_RelabelType, args.get_ptr(0).unwrap())
-            {
-                return nodecast!(Var, T_Var, (*relabel).arg);
+            } else if let Some(relabel) = nodecast!(RelabelType, args.get_ptr(0).unwrap()) {
+                return nodecast!(Var, (*relabel).arg);
             }
         }
     }
@@ -257,7 +255,7 @@ pub unsafe fn analyze_sort_expression(
 
     // An I/O cast reorders the values (`n::text` sorts `10` before `2`), so it is
     // never a raw sort on the inner column. `RelabelType` was already stripped above.
-    if nodecast!(CoerceViaIO, T_CoerceViaIO, node).is_some() {
+    if nodecast!(CoerceViaIO, node).is_some() {
         return None;
     }
 
@@ -342,7 +340,7 @@ pub unsafe fn extract_vector_distance(
         ));
     }
 
-    if let Some(const_node) = nodecast!(Const, T_Const, value_node) {
+    if let Some(const_node) = nodecast!(Const, value_node) {
         if (*const_node).constisnull {
             return None;
         }
@@ -359,7 +357,7 @@ pub unsafe fn extract_vector_distance(
         ));
     }
 
-    if let Some(param) = nodecast!(Param, T_Param, value_node) {
+    if let Some(param) = nodecast!(Param, value_node) {
         // Only PARAM_EXTERN values (prepared-statement bindings) live in
         // EState.es_param_list_info. PARAM_EXEC (subplan params) require
         // a different resolution path that we don't yet support — leave
@@ -409,7 +407,7 @@ fn extract_funcexpr_from_placeholder(
     let phv = unsafe { &*phv };
 
     // The phexpr should contain our FuncExpr
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, phv.phexpr) } {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, phv.phexpr) } {
         return Some(funcexpr);
     }
 
@@ -501,7 +499,7 @@ where
             // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
             // that might be wrapped.
             let mut expr_to_analyze = expr;
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr)
+            if let Some(phv) = nodecast!(PlaceHolderVar, expr)
                 && let Some(funcexpr) = extract_funcexpr_from_placeholder(phv)
             {
                 expr_to_analyze = funcexpr.cast();

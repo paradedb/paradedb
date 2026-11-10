@@ -498,7 +498,7 @@ impl BitmapPlanner {
         unsafe {
             let mut leaves = Vec::new();
             for arm in arms.iter_ptr() {
-                let ip = nodecast!(IndexPath, T_IndexPath, arm)?;
+                let ip = nodecast!(IndexPath, arm)?;
                 let indexoid = (*(*ip).indexinfo).indexoid;
                 if indexoid == self.bm25_oid {
                     return None;
@@ -741,13 +741,13 @@ impl BitmapPlanner {
                     pg_sys::restriction_is_or_clause(*ri)
                         && pg_sys::equal((**ri).clause.cast(), node.cast())
                 })?;
-            let orclause = nodecast!(BoolExpr, T_BoolExpr, (*restriction).orclause)?;
+            let orclause = nodecast!(BoolExpr, (*restriction).orclause)?;
             let mut paths = PgList::<pg_sys::Path>::new();
             let mut names = Vec::new();
             for arm in PgList::<pg_sys::Node>::from_pg((*orclause).args).iter_ptr() {
                 // A conjunctive arm arrives as a nested BoolExpr, which would need its
                 // own BitmapAnd; only single-clause arms are built.
-                let arm_ri = nodecast!(RestrictInfo, T_RestrictInfo, arm)?;
+                let arm_ri = nodecast!(RestrictInfo, arm)?;
                 if !arms
                     .iter()
                     .any(|a| pg_sys::equal((*arm_ri).clause.cast(), (*a).cast()))

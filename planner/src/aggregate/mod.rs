@@ -599,7 +599,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
         self.attach_bitmap_handle(worker_number);
         // wait for all workers to launch
         while self.state.launched_workers() == 0 {
-            check_for_interrupts!();
+            check_for_interrupts();
             std::thread::yield_now();
         }
 

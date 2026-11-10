@@ -1251,7 +1251,7 @@ pub struct ConstNode(*mut pg_sys::Const);
 
 impl ConstNode {
     pub fn try_from(node: *mut pg_sys::Node) -> Option<Self> {
-        let const_node = unsafe { nodecast!(Const, T_Const, node)? };
+        let const_node = unsafe { nodecast!(Const, node)? };
         Some(Self(const_node))
     }
 }

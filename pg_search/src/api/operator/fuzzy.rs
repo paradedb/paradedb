@@ -78,7 +78,7 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for FuzzyType {
         const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(FuzzyType);
-        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::ThisExtension;
         const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
             Ok(SqlMappingRef::literal("pdb.fuzzy"));
         const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
@@ -123,8 +123,7 @@ mod typedef {
             CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.fuzzy;
         "#,
-        name = "FuzzyType_shell",
-        creates = [Type(FuzzyType)]
+        name = "FuzzyType_shell"
     );
 
     #[pg_extern(immutable, parallel_safe)]
@@ -197,6 +196,7 @@ mod typedef {
             );
         "#,
         name = "FuzzyType_final",
+        creates = [Type(FuzzyType)],
         requires = [
             "FuzzyType_shell",
             fuzzy_in,

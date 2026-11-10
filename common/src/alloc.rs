@@ -3,25 +3,35 @@ use std::cell::Cell;
 
 // OPEN QUESTION: How to handle memory allocated before budget context, but dropped inside of?
 
-pub struct BudgetAllocator {
+/// Thread-local memory budget
+pub struct Budget {
     soft_budget: Cell<usize>,
     hard_budget: Cell<usize>,
     allocated: Cell<usize>,
     peak: Cell<usize>,
 }
-impl BudgetAllocator {
+impl Budget {
+    pub const fn new() -> Self {
+        Self {
+            soft_budget: Cell::new(usize::MAX),
+            hard_budget: Cell::new(usize::MAX),
+            allocated: Cell::new(0),
+            peak: Cell::new(0),
+        }
+    }
+
     pub fn exceeded(&self) -> bool {
         self.peak > self.soft_budget
     }
 
-    pub fn set_budget(&mut self, soft: usize, hard: Option<usize>) {
+    pub fn set_budget(&self, soft: usize, hard: Option<usize>) {
         let hard = hard.unwrap_or(soft * 3 / 2); // default to 1.5x
         self.soft_budget.set(soft);
         self.hard_budget.set(hard);
         self.clear();
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         self.allocated.set(0);
         self.peak.set(0);
     }
@@ -38,21 +48,22 @@ impl BudgetAllocator {
         self.allocated.set(self.allocated.get() - size);
     }
 }
-impl Default for BudgetAllocator {
+impl Default for Budget {
     fn default() -> Self {
-        Self {
-            soft_budget: usize::MAX.into(),
-            hard_budget: usize::MAX.into(),
-            allocated: 0.into(),
-            peak: 0.into(),
-        }
+        Self::new()
     }
 }
-unsafe impl GlobalAlloc for BudgetAllocator {
+
+thread_local! {
+    pub static THREAD_MEMORY_BUDGET: Budget = const { Budget::new() };
+}
+
+pub struct BudgetAlloc;
+unsafe impl GlobalAlloc for BudgetAlloc {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
         unsafe {
             let ptr = System.alloc(layout);
-            self.increase(allocated_size(ptr, layout));
+            THREAD_MEMORY_BUDGET.with(|b| b.increase(allocated_size(ptr, layout)));
             ptr
         }
     }
@@ -63,9 +74,9 @@ unsafe impl GlobalAlloc for BudgetAllocator {
             let reallocated = System.realloc(ptr, layout, new_size);
             let new_size = allocated_size(reallocated, layout);
             if new_size > current_size {
-                self.increase(new_size - current_size);
+                THREAD_MEMORY_BUDGET.with(|b| b.increase(new_size - current_size));
             } else {
-                self.decrease(current_size - new_size);
+                THREAD_MEMORY_BUDGET.with(|b| b.decrease(current_size - new_size));
             }
             reallocated
         }
@@ -74,7 +85,7 @@ unsafe impl GlobalAlloc for BudgetAllocator {
     unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
         unsafe {
             let ptr = System.alloc_zeroed(layout);
-            self.increase(allocated_size(ptr, layout));
+            THREAD_MEMORY_BUDGET.with(|b| b.increase(allocated_size(ptr, layout)));
             ptr
         }
     }
@@ -83,7 +94,7 @@ unsafe impl GlobalAlloc for BudgetAllocator {
         unsafe {
             let size = allocated_size(ptr, layout);
             System.dealloc(ptr, layout);
-            self.decrease(size);
+            THREAD_MEMORY_BUDGET.with(|b| b.decrease(size));
         }
     }
 }

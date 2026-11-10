@@ -40,6 +40,9 @@ mod postgres;
 use self::postgres::customscan;
 use pgrx::*;
 
+#[global_allocator]
+static GLOBAL_ALLOCATOR: common::alloc::BudgetAlloc = common::alloc::BudgetAlloc {};
+
 // `#[pg_extern]`, `#[derive(PostgresType)]`, and `extension_sql!` C-ABI callbacks defined in
 // `rlib` sub-crates (`common`, `index_read`, `planner`, etc.) are invoked by Postgres at runtime
 // by symbol name (`CREATE FUNCTION ... AS 'MODULE_PATHNAME'`) and often have no direct Rust

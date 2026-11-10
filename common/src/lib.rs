@@ -17,6 +17,7 @@
 
 pub use pgrx::pgrx_sql_entity_graph;
 
+pub mod allocator;
 pub mod api;
 pub mod gucs;
 pub mod index;

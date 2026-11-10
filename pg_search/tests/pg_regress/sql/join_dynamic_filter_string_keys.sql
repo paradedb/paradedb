@@ -97,14 +97,42 @@ ORDER BY b.ordinal ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 3: pushdown disabled, so the pre-filter fallback still gives the same rows
+-- TEST 3: distinct build keys exceed `hash_join_inlist_pushdown_max_distinct_values`
 -- =============================================================================
+-- Without InList pushdown, HashJoinExec publishes a HashTableLookupExpr + string
+-- min/max bounds on Utf8View keys (`uuid` and `pdb.literal`). `build_filters`
+-- drops `HashTableLookupExpr` on Utf8View, leaving only coarse `[min_key, max_key]`
+-- bounds that prune almost nothing on hashed keys (`probe_hit_rate=0.4%`) while
+-- still returning the same final result.
 
 SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_uuid = b.id
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
 
 SELECT b.ordinal
 FROM strkey_build b
 JOIN strkey_probe p ON p.fk_uuid = b.id
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_txt = b.id_txt
+WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
+ORDER BY b.ordinal ASC
+LIMIT 10;
+
+SELECT b.ordinal
+FROM strkey_build b
+JOIN strkey_probe p ON p.fk_txt = b.id_txt
 WHERE b.id @@@ paradedb.all() AND b.keep = true AND p.amount >= 0
 ORDER BY b.ordinal ASC
 LIMIT 10;

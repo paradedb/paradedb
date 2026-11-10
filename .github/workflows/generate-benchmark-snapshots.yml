@@ -2,11 +2,11 @@
 #
 # Generate Benchmark Heap Snapshots
 #
-# Stack Overflow and Cohere: native pgrx clusters backed up with pgBackRest to
-# s3://paradedb-ci-benchmarks/snapshots/{dataset}/{size}/. Sampled source data must
-# exist at datasets/{dataset}/sampled/{size}/{csv|parquet}/ in that bucket.
+# Stack Overflow, Cohere, and MS MARCO: native pgrx clusters backed up with pgBackRest to
+# s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/pg_backrest/. Sampled source
+# data must exist at datasets/{dataset}/v1/sampled/{size}/{csv|parquet}/ in that bucket.
 # Stack Exchange and Wikipedia: benchmarker Docker heaps archived to
-# s3://paradedb-ci-benchmarks/snapshots/benchmarker/{dataset}/heap.tar.zst.
+# s3://paradedb-benchmark/snapshots/{dataset}/v1/{size}/zst/heap.tar.zst.
 # Each path uses the same platform and format as its benchmark's restore path.
 
 name: Generate Benchmark Snapshots
@@ -15,26 +15,32 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: "Which dataset(s) to snapshot."
+        description: "Which dataset(s) to snapshot. MS MARCO requires explicit selection; it is excluded from all."
         required: false
         type: choice
         options:
           - all
           - stackoverflow
           - cohere
+          - msmarco
           - stackexchange
           - wikipedia
         default: all
       size:
-        description: "Optional size for stackoverflow/cohere (e.g. 100k, 1m, 20m). Blank = all sizes. Not supported for stackexchange/wikipedia."
+        description: "Optional size for stackoverflow/cohere/msmarco (e.g. 100k, 1m, 20m, 113m). Blank = all sizes. Not supported for stackexchange/wikipedia."
         required: false
+        default: ""
+      load_workers:
+        description: "MS MARCO Parquet loader workers. Positive integer; blank uses the dataset default (16)."
+        required: false
+        type: string
         default: ""
       benchmarker_ref:
         description: "Benchmarker ref for stackexchange/wikipedia (branch/tag/SHA)."
         required: false
         default: "main"
       dataset_source:
-        description: "Optional S3 prefix override. Defaults to s3://paradedb-benchmarker/datasets/<dataset>/."
+        description: "Optional S3 prefix override. Defaults to s3://paradedb-benchmark/benchmarker/<dataset>/."
         required: false
         type: string
         default: ""
@@ -61,8 +67,15 @@ jobs:
         env:
           DATASET: ${{ inputs.dataset }}
           SIZE: ${{ inputs.size }}
+          LOAD_WORKERS: ${{ inputs.load_workers }}
         run: |
           set -euo pipefail
+          if [ -n "$LOAD_WORKERS" ]; then
+            if [[ "$DATASET" != msmarco || ! "$LOAD_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+              echo "load_workers must be a positive integer and requires dataset=msmarco" >&2
+              exit 1
+            fi
+          fi
           all='[
             {"dataset":"stackoverflow","size":"100k"},
             {"dataset":"stackoverflow","size":"1m"},
@@ -70,6 +83,9 @@ jobs:
             {"dataset":"cohere","size":"1m"},
             {"dataset":"cohere","size":"10m"}
           ]'
+          if [ "$DATASET" = msmarco ]; then
+            all='[{"dataset":"msmarco","size":"113m"}]'
+          fi
           include=$(echo "$all" | jq -c \
             --arg ds "${DATASET:-all}" --arg sz "${SIZE}" \
             '[ .[] | select(($ds=="all" or .dataset==$ds) and ($sz=="" or .size==$sz)) ]')
@@ -84,16 +100,20 @@ jobs:
           echo "benchmarker=$docker" >> "$GITHUB_OUTPUT"
 
   generate:
+    permissions:
+      contents: read
+      id-token: write
     name: Snapshot ${{ matrix.dataset }} (${{ matrix.size }})
+    timeout-minutes: ${{ matrix.dataset == 'msmarco' && 720 || 360 }}
     needs: prep
-    if: needs.prep.outputs.native != '[]'
+    if: github.ref == 'refs/heads/main' && needs.prep.outputs.native != '[]'
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     strategy:
       fail-fast: false
       matrix:
@@ -101,47 +121,81 @@ jobs:
     env:
       pg_version: 18
       BACKREST_STANZA: bench
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
+      BACKREST_REPO_BUCKET: paradedb-benchmark
       BACKREST_REPO_PATH_PREFIX: /snapshots
       BACKREST_REPO_REGION: us-east-1
       BACKREST_REPO_ENDPOINT: s3.us-east-1.amazonaws.com
       BACKREST_REPO_S3_KEY_TYPE: shared
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Set Up Benchmark Cluster
         uses: ./.github/actions/setup-benchmark-cluster
         with:
           pg_version: ${{ env.pg_version }}
-          # stackoverflow's bm25 indexes set no per-index `target_segment_count`, so bake the
-          # standard 48-segment operating point into its snapshot. Every other dataset keeps the
-          # extension default of 0, so an index's own `target_segment_count` is honored.
-          global_target_segment_count: ${{ matrix.dataset == 'stackoverflow' && '48' || '0' }}
+
+      - name: Refresh AWS credentials for MS MARCO load
+        if: matrix.dataset == 'msmarco'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}-load
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
 
       # Load the heap only (no index, no queries) so the cluster can be captured as a snapshot.
       - name: Load Heap
+        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 300 || 360 }}
         working-directory: benchmarks/
+        env:
+          LOAD_WORKERS: ${{ inputs.load_workers }}
         run: |
           set -euo pipefail
+          load_args=()
+          if [ -n "$LOAD_WORKERS" ]; then
+            load_args+=(--parquet-load-workers "$LOAD_WORKERS")
+          fi
           cargo run --release -- load-heap \
             --dataset "${{ matrix.dataset }}" \
             --size "${{ matrix.size }}" \
             --url "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
-            --data-source "s3://${BACKREST_REPO_BUCKET}/datasets/${{ matrix.dataset }}"
+            "${load_args[@]}"
+
+      - name: Verify and vacuum MS MARCO heap
+        if: matrix.dataset == 'msmarco'
+        run: |
+          psql "postgresql://$(whoami)@localhost:288${{ env.pg_version }}/postgres" \
+            -X -v ON_ERROR_STOP=1 -f benchmarks/datasets/msmarco/verify_heap.sql
+
+      - name: Refresh AWS credentials for MS MARCO backup
+        if: matrix.dataset == 'msmarco'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}-backup
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872"
+          unset-current-credentials: true
+          aws-region: us-east-1
 
       # Clear any pre-existing snapshot at this path. Each run inits a fresh cluster (new system
       # identifier), so a snapshot left from a prior run would conflict with pgBackRest stanza-create
@@ -150,7 +204,7 @@ jobs:
       - name: Clear existing snapshot
         run: |
           set -euo pipefail
-          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/${{ matrix.size }}/"
+          prefix="${BACKREST_REPO_PATH_PREFIX#/}/${{ matrix.dataset }}/v1/${{ matrix.size }}/pg_backrest/"
           aws s3api list-multipart-uploads --bucket "${BACKREST_REPO_BUCKET}" --prefix "$prefix" \
             --query 'Uploads[].{Key:Key,UploadId:UploadId}' --output text 2>/dev/null \
             | while read -r key uid; do
@@ -164,6 +218,7 @@ jobs:
         run: cargo pgrx stop pg${{ env.pg_version }}
 
       - name: Snapshot Heap
+        timeout-minutes: ${{ matrix.dataset == 'msmarco' && 330 || 360 }}
         working-directory: benchmarks/
         run: |
           set -euo pipefail
@@ -180,9 +235,12 @@ jobs:
             --process-max 8
 
   generate-benchmarker:
+    permissions:
+      contents: read
+      id-token: write
     name: Snapshot ${{ matrix.dataset }} (benchmarker)
     needs: prep
-    if: needs.prep.outputs.benchmarker != '[]'
+    if: github.ref == 'refs/heads/main' && needs.prep.outputs.benchmarker != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -192,12 +250,12 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
-      - extras=s3-cache
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
-      SNAPSHOT_PREFIX: snapshots/benchmarker
+      BACKREST_REPO_BUCKET: paradedb-benchmark
+      SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst
       DATASET: ${{ matrix.dataset }}
-      DATASET_SOURCE: ${{ inputs.dataset_source || format('s3://paradedb-benchmarker/datasets/{0}/', matrix.dataset) }}
+      DATASET_SOURCE: ${{ inputs.dataset_source || format('s3://paradedb-benchmark/benchmarker/{0}/', matrix.dataset) }}
       PARADEDB_IMAGE: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
 
     steps:
@@ -205,19 +263,22 @@ jobs:
         run: echo "VOLUME_ROOT=${RUNNER_TEMP}/volumes" >> "$GITHUB_ENV"
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-write
+          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          role-duration-seconds: 21600
+          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
+          unset-current-credentials: true
           aws-region: us-east-1
 
       - name: Set Up Benchmarker
@@ -242,7 +303,7 @@ jobs:
             --source "${DATASET_SOURCE}"
 
           source_dataset="datasets/_snapshot_source"
-          test -f "${source_dataset}/data.csv"
+          test -f "${source_dataset}/data/data.csv"
           test -f "${source_dataset}/docker-compose.yml"
 
           (
@@ -267,7 +328,7 @@ jobs:
           archive="${RUNNER_TEMP}/heap-${DATASET}.tar.zst"
           sudo tar -I 'zstd -3 -T0' -cf "${archive}" -C "${pgdata_dir}" .
 
-          s3_dest="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_PREFIX}/${DATASET}/heap.tar.zst"
+          s3_dest="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_KEY}"
           echo "Uploading ${archive} to ${s3_dest}..."
           aws s3 cp "${archive}" "${s3_dest}"
           rm -f "${archive}"
@@ -287,7 +348,7 @@ jobs:
       checks: read
     steps:
       - name: Notify Slack on Failure
-        uses: paradedb/actions/slack-alert@v14
+        uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           suppress_spot_retries: "true"
           job_results: ${{ toJSON(needs) }}

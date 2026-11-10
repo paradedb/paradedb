@@ -1,0 +1,18 @@
+---
+title: "0.26.6"
+description: "ParadeDB release notes for 0.26.6"
+---
+
+See GitHub release: [v0.26.6](https://github.com/paradedb/paradedb/releases/tag/v0.26.6)
+
+## New Features ✨
+
+- Join Scan now supports top-K `ORDER BY` on vector distance operators (`<->`, `<=>`, `<#>`) across `INNER` and `SEMI` (`IN` / `EXISTS`) joins (#7137).
+
+## Performance Improvements 🚀
+
+- Top-K joins ordered by combined search scores now use the rank join when a leaf carries a single-table filter answered by the index, including row-level security policies, `=`, `= ANY`, and range conditions. Such filters previously forced a hash join over every permitted row.
+
+## Stability Improvements 💪
+
+- Fixed a crash when a `JoinScan` `SELECT` list combines `pdb.score()` with a scalar subquery or query parameter, kept `RankJoinExec` for joins with many `OR` or constant-score predicates on one side, and added `EXPLAIN` warnings when `RankJoinExec` is not used.

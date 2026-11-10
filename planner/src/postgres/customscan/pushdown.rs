@@ -1,0 +1,468 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
+
+use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
+use crate::api::tokenizers::type_is_alias;
+use crate::api::{FieldName, fieldname_typoid};
+use crate::nodecast;
+use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
+use crate::postgres::customscan::collation_semantics::collation_supports;
+use crate::postgres::customscan::opexpr::{OpExpr, TantivyOperatorExt, lookup_operator};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual};
+use crate::postgres::deparse::deparse_expr;
+use crate::postgres::node::NodeExt;
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::types::TantivyValue;
+use crate::postgres::var::VarContext;
+use crate::schema::{SearchField, SearchFieldType};
+use pgrx::pg_sys::NodeTag::T_Const;
+use pgrx::{FromDatum, IntoDatum, PgList, PgOid, direct_function_call, is_a, pg_sys};
+use std::ffi::CStr;
+
+/// Returns `true` when `opno` is the ltree descendant operator `<@` applied to
+/// ltree operands on both sides, e.g. `path <@ 'Top.Science'::ltree`.
+fn is_ltree_descendant_operator(
+    opno: pg_sys::Oid,
+    lhs: *mut pg_sys::Node,
+    rhs: *mut pg_sys::Node,
+) -> bool {
+    if opno == pg_sys::InvalidOid || lhs.is_null() || rhs.is_null() {
+        return false;
+    }
+
+    let lhs_type = unsafe { pg_sys::exprType(lhs) };
+    let rhs_type = unsafe { pg_sys::exprType(rhs) };
+    if !is_ltree_oid(lhs_type) || !is_ltree_oid(rhs_type) {
+        return false;
+    }
+
+    let op_name = unsafe { pg_sys::get_opname(opno) };
+    if op_name.is_null() {
+        return false;
+    }
+
+    unsafe { CStr::from_ptr(op_name) }.to_bytes() == b"<@"
+}
+
+/// Pushdown PostgreSQL ltree descendant operator `<@` to the ParadeDB index.
+///
+/// Converts:
+///
+/// ```sql
+/// path <@ 'Top.Science'::ltree
+/// ```
+///
+/// into the moral equivalent of:
+///
+/// ```sql
+/// path @@@ 'Top.Science'
+/// ```
+///
+/// for an ltree-backed ParadeDB field.
+///
+/// This is correct because ParadeDB stores ltree as a Tantivy Facet:
+///
+/// ```text
+/// Top.Science.Biology -> /Top/Science/Biology
+/// ```
+///
+/// and Tantivy facet term lookup on `/Top/Science` matches documents in that
+/// facet subtree.
+///
+/// Returns `None` if:
+/// - RHS is not a non-null Const;
+/// - LHS is not an indexed ParadeDB field;
+/// - the indexed field is not SearchFieldType::Ltree;
+/// - the predicate belongs to another relation in a non-join context.
+unsafe fn try_pushdown_ltree_descendant(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    lhs: *mut pg_sys::Node,
+    rhs: *mut pg_sys::Node,
+    indexrel: &PgSearchRelation,
+) -> Option<Qual> {
+    // RHS must be a non-null ltree Const:
+    //
+    //   path <@ 'Top.Science'::ltree
+    //           ^^^^^^^^^^^^^^^^^^^^^
+    let rhs_const = nodecast!(Const, T_Const, rhs).filter(|c| !(**c).constisnull)?;
+
+    // Be defensive: the caller already checked operator name and operand types,
+    // but keep the invariant local to this function too.
+    if !is_ltree_oid((*rhs_const).consttype) {
+        return None;
+    }
+
+    // LHS must resolve to an indexed field in this ParadeDB index.
+    //
+    // This handles simple Vars and the same expression/alias resolution used by
+    // the other pushdown paths.
+    let pushdown = PushdownField::try_new_with_context(context.var_context(), lhs, indexrel)?;
+    let search_field = pushdown.search_field();
+
+    // Only ltree fields are valid here. Do not accidentally push `<@` into a
+    // text field or some future unrelated Facet field.
+    if !matches!(search_field.field_type(), SearchFieldType::Ltree(_)) {
+        return None;
+    }
+
+    // Check relation ownership. If this is a join qual referencing a different
+    // relation, preserve the existing convention and return ExternalVar.
+    if pushdown.varno() != rti {
+        return Some(Qual::ExternalVar);
+    }
+
+    // Convert the ltree datum into its canonical dotted text representation.
+    //
+    // TantivyValue::try_from_datum for ltree uses PostgreSQL's type output
+    // function and then converts the dotted path into OwnedValue::Facet.
+    // Its Display impl converts Facet back to dotted text via facet.to_path().join(".").
+    let ancestor = TantivyValue::try_from_datum(
+        (*rhs_const).constvalue,
+        PgOid::from_untagged((*rhs_const).consttype),
+    )
+    .ok()?
+    .to_string();
+
+    // Empty ltree paths are not useful for the current dot_path_to_facet()
+    // implementation: dot_path_to_facet("") would create a facet with an empty
+    // path component rather than Tantivy's root facet. Avoid an incorrect
+    // pushdown; let PostgreSQL handle it.
+    if ancestor.is_empty() {
+        return None;
+    }
+
+    Some(Qual::PushdownLtreeDescendant {
+        field: pushdown,
+        ancestor,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct PushdownField {
+    field_name: FieldName,
+    search_field: Option<SearchField>,
+    varno: pg_sys::Index,
+}
+
+impl PushdownField {
+    /// Given a Postgres [`pg_sys::Var`] and a `SearchIndexSchema`, try to create a [`PushdownField`].
+    /// The purpose of this is to guard against the case where we mistakenly push down a field that's not indexed.
+    ///
+    /// Returns `Some(PushdownField)` if the field is found in the schema, `None` otherwise.
+    /// If `None` is returned, a helpful warning is logged.
+    pub unsafe fn try_new(
+        root: *mut pg_sys::PlannerInfo,
+        var: *mut pg_sys::Node,
+        indexrel: &PgSearchRelation,
+    ) -> Option<Self> {
+        Self::try_new_with_context(VarContext::from_planner(root), var, indexrel)
+    }
+
+    pub unsafe fn try_new_with_context(
+        context: VarContext,
+        var: *mut pg_sys::Node,
+        indexrel: &PgSearchRelation,
+    ) -> Option<Self> {
+        let schema = indexrel.schema().ok()?;
+        let mut var = var;
+
+        if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, var) {
+            var = (*expr).arg.cast();
+        }
+
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, var)
+            && !type_is_alias((*relabel).resulttype)
+        {
+            var = (*relabel).arg.cast();
+        }
+
+        let heaprel = indexrel
+            .heap_relation()
+            .expect("index should have a heap relation");
+        if let Some(field_name) = field_name_from_node(context, &heaprel, indexrel, var) {
+            let search_field = schema.search_field(field_name.root())?;
+            // an indexed expression could have more than one var, but we only need to check the first one
+            // since they all come from the same relation and we use `varno` to determine if the field is in the same rti
+            let vars = var.collect_nodes::<pg_sys::Var>();
+            if vars.is_empty() {
+                return None;
+            }
+            let varno = (*vars[0]).varno as pg_sys::Index;
+            return Some(Self {
+                field_name,
+                varno,
+                search_field: Some(search_field),
+            });
+        }
+
+        None
+    }
+
+    /// Create a new [`PushdownField`] from an attribute name.
+    ///
+    /// This does not verify if field can be pushed down and is intended to be used for testing.
+    pub fn new(attname: &str) -> Self {
+        Self {
+            field_name: attname.into(),
+            varno: 0,
+            search_field: None,
+        }
+    }
+
+    pub fn attname(&self) -> FieldName {
+        self.field_name.clone()
+    }
+
+    pub fn search_field(&self) -> SearchField {
+        self.search_field
+            .clone()
+            .expect("pushdown field should have a search field")
+    }
+
+    pub fn varno(&self) -> pg_sys::Index {
+        self.varno
+    }
+}
+
+/// Take a Postgres [`pg_sys::OpExpr`] pointer that is **not** of our `@@@` operator and try  to
+/// convert it into one that is.
+///
+/// Returns `Some(Qual)` if we were able to convert it, `None` if not.
+#[rustfmt::skip]
+pub unsafe fn try_build_pushdown_qual(
+    context: &PlannerContext,
+    rti: pg_sys::Index,
+    opexpr: OpExpr,
+    indexrel: &PgSearchRelation,
+) -> Option<Qual> {
+    let args = opexpr.args();
+    let lhs = args.get_ptr(0)?;
+    let rhs = args.get_ptr(1)?;
+    let opexpr_node = match &opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
+
+    // If the RHS contains correlated PARAM_EXEC nodes (parameters which depend on an outer
+    // relation), we can't push it down because the parameters need runtime evaluation with
+    // planstate. Return None to let the caller create a HeapExpr instead.
+    //
+    // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
+    // are evaluated in BeginCustomScan.
+    if let Some(root) = context.planner_info()
+        && rhs.contains_correlated_param(root) {
+            return None;
+        }
+
+    if let Some(qual) = try_build_const_bool_qual(opexpr_node) {
+        return Some(qual);
+    }
+
+    // ltree descendant operator: `path <@ 'Top.Science'::ltree` lowers to a
+    // Tantivy facet subtree query against the ltree-backed field.
+    if is_ltree_descendant_operator(opexpr.opno(), lhs, rhs) {
+        return try_pushdown_ltree_descendant(context, rti, lhs, rhs, indexrel);
+    }
+
+    // If <field> is an array, 'literal' = ANY(<field>) puts the value on the lhs.
+    // In all other pushdown scenarios, the value is on the rhs.
+    let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
+        && nodecast!(Var, T_Var, rhs)
+            .is_some_and(|var| pg_sys::type_is_array(unsafe { (*var).vartype }))
+    {
+        (rhs, lhs, true)
+    } else {
+        (lhs, rhs, false)
+    };
+
+    // A NULL value can still be true against an empty array (`NULL <> ALL('{}')`),
+    // which the index cannot see, so leave it to PostgreSQL.
+    if nodecast!(Const, T_Const, maybe_value).is_some_and(|c| (*c).constisnull) {
+        return None;
+    }
+
+    let pushdown = PushdownField::try_new_with_context(context.var_context(), maybe_field, indexrel)?;
+    let search_field = pushdown.search_field();
+
+    match lookup_operator(opexpr.opno()) {
+        Some(pgsearch_operator) => {
+            // can't push down tokenized text (but NumericBytes fields are untokenized decimal-bytes)
+            if (search_field.is_text() || opexpr.is_text_binary())
+                && !search_field.is_keyword()
+                && !search_field.is_numeric_bytes()
+            {
+                return None;
+            }
+
+            // Tantivy doesn't support JSON range if JSON is not fast.
+            if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_range() {
+                return None;
+            }
+
+            // Tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists.
+            if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_neq() {
+                return None;
+            }
+
+            // Tantivy compares text by its bytes, so it only answers this operator
+            // the way PostgreSQL would when the input collation permits it. A
+            // nondeterministic collation can equate distinct byte strings, and only
+            // a byte-ordered collation ranges the way Tantivy does. Decline and let
+            // PostgreSQL evaluate the qual above the scan.
+            if !collation_supports(opexpr.inputcollid(), pgsearch_operator.collation_operation()) {
+                return None;
+            }
+
+            // The `opexpr` is one we can push down.
+            if pushdown.varno() == rti {
+                let pushed_down_funcexpr = make_opexpr(
+                    &pushdown.attname(),
+                    opexpr,
+                    pgsearch_operator,
+                    maybe_value,
+                    field_is_array,
+                )?;
+                // It's in this RTI, so we can use it directly.
+                if !pushed_down_funcexpr.is_complex() {
+                    Some(Qual::PushdownExpr { funcexpr: pushed_down_funcexpr })
+                } else {
+                    Some(Qual::Expr {
+                        node: pushed_down_funcexpr.cast(),
+                        expr_desc: deparse_expr(
+                            Some(context),
+                            indexrel,
+                            pushed_down_funcexpr.cast(),
+                        ),
+                    })
+                }
+            } else {
+                // It's not in this RTI, which means it's in some other table due to a join, so
+                // we need to indicate an arbitrary external var.
+                Some(Qual::ExternalVar)
+            }
+        }
+        None => None,
+    }
+}
+
+/// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`
+fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
+    if node.is_null() || unsafe { pg_sys::exprType(node) } != pg_sys::BOOLOID || node.is_complex() {
+        return None;
+    }
+
+    let expr_state = unsafe { pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut()) };
+    let expr_context = unsafe { pg_sys::CreateStandaloneExprContext() };
+    let mut is_null = false;
+    let datum = unsafe { pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null) };
+    unsafe { pg_sys::FreeExprContext(expr_context, false) };
+
+    if is_null {
+        None
+    } else {
+        match unsafe { bool::from_datum(datum, false) } {
+            Some(true) => Some(Qual::All),
+            Some(false) => Some(Qual::Not(Box::new(Qual::All))),
+            None => None,
+        }
+    }
+}
+
+unsafe fn term_with_operator_procid() -> pg_sys::Oid {
+    direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            // NB:  the SQL signature here needs to match our Rust implementation
+            &[c"paradedb.term_with_operator(paradedb.fieldname, text, anyelement)".into_datum()],
+        )
+            .expect("the `paradedb.term_with_operator(paradedb.fieldname, text, anyelement)` function should exist")
+}
+
+unsafe fn terms_with_operator_procid() -> Option<pg_sys::Oid> {
+    lookup_procoid(
+        c"paradedb",
+        c"terms_with_operator",
+        &[
+            lookup_typoid(c"paradedb", c"fieldname")?,
+            pg_sys::TEXTOID,
+            pg_sys::ANYELEMENTOID,
+            pg_sys::BOOLOID,
+        ],
+    )
+}
+
+unsafe fn make_opexpr(
+    field: &FieldName,
+    orig_opexor: OpExpr,
+    operator: &str,
+    value: *mut pg_sys::Node,
+    field_is_array: bool,
+) -> Option<*mut pg_sys::FuncExpr> {
+    let paradedb_funcexpr: *mut pg_sys::FuncExpr =
+        pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
+    (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
+    // if the field is an array, we actually want to do a term query, not a term set query
+    // term set queries are for queries where the value is an array, not if the field is an array
+    (*paradedb_funcexpr).funcid = if matches!(orig_opexor, OpExpr::Array(_)) && !field_is_array {
+        terms_with_operator_procid()?
+    } else {
+        term_with_operator_procid()
+    };
+    (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
+    (*paradedb_funcexpr).funcretset = false;
+    (*paradedb_funcexpr).funcvariadic = false;
+    (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
+    (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
+    (*paradedb_funcexpr).inputcollid = orig_opexor.inputcollid();
+    (*paradedb_funcexpr).location = orig_opexor.location();
+    (*paradedb_funcexpr).args = {
+        let fieldname = pg_sys::makeConst(
+            fieldname_typoid(),
+            -1,
+            pg_sys::InvalidOid,
+            -1,
+            field.clone().into_datum().unwrap(),
+            false,
+            false,
+        );
+        let operator = pg_sys::makeConst(
+            pg_sys::TEXTOID,
+            -1,
+            pg_sys::DEFAULT_COLLATION_OID,
+            -1,
+            operator.into_datum().unwrap(),
+            false,
+            false,
+        );
+
+        let mut args = PgList::<pg_sys::Node>::new();
+        args.push(fieldname.cast());
+        args.push(operator.cast());
+        args.push(value.cast());
+
+        if matches!(orig_opexor, OpExpr::Array(_)) {
+            let conjunction_mode = !orig_opexor.use_or().unwrap(); // invert meaning for `conjunction` (which would be AND)
+            let use_or = pg_sys::makeBoolConst(conjunction_mode, false);
+            args.push(use_or.cast());
+        }
+
+        args.into_pg()
+    };
+
+    Some(paradedb_funcexpr)
+}

@@ -43,7 +43,7 @@ CREATE TABLE v4_plain (id integer PRIMARY KEY, vec vector(1024));
 INSERT INTO v4_plain SELECT g, ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,1024) i)::vector
 FROM generate_series(1,2048) g;
 CREATE INDEX v4_plain_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
-WITH (vector_fields='{"vec":{"quantization":false}}', target_segment_count=1);
+WITH (quantization='0', target_segment_count=1);
 SELECT vector_format, quantized, layers, quantizer_kinds, bytes_per_row
 FROM paradedb.vector_info('v4_plain_idx', 'vec');
  vector_format | quantized | layers | quantizer_kinds | bytes_per_row 
@@ -60,7 +60,7 @@ FROM paradedb.vector_config(index => 'v4_plain_idx', field => 'vec');
 
 DROP INDEX v4_plain_idx;
 CREATE INDEX v4_q14_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
-WITH (vector_fields='{"vec":{"quantization":{"layers":[1,4]}}}', target_segment_count=1);
+WITH (quantization='[1,4]', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1,4] AND bytes_per_row=668
     AND quantizer_kinds=ARRAY['sign','grid']) AS stored_q14
 FROM paradedb.vector_info('v4_q14_idx', 'vec');
@@ -78,7 +78,7 @@ FROM paradedb.vector_config('v4_q14_idx', 'vec');
 
 DROP INDEX v4_q14_idx;
 CREATE INDEX v4_q1_idx ON v4_plain USING paradedb (id, vec vector_l2_ops)
-WITH (vector_fields='{"vec":{"quantization":{"layers":[1]}}}', target_segment_count=1);
+WITH (quantization='[1]', target_segment_count=1);
 SELECT bool_and(quantized AND layers=ARRAY[1] AND bytes_per_row=144) AS stored_q1
 FROM paradedb.vector_info('v4_q1_idx', 'vec');
  stored_q1 
@@ -94,6 +94,56 @@ FROM paradedb.vector_config('v4_q1_idx', 'vec');
 (1 row)
 
 DROP TABLE v4_plain;
+CREATE TABLE index_quantization (id integer PRIMARY KEY, title_vec vector(64));
+INSERT INTO index_quantization
+SELECT g,
+       ARRAY(SELECT ((g+i)%17+1)::real FROM generate_series(1,64) i)::vector
+FROM generate_series(1,2048) g;
+CREATE INDEX index_quantization_idx ON index_quantization
+USING paradedb (id, title_vec vector_cosine_ops)
+WITH (target_segment_count = 1);
+SELECT count(*) = 1 AND bool_and(quantized AND layers = ARRAY[1,1]) AS quantization_default
+FROM paradedb.vector_info('index_quantization_idx', 'title_vec');
+ quantization_default 
+----------------------
+ t
+(1 row)
+
+ALTER INDEX index_quantization_idx SET (quantization = '[1,4]');
+SELECT count(*) = 1 AND bool_and(quantized AND layers = ARRAY[1,1]) AS unchanged_before_reindex
+FROM paradedb.vector_config('index_quantization_idx', 'title_vec');
+ unchanged_before_reindex 
+--------------------------
+ t
+(1 row)
+
+REINDEX INDEX index_quantization_idx;
+SELECT count(*) = 1 AND bool_and(quantized AND layers = ARRAY[1,4]) AS quantization_custom
+FROM paradedb.vector_info('index_quantization_idx', 'title_vec');
+ quantization_custom 
+---------------------
+ t
+(1 row)
+
+ALTER INDEX index_quantization_idx SET (quantization = 0);
+REINDEX INDEX index_quantization_idx;
+SELECT count(*) = 1 AND bool_and(NOT quantized AND layers IS NULL) AS quantization_disabled
+FROM paradedb.vector_info('index_quantization_idx', 'title_vec');
+ quantization_disabled 
+-----------------------
+ t
+(1 row)
+
+ALTER INDEX index_quantization_idx RESET (quantization);
+REINDEX INDEX index_quantization_idx;
+SELECT count(*) = 1 AND bool_and(quantized AND layers = ARRAY[1,1]) AS quantization_reset
+FROM paradedb.vector_info('index_quantization_idx', 'title_vec');
+ quantization_reset 
+--------------------
+ t
+(1 row)
+
+DROP TABLE index_quantization;
 CREATE TABLE config_parent (id integer, vec vector(64)) PARTITION BY RANGE (id);
 CREATE TABLE config_low PARTITION OF config_parent FOR VALUES FROM (0) TO (10);
 CREATE TABLE config_high PARTITION OF config_parent FOR VALUES FROM (10) TO (20);

@@ -1,0 +1,160 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use crate::postgres::access::IndexAccess;
+use crate::postgres::rel::PgSearchRelation;
+use anyhow::{Result, anyhow};
+use pgrx::{PgList, pg_sys};
+
+pub enum IndexKind {
+    Index(PgSearchRelation),
+    PartitionedIndex(Vec<PgSearchRelation>),
+}
+
+impl IndexKind {
+    ///
+    /// Get the IndexKind for the given relation, or an error if it is not an index.
+    ///
+    pub fn for_index(index_relation: PgSearchRelation) -> Result<IndexKind> {
+        let index_relkind = unsafe { pg_sys::get_rel_relkind(index_relation.oid()) as u8 };
+        match index_relkind {
+            pg_sys::RELKIND_INDEX => {
+                // The index is not partitioned.
+                Ok(IndexKind::Index(index_relation))
+            }
+            pg_sys::RELKIND_PARTITIONED_INDEX => Ok(IndexKind::PartitionedIndex(
+                leaf_partition_indexes(&index_relation).collect(),
+            )),
+            _ => Err(anyhow!("Expected to receive an index argument.")),
+        }
+    }
+
+    ///
+    /// Return an iterator over the partitions of this index, which might be
+    /// of length 1 if it is not partitioned.
+    ///
+    pub fn partitions(self) -> Box<dyn Iterator<Item = PgSearchRelation>> {
+        match self {
+            Self::Index(rel) => Box::new(std::iter::once(rel)),
+            Self::PartitionedIndex(rel) => Box::new(rel.into_iter()),
+        }
+    }
+}
+
+/// Whether `index_oid` names a partitioned index, which has no storage of its own.
+pub fn is_partitioned_index(index_oid: pg_sys::Oid) -> bool {
+    (unsafe { pg_sys::get_rel_relkind(index_oid) as u8 }) == pg_sys::RELKIND_PARTITIONED_INDEX
+}
+
+/// The leaf partition indexes under `parent`, at any nesting depth. The parent itself and
+/// any intermediate partitioned index have no storage of their own, so only the leaves
+/// are returned, and a member left invalid by a failed `CREATE INDEX` is left out. The
+/// catalog walk takes no locks; a caller locks the leaves it opens.
+pub fn leaf_partition_index_oids(parent: &PgSearchRelation) -> Vec<pg_sys::Oid> {
+    let parent_oid = parent.oid();
+    let inheritors = unsafe {
+        PgList::<pg_sys::Oid>::from_pg(pg_sys::find_all_inheritors(
+            parent_oid,
+            pg_sys::NoLock as pg_sys::LOCKMODE,
+            std::ptr::null_mut(),
+        ))
+    };
+    inheritors
+        .iter_oid()
+        .filter(|&oid| {
+            (unsafe { pg_sys::get_rel_relkind(oid) as u8 }) == pg_sys::RELKIND_INDEX
+                && unsafe { pg_sys::get_index_isvalid(oid) }
+        })
+        .collect()
+}
+
+/// The leaf partition indexes under `parent`, each opened with `AccessShareLock` as it is
+/// reached, so a caller that needs one leaf locks one leaf.
+pub fn leaf_partition_indexes(
+    parent: &PgSearchRelation,
+) -> impl Iterator<Item = PgSearchRelation> + use<> {
+    leaf_partition_index_oids(parent)
+        .into_iter()
+        .map(|oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
+}
+
+/// The leaf partition indexes under `parent`, each opened after its table as it is reached,
+/// for a caller that reads the heap. A leaf's locks are released when the returned guard is
+/// dropped, so a caller that advances one leaf at a time holds one leaf at a time.
+pub fn leaf_partition_index_accesses(
+    parent: &PgSearchRelation,
+) -> impl Iterator<Item = IndexAccess> + use<> {
+    leaf_partition_index_oids(parent)
+        .into_iter()
+        .map(|oid| IndexAccess::open(oid, pg_sys::AccessShareLock as _))
+}
+
+/// The leaves in `leaves` whose `AccessShareLock` is free right now, each opened as it is
+/// reached. A leaf that a concurrent `REINDEX` holds is skipped rather than waited on, and
+/// so is one dropped since the catalog walk. A leaf's lock is released when the returned
+/// relation is dropped.
+pub fn free_leaf_partition_indexes(
+    leaves: &[pg_sys::Oid],
+) -> impl Iterator<Item = PgSearchRelation> + '_ {
+    let lockmode = pg_sys::AccessShareLock as pg_sys::LOCKMODE;
+    leaves.iter().filter_map(move |&oid| unsafe {
+        if !pg_sys::ConditionalLockRelationOid(oid, lockmode) {
+            return None;
+        }
+        // The walk took no lock, so the leaf may be gone by the time ours is granted.
+        let leaf = (pg_sys::get_rel_relkind(oid) as u8 == pg_sys::RELKIND_INDEX)
+            .then(|| PgSearchRelation::with_lock(oid, lockmode));
+        // The relation holds its own reference to the lock and releases it when dropped.
+        pg_sys::UnlockRelationOid(oid, lockmode);
+        leaf
+    })
+}
+
+/// One leaf to stand in for the partitioned index `parent`, whose members all share its
+/// definition: the first whose lock is free, or the first leaf, once its lock is granted,
+/// when a `REINDEX` holds every one.
+pub fn any_leaf_partition_index(parent: &PgSearchRelation) -> Option<PgSearchRelation> {
+    let leaves = leaf_partition_index_oids(parent);
+    free_leaf_partition_indexes(&leaves).next().or_else(|| {
+        leaves
+            .first()
+            .map(|&oid| PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _))
+    })
+}
+
+/// The member of `parent_index_oid` attached to the partition `child_heap_oid`, however
+/// deeply the partition is nested. `None` if the partition has no valid member of that
+/// index (e.g. one left invalid by a failed `CREATE INDEX`).
+pub fn partition_member_index(
+    child_heap_oid: pg_sys::Oid,
+    parent_index_oid: pg_sys::Oid,
+) -> Option<PgSearchRelation> {
+    let child_heap = PgSearchRelation::with_lock(child_heap_oid, pg_sys::AccessShareLock as _);
+    child_heap
+        .indices(pg_sys::AccessShareLock as _)
+        .find(|index| {
+            if !unsafe { pg_sys::get_index_isvalid(index.oid()) } {
+                return false;
+            }
+            let ancestors = unsafe {
+                PgList::<pg_sys::Oid>::from_pg(pg_sys::get_partition_ancestors(index.oid()))
+            };
+            ancestors
+                .iter_oid()
+                .any(|ancestor| ancestor == parent_index_oid)
+        })
+}

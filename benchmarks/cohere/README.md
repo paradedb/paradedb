@@ -11,6 +11,57 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
 workers. Both tools use the same database and index throughout a run.
 
+The benchmark index enables `vector_router_quantization = true` in its
+`CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false
+and is stored in the index definition, so parallel builds, REINDEX, and
+`VACUUM FULL` use the same setting without session configuration. Document-vector
+quantization is independent. To change the router for an existing index, use
+`ALTER INDEX ... SET (vector_router_quantization = true)` followed by REINDEX;
+changing the option alone does not rewrite existing router data.
+
+Router code and sidecar columns are file-backed: open reads only headers and
+list topology, and scoring fetches the row ranges for the lists actually probed.
+This avoids decoding the entire router during query preparation. Payload
+validation occurs when each batch is read; the persisted format is unchanged.
+
+With `paradedb.vector_stats` enabled, per-segment
+`EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` reports:
+
+- `routing_kind` and `routing_lists_scanned` identify the router and its work.
+- `routing_approximate_scored` counts one-bit scores across all router levels.
+- `routing_approximate_members_scored` counts bottom-router member scores only.
+- `routing_approximate_pruned` counts scored members excluded from the padded
+  shortlist, before any raw vector is read for reranking.
+- `routing_exact_scored`, `routing_exact_pruned`, and `routing_candidate_count`
+  count reranked members, members rejected by reranking, and returned candidates.
+
+For finite queries, approximate members scored equals approximate members
+pruned plus exact scores; exact scores equals exact pruned plus candidates.
+Unopened lists and members skipped by APS are excluded from the pruning count.
+Non-finite queries fall back to exact scoring and report zero approximate work.
+Flat and located scans do not invoke a router and omit these counters.
+
+Router search policies can be adjusted at query time without rebuilding:
+
+| Setting                                    | Default | Effect                                                 |
+| ------------------------------------------ | ------: | ------------------------------------------------------ |
+| `paradedb.vector_router_rerank_factor`     |     2.0 | Fractional candidate multiplier before exact reranking |
+| `paradedb.vector_router_min_beam_fraction` |     0.5 | Minimum list fraction at each quantized router level   |
+| `paradedb.vector_router_aps`               |      on | Stop hierarchical routing after quiet lists            |
+
+The rerank factor accepts fractional values from 1.0 through 16.0. Retention
+rounds up to whole candidates: for example, `1.25` retains up to four candidates
+for `router_k = 3`. A factor of `1.0` removes padding but still computes exact
+scores, which document pruning and quantized distance estimation require.
+
+The beam setting leaves full-precision-only routing unchanged. Quantized routing
+defaults to a 50% beam floor with `2 * router_k` retained members. Global routing
+shares this beam and the padded shortlist across segments, including mixed raw
+and quantized routers and coarse partition centroids. It reranks retained
+quantized members before the global `router_k` selection.
+Wider selection compensates for errors in quantized centroid ordering;
+retaining more members cannot recover members in unopened lists.
+
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
    extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
    pdbench records build time, index size, and segment diagnostics before vacuum.
@@ -21,6 +72,18 @@ workers. Both tools use the same database and index throughout a run.
    `paradedb.vector_cluster_max_probe` separately for each filter to r90/r95/r99.
    Its required positive tolerance is 0.000001, below one neighbor's contribution
    to recall over 100 top-10 queries (0.001).
+   After the sweeps, CI downloads diagnostics from the latest successful main
+   push preceding this workflow run with an unexpired artifact for that corpus
+   size. `pdbench compare --html` compares each query at matched recall
+   and saves offline HTML reports, text deltas, labeled JSON inputs, and commit
+   provenance under `comparison/` in the diagnostics artifact. The job summary
+   identifies the baseline run and report filenames. The PR comment's **Reports**
+   section links the sweep comparisons under **Sweep** and the existing k6
+   graphs under **Search**. Missing baselines or queries
+   and differing config fingerprints are reported as skipped comparisons; CI
+   does not force comparisons across benchmark configurations. Main runs compare
+   with the previous successful main run. This reuses recorded mainline sweeps
+   rather than rebuilding and measuring main on the current runner.
 3. `prepare_k6.py` exports pdbench's selected points, SQL, and session settings.
    It rejects selections below their target and does not select probes or
    calculate latency. Unreached targets remain visible and do not run in k6.
@@ -50,6 +113,8 @@ and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
 
+Diagnostics upload after plan verification, before the longer k6 pass, so recall
+sweeps can be reviewed while latency measurements continue.
 Artifacts retain index-build logs, pdbench build and search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in

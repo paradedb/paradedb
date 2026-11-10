@@ -67,7 +67,7 @@ struct PgBackRestOptions {
     #[arg(long)]
     repo_bucket: Option<String>,
 
-    /// Path prefix inside the S3 bucket. The dataset and size are appended.
+    /// Path prefix inside the S3 bucket. Appends {dataset}/v1/{size}/pg_backrest.
     #[arg(long)]
     repo_path_prefix: Option<String>,
 
@@ -122,6 +122,8 @@ struct GeneratedConfig<'a> {
     credentials: Option<AwsCredentials>,
 }
 
+const AUTO_CONF_FILENAME: &str = "postgresql.auto.conf";
+
 pub fn run_snapshot_heap(args: SnapshotHeapArgs) -> Result<()> {
     let config = prepare_config(&args.options)?;
     run_pgbackrest(&config, &["--no-online", "stanza-create"])?;
@@ -150,7 +152,39 @@ pub fn run_restore_heap(args: RestoreHeapArgs) -> Result<()> {
         restore_args.push("--delta");
     }
     restore_args.push("restore");
-    run_pgbackrest(&config, &restore_args)?;
+    // pgBackRest restores the whole PGDATA directory, including the snapshot's old
+    // postgresql.auto.conf. Preserve the local cluster's postgresql.auto.conf so GUC changes in
+    // setup-benchmark-cluster take effect without regenerating snapshots.
+    restore_preserving_auto_conf(args.options.pgdata.as_deref(), || {
+        run_pgbackrest(&config, &restore_args)
+    })
+}
+
+fn restore_preserving_auto_conf(
+    pgdata: Option<&Path>,
+    restore: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let auto_conf = match pgdata {
+        Some(pgdata) => {
+            let path = pgdata.join(AUTO_CONF_FILENAME);
+            match fs::read(&path) {
+                Ok(contents) => Some((path, contents)),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(err) => {
+                    return Err(err)
+                        .with_context(|| format!("Failed to read '{}'", path.display()));
+                }
+            }
+        }
+        None => None,
+    };
+
+    restore()?;
+
+    if let Some((path, contents)) = auto_conf {
+        fs::write(&path, contents)
+            .with_context(|| format!("Failed to restore '{}'", path.display()))?;
+    }
     Ok(())
 }
 
@@ -320,11 +354,7 @@ fn render_config(config: &GeneratedConfig<'_>) -> String {
 
 fn repo_path(prefix: &str, dataset: &str, size: &str) -> String {
     let prefix = prefix.trim_end_matches('/');
-    if prefix.is_empty() {
-        format!("/{dataset}/{size}")
-    } else {
-        format!("{prefix}/{dataset}/{size}")
-    }
+    format!("{prefix}/{dataset}/v1/{size}/pg_backrest")
 }
 
 fn safe_path_component(component: &str) -> String {
@@ -401,6 +431,77 @@ fn command_output(output: &std::process::Output) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn generated_config_targets_versioned_snapshot_repository() {
+        for (dataset, size, prefix, expected) in [
+            (
+                "stackoverflow",
+                "100k",
+                "/snapshots",
+                "/snapshots/stackoverflow/v1/100k/pg_backrest",
+            ),
+            (
+                "stackoverflow",
+                "1m",
+                "/snapshots",
+                "/snapshots/stackoverflow/v1/1m/pg_backrest",
+            ),
+            (
+                "stackoverflow",
+                "20m",
+                "/snapshots/",
+                "/snapshots/stackoverflow/v1/20m/pg_backrest",
+            ),
+            (
+                "cohere",
+                "1m",
+                "/snapshots",
+                "/snapshots/cohere/v1/1m/pg_backrest",
+            ),
+            (
+                "cohere",
+                "10m",
+                "/snapshots",
+                "/snapshots/cohere/v1/10m/pg_backrest",
+            ),
+        ] {
+            let args = RestoreHeapArgs::try_parse_from([
+                "restore-heap",
+                "--dataset",
+                dataset,
+                "--size",
+                size,
+                "--pgdata",
+                "/tmp/benchmark-pgdata",
+                "--stanza",
+                "bench",
+                "--repo-bucket",
+                "paradedb-benchmark",
+                "--repo-path-prefix",
+                prefix,
+                "--repo-region",
+                "us-east-1",
+                "--repo-endpoint",
+                "s3.us-east-1.amazonaws.com",
+                "--repo-s3-key-type",
+                "auto",
+            ])
+            .unwrap();
+            let config = prepare_config(&args.options).unwrap();
+            let contents = fs::read_to_string(&config.path).unwrap();
+            assert!(
+                contents
+                    .lines()
+                    .any(|line| line == format!("repo1-path={expected}"))
+            );
+            assert!(
+                contents
+                    .lines()
+                    .any(|line| line == "repo1-s3-bucket=paradedb-benchmark")
+            );
+        }
+    }
+
     fn test_path(name: &str) -> PathBuf {
         env::temp_dir().join(format!(
             "paradedb-benchmarks-{name}-{}-{}",
@@ -435,5 +536,38 @@ mod tests {
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         fs::remove_file(path).unwrap();
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn restore_preserves_existing_auto_conf_or_keeps_snapshot_default() {
+        let dir = test_path("auto-conf");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let auto_conf = dir.join(AUTO_CONF_FILENAME);
+
+        // When no local postgresql.auto.conf exists before restore, the snapshot's file remains.
+        restore_preserving_auto_conf(Some(&dir), || {
+            fs::write(&auto_conf, "max_worker_processes = '8'\n")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&auto_conf).unwrap(),
+            "max_worker_processes = '8'\n"
+        );
+
+        // When setup-benchmark-cluster has already written postgresql.auto.conf, restore preserves it.
+        fs::write(&auto_conf, "max_worker_processes = '32'\n").unwrap();
+        restore_preserving_auto_conf(Some(&dir), || {
+            fs::write(&auto_conf, "max_worker_processes = '8'\n")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&auto_conf).unwrap(),
+            "max_worker_processes = '32'\n"
+        );
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }

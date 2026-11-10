@@ -731,8 +731,8 @@ SELECT id FROM providers
 WHERE description === 'cardiology'
   AND NOT (location <@ circle(point(50, 50), 5))
 ORDER BY id LIMIT 5;
-                                                                                                                                       QUERY PLAN                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on providers
          Table: providers
@@ -741,7 +741,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"(location <@ '<(50,50),5>'::circle)"}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"term":{"field":"description","value":"cardiology"}}}}]}},"always_filters":[{"heap_filter":"(NOT (location <@ '<(50,50),5>'::circle))"}]}}]}}
 (9 rows)
 
 SELECT count(*) AS not_count FROM (

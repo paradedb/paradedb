@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use super::{
     PdbQueryRhs, RHSValue, build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type,
@@ -30,7 +31,7 @@ use crate::query::proximity::ProximityClause;
 use pgrx::{IntoDatum, PgList, direct_function_call, pg_sys};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum SearchOperator {
+pub(crate) enum SearchOperator {
     Conjunction,
     Disjunction,
     Term,

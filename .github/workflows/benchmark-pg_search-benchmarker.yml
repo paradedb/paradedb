@@ -9,20 +9,8 @@
 name: Benchmark pg_search (Benchmarker)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/actions/build-paradedb-image/**"
-      - ".github/actions/publish-benchmarker-results/**"
-      - ".github/actions/stage-benchmark-results/**"
-      - ".github/workflows/publish-benchmark-results.yml"
-      - ".github/actions/setup-benchmarker/**"
-      - ".github/workflows/benchmark-pg_search-benchmarker.yml"
-      - "docker/Dockerfile.source"
-      - "Cargo.lock"
-      - "**/*.rs"
-      - "**/*.toml"
+  schedule:
+    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
   pull_request:
     types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
@@ -68,15 +56,15 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'hackernews' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-hackernews'))
     env:
       DATASET: hackernews
-      # Keep the existing archive key; the loader extracts into datasets/${DATASET}.
-      DATASET_S3: s3://paradedb-benchmarker/datasets/hn-ci.tar.gz
+      DATASET_S3: s3://paradedb-benchmark/benchmarker/hn_cutdown/
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -107,13 +95,13 @@ jobs:
           fi
 
       - name: Checkout Workflow
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Build ParadeDB Image
         id: build_image
@@ -128,7 +116,7 @@ jobs:
         with:
           ref: ${{ inputs.benchmarker_hackernews_ref || 'main' }}
 
-      - name: Pull ${{ env.DATASET }} Dataset (Public S3, Anonymous)
+      - name: Pull ${{ env.DATASET }} Dataset
         working-directory: benchmarker
         run: ./bin/loader pull --dataset "${DATASET}" --anonymous --source "${DATASET_S3}"
 
@@ -212,10 +200,10 @@ jobs:
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
-      - extras=s3-cache # S3 cache. See https://runs-on.com/caching/magic-cache/
+      - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
       # No EBS volume: on-machine NVMe avoids run-to-run variance.
     if: >-
-      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && (inputs.dataset == 'all' || inputs.dataset == 'stackexchange' || inputs.dataset == 'wikipedia' || inputs.dataset == '')) ||
       (github.event_name == 'pull_request' && (github.event.label.name == 'benchmarks' || github.event.label.name == 'benchmark-benchmarker' || github.event.label.name == 'benchmark-benchmarker-stackexchange' || github.event.label.name == 'benchmark-benchmarker-wikipedia'))
     strategy:
@@ -229,9 +217,9 @@ jobs:
           ) }}
     env:
       DATASET: ${{ matrix.dataset }}
-      DATASET_CONFIG_S3: s3://paradedb-benchmarker/datasets/${{ matrix.dataset }}/
-      BACKREST_REPO_BUCKET: paradedb-ci-benchmarks
-      SNAPSHOT_PREFIX: snapshots/benchmarker
+      DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset }}/
+      BACKREST_REPO_BUCKET: paradedb-benchmark
+      SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst
       IMAGE_TAG: paradedb-source:ci
 
     steps:
@@ -265,13 +253,13 @@ jobs:
           fi
 
       - name: Checkout Workflow
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       # With extras=s3-cache, configure RunsOn before cache or artifact operations.
       - name: Configure RunsOn Caching
-        uses: runs-on/action@v2
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Build ParadeDB Image
         id: build_image
@@ -286,34 +274,24 @@ jobs:
         with:
           ref: ${{ inputs[format('benchmarker_{0}_ref', matrix.dataset)] || 'main' }}
 
-      - name: Pull ${{ env.DATASET }} Benchmark Config (Public S3, Anonymous)
+      - name: Pull ${{ env.DATASET }} Benchmark Config
         working-directory: benchmarker
         run: |
           set -euo pipefail
-          ./bin/loader pull \
-            --dataset _ci_config \
-            --anonymous \
-            --source "${DATASET_CONFIG_S3}" \
-            --exclude data.csv.gz
-
           dataset_dir="datasets/_ci_config"
+          mkdir -p "$dataset_dir"
+          # Restore the heap below; do not download the corpus through download.yaml.
+          aws s3 sync "${DATASET_CONFIG_S3}" "$dataset_dir" --exclude download.yaml --no-sign-request
           test -f "${dataset_dir}/docker-compose.yml"
           test -f "${dataset_dir}/k6/search.js"
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
 
       - name: Restore ${{ env.DATASET }} Heap Snapshot
         run: |
           set -euo pipefail
           mkdir -p "${VOLUME_ROOT}"
-          s3_src="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_PREFIX}/${DATASET}/heap.tar.zst"
+          s3_src="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_KEY}"
           echo "Downloading heap snapshot from ${s3_src}..."
-          aws s3 cp "${s3_src}" "${RUNNER_TEMP}/heap.tar.zst"
+          aws s3 cp "${s3_src}" "${RUNNER_TEMP}/heap.tar.zst" --no-sign-request
 
           target_dir="${VOLUME_ROOT}/bench-datasets-${DATASET}/paradedb"
           mkdir -p "${target_dir}"
@@ -414,14 +392,14 @@ jobs:
   notify-slack-on-failure:
     name: Notify Slack on Failure
     needs: [benchmark-hackernews, benchmark-datasets, publish-results]
-    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'push'
+    if: always() && (needs.benchmark-hackernews.result == 'failure' || needs.benchmark-datasets.result == 'failure' || needs.publish-results.result == 'failure') && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       checks: read
     steps:
       - name: Notify Slack on Failure (Push only)
-        uses: paradedb/actions/slack-alert@v14
+        uses: paradedb/actions/slack-alert@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
         with:
           suppress_spot_retries: "true" # Defer Slack alerts while RunsOn retries Spot interruptions
           job_results: ${{ toJSON(needs) }}

@@ -912,6 +912,78 @@ DROP TABLE IF EXISTS dist_inh_child CASCADE;
 DROP TABLE IF EXISTS dist_inh_parent CASCADE;
 
 -- =============================================================================
+-- TEST 22: array keys must use the original heap values (#6631)
+-- The index loses empty arrays, NULL elements, dimensions, and lower bounds.
+-- It must not supply whole-array DISTINCT or GROUP BY keys.
+-- =============================================================================
+
+SET datestyle TO 'ISO, MDY';
+CREATE DOMAIN dist_int_array AS INT[];
+CREATE TABLE dist_arrays (id INT PRIMARY KEY, ia INT[], ta TEXT[], da dist_int_array, dates DATE[]);
+INSERT INTO dist_arrays (id, ia, ta) VALUES
+    (1, ARRAY[3, 1, 1], ARRAY['c', 'a', 'a']),
+    (2, '{}', '{}'),
+    (3, NULL, NULL),
+    (4, ARRAY[NULL, 7], ARRAY[NULL, 'g']),
+    (5, ARRAY[NULL]::int[], ARRAY[NULL]::text[]),
+    (6, ARRAY[7], ARRAY['g']),
+    (7, '[0:0]={7}', '[0:0]={g}'),
+    (8, '{{3,1,1}}', '{{c,a,a}}');
+UPDATE dist_arrays SET da = ia, dates = CASE id
+    WHEN 1 THEN ARRAY[DATE '2026-01-03', DATE '2026-01-01', DATE '2026-01-01']
+    WHEN 2 THEN '{}'::date[]
+    WHEN 3 THEN NULL
+    ELSE ARRAY[NULL, DATE '2026-01-07'] END;
+CREATE INDEX dist_arrays_idx ON dist_arrays
+USING paradedb (id, ia, (ta::pdb.literal), da, dates);
+
+\pset null '<NULL>'
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+
+-- Exceed the bucket cap, and also check a functionally dependent array output.
+SET paradedb.max_term_agg_buckets TO 2;
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+
+-- Array expressions must also fall back, including scalar subscripts and
+-- binary-compatible domain casts. Date slices must not reach Arrow projection.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+
+-- Compare with PostgreSQL aggregation.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT id, ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY id;
+SELECT DISTINCT ia FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ia;
+SELECT DISTINCT ta FROM dist_arrays WHERE id @@@ paradedb.all() ORDER BY ta;
+SELECT ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia ORDER BY ia;
+SELECT ta, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ta ORDER BY ta;
+SELECT id, ia, COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY id ORDER BY id;
+SELECT ia[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1:2] ORDER BY 1;
+SELECT ia[1], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY ia[1] ORDER BY 1;
+SELECT da::int[], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY da::int[] ORDER BY 1;
+SELECT dates[1:2], COUNT(*) FROM dist_arrays WHERE id @@@ paradedb.all() GROUP BY dates[1:2] ORDER BY 1;
+SET paradedb.enable_aggregate_custom_scan TO on;
+RESET paradedb.max_term_agg_buckets;
+\pset null ''
+DROP TABLE dist_arrays;
+DROP DOMAIN dist_int_array;
+RESET datestyle;
+
+-- =============================================================================
 -- Cleanup
 -- =============================================================================
 

@@ -1,0 +1,170 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
+use crate::api::AsCStr;
+use crate::postgres::customscan::joinscan::build::{
+    ChildProjection, FunctionRti, JoinCSClause, SourceRti,
+};
+use pgrx::PgList;
+use pgrx::pg_sys;
+use pgrx::pg_sys::AsPgCStr;
+use serde::{Deserialize, Serialize};
+
+use super::window_func::WindowAggIndex;
+
+/// Describes how a single output column of the JoinScan CustomScan is produced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OutputColumnInfo {
+    /// A regular column backed by a Var in a source relation.
+    Var {
+        plan_position: usize,
+        rti: pg_sys::Index,
+        original_attno: i16,
+    },
+    /// A `paradedb.score()` call whose value comes from the DataFusion batch.
+    Score {
+        plan_position: usize,
+        rti: pg_sys::Index,
+    },
+    /// An unnested column from a LATERAL unnest join.
+    Unnested {
+        function_rti: FunctionRti,
+        source_rti: SourceRti,
+        field_name: String,
+    },
+    /// A window function output
+    WindowAgg { agg_index: WindowAggIndex },
+    /// An expression evaluated by DataFusion (e.g. via PgExprUdf in DISTINCT).
+    Expression,
+    /// A column pruned by a semi/anti join or a non-Var, non-score expression.
+    /// Always emits NULL at execution time.
+    Pruned,
+}
+
+impl From<&OutputColumnInfo> for ChildProjection {
+    fn from(info: &OutputColumnInfo) -> Self {
+        match info {
+            OutputColumnInfo::Score { rti, .. } => ChildProjection::Score { rti: *rti },
+            OutputColumnInfo::Var {
+                rti,
+                original_attno,
+                ..
+            } => ChildProjection::Column {
+                rti: *rti,
+                attno: *original_attno,
+            },
+            OutputColumnInfo::Unnested {
+                function_rti,
+                source_rti,
+                field_name,
+            } => ChildProjection::Unnested {
+                function_rti: *function_rti,
+                source_rti: *source_rti,
+                field_name: field_name.clone(),
+            },
+            OutputColumnInfo::WindowAgg { agg_index } => ChildProjection::WindowAgg {
+                agg_index: *agg_index,
+            },
+            OutputColumnInfo::Expression | OutputColumnInfo::Pruned => {
+                ChildProjection::Column { rti: 0, attno: 0 }
+            }
+        }
+    }
+}
+
+/// Whether the serialized DataFusion `LogicalPlan` was baked with MPP source indices
+/// (`Some(plan_position)`) or for serial execution (`None`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LogicalPlanMode {
+    #[default]
+    Serial,
+    Mpp,
+}
+
+/// Private data stored in the CustomPath/CustomScan for join operations.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PrivateData {
+    /// The join clause containing all information about both sides and the join itself.
+    pub join_clause: JoinCSClause,
+    /// Mapping of output column positions to their source relation and original attribute numbers.
+    /// This is populated during planning (before setrefs) and used during execution.
+    pub output_columns: Vec<OutputColumnInfo>,
+    /// Serialized DataFusion LogicalPlan from planning phase.
+    pub logical_plan: Option<bytes::Bytes>,
+    /// Whether `logical_plan` was baked for serial or MPP execution.
+    pub logical_plan_mode: LogicalPlanMode,
+    /// nodeToString'd snapshot of the CustomScan's custom_exprs list, taken in
+    /// plan_custom_path BEFORE set_customscan_references rewrites the Vars
+    /// inside it into INDEX_VAR/custom_scan_tlist references. Execution-time
+    /// rebaking (after solving Param/SubPlan-backed SearchQueryInputs or when
+    /// switching between serial and MPP logical plan modes) needs this
+    /// pre-setrefs shape — the live post-setrefs custom_exprs on the executor's
+    /// plan node is not translator-compatible.
+    pub custom_exprs_string: Option<String>,
+    /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+    pub parallel_mode_ok: bool,
+}
+
+impl PrivateData {
+    pub fn new(join_clause: JoinCSClause, parallel_mode_ok: bool) -> Self {
+        Self {
+            join_clause,
+            output_columns: Vec::new(),
+            logical_plan: None,
+            logical_plan_mode: LogicalPlanMode::Serial,
+            custom_exprs_string: None,
+            parallel_mode_ok,
+        }
+    }
+
+    /// Returns a reference to the join clause.
+    pub fn join_clause(&self) -> &JoinCSClause {
+        &self.join_clause
+    }
+
+    /// Returns a mutable reference to the join clause.
+    pub fn join_clause_mut(&mut self) -> &mut JoinCSClause {
+        &mut self.join_clause
+    }
+}
+
+impl From<*mut pg_sys::List> for PrivateData {
+    fn from(list: *mut pg_sys::List) -> Self {
+        unsafe {
+            let list = PgList::<pg_sys::Node>::from_pg(list);
+            let node = list.get_ptr(0).unwrap();
+            let content = node
+                .as_c_str()
+                .unwrap()
+                .to_str()
+                .expect("string node should be valid utf8");
+            serde_json::from_str(content).unwrap()
+        }
+    }
+}
+
+impl From<PrivateData> for *mut pg_sys::List {
+    fn from(value: PrivateData) -> Self {
+        let content = serde_json::to_string(&value).unwrap();
+        unsafe {
+            let mut ser = PgList::new();
+            ser.push(pg_sys::makeString(content.as_pg_cstr()).cast::<pg_sys::Node>());
+            ser.into_pg()
+        }
+    }
+}

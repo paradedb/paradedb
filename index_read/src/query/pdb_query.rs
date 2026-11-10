@@ -2351,10 +2351,8 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
         .collect()
 }
 
-/// Whether the synonym index `index` turns `value` into a group of alternatives. The tokens come
-/// from the tokenizer in the index options, since the planner has no searcher. The selectivity
-/// estimate builds the query before this, so a synonym index that fails to open has failed the
-/// query there.
+/// Whether the synonym index `index` turns `value` into a group of alternatives. The planner has
+/// no searcher, so the tokens come from the tokenizer in the index options.
 pub(crate) fn match_expands_with_synonyms(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
@@ -2372,6 +2370,7 @@ pub(crate) fn match_expands_with_synonyms(
     while stream.advance() {
         tokens.push(stream.token().text.clone());
     }
+    // The selectivity estimate builds the same query first, so it has already raised any error.
     expand_match(index, search_field, schema, None, &tokens).is_ok_and(|expansions| {
         expansions
             .iter()

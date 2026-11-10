@@ -342,8 +342,8 @@ pub(super) struct ScanParallelismInputs<'a> {
     /// heuristic because PG under-costs the serial HashAggregate for non-collapsing grouping.
     pub(super) has_grouping: bool,
     /// True when a synonym rule turns the one token of the match into a group of alternatives,
-    /// which prunes less than one term.
-    pub(super) expands_with_synonyms: bool,
+    /// which prunes less than one term. The call reads the synonym index.
+    pub(super) expands_with_synonyms: &'a dyn Fn() -> bool,
 }
 
 /// Decide how to shape a scan's paths. The numbered steps mirror the module-level decision tree;
@@ -375,7 +375,7 @@ pub(super) unsafe fn decide_scan_parallelism(inputs: ScanParallelismInputs) -> W
     //    Block-WAND, and the predicate must actually prune, not just look like a term.
     if matches!(prunability, TopKPrunability::PrunableCandidate)
         && query.is_topk_prunable()
-        && !expands_with_synonyms
+        && !expands_with_synonyms()
     {
         return WorkerPathPolicy::SerialOnly {
             reason: WorkerDecisionReason::BlockWandPrunable,

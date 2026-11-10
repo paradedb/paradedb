@@ -18,7 +18,9 @@ SETTING_DRIVEN_FIELD = re.compile(
 
 def setting_driven_field(expression, required):
     """The required field a `postgres_expression` searches, or None for any other expression."""
-    match = SETTING_DRIVEN_FIELD.fullmatch(str(expression.get("expr", {}).get("expr_desc", "")))
+    match = SETTING_DRIVEN_FIELD.fullmatch(
+        str(expression.get("expr", {}).get("expr_desc", ""))
+    )
     return match["field"] if match and match["field"] in required else None
 
 
@@ -80,17 +82,15 @@ def verify(plan, filtered, neighbors=None, fields=None):
     matching = []
     for scan in scans:
         query = scan.get("Tantivy Query", '"all"')
-        if isinstance(query, str):
-            query = json.loads(query)
-        pending = [query]
+        pending = [json.loads(query) if isinstance(query, str) else query]
         indexed_fields = set()
         while pending:
             part = pending.pop()
             if isinstance(part, dict):
-                expression = part.get("postgres_expression")
                 field = (
-                    setting_driven_field(expression, required)
-                    if isinstance(expression, dict) and len(part) == 1
+                    setting_driven_field(part["postgres_expression"], required)
+                    if isinstance(part.get("postgres_expression"), dict)
+                    and len(part) == 1
                     else None
                 )
                 if field is not None:

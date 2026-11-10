@@ -67,10 +67,10 @@ SELECT sum(vector_total_rows) = sum(vector_num_vectors)
 FROM paradedb.vector_info('remerge_idx', 'vec')
 WHERE vector_format = 'ivf';
 
--- ...routed by a stacked router whose bottom level holds at most the
--- segment's centroids; flat segments have no router.
+-- ...routed by a quantized stacked router whose bottom level holds at most
+-- the segment's centroids; flat segments have no router.
 SELECT bool_and(CASE WHEN vector_format = 'ivf'
-                     THEN vector_router = 'stacked'
+                     THEN vector_router = 'quantized_stacked'
                           AND cardinality(vector_router_levels) >= 1
                           AND vector_router_levels[1] <= vector_num_centroids
                      ELSE vector_router IS NULL AND vector_router_levels IS NULL

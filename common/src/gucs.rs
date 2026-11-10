@@ -1,0 +1,1501 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use pgrx::guc::GucEnum;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel, PgSqlErrorCode, function_name,
+    pg_sys,
+};
+use std::ffi::CStr;
+use std::num::NonZeroUsize;
+use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
+
+pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
+pub const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
+pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
+
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlannerWarnings {
+    Off,
+    #[default]
+    Warning,
+    Error,
+}
+
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum DisjunctionPruning {
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    #[name = c"wand"]
+    Wand,
+    #[name = c"maxscore"]
+    MaxScore,
+}
+
+static DISJUNCTION_PRUNING: GucSetting<DisjunctionPruning> =
+    GucSetting::<DisjunctionPruning>::new(DisjunctionPruning::Auto);
+
+/// Spill DataFusion sorts and aggregates (and the join operators DataFusion can spill) to
+/// a `BufFile` temp file on `work_mem` overflow, instead of erroring. Off by default.
+static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Allows the user to toggle the use of our "ParadeDB Base Scan".
+static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
+static ENABLE_BITMAP_INTERSECTION: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
+static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+static COUNT_PARALLEL_THRESHOLD_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(96.0);
+
+/// Allows visibility proofs from segment bounds and heap-block document ranges.
+static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows pruning segments via `.stats` and `.fast` field bounds before estimation and execution.
+static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
+static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
+    GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
+
+/// Recheck saved plans when their diagnostic policy changes, including SET LOCAL rollback.
+/// PostgreSQL calls assign hooks before updating the GUC's stored value.
+#[pgrx::pg_guard]
+unsafe extern "C-unwind" fn assign_planner_warnings(
+    new_value: std::ffi::c_int,
+    _extra: *mut std::ffi::c_void,
+) {
+    if new_value != PLANNER_WARNINGS.get().to_ordinal() {
+        unsafe { pg_sys::ResetPlanCache() };
+    }
+}
+
+/// Allows the user to toggle the use of our "ParadeDB Join Scan".
+static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to toggle range co-partitioning for joins.
+static ENABLE_RANGE_PARTITIONED_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
+/// default is `false`.
+static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
+/// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
+static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+// TODO: `paradedb.enable_fast_field_exec` is unread since #2908; deprecate and remove it.
+/// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
+static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
+static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
+static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+/// The scale factor for the chunk size in a Top K query.
+static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+
+/// The maximum chunk size for a Top K query.
+static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
+
+/// The maximum number of buckets that can be returned by a TermsAggregation
+static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
+
+/// Estimated matching row count below which `visibility => 'threshold'` applies
+/// transaction visibility checking. At or above it, the aggregate reads raw index
+/// data. Small result sets are where an unvacuumed dead tuple visibly skews the
+/// answer, so those keep the checks; large ones trade a negligible error margin
+/// for the scan.
+static VISIBILITY_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
+/// Minimum estimated number of dirty (non-all-visible) heap blocks across the table
+/// before emitting a once-per-statement warning when at least half of the scanned
+/// range is not all-visible in the visibility map. Set to 0 to disable.
+static VISIBILITY_MAP_WARNING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
+/// The maximum response size in bytes for a window aggregate.
+static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(1_048_576);
+
+/// For testing, ensures the same handling of null aggregates as Postgres
+static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// The number of columnar fields below which the ColumnarExecState will be used, rather
+/// than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas
+/// the Normal mode fetches data as row-oriented.
+///
+/// Each fetch from a fast-field column costs one or two disk seeks, whereas a fetch of a row
+/// generally costs one. But with a wide enough row, fetching multiple columns might still result
+/// in better cache performance than fetching a row.
+static COLUMNAR_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
+static COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME: &CStr = c"paradedb.columnar_exec_column_threshold";
+
+/// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
+/// to one hundred million.
+///
+/// The reason for this is we really do not want Postgres to choose a plan where the `@@@` operator
+/// is used in a sequential scan, filter, or recheck condition... unless of course there's no
+/// other way to solve the query.
+///
+/// This value is a multiplier that Postgres applies to the estimated row count any given `@@@`
+/// query clause will return.  In our case, higher is better.
+///
+/// Our IAM impl has its own costing functions that don't use this GUC and provide sensible estimates
+/// for the overall IndexScan.  That plus this help to persuade Postgres to use our IAM whenever
+/// it logically can.
+static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
+
+static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
+static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
+static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
+static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// When true, queries with expensive scorer construction (fuzzy, regex, range)
+/// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
+static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Factor that scales the heuristic match estimate into a `DocSet::cost()` for the TopK
+/// worker decision on expensive-to-estimate shapes (see `EXPENSIVE_QUERY_COST_FACTOR`).
+static EXPENSIVE_QUERY_COST_FACTOR: GucSetting<f64> =
+    GucSetting::<f64>::new(crate::EXPENSIVE_QUERY_COST_FACTOR);
+
+/// Minimum number of rows per parallel worker.
+/// Controls how many workers are spawned based on estimated row count.
+/// Based on benchmarks, the crossover point where parallel becomes beneficial
+/// is around 300K rows total. Setting to 300K ensures tables under ~300K rows
+/// won't use parallel, and larger tables scale workers appropriately.
+static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
+
+/// Override the scanner batch size when dynamic filters are pushed down.
+/// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
+/// size is capped to this value during filter pushdown so that Top K can tighten
+/// its threshold between batches.
+static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+
+/// Where one half of a late-materialized string column's lookup runs. `Auto` leaves the
+/// choice to the placement rule; `On` keeps the step as late as the other half allows; `Off`
+/// runs it inside the scan.
+#[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DeferredPlacement {
+    #[default]
+    #[name = c"auto"]
+    Auto,
+    #[name = c"on"]
+    On,
+    #[name = c"off"]
+    Off,
+}
+
+static DEFER_COLUMN_FETCH: GucSetting<DeferredPlacement> =
+    GucSetting::<DeferredPlacement>::new(DeferredPlacement::Auto);
+
+static DEFER_STRING_DECODE: GucSetting<DeferredPlacement> =
+    GucSetting::<DeferredPlacement>::new(DeferredPlacement::Auto);
+
+/// Allows the user to enable or disable the SegmentedTopK optimization.
+/// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
+/// use per-segment ordinal pruning to reduce dictionary decoding.
+static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to enable or disable `RankJoinExec` (SA + RA Rank Join) for top-K scored joins.
+static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Minimum estimated matching rows on both join inputs required before `RankJoinRule`
+/// replaces a one-pass `HashJoinExec` with `RankJoinExec`. Set to 0 in tests to bypass
+/// the row-count floor.
+static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
+/// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0`.
+static RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD: GucSetting<f64> =
+    GucSetting::<f64>::new(UNSCORED_SELECTIVITY_THRESHOLD);
+
+/// Forces JoinScan to compute ORDER BY + LIMIT through the `topk_as_agg` aggregate
+/// instead of a `SortExec(fetch)`. Development switch for the Top-K-as-aggregate path;
+/// a window query with a LIMIT takes that path regardless.
+static JOINSCAN_FORCE_TOPK_AS_AGG: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
+/// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
+static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+#[cfg(debug_assertions)]
+static MPP_TEST_PANIC_IN_WORKER: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
+/// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
+/// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
+/// capture per-participant input/output row counts per shuffle at WARNING level (server log + CI
+/// logs). When off, the same call sites route through `debug1!()` — still reachable via
+/// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
+static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Minimum estimated row count in the scan's largest source for MPP to engage. The launch
+/// (worker spawn, plan dispatch, per-worker index opens) costs tens of milliseconds; below
+/// this size a serial plan finishes in the same order, so the query stays serial. Each
+/// source counts the rows its predicate is estimated to match (its live document count when
+/// unanalyzed). The benchmark grid loses across the board at 100k matched rows and wins
+/// from 1m up; the default sits between.
+///
+/// The default is a measurement, not a constant: it tracks the MPP-vs-serial crossover,
+/// which moves whenever MPP's per-query economics move. Recalibrate it when the launch
+/// floor shrinks, and when the distributed plan closes a capability gap against the serial
+/// plan. The known open gap is dynamic filters across process boundaries: within one
+/// process a join's build side prunes the probe scan, but a filter never crosses the mesh,
+/// so selective joins pay a penalty under MPP that inflates the serial side of the
+/// crossover. To recompute: run the benchmark suite's join queries (serial vs the MPP
+/// alternatives) across the dataset scales and set the default between the largest losing
+/// scale and the smallest winning one.
+static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
+
+/// Per-query DSM ring budget divided across the `2 * W^2` SPSC byte rings in an MPP mesh with `W`
+/// producer workers (`mpp_queue_size / (2 * W^2)`, floored at `16 KiB` and rounded down to a power
+/// of two). With the default `8 MiB` setting, each ring is `1 MiB` at `W = 2`, `256 KiB` at
+/// `W = 3..=4`, `64 KiB` at `W = 8`, and `16 KiB` at `W = 16`, keeping the per-query DSM
+/// allocation bounded within Docker's default `64 MiB` `/dev/shm` across worker counts. Messages
+/// larger than a ring stream through it in chunks, so the size bounds backpressure granularity and
+/// launch cost, not what a query can carry.
+static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
+
+/// The maximum size of an InList that can be pushed down to a TermSet Query.
+static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
+    GucSetting::<i32>::new(16 * 1024 * 1024);
+
+/// The maximum number of distinct values in an InList that can be pushed down
+/// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
+/// DataFusion (HashExpr at the join, or PreFilter when the join feeds a
+/// dynamic filter).
+///
+/// Bench-tuned: on a sorted-segment index, pushdown wins through K=14K
+/// (1.08×–9.27× over PreFilter at N=1M) and loses at K=20K (0.90×). 20,000
+/// is the upper edge of the crossover band — admits K=15K–19K (interpolated
+/// wins) at the cost of one boundary cell (K=20,000 exact: 11% slowdown).
+///
+/// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
+/// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
+/// bound. Set to 0 to disable pushdown entirely.
+static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
+    GucSetting::<i32>::new(20_000);
+
+/// Row count threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS: GucSetting<i32> =
+    GucSetting::<i32>::new(128 * 1024);
+
+/// Byte size threshold below which DataFusion converts a partitioned HashJoinExec
+/// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
+static HASH_JOIN_SINGLE_PARTITION_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(1024 * 1024);
+
+/// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
+/// sorted segments. When `false`, the planner never returns the gallop
+/// strategy regardless of density, and pushed-down InList filters fall
+/// back to the legacy linear scan even for sorted segments.
+static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// First-column `BitsetFromPostings` density gate for unique-valued
+/// columns (`D = 1`, i.e. `dict_size >= N`, e.g. primary keys). Bitset
+/// is admitted when `K' / N <= bitset_max_density_unique`. Default
+/// `1/2000 = 0.0005` (Phase 6.11) — calibrated against the SSTable
+/// backend where per-`dict.get` zstd block decompress dominates per-K
+/// cost on unique columns. Matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 2000.0);
+
+/// First-column `BitsetFromPostings` density gate for non-unique
+/// columns (`D >= 2`, e.g. foreign-key shape). Bitset is admitted when
+/// `K' / N <= bitset_max_density_multi`. Default `1/200 = 0.005`
+/// (Phase 6.13) — 10× looser than the unique threshold because batched
+/// dictionary lookups amortize the zstd block decompress across
+/// multiple keys per block on non-unique columns. Matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
+
+/// Maximum fraction of each segment's IVF clusters probed by a vector query.
+static VECTOR_CLUSTER_MAX_PROBE: GucSetting<f64> = GucSetting::<f64>::new(0.02);
+
+/// Returns the maximum IVF probe fraction.
+pub fn vector_cluster_max_probe() -> f32 {
+    VECTOR_CLUSTER_MAX_PROBE.get() as f32
+}
+
+static VECTOR_ROUTER_RERANK_FACTOR: GucSetting<f64> = GucSetting::<f64>::new(2.0);
+static VECTOR_ROUTER_MIN_BEAM_FRACTION: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+static VECTOR_ROUTER_APS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_router_rerank_factor() -> f32 {
+    VECTOR_ROUTER_RERANK_FACTOR.get() as f32
+}
+
+pub fn vector_router_min_beam_fraction() -> f32 {
+    VECTOR_ROUTER_MIN_BEAM_FRACTION.get() as f32
+}
+
+pub fn vector_router_aps() -> bool {
+    VECTOR_ROUTER_APS.get()
+}
+
+/// Fixed IVF cluster-open cost measured in fully scored rows.
+static VECTOR_FIXED_PROBE_COST_ROWS: GucSetting<f64> =
+    GucSetting::<f64>::new(tantivy::vector::DEFAULT_FIXED_PROBE_COST_ROWS);
+
+/// Returns the fixed IVF cluster-open cost.
+pub fn vector_fixed_probe_cost_rows() -> f64 {
+    VECTOR_FIXED_PROBE_COST_ROWS.get()
+}
+
+/// Maximum quantization layers scored; zero disables quantized scoring.
+static VECTOR_MAX_SCAN_LEVELS: GucSetting<i32> = GucSetting::<i32>::new(3);
+
+/// Returns the maximum quantization prefix depth.
+pub fn vector_max_scan_levels() -> usize {
+    VECTOR_MAX_SCAN_LEVELS.get().max(0) as usize
+}
+
+/// Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`.
+static VECTOR_STATS: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Returns whether per-segment vector scan statistics are shown in EXPLAIN.
+pub fn vector_stats() -> bool {
+    VECTOR_STATS.get()
+}
+
+/// Registered for compatibility. Nothing reads it.
+static VECTOR_ROUTER_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+/// Registered for compatibility. Nothing reads it.
+static VECTOR_RECALL_TARGET: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+/// Minimum merged-segment row count for IVF vector storage.
+static VECTOR_CLUSTERING_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(500);
+
+/// Returns the IVF clustering threshold.
+pub fn vector_clustering_threshold() -> usize {
+    VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
+}
+
+static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
+    VECTOR_ADAPTIVE_PROBING
+        .get()
+        .then_some(tantivy::vector::AdaptiveProbeParams::default())
+}
+
+pub fn init() {
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_adaptive_probing",
+        c"Stop vector probing early using admission-rate decay",
+        c"Uses the same routing and work budgets as fixed probing. May stop probing early after competitive-candidate admission decays.",
+        &VECTOR_ADAPTIVE_PROBING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    // Note that Postgres is very specific about the naming convention of variables.
+    // They must be namespaced... we use 'paradedb.<variable>' below.
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.spill_to_disk",
+        c"Spill DataFusion queries to disk instead of erroring on work_mem overflow",
+        c"When a JoinScan or AggregateScan query would exceed work_mem, spill sorts and aggregates (and the join operators DataFusion can spill) to a BufFile-backed temp file and complete the query, instead of returning a work_mem-exceeded error",
+        &SPILL_TO_DISK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_custom_scan",
+        c"Enable ParadeDB's custom scan",
+        c"Enable ParadeDB's custom scan, which replaces table scans with ParadeDB index scans in cases where beneficial",
+        &ENABLE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_aggregate_custom_scan",
+        c"Enable ParadeDB's custom aggregate scan",
+        c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
+        &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_bitmap_postings",
+        c"Use optional term posting bitmaps for unscored queries",
+        c"Disable to read ordinary postings without rebuilding the index",
+        &ENABLE_BITMAP_POSTINGS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_bitmap_intersection",
+        c"Enable intersecting ParadeDB scans with bitmaps from other indexes",
+        c"When enabled (default), a ParadeDB scan whose query carries heap-filter predicates covered by another index (btree, GiST, GIN) builds that index's bitmap and prunes documents against it before touching the heap.",
+        &ENABLE_BITMAP_INTERSECTION,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_visibility_map_shortcuts",
+        c"Enable visibility-map shortcuts for segments and document ranges",
+        c"When disabled, fetch each matching document's CTID and use per-row visibility checks",
+        &ENABLE_VISIBILITY_MAP_SHORTCUTS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_segment_pruning",
+        c"Enable segment pruning from per-segment field statistics",
+        c"When disabled, queries do not prune segments via .stats or .fast bounds during planning or execution",
+        &ENABLE_SEGMENT_PRUNING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    unsafe {
+        GucRegistry::define_enum_guc_with_hooks(
+            c"paradedb.planner_warnings",
+            c"Controls ParadeDB planning and execution diagnostics",
+            c"When set to 'warning' (default), logs warnings about scan fallbacks, filter spills, \
+              and stale visibility maps. When set to 'error', raises an error instead, except \
+              during EXPLAIN without ANALYZE. When set to 'off', suppresses these diagnostics. \
+              Changing this setting invalidates cached plans.",
+            &PLANNER_WARNINGS,
+            GucContext::Userset,
+            GucFlags::default(),
+            None,
+            Some(assign_planner_warnings),
+            None,
+        );
+    }
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.disjunction_pruning",
+        c"Pruning algorithm for scored term disjunctions",
+        c"'auto' selects per segment; 'wand' or 'maxscore' overrides the automatic cutoffs for eligible score-ordered top-k disjunctions. Other query paths are unchanged.",
+        &DISJUNCTION_PRUNING,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_join_custom_scan",
+        c"Enable ParadeDB's join custom scan",
+        c"Enable ParadeDB's join custom scan, which pushes eligible joins down into the ParadeDB executor. Default is true.",
+        &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_range_partitioned_join",
+        c"Enables range co-partitioned joins and asymmetric range alignment for MPP joins",
+        c"When enabled, MPP inner joins co-partition or align streams using split points from partition_by indexes. Co-partitioning requires partition_by on both tables, while asymmetric alignment requires it only on the larger table. Default is true.",
+        &ENABLE_RANGE_PARTITIONED_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_custom_scan_without_operator",
+        c"Enable ParadeDB's custom scan to run without the `@@@` operator",
+        c"Enable ParadeDB's custom scan to run even when the `@@@` operator has not been used in a query, as long as the entire WHERE clause is able to be pushed down",
+        &ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_filter_pushdown",
+        c"Enable ParadeDB's custom scan for queries with non-indexed fields",
+        c"Enable ParadeDB's custom scan to handle queries that include non-indexed field predicates using HeapExpr for heap filtering. When disabled, such queries will fall back to standard PostgreSQL execution",
+        &ENABLE_FILTER_PUSHDOWN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_fast_field_exec",
+        c"Enable StringFastFieldsExecState and NumericFastFieldsExecState executor",
+        c"Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string columnar field or multiple numeric columnar fields",
+        &ENABLE_FAST_FIELD_EXEC,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_columnar_exec",
+        c"Enable ColumnarExecState executor",
+        c"Enable the ColumnarExecState executor for handling multiple string columnar fields or mixed string/numeric columnar fields",
+        &ENABLE_COLUMNAR_EXEC,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+                COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
+        c"The number of columnar fields below which the ColumnarExecState will be used, rather \
+         than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas \
+         the Normal mode fetches data as row-oriented.",
+        &COLUMNAR_EXEC_COLUMN_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.per_tuple_cost",
+        c"Arbitrary multiplier for the cost of retrieving a tuple from a USING paradedb index outside of an IndexScan",
+        c"Default is 100,000,000.0.  It is very expensive to use a USING paradedb index in the wrong query plan",
+        &PER_TUPLE_COST,
+        0.0,
+        f64::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.count_parallel_threshold_multiplier",
+        c"Parallelism threshold multiplier for fast count traversal",
+        c"Discounts traversal work for match-all or term-only counts without GROUP BY, FILTER, or ORDER BY. Heap visibility work is not discounted.",
+        &COUNT_PARALLEL_THRESHOLD_MULTIPLIER,
+        1.0,
+        1_000_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.limit_fetch_multiplier",
+        c"Multiplier for the limit in a Top K query",
+        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a Top K query but increases query times.",
+        &LIMIT_FETCH_MULTIPLIER,
+        1.0,
+        100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.expensive_query_cost_factor",
+        c"Cost factor for expensive-to-estimate queries in the TopK worker decision",
+        c"For fuzzy/regex/MLT queries (whose scorer is too expensive to build at plan time), the heuristic match estimate is multiplied by this factor to approximate the query's DocSet::cost(). Higher values make these shapes parallelize more readily.",
+        &EXPENSIVE_QUERY_COST_FACTOR,
+        0.0,
+        100000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_topk_chunk_size",
+        c"Maximum chunk size for a Top K query",
+        c"A higher value reduces the probability of a re-query for a Top K query but increases the memory usage",
+        &MAX_TOPK_CHUNK_SIZE,
+        1,
+        1_000_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.topk_retry_scale_factor",
+        c"Scale factor for the chunk size in a Top K query",
+        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a Top K query but increases query times.",
+        &TOPK_RETRY_SCALE_FACTOR,
+        1,
+        100,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_term_agg_buckets",
+        c"Maximum number of buckets/groups that can be returned by a terms aggregation",
+        c"If a GROUP BY / terms aggregation would produce more groups than this, the result would be silently truncated, so the query is cancelled with an error instead. Raise this to cover the group cardinality, or add a LIMIT to bound the result.",
+        &MAX_TERM_AGG_BUCKETS,
+        1,
+        DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.visibility_threshold",
+        c"Estimated matching row count below which `visibility => 'threshold'` applies transaction visibility checking",
+        c"An aggregate using `visibility => 'threshold'` applies MVCC visibility checking when the query's estimated matching row count is strictly less than this, and reads raw index data otherwise. Has no effect on `visibility => 'transaction'` or `visibility => 'raw'`.",
+        &VISIBILITY_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.visibility_map_warning_threshold",
+        c"Minimum number of dirty heap blocks before warning about a stale visibility map",
+        c"When a scan checks the visibility map and estimates at least this many non-all-visible heap blocks across the table (covering at least 50% of the scanned block range), emits a once-per-statement warning recommending VACUUM and autovacuum tuning. Set to 0 (or set paradedb.planner_warnings = 'off') to disable.",
+        &VISIBILITY_MAP_WARNING_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_window_aggregate_response_bytes",
+        c"Maximum response size in bytes for a window aggregate.",
+        c"The maximum response size in bytes for a window aggregate during a parallel scan. If this is exceeded, the query will be cancelled.",
+        &MAX_WINDOW_AGGREGATE_RESPONSE_BYTES,
+        1024,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.global_target_segment_count",
+        c"a global target segment count override",
+        c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
+        &GLOBAL_TARGET_SEGMENT_COUNT,
+        0,
+        MAX_TARGET_SEGMENT_COUNT,
+        GucContext::Sighup,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.global_enable_background_merging",
+        c"Enable write-triggered background merging",
+        c"Periodic mutable sweeps are controlled separately by paradedb.mutable_sweep_interval",
+        &GLOBAL_ENABLE_BACKGROUND_MERGING,
+        GucContext::Sighup,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.explain_recursive_estimates",
+        c"Enable recursive estimates in EXPLAIN VERBOSE",
+        c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
+        &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_max_probe",
+        c"IVF probe-work budget, as a fraction of cluster count, for vector ORDER BY queries",
+        c"Controls the router request and the work ceiling. Adaptive probing may stop before the ceiling is reached.",
+        &VECTOR_CLUSTER_MAX_PROBE,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_fixed_probe_cost_rows",
+        c"Fixed per-probe cost (the cluster OPEN) in rows of full work, for the IVF probe budget (testing knob)",
+        c"Rows of work charged for opening one IVF cluster.",
+        &VECTOR_FIXED_PROBE_COST_ROWS,
+        0.001,
+        10_000.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_rerank_factor",
+        c"Approximate candidates retained per requested centroid by quantized routing",
+        c"Retain ceil(factor * router_k) candidates before exact reranking. A factor of 1 removes padding but still reranks exactly. Does not widen list selection or change document probing budgets.",
+        &VECTOR_ROUTER_RERANK_FACTOR,
+        1.0,
+        16.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_min_beam_fraction",
+        c"Minimum fraction of each quantized router level's lists to open",
+        c"Query-time shortlist breadth. Full-precision routing retains its existing beam.",
+        &VECTOR_ROUTER_MIN_BEAM_FRACTION,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_router_aps",
+        c"Allow stacked routing to stop after quiet lists",
+        c"Applies to full-precision and quantized hierarchical routing.",
+        &VECTOR_ROUTER_APS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    // Registered so SHOW and pg_settings stay stable. Nothing reads these.
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_router_recall_target",
+        c"Registered for compatibility; nothing reads it",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
+        &VECTOR_ROUTER_RECALL_TARGET,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_recall_target",
+        c"Registered for compatibility; nothing reads it",
+        c"Accepted so existing settings keep working. Nothing reads it. Use paradedb.vector_cluster_max_probe to control probing.",
+        &VECTOR_RECALL_TARGET,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_scan_levels",
+        c"Maximum quantized vector layers scored before exact scoring",
+        c"Uses a prefix of the quantization schedule built for the vector field. Values above the built layer count clamp to that count. 0 disables quantized scoring; routing and the probe budget still apply.",
+        &VECTOR_MAX_SCAN_LEVELS,
+        0,
+        3,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.vector_stats",
+        c"Show per-segment vector scan statistics in EXPLAIN (ANALYZE, VERBOSE)",
+        c"Adds the Segment Info block with per-segment probe, layer, exact-scoring, and IO counters for vector ORDER BY queries. Intended for diagnosing vector search performance.",
+        &VECTOR_STATS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_clustering_threshold",
+        c"Doc-count boundary at which merged segments switch from flat to IVF vector storage",
+        c"A merge whose target segment has at least this many docs writes clustered (IVF) vector storage; below it, flat. Captured into the index's stored settings at CREATE INDEX time.",
+        &VECTOR_CLUSTERING_THRESHOLD,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.global_mutable_segment_rows",
+        c"a global mutable segment rows override",
+        c"Setting this to a non-negative value ignores the `mutable_segment_rows` property on all indexes in favor of this value",
+        &GLOBAL_MUTABLE_SEGMENT_ROWS,
+        -1,
+        MAX_MUTABLE_SEGMENT_ROWS as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.add_doc_count_to_aggs",
+        c"for testing, ensures the same handling of null aggregates as Postgres",
+        c"Meant for internal testing usage",
+        &ADD_DOC_COUNT_TO_AGGS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_heuristic_selectivity",
+        c"Use heuristic selectivity for expensive query types",
+        c"When enabled, fuzzy, regex, and range queries use a cheap heuristic for planner selectivity estimation instead of constructing a full Tantivy scorer. Default is true.",
+        &ENABLE_HEURISTIC_SELECTIVITY,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.min_rows_per_worker",
+        c"Minimum rows per parallel worker",
+        c"Controls how many parallel workers are used based on estimated row count. \
+          Workers are limited so each processes at least this many rows. \
+          Set to 0 to disable this check and use segment-based parallelism only.",
+        &MIN_ROWS_PER_WORKER,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.defer_column_fetch",
+        c"Where the columnar-field fetch of a late-materialized string column runs",
+        c"When 'auto' (default), the placement rule keeps the fetch with the decode unless the \
+          rows reach it out of doc order or multiplied by a join, in which case the scan \
+          resolves the term ordinals itself. 'on' keeps the fetch with the decode, wherever \
+          the decode runs; 'off' always runs it in the scan. A list column has no fetch step \
+          of its own, so this setting does not apply to it.",
+        &DEFER_COLUMN_FETCH,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_enum_guc(
+        c"paradedb.defer_string_decode",
+        c"Where the dictionary decode of a late-materialized string column runs",
+        c"When 'auto' (default), the placement rule defers the decode to the point where the \
+          string is consumed unless a join multiplies the rows on the way and nothing above \
+          bounds them, in which case the scan decodes the column. 'on' always defers the \
+          decode; 'off' never defers a string column. A list column such as text[] follows \
+          this setting as a whole and is read and decoded in one step where it is consumed.",
+        &DEFER_STRING_DECODE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_segmented_topk",
+        c"Enable SegmentedTopK optimization for Top K queries on deferred columns",
+        c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
+          uses per-segment ordinal pruning to reduce dictionary decoding. \
+          All input is collected before emitting (EmissionType::Final) so only \
+          the exact Top K rows per segment are sent to dictionary decoding. \
+          Global thresholds are published progressively to the scanner \
+          for early row pruning during collection.",
+        &ENABLE_SEGMENTED_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_rank_join",
+        c"Enable RankJoinExec (SA + RA Rank Join) for top-K scored joins",
+        c"When enabled, top-K joins ordered by a monotonic score expression use \
+          RankJoinExec with lazy score-ordered (SA) and point-lookup (RA) scan streams.",
+        &ENABLE_RANK_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.rank_join_min_rows",
+        c"Minimum estimated matching rows on both join inputs for RankJoinExec",
+        c"Minimum estimated matching rows on both join inputs before RankJoinRule replaces \
+          a one-pass HashJoinExec with RankJoinExec. Set to 0 to bypass the size floor.",
+        &RANK_JOIN_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.rank_join_unscored_selectivity_threshold",
+        c"Minimum estimated selectivity on unscored (RA) join inputs for RankJoinExec",
+        c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
+          inputs of a single-sided (NRJN) join when paradedb.rank_join_min_rows > 0.",
+        &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.joinscan_force_topk_as_agg",
+        c"Force JoinScan to compute ORDER BY + LIMIT with the topk_as_agg aggregate",
+        c"Development switch. When enabled, JoinScan runs its Top K through the \
+          topk_as_agg aggregate instead of a SortExec(fetch).",
+        &JOINSCAN_FORCE_TOPK_AS_AGG,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_inlist_pushdown_max_size",
+        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        &HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
+        &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold_rows",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Row count threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_single_partition_threshold",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        c"Byte size threshold below which DataFusion converts partitioned hash joins to CollectLeft (broadcast). Set to 0 to force Partitioned mode.",
+        &HASH_JOIN_SINGLE_PARTITION_THRESHOLD,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    // TermSet strategy density thresholds (issue #4895). The kill-switch
+    // (paradedb.term_set_gallop_enabled) is the safety override if the
+    // gallop optimization regresses unexpectedly; the three density
+    // values tune the planner without recompiling. Each density is
+    // unitless and bounded to [0.0, 1.0]. Gates use `<=` so a threshold
+    // value at the cell's density admits the more-aggressive strategy.
+    GucRegistry::define_bool_guc(
+        c"paradedb.term_set_gallop_enabled",
+        c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
+        c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
+        &TERM_SET_GALLOP_ENABLED,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_bitset_max_density_unique",
+        c"BitsetFromPostings is selected over LinearScan when K' / N is at or below this density on unique-valued columns (D = 1).",
+        c"For columns where every doc has a distinct value (primary keys, UUIDs). K' is the number of distinct terms surviving min/max pruning; N is the segment size. Default 0.0005 (= 1/2000) calibrated against the SSTable backend in Phase 6.11. Lower values route more queries to LinearScan.",
+        &TERM_SET_BITSET_MAX_DENSITY_UNIQUE,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_bitset_max_density_multi",
+        c"BitsetFromPostings is selected over LinearScan when K' / N is at or below this density on non-unique columns (D >= 2).",
+        c"For columns where multiple docs share the same value (foreign keys, status enums). Default 0.005 (= 1/200), 10x looser than the unique threshold because batched dictionary lookups amortize the SSTable zstd block decompress across multiple keys per block on non-unique columns (Phase 6.13). Lower values route more queries to LinearScan.",
+        &TERM_SET_BITSET_MAX_DENSITY_MULTI,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.dynamic_filter_batch_size",
+        c"Scanner batch size override for dynamic filter pushdown",
+        c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
+          Top K can tighten its threshold between batches. 0 disables the override.",
+        &DYNAMIC_FILTER_BATCH_SIZE,
+        0,
+        128_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_debug",
+        c"Emit verbose MPP runtime diagnostics",
+        c"When enabled, `mpp_log!()` calls route through `pgrx::warning!()` so MPP \
+          lifecycle and transport events appear in the Postgres server log. Default is false.",
+        &MPP_DEBUG,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    #[cfg(debug_assertions)]
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_test_panic_in_worker",
+        c"Trigger a panic in the MPP worker",
+        c"Used for testing error propagation.",
+        &MPP_TEST_PANIC_IN_WORKER,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_trace",
+        c"Emit MPP setup timing at WARNING level",
+        c"When enabled, mesh setup timing (ring create and attach in leader_setup / \
+          worker_setup) routes through `pgrx::warning!()` so it appears in the Postgres \
+          server log (and in CI benchmark logs). These lines emit from every participant \
+          and can reorder run-to-run, so they're kept off `mpp_debug` to avoid flaking \
+          regress expected files. Default is false.",
+        &MPP_TRACE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_rows",
+        c"Minimum estimated source row count for MPP",
+        c"MPP engages only when the scan's largest source is estimated to match at least \
+          this many rows (its live document count when the table is unanalyzed); smaller \
+          queries run serially, where the launch cost would dominate. Set to 0 to disable \
+          the size gate.",
+        &MPP_MIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_queue_size",
+        c"Queue size budget for MPP DSM SPSC byte rings",
+        c"Sets the per-query DSM ring budget divided across all 2 * W^2 SPSC rings in an MPP \
+          mesh (`mpp_queue_size / (2 * W^2)`, floored at 16kB and rounded down to a power of \
+          two). Accepts standard Postgres byte units (e.g. '64MB', '1GB', '512kB'). With the \
+          default 8MB setting, each ring is 1MB at W=2, 256kB at W=3..4, 64kB at W=8, and 16kB \
+          at W=16, keeping the per-query DSM allocation bounded within Docker's default 64MB \
+          /dev/shm across worker counts. Payloads larger than a ring stream through it in \
+          chunks. Lower this on memory-constrained boxes; raise it when shuffle batches \
+          routinely back up the ring.",
+        &MPP_QUEUE_SIZE,
+        64 * 1024,
+        1024 * 1024 * 1024,
+        GucContext::Userset,
+        GucFlags::UNIT_BYTE,
+    );
+}
+
+/// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.
+pub fn spill_to_disk() -> bool {
+    SPILL_TO_DISK.get()
+}
+
+pub fn enable_custom_scan() -> bool {
+    ENABLE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_aggregate_custom_scan() -> bool {
+    ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_visibility_map_shortcuts() -> bool {
+    ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
+pub fn enable_segment_pruning() -> bool {
+    ENABLE_SEGMENT_PRUNING.get()
+}
+
+pub fn enable_bitmap_postings() -> bool {
+    ENABLE_BITMAP_POSTINGS.get()
+}
+
+pub fn enable_bitmap_intersection() -> bool {
+    ENABLE_BITMAP_INTERSECTION.get()
+}
+
+pub fn planner_warnings() -> PlannerWarnings {
+    PLANNER_WARNINGS.get()
+}
+
+pub fn disjunction_pruning() -> tantivy::query::DisjunctionPruning {
+    match DISJUNCTION_PRUNING.get() {
+        DisjunctionPruning::Auto => tantivy::query::DisjunctionPruning::Auto,
+        DisjunctionPruning::Wand => tantivy::query::DisjunctionPruning::BlockWand,
+        DisjunctionPruning::MaxScore => tantivy::query::DisjunctionPruning::BlockMaxScore,
+    }
+}
+
+pub fn enable_join_custom_scan() -> bool {
+    ENABLE_JOIN_CUSTOM_SCAN.get()
+}
+
+pub fn enable_range_partitioned_join() -> bool {
+    ENABLE_RANGE_PARTITIONED_JOIN.get()
+}
+
+pub fn enable_custom_scan_without_operator() -> bool {
+    ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR.get()
+}
+
+pub fn enable_filter_pushdown() -> bool {
+    ENABLE_FILTER_PUSHDOWN.get()
+}
+
+#[allow(dead_code)]
+pub fn is_fast_field_exec_enabled() -> bool {
+    ENABLE_FAST_FIELD_EXEC.get()
+}
+
+pub fn is_columnar_exec_enabled() -> bool {
+    ENABLE_COLUMNAR_EXEC.get()
+}
+
+pub fn columnar_exec_column_threshold() -> usize {
+    COLUMNAR_EXEC_COLUMN_THRESHOLD
+        .get()
+        .try_into()
+        .unwrap_or_else(|e| {
+            panic!(
+                "{} must be positive. {e}",
+                COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME.to_str().unwrap()
+            );
+        })
+}
+
+pub fn per_tuple_cost() -> f64 {
+    PER_TUPLE_COST.get()
+}
+
+pub fn max_topk_chunk_size() -> i32 {
+    MAX_TOPK_CHUNK_SIZE.get()
+}
+
+pub fn global_target_segment_count() -> i32 {
+    GLOBAL_TARGET_SEGMENT_COUNT.get()
+}
+
+pub fn global_enable_background_merging() -> bool {
+    GLOBAL_ENABLE_BACKGROUND_MERGING.get()
+}
+
+// NB:  MEMORY_BUDGET_NUM_BYTES_MIN comes from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MIN`], which is not publicly exposed
+pub mod limits {
+    const MARGIN_IN_BYTES: usize = 1_000_000;
+    // Size of the margin for the `memory_arena`. A segment is closed when the remaining memory
+    // in the `memory_arena` goes below MARGIN_IN_BYTES.
+    pub const MEMORY_BUDGET_NUM_BYTES_MIN: usize = 15 * MARGIN_IN_BYTES;
+
+    // We impose the memory per thread to be no greater than 1GB. Tantivy's hard limit is 4GB,
+    // but a single writer sees no meaningful throughput gains past ~1GB, so anything more is
+    // just wasted memory.
+    pub const MEMORY_BUDGET_NUM_BYTES_MAX: usize = 1024 * 1024 * 1024;
+}
+
+pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
+    let nlaunched = nlaunched.max(1);
+    let mwm_as_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
+    let per_worker_budget = mwm_as_bytes / nlaunched;
+
+    if per_worker_budget < limits::MEMORY_BUDGET_NUM_BYTES_MIN {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            "`maintenance_work_mem` is not high enough to give each parallel worker 15MB",
+            function_name!(),
+        )
+        .set_detail(format!("this query asked for {nlaunched} workers, so `maintenance_work_mem` must be at least {nlaunched} * 15MB"))
+        .set_hint("`SET maintenance_work_mem = <number>`")
+        .report(PgLogLevel::ERROR);
+    } else {
+        pgrx::debug1!(
+            "adjust_maintenance_work_mem: per_worker_budget: {per_worker_budget}, minimum: {}",
+            limits::MEMORY_BUDGET_NUM_BYTES_MIN
+        );
+    }
+
+    // clamp the per_worker_budget to the min/max values
+    let per_worker_budget = per_worker_budget.clamp(
+        limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+        limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
+    );
+
+    NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
+}
+
+/// Which interpretation of the `work_mem` setting to return from [`WorkMem::get`].
+pub enum WorkMem {
+    /// The raw `work_mem` setting, in bytes.
+    Postgres,
+    /// `work_mem` clamped to the min/max budget tantivy requires.
+    Tantivy,
+}
+
+impl WorkMem {
+    pub fn get(self) -> NonZeroUsize {
+        let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+        let wm_as_bytes = match self {
+            WorkMem::Postgres => wm_as_bytes,
+            WorkMem::Tantivy => wm_as_bytes.clamp(
+                limits::MEMORY_BUDGET_NUM_BYTES_MIN,
+                limits::MEMORY_BUDGET_NUM_BYTES_MAX - 1,
+            ),
+        };
+
+        NonZeroUsize::new(wm_as_bytes).unwrap()
+    }
+
+    pub fn bytes(self) -> usize {
+        self.get().get()
+    }
+}
+
+pub fn limit_fetch_multiplier() -> f64 {
+    LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn count_parallel_threshold_multiplier() -> f64 {
+    COUNT_PARALLEL_THRESHOLD_MULTIPLIER.get()
+}
+
+pub fn expensive_query_cost_factor() -> f64 {
+    EXPENSIVE_QUERY_COST_FACTOR.get()
+}
+
+pub fn visibility_threshold() -> u64 {
+    VISIBILITY_THRESHOLD.get().max(0) as u64
+}
+
+pub fn visibility_map_warning_threshold() -> u64 {
+    VISIBILITY_MAP_WARNING_THRESHOLD.get().max(0) as u64
+}
+
+pub fn max_term_agg_buckets() -> i32 {
+    let v = MAX_TERM_AGG_BUCKETS.get();
+    if v <= 0 {
+        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
+    }
+    v
+}
+
+pub fn max_window_aggregate_response_bytes() -> usize {
+    MAX_WINDOW_AGGREGATE_RESPONSE_BYTES.get() as usize
+}
+
+pub fn topk_retry_scale_factor() -> i32 {
+    TOPK_RETRY_SCALE_FACTOR.get()
+}
+
+pub fn global_mutable_segment_rows() -> Option<usize> {
+    let value = GLOBAL_MUTABLE_SEGMENT_ROWS.get();
+    if value >= 0 {
+        Some(value as usize)
+    } else {
+        None
+    }
+}
+
+pub fn explain_recursive_estimates() -> bool {
+    EXPLAIN_RECURSIVE_ESTIMATES.get()
+}
+
+pub fn enable_heuristic_selectivity() -> bool {
+    ENABLE_HEURISTIC_SELECTIVITY.get()
+}
+
+pub fn min_rows_per_worker() -> i32 {
+    MIN_ROWS_PER_WORKER.get()
+}
+
+pub fn add_doc_count_to_aggs() -> bool {
+    ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn dynamic_filter_batch_size() -> i32 {
+    DYNAMIC_FILTER_BATCH_SIZE.get()
+}
+
+pub fn enable_segmented_topk() -> bool {
+    ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_rank_join() -> bool {
+    ENABLE_RANK_JOIN.get()
+}
+
+pub fn rank_join_min_rows() -> usize {
+    RANK_JOIN_MIN_ROWS.get().max(0) as usize
+}
+
+pub fn rank_join_unscored_selectivity_threshold() -> f64 {
+    RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD
+        .get()
+        .clamp(0.0, 1.0)
+}
+
+pub fn joinscan_force_topk_as_agg() -> bool {
+    JOINSCAN_FORCE_TOPK_AS_AGG.get()
+}
+
+pub fn defer_column_fetch() -> DeferredPlacement {
+    DEFER_COLUMN_FETCH.get()
+}
+
+pub fn defer_string_decode() -> DeferredPlacement {
+    DEFER_STRING_DECODE.get()
+}
+
+pub fn mpp_debug() -> bool {
+    MPP_DEBUG.get()
+}
+
+#[cfg(debug_assertions)]
+pub fn mpp_test_panic_in_worker() -> bool {
+    MPP_TEST_PANIC_IN_WORKER.get()
+}
+
+pub fn mpp_trace() -> bool {
+    MPP_TRACE.get()
+}
+
+pub fn mpp_min_rows() -> i32 {
+    MPP_MIN_ROWS.get()
+}
+
+pub fn mpp_queue_size() -> usize {
+    MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn hash_join_inlist_pushdown_max_size() -> i32 {
+    HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
+}
+
+pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
+    HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn hash_join_single_partition_threshold_rows() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS.get()
+}
+
+pub fn hash_join_single_partition_threshold() -> i32 {
+    HASH_JOIN_SINGLE_PARTITION_THRESHOLD.get()
+}
+
+pub fn term_set_gallop_enabled() -> bool {
+    TERM_SET_GALLOP_ENABLED.get()
+}
+
+pub fn term_set_bitset_max_density_unique() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY_UNIQUE.get()
+}
+
+pub fn term_set_bitset_max_density_multi() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY_MULTI.get()
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::prelude::*;
+
+    macro_rules! assert_approx_eq {
+        ($a:expr, $b:expr, $percent:expr) => {{
+            let a = $a;
+            let b = $b;
+            let diff = if a > b { a - b } else { b - a };
+            let max_val = a.max(b);
+            let max_diff = ((max_val as f64) * ($percent as f64 / 100.0)).ceil() as usize;
+
+            assert!(
+                diff <= max_diff,
+                "assertion failed: `a = {}`, `b = {}` differ by more than {}% (allowed: {}, actual: {})",
+                a,
+                b,
+                $percent,
+                max_diff,
+                diff
+            );
+        }};
+    }
+
+    #[pg_test]
+    fn test_adaptive_vector_probe_settings() {
+        Spi::run(
+            "RESET paradedb.vector_cluster_max_probe; SET paradedb.vector_adaptive_probing = on;",
+        )
+        .unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
+        assert!(vector_adaptive_probing().is_some());
+        Spi::run("SET paradedb.vector_cluster_max_probe = 0.005;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
+        assert!(vector_adaptive_probing().is_none());
+        assert_eq!(vector_cluster_max_probe(), 0.005);
+        Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
+        assert_eq!(vector_cluster_max_probe(), 0.02);
+    }
+
+    #[pg_test]
+    fn test_work_mem() {
+        Spi::run("SET work_mem = '4MB';").unwrap();
+        assert_approx_eq!(WorkMem::Tantivy.bytes(), 15 * 1_000_000, 1.0);
+        assert_approx_eq!(WorkMem::Postgres.bytes(), 4 * 1024 * 1024, 1.0);
+
+        Spi::run("SET work_mem = '1GB';").unwrap();
+        assert_approx_eq!(WorkMem::Tantivy.bytes(), 1024 * 1024 * 1024, 1.0);
+        assert_approx_eq!(WorkMem::Postgres.bytes(), 1024 * 1024 * 1024, 1.0);
+    }
+
+    #[pg_test]
+    fn test_adjust_maintenance_work_mem() {
+        Spi::run("SET maintenance_work_mem = '16MB';").unwrap();
+        assert_approx_eq!(adjust_maintenance_work_mem(0).get(), 16 * 1024 * 1024, 1.0);
+        assert_approx_eq!(adjust_maintenance_work_mem(1).get(), 16 * 1024 * 1024, 1.0);
+        assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(2)).is_err());
+        assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(10)).is_err());
+
+        Spi::run("SET maintenance_work_mem = '1GB';").unwrap();
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(0).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(1).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(2).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert_approx_eq!(
+            adjust_maintenance_work_mem(10).get(),
+            1024 * 1024 * 1024,
+            1.0
+        );
+        assert!(std::panic::catch_unwind(|| adjust_maintenance_work_mem(128)).is_err());
+
+        // Each worker is capped at 1GB, so raising maintenance_work_mem beyond
+        // nlaunched * 1GB does not hand any single worker more than 1GB.
+        const ONE_GB: usize = 1024 * 1024 * 1024;
+        Spi::run("SET maintenance_work_mem = '8GB';").unwrap();
+        // 1 worker: 8GB budget clamped down to the 1GB per-worker cap.
+        assert_approx_eq!(adjust_maintenance_work_mem(1).get(), ONE_GB, 1.0);
+        // 2 workers: each capped at 1GB -> 2GB total.
+        assert_approx_eq!(adjust_maintenance_work_mem(2).get(), 2 * ONE_GB, 1.0);
+        // 8 workers: 8GB / 8 = 1GB each, exactly at the cap -> 8GB total.
+        assert_approx_eq!(adjust_maintenance_work_mem(8).get(), 8 * ONE_GB, 1.0);
+    }
+}

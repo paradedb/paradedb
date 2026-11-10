@@ -1,0 +1,35 @@
+[package]
+name = "basescan"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "scan/pg15", "planner/pg15"]
+pg16 = ["pgrx/pg16", "scan/pg16", "planner/pg16"]
+pg17 = ["pgrx/pg17", "scan/pg17", "planner/pg17"]
+pg18 = ["pgrx/pg18", "scan/pg18", "planner/pg18"]
+pg_test = ["scan/pg_test", "planner/pg_test"]
+
+# Leaf crate for single-table `BaseScan` execution. Do NOT add `datafusion-distributed`,
+# `datafusion-proto`, `tonic`, or `prost` here so `basescan` compiles in parallel with `joinscan`.
+[dependencies]
+scan = { path = "../scan", default-features = false }
+planner = { path = "../planner", default-features = false }
+arrow-array.workspace = true
+datafusion.workspace = true
+pgrx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+
+[dev-dependencies]
+scan = { path = "../scan", default-features = false, features = ["pg_test"] }
+planner = { path = "../planner", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true

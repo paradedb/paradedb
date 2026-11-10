@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794298090236,
+  "lastUpdate": 1794298116706,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -344599,6 +344599,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13657795734-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919",
+          "message": "chore: Split `pg_search` into 9 crates. (#7318)\n\n## What\n\nSplits the `pg_search` crate (~182k lines) into 8 internal `rlib`\nworkspace crates (`common`, `storage`, `index_read`, `index_write`,\n`scan`, `planner`, `basescan`, `joinscan`) plus the top-level\n`pg_search` `cdylib` crate.\n\n## Why\n\nBreaking the monolithic crate into a DAG reduces per-crate size (each\ncrate is now 8k to 33k lines) and allows parallel compilation as well as\nfaster incremental rebuilds.\n\n## How\n\nSee the comments in `Cargo.toml`s around crate responsibilities and\ndependency restrictions.\n\n## Tests\n\n| Scenario | `main` | `branch` | Change | Speedup |\n| --- | ---: | ---: | ---: | ---: |\n| `clean_extension_build` (`cargo clean -p <ext_crates>`) | `547.32s` |\n`282.38s` | `-48.4%` | `1.94x` |\n| `incremental_basescan_leaf` (`basescan/.../mod.rs`) | `548.59s` |\n`244.25s` | `-55.5%` | `2.25x` |\n| `incremental_joinscan_leaf` (`joinscan/.../mod.rs`) | `548.23s` |\n`314.03s` | `-42.7%` | `1.75x` |\n| `incremental_index_write_leaf` (`index_write/.../insert.rs`) |\n`549.47s` | `218.90s` | `-60.2%` | `2.51x` |\n| `incremental_scan_mid` (`scan/src/scan/rank_join_exec.rs`) | `552.01s`\n| `264.17s` | `-52.1%` | `2.09x` |\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-10T05:48:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919"
+        },
+        "date": 1794298113990,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.297879818017904,
+            "unit": "median tps",
+            "extra": "avg tps: 56.82815171615803, max tps: 657.9557101384661, count: 59057"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.781856803506244,
+            "unit": "median tps",
+            "extra": "avg tps: 56.38091464607376, max tps: 690.2072756020356, count: 59057"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.70090996953226,
+            "unit": "median tps",
+            "extra": "avg tps: 59.53584569964787, max tps: 795.1872865903041, count: 59057"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.604525637584125,
+            "unit": "median tps",
+            "extra": "avg tps: 56.27618443652549, max tps: 696.399818226325, count: 59057"
+          }
+        ],
+        "publication_id": "13745085174-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -367582,6 +367629,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13657795734-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919",
+          "message": "chore: Split `pg_search` into 9 crates. (#7318)\n\n## What\n\nSplits the `pg_search` crate (~182k lines) into 8 internal `rlib`\nworkspace crates (`common`, `storage`, `index_read`, `index_write`,\n`scan`, `planner`, `basescan`, `joinscan`) plus the top-level\n`pg_search` `cdylib` crate.\n\n## Why\n\nBreaking the monolithic crate into a DAG reduces per-crate size (each\ncrate is now 8k to 33k lines) and allows parallel compilation as well as\nfaster incremental rebuilds.\n\n## How\n\nSee the comments in `Cargo.toml`s around crate responsibilities and\ndependency restrictions.\n\n## Tests\n\n| Scenario | `main` | `branch` | Change | Speedup |\n| --- | ---: | ---: | ---: | ---: |\n| `clean_extension_build` (`cargo clean -p <ext_crates>`) | `547.32s` |\n`282.38s` | `-48.4%` | `1.94x` |\n| `incremental_basescan_leaf` (`basescan/.../mod.rs`) | `548.59s` |\n`244.25s` | `-55.5%` | `2.25x` |\n| `incremental_joinscan_leaf` (`joinscan/.../mod.rs`) | `548.23s` |\n`314.03s` | `-42.7%` | `1.75x` |\n| `incremental_index_write_leaf` (`index_write/.../insert.rs`) |\n`549.47s` | `218.90s` | `-60.2%` | `2.51x` |\n| `incremental_scan_mid` (`scan/src/scan/rank_join_exec.rs`) | `552.01s`\n| `264.17s` | `-52.1%` | `2.09x` |\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-10T05:48:54Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4ce1c2dcb20f9b70a2353dc58a94f8ce815b1919"
+        },
+        "date": 1794298116634,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.641508,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.029904579826106, max cpu: 45.955, count: 59057"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 52.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.192278288877695, max mem: 62.49609375, count: 59057"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.4838862,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.463831313599936, max cpu: 4.6021094, count: 59057"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.085807130716933, max mem: 21.11328125, count: 59057"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5519204,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589685442721091, max cpu: 9.073725, count: 59057"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.7118248180783, max mem: 29.71484375, count: 59057"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1874,
+            "unit": "median pages",
+            "extra": "avg pages: 1664.578458099802, max pages: 2708.0, count: 59057"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 14.640625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 13.004519336192153, max relation_size:MB: 21.15625, count: 59057"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 6,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.566503547420289, max segment_count: 15.0, count: 59057"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.515522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.7330910322090487, max cpu: 4.5779686, count: 59057"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 20.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.778694735594424, max mem: 20.80078125, count: 59057"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.66289,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.19561826949006, max cpu: 46.783627, count: 59057"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 50.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.6458997636817, max mem: 62.9765625, count: 59057"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.652195,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.03315762119439, max cpu: 45.955, count: 59057"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 44.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.96968811645952, max mem: 54.93359375, count: 59057"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 94.47693634033203,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 196.66430781738904, max replication_lag:MB: 935.8288650512695, count: 59057"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.256075447052577, max cpu: 46.69261, count: 59057"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 62.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.789857944443504, max mem: 75.09375, count: 59057"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.048068,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.977163558855185, max cpu: 32.030506, count: 59057"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 21.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.251641488837056, max mem: 21.28515625, count: 59057"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.026798,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.911012082657855, max cpu: 32.10702, count: 59057"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 21.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.2515031161632, max mem: 21.28515625, count: 59057"
+          }
+        ],
+        "publication_id": "13745085174-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

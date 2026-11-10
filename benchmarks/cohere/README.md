@@ -143,35 +143,51 @@ budget, and charging. The scan bounds both rankings the same way: a parallel
 plan keeps the best `router_k` candidates, and a serial plan takes the whole
 ranking. The setting is a diagnostic and is not documented for users.
 
-`router_quality.py configs` writes four arm profiles from the size's profile,
+`router_quality.py configs` writes three arm profiles from the size's profile,
 each adding only the audit setting and `paradedb.vector_adaptive_probing`:
-`stored` and `flat` with adaptive probing off, and `stored-adaptive` and
-`flat-adaptive` with it on. `pdbench search` sweeps each arm and query to
-r90/r95/r99 into `benchmark-artifacts/router/<arm>`, separate from the
-operating-point sweeps and without HTML reports. pdbench saves each run's report
-before building its console projection, which can fail on a parallel plan with
-"representative layer0 has no scan stage". The router sweep keeps such a run
-when that invocation saved a report for the query, records it in
-`tolerated.txt`, the job summary, and the section's Config details, and fails on
-any other error. `router_quality.py measure` reruns all 100 vectors at
-each selected budget under `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` with
-`paradedb.vector_stats` on, after one discarded warm pass, and sums each query's
-per-segment statistics. It also checks that each statistic means what the
-comment says: every segment routes, only the flat arms report
-`routing_mode = flat`, filtered queries satisfy
-`vectors_visited = layer0_eligible + pruned_filter + pruned_dead`, fixed-probe
-arms never stop adaptively, and each query runs the same plan shape (parallel
-or serial) in every arm. Segment count and K come from every segment id the
-stored arm reports; a routed segment the ranking gives no cluster still reports
-its size, router metrics, and ranking time.
+`flat` and `stored` with adaptive probing off, and `stored-adaptive` with it on.
+`pdbench search` sweeps each arm and query to r90/r95/r99 into
+`benchmark-artifacts/router/<arm>`, separate from the operating-point sweeps and
+without HTML reports. pdbench saves each run's report before building its
+console projection, which can fail on a parallel plan with "representative
+layer0 has no scan stage". The router sweep keeps such a run when that
+invocation saved a report for the query, records it in `tolerated.txt`, the job
+summary, and the full report, and fails on any other error.
 
-`router_quality.py render` writes `router_quality.json` and the comment section
-under the operating-point table. Ratios are stored / flat in clusters probed and
-in vectors probed (unfiltered) or filter-valid vectors (filtered). Only the
-unfiltered tables carry a status: a fixed-probe row passes at a ratio of at most
-1.05, r90 and r95 fail above it, and r99 warns; the adaptive table is reported,
-not gated. Filtered tables keep their numbers and ratios but carry no status and
-do not set the verdict, since they run with forced routing on parallel plans. Routing time is the `routing_ns`
-stage, which includes row gating. The section compares with the latest main
-run's `cohere-<size>-router-quality` artifact when its configuration matches.
-Neither the verdict nor the checks fail the job.
+`router_quality.py measure` reruns all 100 vectors at each selected budget under
+`EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` with `paradedb.vector_stats` on, after
+one discarded warm pass, and sums each query's per-segment statistics. It checks
+that each statistic means what the report says: every segment routes, only the
+flat arm reports `routing_mode = flat`, filtered queries satisfy
+`vectors_visited = layer0_eligible + pruned_filter + pruned_dead`, fixed-probe
+arms never stop adaptively, and each query runs the same plan shape (parallel or
+serial) in every arm. Segment count and K come from every segment id the stored
+arm reports.
+
+`router_quality.py render` writes:
+
+- `router_quality.md`, the PR-comment section under the operating-point table: a
+  verdict line, one table per filter level with Flat (flat arm), Router (stored
+  arm) and Router with adaptive probing on (`stored-adaptive`), and a link to
+  the full report. Each cell shows this commit's value with main's in brackets.
+  Router vs flat is Router / Flat.
+- `router_quality.html`, the full report: every arm's clusters, vectors probed,
+  valid vectors, empty clusters, layer-0 scored, exact rows, routing time,
+  centroids scored and adaptive stops per query and target, plus the checks,
+  tolerated runs, plan shapes and config. CI copies it into the sweep reports
+  directory, so the publisher puts it on gh-pages under
+  `benchmarker-runs/<commit>/cohere-<size>/sweep/router_quality.html`.
+- `router-metrics.json`, five unfiltered values per target for the benchmark
+  history: Router vs flat clusters, adaptive on / off vectors probed, Flat
+  vectors probed, adaptive-on vectors probed, and Router routing time.
+- `router_quality.json`, every number above with the commit and config
+  fingerprint; the next run on main reads it as the baseline.
+
+Only the Unfiltered table flags. A Router vs flat ratio above 1.05 gets ❌ at r90
+and r95 and ⚠️ at r99. Against main, at r90 and r95, a cell turns bold with ⚠️
+when Flat or adaptive-on vectors probed rose by more than 10%, when adaptive-on
+/ Router vectors probed rose by more than 0.05, or when Router routing time rose
+by more than 25% and 0.1 ms. These are policy thresholds for review, not derived
+bounds. The filtered tables are informational: every segment is forced to route,
+their plans are parallel, and routing time includes row gating. Nothing here
+fails the job.

@@ -347,7 +347,7 @@ jobs:
           set -euo pipefail
           tolerated=benchmark-artifacts/router/tolerated.txt
           : > "$tolerated"
-          for arm in stored flat stored-adaptive flat-adaptive; do
+          for arm in stored flat stored-adaptive; do
             for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
               runs="benchmark-artifacts/router/${arm}"
               stderr="$RUNNER_TEMP/pdbench-${arm}-${query}.stderr"
@@ -423,19 +423,25 @@ jobs:
           run-id: ${{ steps.router_baseline.outputs.run_id }}
           github-token: ${{ github.token }}
 
+      # The publisher copies sweep_reports_dir/*.html to gh-pages under
+      # benchmarker-runs/<commit>/<dataset>/sweep/, so the full report is published there.
       - name: Render router-quality section
         env:
           CURRENT_COMMIT: ${{ steps.commit_info.outputs.commit_sha }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
           baseline=()
           if [ -f router-baseline/router_quality.json ]; then
             baseline=(--baseline router-baseline)
           fi
+          report_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPOSITORY_NAME}/benchmarker-runs/${CURRENT_COMMIT}/cohere-${COHERE_SIZE}/sweep/router_quality.html"
           python3 benchmarks/cohere/router_quality.py render \
             --measurements benchmark-artifacts/router/measurements.json \
             --output benchmark-artifacts/router \
-            --commit "$CURRENT_COMMIT" --pdbench "$PDBENCH_REF" "${baseline[@]}"
+            --commit "$CURRENT_COMMIT" --pdbench "$PDBENCH_REF" --report-url "$report_url" "${baseline[@]}"
+          mkdir -p benchmark-artifacts/comparison
+          cp benchmark-artifacts/router/router_quality.html benchmark-artifacts/comparison/
           cat benchmark-artifacts/router/router_quality.md >> "$GITHUB_STEP_SUMMARY"
           cat benchmark-artifacts/operating_points.md benchmark-artifacts/router/router_quality.md \
             > benchmark-artifacts/context.md

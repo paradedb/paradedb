@@ -1,19 +1,20 @@
 """Compare the index's stored router with a flat ranking of every centroid.
 
-Every arm runs on the same index with every segment routed. The flat arms score every centroid of
-every segment exactly (`paradedb.vector_router_audit = flat`), so the cluster and vector counts
-they need at a recall target are the reference the stored router is measured against. Ratios are
-stored / flat. The fixed-probe arms run with adaptive probing off and are gated; the adaptive arms
-repeat them with adaptive probing on and are reported only.
+Every arm runs on the same index with every segment routed. The flat arm scores every centroid of
+every segment exactly (`paradedb.vector_router_audit = flat`), so the clusters and vectors it needs
+at a recall target are the reference the stored router (Router) is measured against; Router vs
+flat is Router / Flat. Both run with adaptive probing off; a third arm repeats the stored router
+with adaptive probing on.
 
     configs  write router-<arm>.toml for every arm from a Cohere profile
     measure  rerun pdbench's selected budgets under EXPLAIN and record per-segment work
-    render   write router_quality.json and the router_quality.md comment section
+    render   write router_quality.{json,md,html} and router-metrics.json
 """
 
 import argparse
 import collections
 import hashlib
+import html
 import json
 import math
 import os
@@ -31,7 +32,6 @@ ARMS = {
     "stored": ("stored", "off"),
     "flat": ("flat", "off"),
     "stored-adaptive": ("stored", "on"),
-    "flat-adaptive": ("flat", "on"),
 }
 FIXED = ("stored", "flat")
 # The `termination` value of a segment the adaptive stop ended; `Ceiling` and `Exhausted` are not.
@@ -43,8 +43,6 @@ LABELS = {
     "knn_top10_1pct": "Filter 1%",
 }
 QVEC = "current_setting('cohere.qvec')"
-ROUTING_NOTE = "Routing time includes row gating."
-FILTERED_NOTE = "Filtered cells are informational: forced routing, parallel plans."
 TOLERATED = "tolerated.txt"
 
 # Per-query sums over segments and workers, from each segment's vector statistics.
@@ -430,407 +428,469 @@ def index_facts(segments):
 
 # --- render ---
 
+FLAT, ROUTER, ROUTER_ADAPTIVE = "flat", "stored", "stored-adaptive"
+UNFILTERED = "knn_top10_unfiltered"
+# Policy thresholds for flagging the unfiltered table against main, at r90 and r95 only.
+MAIN_TARGETS = (0.9, 0.95)
+VECTORS_WORSE = 0.10  # Flat or adaptive-on vectors probed, relative increase.
+ADAPTIVE_RATIO_RISE = 0.05  # Adaptive-on / Router vectors probed, absolute increase.
+ROUTING_WORSE = 0.25  # Router routing time, relative increase ...
+ROUTING_WORSE_MS = 0.1  # ... and absolute increase in ms.
+CELLS_NOTE = "Each cell is this commit's value with main's in brackets."
+FIXED_NOTE = "Flat and Router rows use fixed probes (adaptive off)."
+FILTERED_NOTE = (
+    "Filtered tables are informational: every segment is forced to route, plans are parallel, "
+    "and routing time includes row gating."
+)
+AREAS = {"ratio": "router", "flat": "clustering", "routing": "router speed"}
 
-def second_metric(query):
-    """Unfiltered rows compare vectors probed; filtered rows compare filter-valid vectors."""
-    return "vectors_probed" if query.endswith("_unfiltered") else "valid_vectors"
+
+def vectors_key(query):
+    """Unfiltered tables count vectors probed; filtered tables count filter-valid vectors."""
+    return "vectors_probed" if query == UNFILTERED else "valid_vectors"
 
 
-def ratio(stored, flat, key):
-    if not (stored["reached"] and flat["reached"]):
+def vectors_label(query):
+    return "Vectors probed" if query == UNFILTERED else "Valid vectors"
+
+
+def value(report, query, target, arm, key):
+    """An arm's mean at a target, or None when the report lacks it or the arm missed the target."""
+    if report is None:
         return None
-    if flat[key] == 0:
-        return 1.0 if stored[key] == 0 else math.inf
-    return stored[key] / flat[key]
+    cell = report["results"].get(query, {}).get(str(target), {}).get(arm)
+    return cell.get(key) if cell and cell.get("reached") else None
 
 
-def status(target, stored, flat, ratios):
-    """✅ within MAX_RATIO; otherwise ❌ at r90 and r95, ⚠️ at r99. A row flat cannot reach has none."""
-    if not flat["reached"]:
-        return "—"
-    if stored["reached"] and all(value <= MAX_RATIO for value in ratios.values()):
-        return "✅"
-    return "⚠️" if target >= 0.99 else "❌"
+def ratio_of(report, query, target, key, numerator=ROUTER, denominator=FLAT):
+    top = value(report, query, target, numerator, key)
+    bottom = value(report, query, target, denominator, key)
+    if top is None or bottom is None:
+        return None
+    if bottom == 0:
+        return 1.0 if top == 0 else math.inf
+    return top / bottom
 
 
-def gated(query):
-    """Only the unfiltered query carries a status: filtered rows run with the located path forced
-    off and on parallel plans, so they are reported, not gated."""
-    return query.endswith("_unfiltered")
-
-
-def rows(results):
-    out = []
-    for query in QUERIES:
-        for target in TARGETS:
-            cell = results[query][str(target)]
-            stored, flat = cell["stored"], cell["flat"]
-            ratios = {
-                key: ratio(stored, flat, key) for key in ("clusters", second_metric(query))
-            }
-            out.append(
-                {
-                    "query": query,
-                    "target": target,
-                    "ratios": ratios,
-                    "status": status(target, stored, flat, ratios) if gated(query) else "",
-                }
-            )
-    return out
-
-
-def adaptive_status(fixed, stored, flat, value):
-    """✅ within MAX_RATIO, ⚠️ beyond it or when the router reaches the target with fixed probes
-    but not with adaptive probing. Never ❌: adaptive probing is reported, not gated."""
-    if fixed["reached"] and not stored["reached"]:
-        return "⚠️"
-    if value is None:
-        return "—"
-    return "✅" if value <= MAX_RATIO else "⚠️"
-
-
-def adaptive_rows(results):
-    """Clusters per query with adaptive probing on, against flat and against fixed probes."""
-    out = []
-    for query in QUERIES:
-        for target in TARGETS:
-            cell = results[query][str(target)]
-            fixed, stored, flat = cell["stored"], cell["stored-adaptive"], cell["flat-adaptive"]
-            value = ratio(stored, flat, "clusters")
-            out.append(
-                {
-                    "query": query,
-                    "target": target,
-                    "ratio": value,
-                    "vs_fixed": (
-                        stored["clusters"] / fixed["clusters"] - 1
-                        if stored["reached"] and fixed["reached"] and fixed["clusters"]
-                        else None
-                    ),
-                    "stops_short": fixed["reached"] and not stored["reached"],
-                    "status": adaptive_status(fixed, stored, flat, value) if gated(query) else "",
-                }
-            )
-    return out
-
-
-def worst(candidates):
-    return max(
-        candidates,
-        key=lambda row: math.inf if row["ratios"]["clusters"] is None else row["ratios"]["clusters"],
-    )
-
-
-def verdict(table, adaptive=()):
-    failed = [row for row in table if row["status"] == "❌"]
-    if failed:
-        row = worst(failed)
-        where = f"{label(row['target'])} ({LABELS[row['query']]})"
-        if row["ratios"]["clusters"] is None:
-            headline = f"❌ Router does not reach {where}; flat does."
-        else:
-            headline = f"❌ Router needs {ratio_text(row['ratios']['clusters'])} flat's clusters at {where}."
-    else:
-        headline = "✅ Router matches flat at r90 and r95."
-    line = f"**{headline}**"
-    warned = [row for row in table if row["status"] == "⚠️"]
-    if warned:
-        row = worst(warned)
-        query = LABELS[row["query"]]
-        if row["ratios"]["clusters"] is None:
-            line += f" ⚠️ Router does not reach r99 ({query}); flat does (reported, not gated)."
-        else:
-            line += (
-                f" ⚠️ r99 needs {ratio_text(row['ratios']['clusters'])} flat's clusters"
-                f" ({query}, reported, not gated)."
-            )
-    for row in adaptive:
-        if row["stops_short"] and gated(row["query"]):
-            line += (
-                f" ⚠️ Adaptive probing stops short of {label(row['target'])}"
-                f" on {LABELS[row['query']]}."
-            )
-    return line, "❌" if failed else "✅"
-
-
-def count(value):
-    if value >= 10_000:
-        return f"{value / 1000:.1f}k"
-    if value >= 10:
-        return f"{value:,.0f}"
-    return f"{value:.1f}"
-
-
-def ms(value):
-    return f"{value:.1f}" if value < 10 else f"{value:.0f}"
-
-
-def percent(value):
-    """Signed percentage with a typographic minus; a change that rounds to zero has no sign."""
-    text = f"{value:+.0%}"
-    return "0%" if text in ("+0%", "-0%") else text.replace("-", "−")
-
-
-def ratio_text(value):
-    return "∞" if value == math.inf else f"{value:.2f}×"
-
-
-def cell_text(arm, key, render=count):
-    return render(arm[key]) if arm["reached"] else "not reached"
-
-
-def change(before, after, render):
-    if before is None or after is None:
-        return f"{'not reached' if before is None else render(before)} → " + (
-            "not reached" if after is None else render(after)
-        )
-    delta = f" ({(after - before) / before:+.1%})" if before else ""
-    return f"{render(before)} → {render(after)}{delta}"
-
-
-def against_main(current, baseline):
-    if baseline is None:
-        return ["**Against main**", "", "No main baseline yet."]
-    head = f"**Against main** (`{baseline['commit']}`)"
-    if baseline["fingerprint"] != current["fingerprint"]:
-        return [head, "", "baseline configuration differs"]
-    query = "knn_top10_unfiltered"
-
-    def value(report, target, arm, key):
-        cell = report["results"].get(query, {}).get(str(target), {}).get(arm)
-        return cell[key] if cell and cell["reached"] else None
-
-    def clusters_ratio(report, target):
-        stored = value(report, target, "stored", "clusters")
-        flat = value(report, target, "flat", "clusters")
-        return stored / flat if stored is not None and flat else None
-
-    def share(report, target):
-        result = value(report, target, "stored", "routing_share")
-        return None if result is None else result * 100
-
-    lines = [
-        head,
-        "",
-        "| | " + " | ".join(label(t) for t in TARGETS) + " |",
-        "|---|" + "---:|" * len(TARGETS),
+def table_rows(query):
+    """(row id, label, getter, formatter, bold) for one filter level; a None getter is a heading."""
+    vk = vectors_key(query)
+    return [
+        (None, "Clusters probed", None, None, False),
+        ("flat:clusters", "Flat", lambda r, t: value(r, query, t, FLAT, "clusters"), count, False),
+        ("router:clusters", "Router", lambda r, t: value(r, query, t, ROUTER, "clusters"), count, False),
+        ("ratio:clusters", "Router vs flat", lambda r, t: ratio_of(r, query, t, "clusters"), ratio_text, True),
+        (None, vectors_label(query), None, None, False),
+        ("flat:vectors", "Flat", lambda r, t: value(r, query, t, FLAT, vk), count, False),
+        ("router:vectors", "Router", lambda r, t: value(r, query, t, ROUTER, vk), count, False),
+        ("ratio:vectors", "Router vs flat", lambda r, t: ratio_of(r, query, t, vk), ratio_text, True),
+        (None, "Routing time, ms", None, None, False),
+        ("flat:routing", "Flat", lambda r, t: value(r, query, t, FLAT, "routing_ms"), ms, False),
+        ("router:routing", "Router", lambda r, t: value(r, query, t, ROUTER, "routing_ms"), ms, False),
+        (None, "Router with adaptive probing on", None, None, False),
+        (
+            "adaptive:clusters",
+            "Clusters probed",
+            lambda r, t: value(r, query, t, ROUTER_ADAPTIVE, "clusters"),
+            count,
+            False,
+        ),
+        (
+            "adaptive:vectors",
+            vectors_label(query),
+            lambda r, t: value(r, query, t, ROUTER_ADAPTIVE, vk),
+            count,
+            False,
+        ),
     ]
-    for name, get, render in (
-        ("Router / flat clusters (unfiltered)", clusters_ratio, ratio_text),
-        (
-            "Flat vectors probed (clustering)",
-            lambda report, t: value(report, t, "flat", "vectors_probed"),
-            count,
-        ),
-        (
-            "Routing ms (unfiltered)",
-            lambda report, t: value(report, t, "stored", "routing_ms"),
-            ms,
-        ),
-        ("Routing share of query time (unfiltered)", share, lambda v: f"{v:.0f}%"),
-        (
-            "Router clusters, adaptive probing (unfiltered)",
-            lambda report, t: value(report, t, "stored-adaptive", "clusters"),
-            count,
-        ),
-    ):
-        cells = []
+
+
+def flags(current, baseline):
+    """Flags on the unfiltered table, keyed by (row id, target). Filtered tables never flag.
+
+    A Router-vs-flat ratio above MAX_RATIO is ❌ at r90 and r95 and ⚠️ at r99. Against main, at r90
+    and r95, a cell is ⚠️ when Flat or adaptive-on vectors probed rose by more than VECTORS_WORSE,
+    when adaptive-on / Router vectors probed rose by more than ADAPTIVE_RATIO_RISE, or when Router
+    routing time rose by more than ROUTING_WORSE and ROUTING_WORSE_MS.
+    """
+    query, found = UNFILTERED, {}
+    for row, key in (("ratio:clusters", "clusters"), ("ratio:vectors", "vectors_probed")):
         for target in TARGETS:
-            before, after = get(baseline, target), get(current, target)
-            if name.startswith(("Router /", "Routing share")):
-                cells.append(
-                    f"{'not reached' if before is None else render(before)} → "
-                    f"{'not reached' if after is None else render(after)}"
-                )
-            else:
-                cells.append(change(before, after, render))
-        lines.append(f"| {name} | " + " | ".join(cells) + " |")
-    return lines
+            current_ratio = ratio_of(current, query, target, key)
+            if current_ratio is not None and current_ratio > MAX_RATIO:
+                found[(row, target)] = {
+                    "row": row,
+                    "target": target,
+                    "mark": "⚠️" if target >= 0.99 else "❌",
+                    "kind": "ratio",
+                    "value": current_ratio,
+                }
+    if baseline is None:
+        return found
+
+    def main_flag(row, target, kind, name, before, after):
+        change = (after - before) / before if before else math.inf
+        found[(row, target)] = {
+                "row": row,
+                "target": target,
+                "mark": "⚠️",
+                "kind": kind,
+                "name": name,
+                "before": before,
+                "after": after,
+            "change": change,
+        }
+
+    for target in MAIN_TARGETS:
+        # The ratio rule runs first so a direct vectors regression on the same cell names it.
+        before = ratio_of(baseline, query, target, "vectors_probed", ROUTER_ADAPTIVE, ROUTER)
+        after = ratio_of(current, query, target, "vectors_probed", ROUTER_ADAPTIVE, ROUTER)
+        if before is not None and after is not None and after - before > ADAPTIVE_RATIO_RISE:
+            main_flag(
+                "adaptive:vectors",
+                target,
+                "adaptive",
+                "Adaptive-on / Router vectors probed",
+                before,
+                after,
+            )
+        for row, arm, kind, name in (
+            ("flat:vectors", FLAT, "flat", "Flat vectors probed"),
+            ("adaptive:vectors", ROUTER_ADAPTIVE, "adaptive", "Adaptive-on vectors probed"),
+        ):
+            before = value(baseline, query, target, arm, "vectors_probed")
+            after = value(current, query, target, arm, "vectors_probed")
+            if before is not None and after is not None and after > before * (1 + VECTORS_WORSE):
+                main_flag(row, target, kind, name, before, after)
+        before = value(baseline, query, target, ROUTER, "routing_ms")
+        after = value(current, query, target, ROUTER, "routing_ms")
+        if (
+            before is not None
+            and after is not None
+            and after > before * (1 + ROUTING_WORSE)
+            and after - before > ROUTING_WORSE_MS
+        ):
+            main_flag("router:routing", target, "routing", "Router routing time", before, after)
+    return found
+
+
+def noun(row):
+    return "clusters" if row == "ratio:clusters" else "vectors probed"
+
+
+def verdict(current, flagged, baseline_note, baseline_commit):
+    """The verdict line and its mark. `baseline_note` ends the line when main has no comparable
+    baseline."""
+    ratio_failures = [f for f in flagged.values() if f["kind"] == "ratio" and f["mark"] == "❌"]
+    ratio_warnings = [f for f in flagged.values() if f["kind"] == "ratio" and f["mark"] == "⚠️"]
+    against_main = [f for f in flagged.values() if f["kind"] != "ratio"]
+    if ratio_failures:
+        worst_flag = max(ratio_failures, key=lambda f: f["value"])
+        text = (
+            f"❌ Router needs {ratio_text(worst_flag['value'])} flat's {noun(worst_flag['row'])}"
+            f" at {label(worst_flag['target'])}"
+        )
+        mark = "❌"
+    elif against_main:
+        worst_flag = max(against_main, key=lambda f: f["change"])
+        kinds = {f["kind"] for f in flagged.values()}
+        areas = [AREAS[kind] for kind in ("ratio", "flat", "routing") if kind in kinds]
+        if not areas:
+            areas = ["adaptive stopping"]
+        render_value = ms if worst_flag["kind"] == "routing" else (
+            ratio_text if "/" in worst_flag["name"] else count
+        )
+        text = (
+            f"⚠️ {worst_flag['name']} at {label(worst_flag['target'])} up "
+            f"{worst_flag['change']:.0%} against main ({render_value(worst_flag['before'])} → "
+            f"{render_value(worst_flag['after'])}). Look at: {', '.join(areas)}"
+        )
+        mark = "⚠️"
+    elif ratio_warnings:
+        worst_flag = max(ratio_warnings, key=lambda f: f["value"])
+        text = (
+            f"⚠️ Router needs {ratio_text(worst_flag['value'])} flat's {noun(worst_flag['row'])}"
+            f" at {label(worst_flag['target'])}"
+        )
+        mark = "⚠️"
+    else:
+        ratios = [
+            (ratio_of(current, UNFILTERED, target, key), target)
+            for key in ("clusters", "vectors_probed")
+            for target in TARGETS
+        ]
+        ratios = [(value_, target) for value_, target in ratios if value_ is not None]
+        # Ties go to the lowest target.
+        worst_pair = max(ratios, key=lambda pair: (pair[0], -pair[1])) if ratios else None
+        worst_ratio = (
+            f"worst {ratio_text(worst_pair[0])} at {label(worst_pair[1])}" if worst_pair else "no ratios"
+        )
+        text = f"✅ Router matches flat ordering ({worst_ratio})"
+        if baseline_note is None:
+            text += f" · no regression against main {baseline_commit[:7]}"
+        mark = "✅"
+    if baseline_note is not None:
+        text += f" · {baseline_note}"
+    if mark != "✅":
+        text += "."
+    return text, mark
+
+
+def count(value_):
+    if value_ >= 10_000:
+        return f"{value_ / 1000:.1f}k"
+    if value_ >= 10:
+        return f"{value_:,.0f}"
+    return f"{value_:.1f}"
+
+
+def ms(value_):
+    return f"{value_:.1f}" if value_ < 10 else f"{value_:.0f}"
+
+
+def ratio_text(value_):
+    return "∞" if value_ == math.inf else f"{value_:.2f}×"
+
+
+def table_cell(current_value, main_value, render_value, bracket, bold, mark):
+    """`value (main)`; a ratio row leaves a missed target's cell empty."""
+    if current_value is None:
+        if render_value is ratio_text:
+            return ""
+        text = "not reached"
+    else:
+        text = render_value(current_value)
+        if bold or mark == "⚠️" and render_value is not ratio_text:
+            text = f"**{text}**"
+    if mark:
+        text = f"{text} {mark}"
+    if bracket:
+        if main_value is not None:
+            text = f"{text} ({render_value(main_value)})"
+        elif render_value is not ratio_text:
+            text = f"{text} (not reached)"
+    return text
 
 
 def markdown(report, baseline):
-    index = report["index"] or {}
-    table = report["rows"]
-    by_key = {(row["query"], row["target"]): row for row in table}
-    adaptive_by_key = {(row["query"], row["target"]): row for row in report["adaptive_rows"]}
+    """The PR comment section: verdict, one table per filter level, footnotes and report link."""
     size = report["dataset"].get("size", "")
+    bracket = baseline is not None
+    flagged = {(f["row"], f["target"]): f for f in report["flags"]}
     lines = [
         "",
-        f"#### Router quality: Cohere {size}, {index.get('segments', '?')} segments",
+        f"#### Router quality · Cohere {size}",
         "",
-        report["verdict_line"],
+        f"**{report['verdict_line']}**",
         "",
     ]
-    if index:
-        lines += [
-            f"K = {index['clusters']:,} · {index['rows_per_cluster']:,.0f} rows per cluster (mean) · "
-            f"{index['routing_kind']} router · rerank factor {index['rerank_factor']} · "
-            "fixed probes, every segment routed",
-            "",
-        ]
-    if not report["checks_passed"]:
-        failed = [name for name, result in report["checks"].items() if result["failed"]]
-        lines += [f"⚠️ Statistic checks failed: {', '.join(failed)}. See router_quality.json.", ""]
     for query in QUERIES:
-        filtered = not query.endswith("_unfiltered")
-        second = "Valid vectors" if filtered else "Vectors probed"
-        header = f"| Target | Clusters: router | flat | ratio | {second}: router | flat | ratio |"
-        align = "|---|---:|---:|---:|---:|---:|---:|"
-        if filtered:
-            header += " Empty clusters |"
-            align += "---:|"
-        else:
-            header += " |"
-            align += ":-:|"
-        lines += [f"**{LABELS[query]}**", "", header, align]
-        for target in TARGETS:
-            cell = report["results"][query][str(target)]
-            stored, flat = cell["stored"], cell["flat"]
-            row = by_key[(query, target)]
-            cells = [label(target)]
-            for key in ("clusters", second_metric(query)):
-                value = row["ratios"][key]
-                cells += [
-                    cell_text(stored, key),
-                    cell_text(flat, key),
-                    "" if value is None else ratio_text(value),
-                ]
-            if filtered:
-                cells.append(cell_text(stored, "empty_clusters"))
-            else:
-                cells.append(row["status"])
-            lines.append("| " + " | ".join(cells) + " |")
+        head = f"{LABELS[query]} · current (main)" if bracket else f"{LABELS[query]} · current"
         lines += [
-            "",
-            "**With adaptive probing on** (clusters probed per query)",
-            "",
-            "| Target | Router | Flat | ratio | Router vs fixed probes |" + ("" if filtered else " |"),
-            "|---|---:|---:|---:|---:|" + ("" if filtered else ":-:|"),
+            f"| {head} | " + " | ".join(label(t) for t in TARGETS) + " |",
+            "|---|" + "---:|" * len(TARGETS),
         ]
-        for target in TARGETS:
-            cell = report["results"][query][str(target)]
-            row = adaptive_by_key[(query, target)]
-            cells = [
-                label(target),
-                cell_text(cell["stored-adaptive"], "clusters"),
-                cell_text(cell["flat-adaptive"], "clusters"),
-                "" if row["ratio"] is None else ratio_text(row["ratio"]),
-                "" if row["vs_fixed"] is None else percent(row["vs_fixed"]),
-            ] + ([] if filtered else [row["status"]])
-            lines.append("| " + " | ".join(cells) + " |")
+        for row, name, getter, render_value, bold in table_rows(query):
+            if getter is None:
+                lines.append(f"| **{name}** |" + " |" * len(TARGETS))
+                continue
+            title = f"**{name}**" if bold else name
+            cells = []
+            for target in TARGETS:
+                flag = flagged.get((row, target)) if query == UNFILTERED else None
+                cells.append(
+                    table_cell(
+                        getter(report, target),
+                        getter(baseline, target) if bracket else None,
+                        render_value,
+                        bracket,
+                        bold,
+                        flag["mark"] if flag else "",
+                    )
+                )
+            lines.append(f"| {title} | " + " | ".join(cells) + " |")
         lines.append("")
-    lines += [FILTERED_NOTE, ""]
+    first = f"{CELLS_NOTE} {FIXED_NOTE}" if bracket else FIXED_NOTE
+    lines += [first, FILTERED_NOTE]
+    if report.get("report_url"):
+        lines.append(f"[Full report]({report['report_url']})")
+    return "\n".join(lines) + "\n"
 
-    lines += [
-        "**Routing time** (ms per query, mean; router's share of query time in brackets)",
-        "",
-        "| | " + " | ".join(f"{label(t)}: router | flat" for t in TARGETS) + " |",
-        "|---|" + "---:|" * (2 * len(TARGETS)),
+
+def history_metrics(report):
+    """Unfiltered metrics for the benchmark history, lower is better: `{name, unit, value}`."""
+    metrics = []
+    for target in TARGETS:
+        tag = f"{UNFILTERED}@{label(target)}"
+        for name, unit, metric in (
+            ("router vs flat, clusters", "ratio", ratio_of(report, UNFILTERED, target, "clusters")),
+            (
+                "adaptive on vs off, vectors probed",
+                "ratio",
+                ratio_of(report, UNFILTERED, target, "vectors_probed", ROUTER_ADAPTIVE, ROUTER),
+            ),
+            (
+                "flat vectors probed",
+                "vectors/query",
+                value(report, UNFILTERED, target, FLAT, "vectors_probed"),
+            ),
+            (
+                "router vectors probed, adaptive on",
+                "vectors/query",
+                value(report, UNFILTERED, target, ROUTER_ADAPTIVE, "vectors_probed"),
+            ),
+            ("router routing time", "ms", value(report, UNFILTERED, target, ROUTER, "routing_ms")),
+        ):
+            if metric is not None and math.isfinite(metric):
+                metrics.append({"name": f"{tag} {name}", "unit": unit, "value": metric})
+    return metrics
+
+
+REPORT_COLUMNS = (
+    ("budget", "Budget", str),
+    ("recall", "Recall", lambda v: f"{v:.3f}"),
+    ("clusters", "Clusters", count),
+    ("vectors_probed", "Vectors probed", count),
+    ("valid_vectors", "Valid vectors", count),
+    ("empty_clusters", "Empty clusters", count),
+    ("layer0_scored", "Layer-0 scored", count),
+    ("exact_rows", "Exact rows", count),
+    ("routing_ms", "Routing ms mean", ms),
+    ("routing_ms_p95", "Routing ms p95", ms),
+    ("centroids_1bit", "Centroids scored, 1-bit", count),
+    ("centroids_exact", "Centroids scored, exact", count),
+    ("adaptive_stops", "Adaptive stops", str),
+    ("parallel_plans", "Parallel plans", str),
+    ("workers_launched", "Workers launched", lambda v: f"{v:.1f}"),
+)
+
+
+def html_report(report):
+    """Everything the comment leaves out, as one self-contained page."""
+    e = html.escape
+
+    def table(head, body):
+        return (
+            "<table><thead><tr>"
+            + "".join(f"<th>{e(str(h))}</th>" for h in head)
+            + "</tr></thead><tbody>"
+            + "".join("<tr>" + "".join(f"<td>{e(str(c))}</td>" for c in row) + "</tr>" for row in body)
+            + "</tbody></table>"
+        )
+
+    size = report["dataset"].get("size", "")
+    parts = [
+        "<!doctype html><html><head><meta charset='utf-8'>",
+        f"<title>Router quality · Cohere {e(size)}</title>",
+        "<style>body{font:14px system-ui,sans-serif;margin:24px;color:#222}"
+        "table{border-collapse:collapse;margin:8px 0 24px}"
+        "th,td{border:1px solid #ccc;padding:3px 8px;text-align:right}"
+        "th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),"
+        "td:nth-child(3){text-align:left}code{font-size:12px}</style></head><body>",
+        f"<h1>Router quality · Cohere {e(size)}</h1>",
+        f"<p><b>{e(report['verdict_line'])}</b></p>",
+        f"<p>pg_search <code>{e(report['commit'])}</code> · pdbench <code>{e(report['pdbench'])}</code>"
+        f" · main baseline <code>{e(report.get('baseline_commit') or 'none')}</code></p>",
     ]
+    index = report.get("index") or {}
+    if index:
+        parts.append(
+            f"<p>K = {index['clusters']:,} · {index['rows_per_cluster']:,.0f} rows per cluster (mean) · "
+            f"{e(index['routing_kind'])} router · rerank factor {e(str(index['rerank_factor']))} · "
+            f"{index['segments']} segments</p>"
+        )
+    parts.append("<h2>Per query, target and arm</h2>")
     for query in QUERIES:
-        cells = []
-        for target in TARGETS:
-            cell = report["results"][query][str(target)]
-            stored, flat = cell["stored"], cell["flat"]
-            if stored["reached"]:
-                share = stored["routing_share"]
-                bracket = "" if share is None else f" ({share:.0%})"
-                cells.append(f"{ms(stored['routing_ms'])}{bracket}")
-            else:
-                cells.append("not reached")
-            cells.append(cell_text(flat, "routing_ms", ms))
-        lines.append(f"| {LABELS[query]} | " + " | ".join(cells) + " |")
-    lines += ["", ROUTING_NOTE, ""]
-    lines += against_main(report, baseline) + [""]
-
-    lines += [
-        "<details><summary>Router work</summary>",
-        "",
-        "| Query | Target | Arm | Routing ms: mean | p95 | Centroids scored: 1-bit | exact |",
-        "|---|---|---|---:|---:|---:|---:|",
-    ]
-    for query, target, arm, cell in cells_in_order(report):
-        values = (
-            [ms(cell["routing_ms"]), ms(cell["routing_ms_p95"])]
-            + [count(cell["centroids_1bit"]), count(cell["centroids_exact"])]
-            if cell["reached"]
-            else ["not reached"] * 4
-        )
-        lines.append(f"| {LABELS[query]} | {label(target)} | {arm} | " + " | ".join(values) + " |")
-    lines += [
-        "",
-        "</details>",
-        "<details><summary>Scan work</summary>",
-        "",
-        "| Query | Target | Arm | Budget | Vectors probed | Valid vectors | Layer-0 scored "
-        "| Exact rows | Adaptive stops |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|",
-    ]
-    for query, target, arm, cell in cells_in_order(report):
-        values = (
-            [f"`{cell['budget']}`"]
-            + [count(cell[k]) for k in ("vectors_probed", "valid_vectors", "layer0_scored", "exact_rows")]
-            + [f"{cell['adaptive_stops']}/{report['query_vectors']}"]
-            if cell["reached"]
-            else ["not reached"] * 6
-        )
-        lines.append(f"| {LABELS[query]} | {label(target)} | {arm} | " + " | ".join(values) + " |")
-    lines += ["", "</details>", "<details><summary>Config</summary>", ""]
-    for arm in ARMS:
-        settings = ", ".join(
-            f"`{key} = {value}`" for key, value in report["arms"][arm]["session"].items()
-        )
-        lines.append(f"- {arm}: {settings}")
-    shapes = report.get("plan_shapes", {})
-    lines.append(
-        "- Plans: "
-        + " · ".join(f"{LABELS[q]} {'/'.join(shapes.get(q, [])) or '?'}" for q in QUERIES)
-        + " (parallel plans cap each arm's candidate list at the router's k; serial plans take "
-        "the whole ranking)"
-    )
-    for run in report.get("tolerated", []):
-        lines.append(
-            f"- Tolerated pdbench exit for `{run['arm']}` `{run['query']}`: "
-            f"\"representative layer0 has no scan stage\"; report saved to `{run['report']}`"
-        )
-    lines += [
-        f"- pg_search `{report['commit']}`, pdbench `{report['pdbench']}`",
-        f"- Artifact `{report['artifact']}`, config fingerprint `{report['fingerprint'][:12]}`",
-        "",
-        "</details>",
-        "",
-    ]
-    return "\n".join(lines)
-
-
-def cells_in_order(report):
-    for query in QUERIES:
+        body = []
         for target in TARGETS:
             for arm in ARMS:
-                yield query, target, arm, report["results"][query][str(target)][arm]
+                cell = report["results"][query][str(target)][arm]
+                body.append(
+                    [label(target), arm, "reached" if cell["reached"] else "not reached"]
+                    + [
+                        render_value(cell[key]) if cell["reached"] and key in cell else ""
+                        for key, _, render_value in REPORT_COLUMNS
+                    ]
+                )
+        parts += [
+            f"<h3>{e(LABELS[query])}</h3>",
+            table(["Target", "Arm", "Target reached"] + [h for _, h, _ in REPORT_COLUMNS], body),
+        ]
+    parts += [
+        "<h2>Checks</h2>",
+        table(
+            ["Check", "Failed", "Checked", "Description"],
+            [
+                [name, check["failed"], check["checked"], check["description"]]
+                for name, check in report["checks"].items()
+            ],
+        ),
+        "<h2>Plan shapes</h2>",
+        table(
+            ["Query", "Shape"],
+            [[LABELS[q], "/".join(report.get("plan_shapes", {}).get(q, []))] for q in QUERIES],
+        ),
+        "<p>Parallel plans cap each arm's candidate list at the router's k; serial plans take the "
+        "whole ranking.</p>",
+        "<h2>Tolerated pdbench runs</h2>",
+        table(
+            ["Arm", "Query", "Report"],
+            [[run["arm"], run["query"], run["report"]] for run in report.get("tolerated", [])],
+        )
+        if report.get("tolerated")
+        else "<p>None.</p>",
+        "<h2>Segment terminations</h2>",
+        table(
+            ["Arm", "Termination", "Segments"],
+            [
+                [arm, name, number]
+                for arm, counts in report.get("terminations", {}).items()
+                for name, number in sorted(counts.items())
+            ],
+        ),
+        f"<p>{e(ADAPTIVE_STOP)} counts as the adaptive stop.</p>",
+        "<h2>Config</h2>",
+        table(
+            ["Arm", "Session settings"],
+            [
+                [arm, ", ".join(f"{k} = {v}" for k, v in report["arms"][arm]["session"].items())]
+                for arm in ARMS
+            ],
+        ),
+        f"<p>Artifact <code>{e(report['artifact'])}</code> · config fingerprint "
+        f"<code>{e(report['fingerprint'][:12])}</code></p>",
+        "</body></html>",
+    ]
+    return "\n".join(parts) + "\n"
 
 
-def render(measurements, output, commit, pdbench, baseline=None):
+def render(measurements, output, commit, pdbench, baseline=None, report_url=None):
+    """Writes router_quality.json, router_quality.md, router_quality.html and router-metrics.json."""
     report = dict(measurements)
     size = report["dataset"].get("size", "")
-    table = rows(report["results"])
-    adaptive = adaptive_rows(report["results"])
-    line, overall = verdict(table, adaptive)
+    note = None
+    if baseline is None:
+        note = "no main baseline yet"
+    elif baseline.get("fingerprint") != report["fingerprint"]:
+        note, baseline = "main baseline configuration differs", None
+    flagged = flags(report, baseline)
+    line, mark = verdict(report, flagged, note, baseline["commit"] if baseline else "")
     report |= {
         "commit": commit,
         "pdbench": pdbench,
         "artifact": f"cohere-{size}-router-quality",
+        "report_url": report_url,
+        "baseline_commit": baseline["commit"] if baseline else None,
         "max_ratio": MAX_RATIO,
-        "rows": table,
-        "adaptive_rows": adaptive,
-        "verdict": overall,
+        "flags": sorted(flagged.values(), key=lambda f: (f["row"], f["target"])),
+        "verdict": mark,
         "verdict_line": line,
-        "routing_time_note": ROUTING_NOTE,
-        "filtered_note": FILTERED_NOTE,
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "router_quality.json").write_text(json.dumps(report, indent=2, default=str) + "\n")
     (output / "router_quality.md").write_text(markdown(report, baseline))
+    (output / "router_quality.html").write_text(html_report(report))
+    (output / "router-metrics.json").write_text(json.dumps(history_metrics(report), indent=2) + "\n")
     return report
 
 
@@ -850,6 +910,7 @@ if __name__ == "__main__":
     command.add_argument("--commit", required=True)
     command.add_argument("--pdbench", required=True)
     command.add_argument("--baseline", type=Path)
+    command.add_argument("--report-url")
     args = parser.parse_args()
     if args.command == "configs":
         configs(args.profile, args.output)
@@ -870,4 +931,5 @@ if __name__ == "__main__":
             args.commit,
             args.pdbench,
             previous,
+            args.report_url,
         )

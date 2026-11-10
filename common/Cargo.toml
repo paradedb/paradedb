@@ -1,0 +1,50 @@
+[package]
+name = "common"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15"]
+pg16 = ["pgrx/pg16"]
+pg17 = ["pgrx/pg17"]
+pg18 = ["pgrx/pg18"]
+pg_test = ["dep:proptest"]
+
+# Keep this crate's dependency list minimal: every workspace crate depends on `common`, so
+# heavy dependencies added here serialize the entire build graph. In particular, do NOT add
+# `datafusion`, `tonic`, or `prost` (keep DataFusion and gRPC execution in `scan` and above).
+[dependencies]
+anyhow.workspace = true
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
+bytemuck.workspace = true
+chrono.workspace = true
+decimal-bytes.workspace = true
+futures.workspace = true
+libc.workspace = true
+once_cell.workspace = true
+ordered-float.workspace = true
+parking_lot.workspace = true
+pgrx.workspace = true
+postcard.workspace = true
+proptest = { workspace = true, optional = true }
+regex.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokenizers = { path = "../tokenizers" }
+uuid.workspace = true
+
+[dev-dependencies]
+pgrx-tests.workspace = true
+proptest.workspace = true
+rstest.workspace = true

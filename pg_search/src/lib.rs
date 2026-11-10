@@ -14,80 +14,100 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-#![recursion_limit = "512"]
-// Edition 2024 turns this lint on by default. This crate is a thin Rust layer over the Postgres C
-// API, so nearly every function here is `unsafe fn` whose body is unsafe end to end; wrapping each
-// body in a blanket `unsafe {}` would add noise without adding granularity. Left as follow-up work
-// to be tightened per-module, where the wrapped region can be narrowed to something meaningful.
-#![allow(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(test, allow(unused_crate_dependencies))]
 
 // Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
 // here to keep its `.init_array` constructor.
 #[cfg(feature = "dst")]
 use antithesis_instrumentation as _;
 
-mod aggregate;
+pub use common::{
+    DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE, DEFAULT_STARTUP_COST, EXPENSIVE_QUERY_COST_FACTOR,
+    FULL_RELATION_SELECTIVITY, FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY,
+    MORE_LIKE_THIS_SELECTIVITY, PARAMETERIZED_SELECTIVITY, REGEX_SELECTIVITY,
+    UNASSIGNED_SELECTIVITY, UNKNOWN_SELECTIVITY, available_parallelism, gucs, impl_safe_drop,
+    nodecast, parallel_worker, vector,
+};
+pub use index_read::{query, schema};
+pub use index_write::index;
+pub use joinscan::scan;
+pub use planner::aggregate;
+
 mod api;
 mod bootstrap;
-mod index;
 mod postgres;
-mod query;
-pub(crate) mod scan;
-mod schema;
-pub(crate) mod vector;
-
-pub mod gucs;
-pub mod parallel_worker;
 
 use self::postgres::customscan;
 use pgrx::*;
 
-/// Postgres' value for a `norm_selec` that hasn't been assigned
-const UNASSIGNED_SELECTIVITY: f64 = -1.0;
+// `#[pg_extern]`, `#[derive(PostgresType)]`, and `extension_sql!` C-ABI callbacks defined in
+// `rlib` sub-crates (`common`, `index_read`, `planner`, etc.) are invoked by Postgres at runtime
+// by symbol name (`CREATE FUNCTION ... AS 'MODULE_PATHNAME'`) and often have no direct Rust
+// callers in `pg_search`.
+//
+// When linking the `pg_search` `cdylib` (especially with `lto = "thin"`), the linker only pulls a
+// codegen unit out of a dependency `.rlib` archive if at least one symbol in that unit is
+// referenced from `pg_search`. Without an explicit reference here, `cargo pgrx` or `CREATE
+// EXTENSION` will fail with `could not find function "<name>" in file ".../pg_search.so"`.
+//
+// Prefer defining SQL-facing `#[pg_extern]` entrypoints in `pg_search`; if a `#[pg_extern]` or
+// `#[derive(PostgresType)]` must live in a sub-crate and has no direct Rust caller in `pg_search`,
+// add an `AnchorPtr` entry for it here.
+#[cfg(not(test))]
+#[repr(transparent)]
+struct AnchorPtr(*const ());
+#[cfg(not(test))]
+unsafe impl Sync for AnchorPtr {}
 
-/// A hardcoded value when we can't figure out a good selectivity value
-const UNKNOWN_SELECTIVITY: f64 = 0.00001;
-
-/// A hardcoded value for parameterized plan queries
-const PARAMETERIZED_SELECTIVITY: f64 = 0.10;
-
-/// The selectivity value indicating the entire relation will be returned
-const FULL_RELATION_SELECTIVITY: f64 = 1.0;
-
-/// Heuristic selectivity for fuzzy queries with distance <= 1
-const FUZZY_LOW_SELECTIVITY: f64 = 0.01;
-
-/// Heuristic selectivity for fuzzy queries with distance >= 2
-const FUZZY_HIGH_SELECTIVITY: f64 = 0.05;
-
-/// Heuristic selectivity for regex queries
-const REGEX_SELECTIVITY: f64 = 0.01;
-
-/// Heuristic selectivity for more-like-this queries
-const MORE_LIKE_THIS_SELECTIVITY: f64 = 0.01;
-
-/// Scales the heuristic match estimate into a `DocSet::cost()` for fuzzy/regex/MLT, whose
-/// real scorer is too expensive to build at plan time (#4172).
-///
-/// Tantivy costs a fuzzy/regex union as the sum of its DFA-matched terms' doc_freqs
-/// (`automaton_weight` -> `BufferedUnion`), dominated by the target term, so
-/// `cost ~= target_frequency * N`. We can't read `target_frequency` without the DFA scan we
-/// are avoiding, so this factor stands in for it: `factor = assumed_target_frequency / 0.01`
-/// (the fuzzy `selectivity_heuristic` floor). 25 => a ~25%-frequency target -- a *calibrated*
-/// default, not a derived constant: the factor-sweep showed [~18, 35] all parallelize the
-/// L<=10k cases while serializing L500k, and 25 is the center. Tunable via
-/// `paradedb.expensive_query_cost_factor`.
-const EXPENSIVE_QUERY_COST_FACTOR: f64 = 25.0;
-
-/// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
-/// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
-/// meaningless but we should be honest that do _something_.
-const DEFAULT_STARTUP_COST: f64 = 10.0;
-
-/// Planning-time row estimate used when LIMIT is parameterized (resolved only at
-/// execution time). Substitutes for an unknown LIMIT in cost/cardinality math
-/// so downstream decisions like worker count don't collapse.
-const DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE: f64 = 1000.0;
+#[cfg(not(test))]
+#[used]
+static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 21] = [
+    AnchorPtr(common::api::fieldname_in as *const ()),
+    AnchorPtr(common::api::fieldname_out as *const ()),
+    AnchorPtr(common::api::tokenizers::typmod::generic_typmod_in as *const ()),
+    AnchorPtr(common::api::tokenizers::typmod::generic_typmod_out as *const ()),
+    AnchorPtr(common::postgres::types::tantivyvalue_in as *const ()),
+    AnchorPtr(common::postgres::types::tantivyvalue_out as *const ()),
+    AnchorPtr(index_read::query::searchqueryinput_in as *const ()),
+    AnchorPtr(index_read::query::searchqueryinput_out as *const ()),
+    AnchorPtr(index_read::query::pdb_query::pdb::query_in as *const ()),
+    AnchorPtr(index_read::query::pdb_query::pdb::query_out as *const ()),
+    AnchorPtr(index_read::query::proximity::proximityclause_in as *const ()),
+    AnchorPtr(index_read::query::proximity::proximityclause_out as *const ()),
+    AnchorPtr(planner::postgres::customscan::projections::placeholder_support as *const ()),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::score::pdb::score_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::score::paradedb_score_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::snippet::pdb::snippet_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::snippet::pdb::snippets_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::snippet::pdb::snippet_positions_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::snippet::paradedb_snippet_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::snippet::paradedb_snippets_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::snippet::paradedb_snippet_positions_from_relation
+            as *const (),
+    ),
+];
 
 pgrx::pg_module_magic!();
 
@@ -105,17 +125,6 @@ extension_sql!(
     finalize
 );
 
-pub fn available_parallelism() -> usize {
-    use once_cell::sync::Lazy;
-
-    static AVAILABLE_PARALLELISM: Lazy<usize> = Lazy::new(|| {
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1)
-    });
-    *AVAILABLE_PARALLELISM
-}
-
 /// Initializes option parsing
 fn check_for_interrupts() {
     pgrx::check_for_interrupts!();
@@ -123,6 +132,7 @@ fn check_for_interrupts() {
 
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
+#[allow(unsafe_op_in_unsafe_fn)]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn _PG_init() {
     // Optional: initialize env_logger for dependency debug output (tantivy, lindera, etc.)
@@ -151,6 +161,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::build_logging::init();
     gucs::init();
     postgres::mutable_sweep::init();
+    postgres::customscan::mpp::wakeup::init_wakeup_pool();
+    postgres::customscan::joinscan::scan_state::init_base_session_state();
+    postgres::customscan::mpp::worker::init_worker_base_session_state();
     // A term dictionary walk is one tantivy call that runs for seconds on a big segment, and
     // pg_search's own checks sit between segments.
     tantivy_common::interrupt::set_interrupt_check(check_for_interrupts);
@@ -215,16 +228,4 @@ fn random_words(num_words: i32) -> String {
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.
 #[cfg(test)]
-pub mod pg_test {
-    pub fn setup(_options: Vec<&str>) {
-        // perform one-off initialization when the pg_test framework starts
-    }
-
-    pub fn postgresql_conf_options() -> Vec<&'static str> {
-        // return any postgresql.conf settings that are required for your tests
-        vec![
-            "shared_preload_libraries='pg_search'",
-            "paradedb.mutable_sweep_interval=0",
-        ]
-    }
-}
+pub use common::pg_test;

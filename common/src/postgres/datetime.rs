@@ -1,0 +1,809 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use std::cmp::Ordering;
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
+use std::str::FromStr;
+
+use pgrx::datum::ToIsoString;
+use pgrx::datum::datetime_support::DateTimeConversionError;
+use serde::{Deserialize, Serialize};
+
+pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
+
+/// The Unix epoch is midnight 1970-01-01. The postgres epoch is midnight 2000-01-01.
+/// This is the difference between them in microseconds.
+pub static PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS: i64 = 946_684_800 * MICROSECONDS_IN_SECOND as i64;
+
+/// The number of days between the Unix epoch and the PostgreSQL epoch.
+pub const PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS: i32 = 10_957;
+
+#[cfg(any(test, feature = "pg_test"))]
+pub fn pg_micros_to_unix_micros(pg_micros: i64) -> i64 {
+    pg_micros
+        .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
+        .unwrap()
+}
+
+pub fn unix_micros_to_pg_micros(unix_micros: i64) -> i64 {
+    unix_micros
+        .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
+        .unwrap()
+}
+
+pub fn unix_millis_to_pg_micros(unix_millis: i64) -> i64 {
+    let unix_micros = unix_millis.checked_mul(1_000).unwrap();
+    unix_micros_to_pg_micros(unix_micros)
+}
+
+/// The minimum microseconds from 1970-01-01 00:00:00 UTC that can be safely
+/// converted between Postgres types and Tantivy without underflowing i64 when floored to the
+/// day.
+#[allow(dead_code)]
+pub const MIN_SAFE_TANTIVY_UNIX_MICROS: i64 =
+    (i64::MIN / 1_000_000_000 / 86_400) * 86_400 * 1_000_000;
+
+/// The maximum microseconds from 1970-01-01 00:00:00 UTC that can be safely
+/// converted between Postgres types and Tantivy without overflowing i64 when floored to the
+/// day.
+#[allow(dead_code)]
+pub const MAX_SAFE_TANTIVY_UNIX_MICROS: i64 =
+    (i64::MAX / 1_000_000_000 / 86_400) * 86_400 * 1_000_000;
+
+/// The minimum value storable by pgrx::datum::Timestamp. This has been copied here, for use in
+/// tests, from pgrx source, which does not export it.
+#[allow(dead_code)]
+pub const MIN_PG_MICROS: i64 = -211_813_488_000_000_000;
+
+/// The maximum value storable by pgrx::datum::Timestamp. This has been copied here, for use in
+/// tests, from pgrx source, which does not export it.
+#[allow(dead_code)]
+pub const MAX_PG_MICROS: i64 = 9_223_371_331_200_000_000 - 1;
+
+const SECOND_MICROS: i64 = 1_000_000;
+const MINUTE_MICROS: i64 = 60 * SECOND_MICROS;
+const HOUR_MICROS: i64 = 60 * MINUTE_MICROS;
+const ONE_DAY_MICROS: i64 = 24 * HOUR_MICROS;
+
+/// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
+/// really just a wrapper around an i64 representing microseconds from the PG epoch.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct PostgresDateTime(pgrx::datum::Timestamp);
+
+// Compare/hash/order via the inner i64 directly rather than `#[derive]`-ing. Deriving would route
+// through `<pgrx::datum::Timestamp as PartialEq/Hash/PartialOrd>`, which pgrx implements (via
+// `impl_wrappers!`) by calling PG backend functions through `pg_guard_ffi_boundary`. That wrapper
+// references PG globals (`CurrentMemoryContext`, `PG_exception_stack`, `error_context_stack`) and
+// `timestamp_eq/cmp/hash` — none of which are resolvable at test-binary link time, breaking CI
+// against a system Postgres install.
+impl PartialEq for PostgresDateTime {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.into_inner() == other.0.into_inner()
+    }
+}
+impl Eq for PostgresDateTime {}
+impl Hash for PostgresDateTime {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.into_inner().hash(state);
+    }
+}
+impl PartialOrd for PostgresDateTime {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.into_inner().partial_cmp(&other.0.into_inner())
+    }
+}
+
+impl PostgresDateTime {
+    pub fn into_inner(self) -> i64 {
+        self.0.into_inner()
+    }
+
+    /// Is this Postgres's `infinity`?
+    pub fn is_infinity(&self) -> bool {
+        self.0.is_infinity()
+    }
+
+    /// Is this Postgres's `-infinity`?
+    pub fn is_neg_infinity(&self) -> bool {
+        self.0.is_neg_infinity()
+    }
+
+    /// Formats as UTC RFC 3339 without a Postgres output function, so it runs outside a backend.
+    /// Returns `None` when the offset does not fit a `chrono` timestamp (the far extremes and the
+    /// `infinity` sentinels).
+    pub fn to_rfc3339(self) -> Option<String> {
+        let unix_micros = self
+            .into_inner()
+            .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)?;
+        chrono::DateTime::from_timestamp_micros(unix_micros).map(|dt| dt.to_rfc3339())
+    }
+
+    pub fn try_from_raw(raw: i64) -> Result<Self, DateTimeConversionError> {
+        let ts = pgrx::datum::Timestamp::try_from(raw)
+            .map_err(|_| DateTimeConversionError::OutOfRange)?;
+        Ok(Self(ts))
+    }
+
+    /// Parses the string written by `From<PostgresDateTime> for String`, including `infinity`,
+    /// `-infinity`, and years after 9999 or BC. User-supplied strings go through `TryFrom<&str>`
+    /// instead, which accepts only RFC 3339, so that the word "infinity" in a query is never
+    /// promoted to a date.
+    pub fn try_from_serialized(s: &str) -> Result<Self, DateTimeConversionError> {
+        match s {
+            "infinity" => Ok(Self(pgrx::datum::Timestamp::positive_infinity())),
+            "-infinity" => Ok(Self(pgrx::datum::Timestamp::negative_infinity())),
+            _ => Self::try_from(s).or_else(|err| match pg_json_timestamp_to_pg_micros(s) {
+                Some(pg_micros) => Self::try_from_raw(pg_micros),
+                None => Err(err),
+            }),
+        }
+    }
+
+    pub fn try_from_unix_nanos(unix_nanos: i64) -> Result<Self, DateTimeConversionError> {
+        assert_eq!(
+            unix_nanos % 1_000,
+            0,
+            "We should never see a timestamp with greater than microsecond precision because postgres only supports microsecond precision"
+        );
+        let unix_micros = unix_nanos / 1_000;
+        Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
+    }
+
+    pub fn try_from_unix_micros(unix_micros: i64) -> Result<Self, DateTimeConversionError> {
+        Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
+    }
+
+    pub fn try_from_timestamp_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let ts = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::Timestamp::from_str(s)
+        })?;
+        Ok(Self::from(ts))
+    }
+
+    pub fn try_from_timestamptz_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let ts = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::TimestampWithTimeZone::from_str(s)
+        })?;
+        Ok(Self::from(ts))
+    }
+
+    pub fn try_from_date_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let date = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::Date::from_str(s)
+        })?;
+        Self::try_from(date)
+    }
+
+    pub fn try_from_time_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let time = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::Time::from_str(s)
+        })?;
+        Ok(Self::from(time))
+    }
+
+    pub fn try_from_timetz_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let time = crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            pgrx::datum::TimeWithTimeZone::from_str(s)
+        })?;
+        Ok(Self::from(time))
+    }
+
+    pub fn add_days(&self, days: i64) -> Result<Self, DateTimeConversionError> {
+        let plus_days_micros = ONE_DAY_MICROS
+            .checked_mul(days)
+            .ok_or(DateTimeConversionError::FieldOverflow)?;
+        let new_micros = self
+            .into_inner()
+            .checked_add(plus_days_micros)
+            .ok_or(DateTimeConversionError::FieldOverflow)?;
+        Self::try_from_raw(new_micros)
+    }
+}
+impl Display for PostgresDateTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s: String = (*self).into();
+        f.write_str(&s)
+    }
+}
+impl TryFrom<String> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    /// Used by serde, so it also reads back the `infinity` and `-infinity` written by
+    /// `From<PostgresDateTime> for String`.
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from_serialized(&value)
+    }
+}
+impl TryFrom<&str> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    /// Tantivy uses rfc3339 as it's supported date parsing method, so we'll replicate that here,
+    /// as this is largely used for user-supplied datetime strings
+    /// If you need something more lenient, use one of:
+    /// - `PostgresDateTime::try_from_date_str`
+    /// - `PostgresDateTime::try_from_timestamp_str`
+    /// - `PostgresDateTime::try_from_timestamptz_str`
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if can_be_rfc3339_date_time(value) {
+            // From the chrono docs about DateTime::from_str:
+            // Accepts a relaxed form of RFC3339. A space or a ‘T’ are accepted as the separator
+            // between the date and time parts. Additional spaces are allowed between each
+            // component.
+            if let Ok(dt) = chrono::DateTime::<chrono::FixedOffset>::from_str(value) {
+                return Self::try_from(dt.to_utc());
+            }
+        }
+        Err(DateTimeConversionError::InvalidFormat)
+    }
+}
+/// Cheap way to skip full parsing of things that can't be valid rfc3339 dates
+fn can_be_rfc3339_date_time(text: &str) -> bool {
+    if let Some(&first_byte) = text.as_bytes().first()
+        && first_byte.is_ascii_digit()
+    {
+        return true;
+    }
+
+    false
+}
+
+/// Parses the `JsonEncodeDateTime` text of a `timestamp` plus the `Z` we append, for the years
+/// RFC 3339 cannot hold: more than four digits (`10000-01-01T00:00:00Z`) or a ` BC` suffix
+/// (`0044-03-15T12:34:56.789 BCZ`). Returns microseconds from the Postgres epoch.
+fn pg_json_timestamp_to_pg_micros(text: &str) -> Option<i64> {
+    fn digits<T: FromStr>(s: &str) -> Option<T> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    }
+
+    let text = text.strip_suffix('Z')?;
+    let (text, bc) = match text.strip_suffix(" BC") {
+        Some(text) => (text, true),
+        None => (text, false),
+    };
+    let (date, time) = text.split_once('T')?;
+
+    let mut date_parts = date.split('-');
+    let (year, month, day) = (date_parts.next()?, date_parts.next()?, date_parts.next()?);
+    if date_parts.next().is_some() || year.len() < 4 || month.len() != 2 || day.len() != 2 {
+        return None;
+    }
+    let year: i64 = digits(year)?;
+    let (month, day): (i64, i64) = (digits(month)?, digits(day)?);
+    if bc && year == 0 {
+        return None;
+    }
+    // Astronomical numbering: 1 BC is year 0.
+    let year = if bc { 1 - year } else { year };
+    let is_leap =
+        year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=days_in_month).contains(&day) {
+        return None;
+    }
+
+    let (hms, fraction) = match time.split_once('.') {
+        Some((hms, fraction)) if fraction.len() <= 6 => (hms, fraction),
+        Some(_) => return None,
+        None => (time, ""),
+    };
+    let mut hms_parts = hms.split(':');
+    let (hour, minute, second) = (hms_parts.next()?, hms_parts.next()?, hms_parts.next()?);
+    if hms_parts.next().is_some() || hour.len() != 2 || minute.len() != 2 || second.len() != 2 {
+        return None;
+    }
+    let (hour, minute, second): (i64, i64, i64) = (digits(hour)?, digits(minute)?, digits(second)?);
+    if hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let micros: i64 = if fraction.is_empty() {
+        0
+    } else {
+        digits::<i64>(fraction)? * 10_i64.pow(6 - fraction.len() as u32)
+    };
+
+    // Days from 1970-01-01 to the civil date (Howard Hinnant's `days_from_civil`).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let year_of_era = y.rem_euclid(400);
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let unix_days = era
+        .checked_mul(146_097)?
+        .checked_add(day_of_era - 719_468)?;
+    let pg_days = unix_days.checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS as i64)?;
+
+    pg_days
+        .checked_mul(ONE_DAY_MICROS)?
+        .checked_add(hour * HOUR_MICROS + minute * MINUTE_MICROS + second * SECOND_MICROS + micros)
+}
+
+impl From<PostgresDateTime> for String {
+    fn from(value: PostgresDateTime) -> Self {
+        if value.is_infinity() {
+            return "infinity".to_string();
+        }
+        if value.is_neg_infinity() {
+            return "-infinity".to_string();
+        }
+        // append Z to make the output rfc3339-compliant
+        crate::postgres::customscan::mpp::run_on_main_thread(|_| {
+            format!("{}Z", value.0.to_iso_string())
+        })
+    }
+}
+impl TryFrom<pgrx::datum::Date> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: pgrx::datum::Date) -> Result<Self, Self::Error> {
+        // `date` keeps `infinity` and `-infinity` as the extreme day counts, and `timestamp` keeps
+        // them as the extreme microsecond counts. Map one onto the other: scaling them overflows.
+        if value.is_infinity() {
+            return Ok(Self(pgrx::datum::Timestamp::positive_infinity()));
+        }
+        if value.is_neg_infinity() {
+            return Ok(Self(pgrx::datum::Timestamp::negative_infinity()));
+        }
+        let midnight_micros = (value.to_pg_epoch_days() as i64)
+            .checked_mul(ONE_DAY_MICROS)
+            .ok_or(DateTimeConversionError::FieldOverflow)?;
+        Self::try_from_raw(midnight_micros)
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::Date {
+    fn from(value: PostgresDateTime) -> Self {
+        if value.is_infinity() {
+            return Self::positive_infinity();
+        }
+        if value.is_neg_infinity() {
+            return Self::negative_infinity();
+        }
+        let pg_days: i32 = (value.into_inner() / ONE_DAY_MICROS)
+            .try_into()
+            .expect("This should always fit");
+        unsafe { Self::from_pg_epoch_days(pg_days) }
+    }
+}
+impl From<pgrx::datum::Time> for PostgresDateTime {
+    fn from(value: pgrx::datum::Time) -> Self {
+        Self::try_from_raw(value.into_inner())
+            .expect("time micros -> Timestamp conversion should always work")
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::Time {
+    fn from(value: PostgresDateTime) -> Self {
+        Self::modular_from_raw(value.into_inner())
+    }
+}
+impl From<pgrx::datum::TimeWithTimeZone> for PostgresDateTime {
+    fn from(value: pgrx::datum::TimeWithTimeZone) -> Self {
+        Self::from(value.to_utc())
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::TimeWithTimeZone {
+    fn from(value: PostgresDateTime) -> Self {
+        Self::from(pgrx::datum::Time::from(value))
+    }
+}
+impl From<pgrx::datum::Timestamp> for PostgresDateTime {
+    fn from(val: pgrx::datum::Timestamp) -> Self {
+        Self(val)
+    }
+}
+impl From<pgrx::datum::TimestampWithTimeZone> for PostgresDateTime {
+    fn from(val: pgrx::datum::TimestampWithTimeZone) -> Self {
+        // Postgres's TimestampWithTimeZone is just Timestamp with different logic for handling it when
+        // returning it to the user. The internal representation is the same i64 microseconds from
+        // the PG epoch that Timestamp, uses, so we are safe to just convert it here
+        Self(val.to_utc())
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::Timestamp {
+    fn from(value: PostgresDateTime) -> Self {
+        value.0
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::TimestampWithTimeZone {
+    fn from(value: PostgresDateTime) -> Self {
+        // Postgres's TimestampWithTimeZone is just Timestamp with different logic for handling it when
+        // returning it to the user. The internal representation is the same i64 microseconds from
+        // the PG epoch that Timestamp, uses, so we are safe to just convert it here
+        pgrx::datum::TimestampWithTimeZone::try_from(value.into_inner()).expect(
+            "PostgresDateTime->pgrx::datum::TimestampWithTimeZone conversion should always work",
+        )
+    }
+}
+impl TryFrom<tantivy::DateTime> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(val: tantivy::DateTime) -> Result<Self, DateTimeConversionError> {
+        let unix_micros = val.into_timestamp_micros();
+        let pg_micros = unix_micros
+            .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
+            .ok_or(DateTimeConversionError::OutOfRange)?;
+        Self::try_from_raw(pg_micros)
+    }
+}
+impl TryFrom<PostgresDateTime> for tantivy::DateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(val: PostgresDateTime) -> Result<Self, DateTimeConversionError> {
+        let unix_micros = val
+            .into_inner()
+            .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_MICROS)
+            .ok_or(DateTimeConversionError::OutOfRange)?;
+        if !(MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS).contains(&unix_micros) {
+            return Err(DateTimeConversionError::OutOfRange);
+        }
+        Ok(tantivy::DateTime::from_timestamp_micros(unix_micros))
+    }
+}
+impl TryFrom<chrono::DateTime<chrono::Utc>> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: chrono::DateTime<chrono::Utc>) -> Result<Self, Self::Error> {
+        Self::try_from_unix_micros(value.timestamp_micros())
+    }
+}
+
+impl From<PostgresDateTime> for i64 {
+    fn from(value: PostgresDateTime) -> Self {
+        value.into_inner()
+    }
+}
+impl TryFrom<i64> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        PostgresDateTime::try_from_raw(value)
+    }
+}
+
+/// Convert PostgreSQL-epoch timestamp microseconds into an Arrow Date32
+/// day count, preserving PostgreSQL's infinity sentinels.
+pub fn pg_timestamp_micros_to_date32(pg_micros: i64) -> i32 {
+    match pg_micros {
+        i64::MAX => i32::MAX,
+        i64::MIN => i32::MIN,
+        _ => {
+            let pg_days = pg_micros.div_euclid(ONE_DAY_MICROS);
+            let unix_days = pg_days
+                .checked_add(i64::from(PG_EPOCH_DIFF_FROM_UNIX_EPOCH_DAYS))
+                .expect("pg timestamp days to unix days should never overflow");
+            unix_days
+                .try_into()
+                .expect("Postgres timestamp day count should fit in Date32")
+        }
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
+    use pgrx::datum::{Timestamp, TimestampWithTimeZone};
+    use pgrx::pg_test;
+    use proptest::*;
+
+    // 2024-01-01 00:00:00 UTC
+    const UNIX_MICROS_2024: i64 = 1_704_067_200_000_000;
+    const PG_MICROS_2024: i64 = 757_382_400_000_000;
+
+    #[test]
+    fn safe_tantivy_micros_are_entirely_in_bounds_of_safe_pg_micros() {
+        let pg_safe_range = MIN_PG_MICROS..=MAX_PG_MICROS;
+        assert!(pg_safe_range.contains(&unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS)));
+        assert!(pg_safe_range.contains(&unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS)));
+    }
+
+    #[pg_test]
+    fn tantivy_datetime_to_timestamp() {
+        let tantivy_dt = tantivy::DateTime::from_timestamp_micros(UNIX_MICROS_2024);
+        let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+        let ts: Timestamp = pg_dt.into();
+        assert_eq!(ts.into_inner(), PG_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn tantivy_datetime_to_postgres_datetime_bounds() {
+        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS)| {
+            let tantivy_dt = tantivy::DateTime::from_timestamp_micros(unix_micros);
+            let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+            assert_eq!(pg_micros_to_unix_micros(pg_dt.into_inner()), unix_micros);
+        });
+    }
+
+    #[pg_test]
+    fn postgres_datetime_to_tantivy_datetime_bounds() {
+        // in bounds
+        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS)| {
+            let pg_dt = PostgresDateTime::try_from_raw(unix_micros_to_pg_micros(unix_micros)).unwrap();
+            let tantivy_dt_res: Result<tantivy::DateTime, _> = pg_dt.try_into();
+            assert_eq!(tantivy_dt_res.unwrap().into_timestamp_micros(), unix_micros);
+        });
+
+        // below
+        let pg_dt = PostgresDateTime::try_from_raw(unix_micros_to_pg_micros(
+            MIN_SAFE_TANTIVY_UNIX_MICROS - 1,
+        ))
+        .unwrap();
+        let tantivy_dt_res: Result<tantivy::DateTime, _> = pg_dt.try_into();
+        assert!(tantivy_dt_res.is_err());
+
+        // above
+        let pg_dt = PostgresDateTime::try_from_raw(unix_micros_to_pg_micros(
+            MAX_SAFE_TANTIVY_UNIX_MICROS + 1,
+        ))
+        .unwrap();
+        let tantivy_dt_res: Result<tantivy::DateTime, _> = pg_dt.try_into();
+        assert!(tantivy_dt_res.is_err());
+    }
+
+    #[pg_test]
+    fn tantivy_datetime_to_timestamptz() {
+        let tantivy_dt = tantivy::DateTime::from_timestamp_micros(UNIX_MICROS_2024);
+        let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+        let ts: TimestampWithTimeZone = pg_dt.into();
+        assert_eq!(ts.into_inner(), PG_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn timestamp_to_tantivy_datetime() {
+        let ts = Timestamp::try_from(PG_MICROS_2024).unwrap();
+        let pg_dt = PostgresDateTime::from(ts);
+        let tantivy_dt = tantivy::DateTime::try_from(pg_dt).unwrap();
+        assert_eq!(tantivy_dt.into_timestamp_micros(), UNIX_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn timestamptz_to_tantivy_datetime() {
+        let ts = TimestampWithTimeZone::try_from(PG_MICROS_2024).unwrap();
+        let pg_dt = PostgresDateTime::from(ts);
+        let tantivy_dt = tantivy::DateTime::try_from(pg_dt).unwrap();
+        assert_eq!(tantivy_dt.into_timestamp_micros(), UNIX_MICROS_2024);
+
+        // An equivalent instant parsed from a non-zero-offset string should produce the same UTC tantivy DateTime.
+        let ts_with_offset = TimestampWithTimeZone::from_str("2024-01-01 05:00:00+05:00").unwrap();
+        let pg_dt = PostgresDateTime::from(ts_with_offset);
+        let tantivy_dt = tantivy::DateTime::try_from(pg_dt).unwrap();
+        assert_eq!(tantivy_dt.into_timestamp_micros(), UNIX_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn timestamp_round_trip_through_tantivy_datetime() {
+        let original = Timestamp::try_from(PG_MICROS_2024).unwrap();
+        let tantivy_dt = tantivy::DateTime::try_from(PostgresDateTime::from(original)).unwrap();
+        let round_tripped: Timestamp = PostgresDateTime::try_from(tantivy_dt).unwrap().into();
+        assert_eq!(original.into_inner(), round_tripped.into_inner());
+    }
+
+    #[pg_test]
+    fn timestamptz_round_trip_through_tantivy_datetime() {
+        let original = TimestampWithTimeZone::try_from(PG_MICROS_2024).unwrap();
+        let tantivy_dt = tantivy::DateTime::try_from(PostgresDateTime::from(original)).unwrap();
+        let round_tripped: TimestampWithTimeZone =
+            PostgresDateTime::try_from(tantivy_dt).unwrap().into();
+        assert_eq!(original.into_inner(), round_tripped.into_inner());
+
+        // A value parsed from a non-zero-offset string should round-trip to the same UTC instant.
+        let original_with_offset =
+            TimestampWithTimeZone::from_str("2024-01-01 05:00:00+05:00").unwrap();
+        let tantivy_dt =
+            tantivy::DateTime::try_from(PostgresDateTime::from(original_with_offset)).unwrap();
+        let round_tripped: TimestampWithTimeZone =
+            PostgresDateTime::try_from(tantivy_dt).unwrap().into();
+        assert_eq!(
+            original_with_offset.into_inner(),
+            round_tripped.into_inner()
+        );
+        // verify our assertion that the inner value is in UTC
+        assert_eq!(original_with_offset.into_inner(), PG_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn tantivy_datetime_roundtrip_through_postgres_datetime() {
+        let tantivy_dt = tantivy::DateTime::from_timestamp_micros(UNIX_MICROS_2024);
+        let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+        let round_tripped: tantivy::DateTime = pg_dt.try_into().unwrap();
+        assert_eq!(
+            tantivy_dt.into_timestamp_micros(),
+            round_tripped.into_timestamp_micros()
+        );
+    }
+
+    #[test]
+    fn timestamp_to_date32_uses_the_unix_epoch() {
+        assert_eq!(pg_timestamp_micros_to_date32(0), 10_957);
+
+        // These values are still within 2000-01-01.
+        assert_eq!(pg_timestamp_micros_to_date32(1), 10_957);
+        assert_eq!(pg_timestamp_micros_to_date32(ONE_DAY_MICROS - 1), 10_957);
+
+        // This is exactly midnight on 2000-01-02.
+        assert_eq!(pg_timestamp_micros_to_date32(ONE_DAY_MICROS), 10_958);
+    }
+
+    #[test]
+    fn timestamp_to_date32_floors_negative_timestamps() {
+        // One microsecond before the PostgreSQL epoch is still 1999-12-31.
+        assert_eq!(pg_timestamp_micros_to_date32(-1), 10_956);
+
+        // Exactly midnight at the start of 1999-12-31.
+        assert_eq!(pg_timestamp_micros_to_date32(-ONE_DAY_MICROS), 10_956);
+
+        // One microsecond before that midnight belongs to 1999-12-30.
+        assert_eq!(pg_timestamp_micros_to_date32(-ONE_DAY_MICROS - 1), 10_955);
+    }
+
+    #[test]
+    fn timestamp_to_date32_preserves_infinity_sentinels() {
+        assert_eq!(pg_timestamp_micros_to_date32(i64::MAX), i32::MAX);
+        assert_eq!(pg_timestamp_micros_to_date32(i64::MIN), i32::MIN);
+    }
+
+    #[test]
+    fn timestamp_to_date32_converts_finite_postgres_bounds() {
+        assert_eq!(pg_timestamp_micros_to_date32(MIN_PG_MICROS), -2_440_588);
+
+        assert_eq!(pg_timestamp_micros_to_date32(MAX_PG_MICROS), 106_762_939);
+    }
+
+    #[test]
+    fn date_infinity_maps_to_timestamp_infinity_and_back() {
+        let infinity = PostgresDateTime::try_from(pgrx::datum::Date::positive_infinity()).unwrap();
+        let neg_infinity =
+            PostgresDateTime::try_from(pgrx::datum::Date::negative_infinity()).unwrap();
+        assert_eq!(infinity.into_inner(), i64::MAX);
+        assert_eq!(neg_infinity.into_inner(), i64::MIN);
+        assert!(pgrx::datum::Date::from(infinity).is_infinity());
+        assert!(pgrx::datum::Date::from(neg_infinity).is_neg_infinity());
+
+        // 2024-01-01 is 8766 days after the Postgres epoch.
+        let date_2024 = unsafe { pgrx::datum::Date::from_pg_epoch_days(8766) };
+        let pg_dt = PostgresDateTime::try_from(date_2024).unwrap();
+        assert_eq!(pg_dt.into_inner(), PG_MICROS_2024);
+        assert_eq!(pgrx::datum::Date::from(pg_dt).to_pg_epoch_days(), 8766);
+    }
+
+    #[test]
+    fn date_bounds_conversion() {
+        // Upper bound: 294276-12-31 is 106,751,982 days after the Postgres epoch.
+        let max_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(106_751_982) };
+        let pg_dt = PostgresDateTime::try_from(max_date);
+        assert!(pg_dt.is_ok());
+
+        // 294277-01-01 is 106,751,983 days after the Postgres epoch (overflows MAX_TIMESTAMP).
+        let out_of_range_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(106_751_983) };
+        assert!(matches!(
+            PostgresDateTime::try_from(out_of_range_date),
+            Err(DateTimeConversionError::OutOfRange)
+        ));
+
+        // Lower bound: 4713-11-24 BC is -2,451,545 days after the Postgres epoch.
+        let min_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(-2_451_545) };
+        assert!(PostgresDateTime::try_from(min_date).is_ok());
+
+        // Days before min_date are out of range for Timestamp.
+        let before_min_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(-2_451_546) };
+        assert!(matches!(
+            PostgresDateTime::try_from(before_min_date),
+            Err(DateTimeConversionError::OutOfRange)
+        ));
+
+        // Extreme future date: finite day count multiplied by ONE_DAY_MICROS overflows i64.
+        let extreme_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MAX - 1) };
+        assert!(matches!(
+            PostgresDateTime::try_from(extreme_date),
+            Err(DateTimeConversionError::FieldOverflow)
+        ));
+
+        // Extreme past date: finite day count multiplied by ONE_DAY_MICROS underflows i64.
+        let extreme_past_date = unsafe { pgrx::datum::Date::from_pg_epoch_days(i32::MIN + 1) };
+        assert!(matches!(
+            PostgresDateTime::try_from(extreme_past_date),
+            Err(DateTimeConversionError::FieldOverflow)
+        ));
+    }
+
+    #[pg_test]
+    fn infinity_round_trips_through_serde() {
+        for raw in [i64::MAX, i64::MIN] {
+            let value = PdbOwnedValue::Date(PostgresDateTime::try_from_raw(raw).unwrap());
+            let json = serde_json::to_string(&value).unwrap();
+            assert_eq!(serde_json::from_str::<PdbOwnedValue>(&json).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn serialized_years_outside_rfc3339_parse() {
+        let parse = |s: &str| PostgresDateTime::try_from_serialized(s).map(|dt| dt.into_inner());
+        let unix_to_pg = |y, m, d| {
+            let unix = chrono::NaiveDate::from_ymd_opt(y, m, d)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc()
+                .timestamp_micros();
+            unix_micros_to_pg_micros(unix)
+        };
+
+        assert_eq!(parse("10000-01-01T00:00:00Z"), Ok(unix_to_pg(10000, 1, 1)));
+        assert_eq!(parse("0001-01-01T00:00:00 BCZ"), Ok(unix_to_pg(0, 1, 1)));
+        assert_eq!(parse("0005-02-29T00:00:00 BCZ"), Ok(unix_to_pg(-4, 2, 29)));
+        assert_eq!(
+            parse("0044-03-15T12:34:56.789 BCZ"),
+            Ok(unix_to_pg(-43, 3, 15) + 45_296_789_000)
+        );
+        assert_eq!(parse("4714-11-24T00:00:00 BCZ"), Ok(MIN_PG_MICROS));
+        assert_eq!(parse("294276-12-31T23:59:59.999999Z"), Ok(MAX_PG_MICROS));
+
+        for bad in [
+            "294277-01-01T00:00:00Z",
+            "9223372036854775807-01-01T00:00:00 BCZ",
+            "4714-11-23T23:59:59 BCZ",
+            "0000-01-01T00:00:00 BCZ",
+            "0004-02-29T00:00:00 BCZ",
+            "10000-02-30T00:00:00Z",
+            "10000-13-01T00:00:00Z",
+            "10000-1-01T00:00:00Z",
+            "10000-01-01T24:00:00Z",
+            "10000-01-01T0:00:00Z",
+            "+10000-01-01T00:00:00Z",
+            "10000-01-01T00:00:00",
+            "10000-01-01T00:00:00.1234567Z",
+            "infinity BCZ",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[pg_test]
+    fn serialized_years_outside_rfc3339_round_trip() {
+        let bc_44 = PostgresDateTime::try_from_timestamp_str("0044-03-15 12:34:56.789 BC").unwrap();
+        let year_10000 = PostgresDateTime::try_from_date_str("10000-01-01").unwrap();
+        for raw in [
+            MIN_PG_MICROS,
+            MAX_PG_MICROS,
+            bc_44.into_inner(),
+            year_10000.into_inner(),
+        ] {
+            let value = PostgresDateTime::try_from_raw(raw).unwrap();
+            let serialized = String::from(value);
+            assert_eq!(
+                PostgresDateTime::try_from_serialized(&serialized),
+                Ok(value)
+            );
+        }
+    }
+
+    #[test]
+    fn user_supplied_infinity_is_not_parsed_as_a_date() {
+        assert!(PostgresDateTime::try_from("infinity").is_err());
+        assert!(PostgresDateTime::try_from("-infinity").is_err());
+    }
+}

@@ -1,0 +1,542 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
+
+use crate::api::{HashMap, HashSet};
+use crate::index::mvcc::{MvccSatisfies, PinCushion};
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::{
+    CTID_MAP_EXT, DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, STATS_EXT,
+    SegmentFileDetails, SegmentMetaEntry, SegmentMetaEntryImmutable, VECTOR_CENTROIDS_EXT,
+    VECTOR_VEC_EXT,
+};
+use crate::postgres::storage::metadata::MetaPage;
+use anyhow::Result;
+use pgrx::pg_sys;
+use std::path::PathBuf;
+use tantivy::index::SegmentComponent;
+use tantivy::{
+    IndexMeta,
+    index::{IndexSettings, SegmentId, SegmentMetaInventory},
+    schema::Schema,
+};
+
+pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
+    let schema = MetaPage::open(indexrel).schema_bytes();
+    if schema.is_empty() {
+        let bytes = serde_json::to_vec(tantivy_schema)?;
+        unsafe {
+            schema.writer().write(&bytes)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettings) -> Result<()> {
+    let settings = MetaPage::open(indexrel).settings_bytes();
+    if settings.is_empty() {
+        let bytes = serde_json::to_vec(tantivy_settings)?;
+        unsafe {
+            settings.writer().write(&bytes)?;
+        }
+    }
+    Ok(())
+}
+
+pub unsafe fn save_new_metas(
+    indexrel: &PgSearchRelation,
+    new_meta: &IndexMeta,
+    prev_meta: &IndexMeta,
+    directory_entries: &mut HashMap<PathBuf, FileEntry>,
+) -> Result<()> {
+    // in order to ensure that all of our mutations to the list of segments appear atomically on
+    // physical replicas, we atomically operate on a deep copy of the list.
+    let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
+    let mut linked_list = segment_metas_linked_list.atomically();
+
+    let incoming_segments = new_meta
+        .segments
+        .iter()
+        .map(|s| (s.id(), s))
+        .collect::<HashMap<_, _>>();
+    let new_ids = new_meta
+        .segments
+        .iter()
+        .map(|s| s.id())
+        .collect::<HashSet<_>>();
+    let previous_ids = prev_meta
+        .segments
+        .iter()
+        .map(|s| s.id())
+        .collect::<HashSet<_>>();
+
+    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+        pgrx::debug1!(
+            "entered save_new_metas with {} new ids and {} previous ids",
+            new_ids.len(),
+            previous_ids.len()
+        );
+    }
+
+    // first, reorganize the directory_entries by segment id
+    let mut new_files =
+        HashMap::<SegmentId, HashMap<SegmentComponent, (FileEntry, PathBuf)>>::default();
+
+    for (path, file_entry) in directory_entries.drain() {
+        let segment_id = path.segment_id();
+        let component_type = path.component_type();
+
+        if let (Some(segment_id), Some(component_type)) = (segment_id, component_type) {
+            new_files
+                .entry(segment_id)
+                .or_default()
+                .insert(component_type, (file_entry, path));
+        } else {
+            panic!("malformed PathBuf: {}", path.display());
+        }
+    }
+
+    let created_ids = new_ids.difference(&previous_ids).collect::<Vec<_>>();
+    let mut modified_ids = previous_ids.intersection(&new_ids).collect::<Vec<_>>();
+    let deleted_ids = previous_ids.difference(&new_ids).collect::<Vec<_>>();
+
+    modified_ids.retain(|id| {
+        if let Some(new_files) = new_files.get(id) {
+            new_files.contains_key(&SegmentComponent::Delete)
+        } else {
+            false
+        }
+    });
+
+    //
+    // process the new segments
+    //
+    // these are added to the linked list as new items
+    // xmin is set to the current transaction id
+    // and xmax is set to InvalidTransactionId
+    //
+    let created_entries = created_ids
+        .into_iter()
+        .filter_map(|id| {
+            let created_segment = incoming_segments.get(id).unwrap();
+            let mut files = new_files.remove(id)?;
+
+            let meta_entry = SegmentMetaEntry::new_immutable(
+                *id,
+                created_segment.max_doc(),
+                pg_sys::InvalidTransactionId,
+                SegmentMetaEntryImmutable {
+                    postings: files.remove(&SegmentComponent::Postings).map(|e| e.0),
+                    positions: files.remove(&SegmentComponent::Positions).map(|e| e.0),
+                    fast_fields: files.remove(&SegmentComponent::FastFields).map(|e| e.0),
+                    field_norms: files.remove(&SegmentComponent::FieldNorms).map(|e| e.0),
+                    terms: files.remove(&SegmentComponent::Terms).map(|e| e.0),
+                    store: files.remove(&SegmentComponent::Store).map(|e| e.0),
+                    temp_store: files.remove(&SegmentComponent::TempStore).map(|e| e.0),
+                    delete: files
+                        .remove(&SegmentComponent::Delete)
+                        .map(|(file_entry, _)| DeleteEntry {
+                            file_entry,
+                            num_deleted_docs: created_segment.num_deleted_docs(),
+                        }),
+                    vec: files
+                        .remove(&SegmentComponent::Custom(VECTOR_VEC_EXT.to_string()))
+                        .map(|e| e.0),
+                    centroids: files
+                        .remove(&SegmentComponent::Custom(VECTOR_CENTROIDS_EXT.to_string()))
+                        .map(|e| e.0),
+                    stats: files
+                        .remove(&SegmentComponent::Custom(STATS_EXT.to_string()))
+                        .map(|e| e.0),
+                    ctid_map: files
+                        .remove(&SegmentComponent::Custom(CTID_MAP_EXT.to_string()))
+                        .map(|e| e.0),
+                    posting_norms: files.remove(&SegmentComponent::PostingNorms).map(|e| e.0),
+                    posting_bitmaps: files.remove(&SegmentComponent::PostingBitmaps).map(|e| e.0),
+                },
+            );
+
+            Some(meta_entry)
+        })
+        .collect::<Vec<_>>();
+
+    //
+    // process the modified segments
+    //
+    // lookup existing version, update the `delete` entry
+    // if it already has one, remember the old entry in `orphaned_deletes_files` so it can be
+    // re-added below as an immediately-recyclable entry
+    // xmin/xmax do not change
+    //
+    let mut orphaned_deletes_files = Vec::new();
+    let modified_entries = modified_ids
+        .into_iter()
+        .filter_map(|id| {
+            let mut files = new_files.remove(id)?;
+            assert!(
+                files.len() == 1 && files.contains_key(&SegmentComponent::Delete),
+                "new files for segment_id `{id}` should be exactly one Delete component:  {files:#?}"
+            );
+
+            let existing_segment = incoming_segments.get(id).unwrap();
+            let (mut meta_entry, blockno, _) = linked_list
+                .lookup_ex(|entry| entry.segment_id() == *id, None)
+                .unwrap_or_else(|e| {
+                    panic!("segment id `{id}` should be in the segment meta linked list:  {e}")
+                });
+            let (new_delete_entry, _path) = files
+                .remove(&SegmentComponent::Delete)
+                .unwrap_or_else(|| panic!("missing new delete file for segment_id `{id}`"));
+
+            let deletes = DeleteEntry {
+                file_entry: new_delete_entry,
+                num_deleted_docs: existing_segment.num_deleted_docs(),
+            };
+            if let Some(old_entry) = meta_entry.replace_deletes(deletes) {
+                // remember the old delete_entry for future action
+                orphaned_deletes_files.push(old_entry);
+            }
+
+            Some((meta_entry, blockno))
+        })
+        .collect::<Vec<_>>();
+
+    //
+    // process the deleted segments
+    //
+    // find the deleted segment entries and set their `xmax` to `FrozenTransactionId`, which is
+    // safe because a deleted segment always belongs to a transaction known to not be in progress
+    //
+    let deleted_entries = deleted_ids
+        .into_iter()
+        .map(|id| {
+            let (mut meta_entry, blockno, _) = linked_list
+                .lookup_ex(|entry| entry.segment_id() == *id, None)
+                .unwrap_or_else(|e| {
+                    panic!("segment id `{id}` should be in the segment meta linked list: {e}")
+                });
+
+            // Merges and VACUUM retire replaced segments inside a transaction.
+            assert!(pg_sys::IsTransactionState());
+
+            assert!(
+                meta_entry.xmax() == pg_sys::InvalidTransactionId,
+                "SegmentMetaEntry {} should not already be deleted",
+                meta_entry.segment_id()
+            );
+
+            // deleted segments belong to a transaction that is known to not be in progress
+            // and so when we mark them as deleted, it'll be with a transaction that is known to
+            // not be in progress, the FrozenTransactionId.
+            meta_entry.set_xmax(pg_sys::FrozenTransactionId);
+
+            (meta_entry, blockno)
+        })
+        .collect::<Vec<_>>();
+
+    //
+    // recycle anything leftover in `new_files` to our input `directory_entries` as they belong to segment(s) we
+    // are not dealing with in this call to save_new_metas()
+    //
+
+    if !new_files.is_empty() {
+        directory_entries.extend(
+            new_files
+                .into_values()
+                .flat_map(|segment| segment.into_values())
+                .map(|(entry, path)| (path, entry)),
+        )
+    }
+
+    //
+    // now change things on disk
+    //
+
+    // Retire entries removed by a merge or VACUUM.
+    for (entry, blockno) in &deleted_entries {
+        assert!(entry.xmax() == pg_sys::FrozenTransactionId);
+        let mut buffer = linked_list.bman_mut().get_buffer_mut(*blockno);
+        let mut page = buffer.page_mut();
+
+        let Some(offno) =
+            page.find_item::<SegmentMetaEntry, _>(|item| item.segment_id() == entry.segment_id())
+        else {
+            panic!(
+                "DELETE:  could not find SegmentMetaEntry for segment_id `{}` on block #{blockno}",
+                entry.segment_id()
+            );
+        };
+
+        let PgItem(pg_item, size) = (*entry).into();
+
+        let did_replace = page.replace_item(offno, pg_item, size);
+        assert!(did_replace);
+
+        drop(buffer);
+    }
+
+    // replace the modified entries -- only happens because of vacuum
+    for (entry, blockno) in modified_entries {
+        let mut buffer = linked_list.bman_mut().get_buffer_mut(blockno);
+        let mut page = buffer.page_mut();
+        let Some(offno) =
+            page.find_item::<SegmentMetaEntry, _>(|item| item.segment_id() == entry.segment_id())
+        else {
+            panic!(
+                "MODIFY:  could not find SegmentMetaEntry for segment_id `{}` on block #{blockno}",
+                entry.segment_id()
+            );
+        };
+
+        let PgItem(pg_item, size) = entry.into();
+        let did_replace = page.replace_item(offno, pg_item, size);
+        if !did_replace {
+            // couldn't replace because it doesn't fit in that slot, so delete the item...
+            page.delete_item(offno);
+
+            // ... and add it to somewhere in the list, starting on this page
+            linked_list.add_items(&[entry], Some(buffer));
+        }
+        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+            pgrx::debug1!("MODIFY: {entry:?}");
+        }
+    }
+
+    // add the new entries -- happens via an index commit or the result of a merge
+    if !created_entries.is_empty() {
+        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+            pgrx::debug1!("CREATE: {created_entries:?}");
+        }
+        linked_list.add_items(&created_entries, None);
+    }
+
+    if !orphaned_deletes_files.is_empty() {
+        // if we have orphaned ".deletes" files, what we do with them is add a new, fake entry to
+        // the metas `linked_list` for each one, where the fake entry is configured such that it's
+        // immediately considered recyclable.  This will allow for a future garbage collection to
+        // properly delete the blocks associated with the orphaned file
+        linked_list.add_items(&orphaned_deletes_files, None);
+    }
+
+    // atomically replace the SegmentMetaEntry list, and then mark any orphaned files deleted.
+    linked_list.commit();
+
+    Ok(())
+}
+
+pub struct LoadedMetas {
+    pub entries: Vec<SegmentMetaEntry>,
+    pub meta: IndexMeta,
+    pub pin_cushion: PinCushion,
+    pub total_segments: usize,
+    pub total_docs: usize,
+}
+
+pub unsafe fn load_metas(
+    indexrel: &PgSearchRelation,
+    inventory: &SegmentMetaInventory,
+    solve_mvcc: &MvccSatisfies,
+    tantivy_schema: &Schema,
+) -> tantivy::Result<LoadedMetas> {
+    let mut total_segments = 0;
+    let mut total_docs = 0usize;
+    let mut alive_segments = vec![];
+    let mut alive_entries = vec![];
+    let mut opstamp = None;
+    let mut pin_cushion = PinCushion::default();
+
+    // Collect segments from each relevant list.
+    let metapage = MetaPage::open(indexrel);
+    let mut segment_metas = metapage.segment_metas();
+    let mut exhausted_metas_lists = false;
+
+    let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
+    // Prefer non-empty persisted segments over mutable segments so estimation never
+    // materializes a mutable segment from the heap when any persisted segment exists.
+    let mut largest_key = (false, 0usize);
+
+    loop {
+        // Find all relevant segments in this list.
+        segment_metas.for_each(|bman, mut entry| {
+            // Skip unrelated segments before recycling checks touch their pin-test buffers.
+            if let MvccSatisfies::ParallelWorker(view) = solve_mvcc
+                && !view.contains(&entry.segment_id())
+            {
+                return;
+            }
+
+            if matches!(
+                solve_mvcc,
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+            ) && !entry.visible()
+            {
+                return;
+            }
+
+            // nobody sees recyclable segments
+            let accept = !entry.recyclable(bman) && (
+                // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(view) if view.contains(&entry.segment_id()))
+
+                    // vacuum sees all non-retired segments
+                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax() == pg_sys::InvalidTransactionId)
+
+                    || (matches!(solve_mvcc, MvccSatisfies::VacuumMerge { live_ctids } if live_ctids.contains_key(&entry.segment_id()))
+                        && entry.xmax() == pg_sys::InvalidTransactionId)
+
+                    // a snapshot or ::LargestSegment can see any that are visible in its snapshot
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
+
+                    // mergeable can see any that are known to be mergeable
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.is_mergeable(indexrel))
+            );
+            if !accept {
+                return;
+            };
+
+            // Replay the view's materialization bound so this reader's `DocId`s for the mutable
+            // segment line up with the reader that captured the view.
+            if let MvccSatisfies::ParallelWorker(view) = solve_mvcc
+                && let Some(bound) = view.mutable_bound(&entry.segment_id())
+            {
+                let segment_id = entry.segment_id();
+                if let Err(e) = entry.rewind_mutable(bound.max_doc, bound.num_deleted_docs) {
+                    panic!("load_metas: cannot replay the parallel view for segment {segment_id}: {e}");
+                }
+            }
+
+            // A mutable segment has no delete bitset: once all its ctids are removed it has no
+            // documents, and a scorer that starts from "all docs" still hands out doc 0 for it.
+            // It can't match anything, so query readers skip it. Vacuum and merge still see it.
+            if matches!(
+                solve_mvcc,
+                MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment
+            ) && entry.is_mutable()
+                && entry.num_docs() == 0
+            {
+                return;
+            }
+
+            let mut tantivy_meta = entry.as_tantivy();
+            if let MvccSatisfies::VacuumMerge { live_ctids } = solve_mvcc {
+                let live_ctids = &live_ctids[&entry.segment_id()];
+                assert!(entry.is_mutable() && entry.is_mergeable(indexrel));
+                assert!(live_ctids.len() <= entry.num_docs());
+                tantivy_meta.max_doc = live_ctids.len().try_into().expect("too many mutable CTIDs");
+            }
+
+            let tantivy_meta = tantivy_meta.track(inventory);
+            total_segments += 1;
+            total_docs += tantivy_meta.num_docs() as usize;
+
+            let mut need_entry = true;
+            if is_largest_only {
+                let entry_key = (!entry.is_mutable() && entry.num_docs() > 0, entry.num_docs());
+                if entry_key > largest_key {
+                    largest_key = entry_key;
+
+                    // the entry we're processing right now is known to be the largest so far
+                    // and it's the only one we want
+                    alive_segments.clear();
+                    alive_entries.clear();
+                    pin_cushion.clear();
+                } else {
+                    // we already have the largest so we don't need this entry
+                    need_entry = false;
+                }
+            }
+
+            if need_entry {
+                pin_cushion.push(bman, &entry);
+
+                alive_segments.push(tantivy_meta);
+                alive_entries.push(entry);
+
+                opstamp = opstamp.max(Some(entry.opstamp()));
+            }
+        });
+
+        match solve_mvcc {
+            MvccSatisfies::ParallelWorker(view) if alive_entries.len() != view.len() => {
+                // If we haven't tried the `segment_metas_garbage` list, try that next.
+                if !exhausted_metas_lists
+                    && let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage()
+                {
+                    segment_metas = garbage;
+                    exhausted_metas_lists = true;
+                    continue;
+                }
+
+                // TODO:  I believe this situation, where if the alive_entries.len() != only_these.len() is now dead code
+                //        @Stu asked to keep this around for awhile.  If there's ever a situation where `alive_entries` has
+                //        fewer entries than `only_these` then we should cancel the query, but it'd be indicative of a bug
+                //
+                // TODO (after some testing):  This situation does indeed happen and I believe that points to a bug, but
+                //        I don't know where it's coming from.  As such, cancelling the query is the expedient decision.
+                let expected = view.ids().collect::<HashSet<SegmentId>>();
+                let missing = expected
+                    .difference(&alive_entries.iter().map(|s| s.segment_id()).collect())
+                    .cloned()
+                    .collect::<HashSet<SegmentId>>();
+                let found = expected.difference(&missing).collect::<HashSet<_>>();
+
+                panic!(
+                    "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
+                    found={found:?}, missing={missing:?}",
+                );
+            }
+            #[cfg(debug_assertions)]
+            MvccSatisfies::ParallelWorker(view) => {
+                // In debug mode only, actually do a set comparison to determine that we got the
+                // exact expected segments.
+                let actual = alive_entries
+                    .iter()
+                    .map(|s| s.segment_id())
+                    .collect::<HashSet<_>>();
+                let expected = view.ids().collect::<HashSet<_>>();
+                assert_eq!(
+                    actual, expected,
+                    "Got the wrong segments in parallel worker: \
+                     actual: {actual:?}, expected: {expected:?}"
+                );
+                break;
+            }
+            _ => {
+                // We've successfully collected all of the relevant entries.
+                break;
+            }
+        }
+    }
+
+    Ok(LoadedMetas {
+        entries: alive_entries,
+        meta: IndexMeta {
+            segments: alive_segments,
+            schema: tantivy_schema.clone(),
+            index_settings: metapage.settings()?,
+            opstamp: opstamp.unwrap_or(0),
+            payload: None,
+            // Older segments can lack these optional components; readers fall back when absent.
+            persisted_custom_extensions: vec![STATS_EXT.to_string(), CTID_MAP_EXT.to_string()],
+        },
+        pin_cushion,
+        total_segments,
+        total_docs,
+    })
+}
+
+pub use storage::index::utils::{load_index_schema, load_index_settings};

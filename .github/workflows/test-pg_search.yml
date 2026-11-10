@@ -14,8 +14,16 @@ on:
     paths:
       - ".github/actions/setup-pg-search-toolchain/**"
       - ".github/workflows/test-pg_search.yml"
+      - "basescan/**"
+      - "common/**"
+      - "index_read/**"
+      - "index_write/**"
+      - "joinscan/**"
       - "pg_search/**"
       - "!pg_search/README.md"
+      - "planner/**"
+      - "scan/**"
+      - "storage/**"
       - "tests/**"
       - "tokenizers/**"
       - "Cargo.lock"
@@ -256,8 +264,9 @@ jobs:
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
           export DATABASE_URL=postgresql://$(whoami)@localhost:288${{ matrix.pg_version }}/postgres
+          CRATES=(-p basescan -p common -p index_read -p index_write -p joinscan -p pg_search -p planner -p scan -p storage)
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
-            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
+            RUST_BACKTRACE=1 cargo test --jobs $(nproc) "${CRATES[@]}" --features pg${{ matrix.pg_version }} --no-default-features
           else
             # A #[pg_test] body runs inside the Postgres backend, from the pg_search.so that pgrx-tests
             # builds and installs. `cargo llvm-cov` passes its target dir as `--target-dir`, so that
@@ -265,7 +274,7 @@ jobs:
             # Exporting the environment instead, as the pgrx job does, keeps both under target/.
             source <(cargo llvm-cov show-env --export-prefix)
             cargo llvm-cov clean --workspace
-            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
+            RUST_BACKTRACE=1 cargo test --jobs $(nproc) "${CRATES[@]}" --features pg${{ matrix.pg_version }} --no-default-features
             cargo llvm-cov report --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
           fi
 

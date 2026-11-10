@@ -1,0 +1,54 @@
+[package]
+name = "planner"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "common/pg15", "storage/pg15", "index_read/pg15"]
+pg16 = ["pgrx/pg16", "common/pg16", "storage/pg16", "index_read/pg16"]
+pg17 = ["pgrx/pg17", "common/pg17", "storage/pg17", "index_read/pg17"]
+pg18 = ["pgrx/pg18", "common/pg18", "storage/pg18", "index_read/pg18"]
+pg_test = [
+  "dep:proptest",
+  "common/pg_test",
+  "storage/pg_test",
+  "index_read/pg_test",
+]
+
+# Keep this crate focused on Postgres custom-scan path planning and Tantivy aggregation. Do NOT
+# add `datafusion` here so `planner` compiles in parallel with `scan` and `index_write` without
+# waiting for DataFusion.
+[dependencies]
+common = { path = "../common", default-features = false }
+storage = { path = "../storage", default-features = false }
+index_read = { path = "../index_read", default-features = false }
+anyhow.workspace = true
+bytemuck.workspace = true
+lazy_static.workspace = true
+parking_lot.workspace = true
+pgrx.workspace = true
+postcard.workspace = true
+proptest = { workspace = true, optional = true }
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+typetag.workspace = true
+
+[dev-dependencies]
+common = { path = "../common", default-features = false, features = [
+  "pg_test",
+] }
+storage = { path = "../storage", default-features = false, features = [
+  "pg_test",
+] }
+index_read = { path = "../index_read", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true
+proptest.workspace = true

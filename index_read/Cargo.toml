@@ -1,0 +1,58 @@
+[package]
+name = "index_read"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "common/pg15", "storage/pg15"]
+pg16 = ["pgrx/pg16", "common/pg16", "storage/pg16"]
+pg17 = ["pgrx/pg17", "common/pg17", "storage/pg17"]
+pg18 = ["pgrx/pg18", "common/pg18", "storage/pg18"]
+pg_test = ["dep:proptest", "dep:uuid", "common/pg_test", "storage/pg_test"]
+block_tracker = ["storage/block_tracker"]
+
+# Keep this crate focused on Tantivy index reading, queries, and heap/MVCC visibility. Do NOT add
+# `datafusion`, `tonic`, or `prost` here so `index_read`, `index_write`, and `planner` can compile
+# without waiting for DataFusion.
+[dependencies]
+common = { path = "../common", default-features = false }
+storage = { path = "../storage", default-features = false }
+anyhow.workspace = true
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
+base64.workspace = true
+bytemuck.workspace = true
+decimal-bytes.workspace = true
+dst = { path = "../dst" }
+parking_lot.workspace = true
+pgrx.workspace = true
+postcard.workspace = true
+proptest = { workspace = true, optional = true }
+rustix.workspace = true
+serde.workspace = true
+serde_cbor.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+tantivy-common.workspace = true
+tantivy-fst.workspace = true
+thiserror.workspace = true
+tokenizers = { path = "../tokenizers" }
+uuid = { workspace = true, optional = true }
+
+[dev-dependencies]
+common = { path = "../common", default-features = false, features = [
+  "pg_test",
+] }
+storage = { path = "../storage", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+uuid.workspace = true

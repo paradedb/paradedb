@@ -19,10 +19,9 @@
 
 mod args;
 mod inline;
-mod keyset;
 
+pub(crate) use index_read::postgres::sequentialscan::keyset::KeySet;
 pub(crate) use inline::MaybeInlineRow;
-pub(crate) use keyset::KeySet;
 
 use self::args::{FakeAnyElement, FakeCtid, FakeRecord, FakeRow, FakeSearchQueryInput};
 use self::inline::RowMatcher;
@@ -39,6 +38,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::Ctid;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchemaQueryExt;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::htup::heap_getattr_raw;
 use pgrx::pg_sys::panic::ErrorReport;

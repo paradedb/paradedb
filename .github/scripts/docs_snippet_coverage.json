@@ -114,7 +114,7 @@
     {
       "reason": "Requires page-local tables/types, non-executable fragments, or demonstrates a deliberate unsupported query; shared fixtures cannot run this independently.",
       "fences": [
-        ["reference/configuration.mdx::fence-002", "5c7934ebb6174a55bcec97efb9353ce6d4910d10723852dd69c4b7d15e210fd2"],
+        ["reference/configuration.mdx::fence-002", "6f7eb067b00187df539ff5ec9eaa79c4246e229c0e7bec5cc213b41a9268eaf0"],
         ["reference/full-text/match.mdx::fence-015", "4bf45207ccc14db6c92d7907b1d0aee1c83ee4b011cd5ca2a1fc71d4b4bbed23"],
         ["reference/full-text/phrase.mdx::fence-001", "8d7db0ba81964840f29ec21781a090d662d531b080c6ac77d5628a12d083f745"],
         ["reference/full-text/score.mdx::fence-013", "6aac8d8d36f9e84408b1e35d30b87fd51dc6c28bdc2c6a658a373dc39248aabd"],

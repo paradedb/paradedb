@@ -161,6 +161,10 @@ impl ParallelQueryCapable for BaseScan {
             let planned_workers = (*pcxt).nworkers as u32;
             (*pscan_state).bitmap_slots = planned_workers + 1;
             leader_publish_bitmap(state, pscan_state);
+            let area = query_area(state);
+            state
+                .custom_state_mut()
+                .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation);
         }
     }
 
@@ -184,6 +188,12 @@ impl ParallelQueryCapable for BaseScan {
         // leader's pins on those segments held that long.
         pscan_state.bitmap_reset();
         pscan_state.reset();
+        pscan_state.vector_routing_ready = false;
+        pscan_state.vector_search_budget = None;
+        state.custom_state_mut().vector_routing_plan = None;
+        if let Some(reader) = state.custom_state_mut().search_reader.as_mut() {
+            reader.vector_routing_plan = None;
+        }
         // The leader's own ReScan runs only after the relaunched workers launch (see above),
         // too late to change what they read, so this callback solves the query for the
         // round's parameters, publishes it, and rebuilds the bitmap. The leader's results
@@ -191,8 +201,17 @@ impl ParallelQueryCapable for BaseScan {
         // first; its reader stays, holding the segment pins, until that ReScan replaces it.
         state.custom_state_mut().reset_exec_results();
         BaseScan::prepare_query(state);
+        if state.custom_state().needs_vector_routing() {
+            BaseScan::init_search_reader(state);
+        }
         unsafe { leader_publish_query(state, pscan_state) };
         unsafe { leader_publish_bitmap(state, pscan_state) };
+        unsafe {
+            let area = query_area(state);
+            state
+                .custom_state_mut()
+                .leader_publish_vector_routing_plan(area, pg_sys::parallel_leader_participation)
+        };
     }
 
     fn initialize_worker_custom_scan(
@@ -210,17 +229,19 @@ impl ParallelQueryCapable for BaseScan {
         };
         let query = unsafe { (*pscan_state).query(query_area(state)) }
             .expect("should be able to read the query from the ParallelScanState");
+        state.custom_state_mut().vector_routing_pending =
+            state.custom_state().needs_vector_routing();
         state.custom_state_mut().set_base_search_query_input(query);
     }
 }
 
 /// The parallel query's DSA area. Postgres installs it on the EState around the DSM
-/// callbacks in the leader and for the whole run in a worker (`execParallel.c`).
-fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
+/// callbacks and local execution in the leader, and for the whole run in a worker.
+pub(super) fn query_area(state: &CustomScanStateWrapper<BaseScan>) -> *mut dsa_area {
     let area = unsafe { (*state.csstate.ss.ps.state).es_query_dsa };
     assert!(
         !area.is_null(),
-        "es_query_dsa is only set inside the parallel DSM callbacks"
+        "es_query_dsa must be set during parallel initialization or execution"
     );
     area
 }

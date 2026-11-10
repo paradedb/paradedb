@@ -29,11 +29,15 @@ use std::time::Instant;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
+use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
+use crate::index::reader::vector::{
+    SharedVectorRouting, VectorFilterWeight, VectorRoutingResults, probe_params,
+};
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
 use crate::index::stats::{EmpiricalStats, PartitionSegments, SegmentStats};
@@ -52,6 +56,7 @@ use crate::scan::info::RowEstimate;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 
 use anyhow::{Context, Result};
+use pgrx::PgLogLevel;
 use pgrx::pg_sys::BlockNumber;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -67,7 +72,8 @@ use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Sc
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
-    ProbeParams, ProbeStats, TopDocsByVectorSimilarity, VectorSegment, VectorSimilarityFruit,
+    ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
+    TopDocsByVectorSimilarityBuilder, VectorSearchBudget, VectorSegment, VectorSimilarityFruit,
 };
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
@@ -155,10 +161,12 @@ pub struct TopKWindow {
     pub offset: TopKOffset,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum SegmentBatching {
-    PerSegment,
-    Global,
+pub enum VectorRouting {
+    Local,
+    Shared(
+        Arc<SharedVectorRouting>,
+        Arc<tantivy::vector::AtomicVectorWork>,
+    ),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -258,6 +266,12 @@ pub fn vector_format_error_report(
         )
         .set_hint(format!("Rebuild index {index_name:?} with REINDEX."))
     })
+}
+
+fn report_vector_error(index_name: &str, error: &tantivy::TantivyError) {
+    if let Some(report) = vector_format_error_report(index_name, error) {
+        report.report(PgLogLevel::ERROR);
+    }
 }
 
 fn probe_stats_to_segment_info(
@@ -715,6 +729,7 @@ pub struct SearchIndexReader {
     directory: MVCCDirectory,
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
+    pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -762,6 +777,7 @@ impl Clone for SearchIndexReader {
             scan_init_ns: self.scan_init_ns,
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
+            vector_routing_plan: self.vector_routing_plan.clone(),
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -921,6 +937,94 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+    pub fn estimate_vector_match_fraction(&self) -> f64 {
+        let (matches, docs) =
+            self.candidate_segment_readers()
+                .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
+                    let estimated = self
+                        .query
+                        .estimate_docs(reader)
+                        .ok()
+                        .flatten()
+                        .map_or(0, |estimate| estimate.live_docs(reader));
+                    (matches + estimated, docs + u64::from(reader.num_docs()))
+                });
+        matches as f64 / docs.max(1) as f64
+    }
+
+    pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let segments = self
+            .candidate_segment_readers()
+            .map(VectorSegment::from)
+            .collect::<Vec<_>>();
+        VectorSearchBudget::for_segments(field, &probe_params(), &segments)
+            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+            .expect("vector budget should be valid")
+    }
+
+    pub fn vector_routing_plan(
+        &self,
+        name: &FieldName,
+        query: &[f32],
+        match_fraction: f64,
+        budget: VectorSearchBudget,
+    ) -> VectorRoutingResults {
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let segments = self
+            .candidate_segment_readers()
+            .map(|(ordinal, reader)| {
+                let mut segment = VectorSegment::from((ordinal, reader));
+                segment.partition_centroid = SegmentStats::of_reader(reader)
+                    .expect("segment stats should be readable")
+                    .and_then(|stats| {
+                        stats
+                            .vector_partition(field)
+                            .expect("partition centroid should be readable")
+                    })
+                    .map(Into::into);
+                segment
+            })
+            .collect::<Vec<_>>();
+        let router = TopClustersBySimilarityCollector::new(
+            field,
+            query.to_vec(),
+            probe_params(),
+            match_fraction,
+        )
+        .expect("vector routing parameters should be valid")
+        .with_budget(budget);
+        let candidates = router
+            .collect_segments(&segments, |ord| {
+                pgrx::check_for_interrupts!();
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(self.searcher.segment_reader(ord).segment_id());
+                }
+            })
+            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+            .expect("vector routing should not fail");
+        let mut by_segment = crate::api::HashMap::default();
+        for candidate in candidates {
+            by_segment
+                .entry(candidate.node.0)
+                .or_insert_with(Vec::new)
+                .push(candidate);
+        }
+        VectorRoutingResults {
+            budget,
+            candidates: by_segment,
+            statistics: router.take_statistics(),
+        }
+    }
+
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
     /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub fn validate_vector_segments(&self) -> Result<()> {
@@ -986,8 +1090,7 @@ impl SearchIndexReader {
         let mut directory = mvcc_style.directory(index_relation);
         directory.io_stats = io_stats;
         let mut index = crate::index::open_index(directory.clone())?;
-        index.settings_mut().bitmap_postings.use_for_queries =
-            crate::gucs::enable_bitmap_postings();
+        index.settings_mut().bitmap_postings.use_for_queries = gucs::enable_bitmap_postings();
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -1195,6 +1298,7 @@ impl SearchIndexReader {
             directory,
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
+            vector_routing_plan: None,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2190,7 +2294,7 @@ impl SearchIndexReader {
     }
 
     /// Search the Tantivy index for the Top K matching documents in specific segments.
-    /// Segments are consumed lazily, except when vector collection uses global batching.
+    /// Segments are consumed lazily, except when local vector routing collects all segments together.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
@@ -2213,7 +2317,7 @@ impl SearchIndexReader {
         offset: usize,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-        batching: SegmentBatching,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         self.search_top_k_in_segments_internal(
             segments.map(|id| (id, SegmentQueryKind::Unconstrained)),
@@ -2225,7 +2329,7 @@ impl SearchIndexReader {
             },
             aux_collector,
             parallel_state_holding_shared_threshold,
-            batching,
+            routing,
         )
     }
 
@@ -2239,6 +2343,7 @@ impl SearchIndexReader {
         partition_bounds: &SearchQueryInput,
         orderby_info: &[OrderByInfo],
         window: TopKWindow,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         let segment_iter = segments
             .included
@@ -2259,7 +2364,7 @@ impl SearchIndexReader {
             window,
             None,
             None,
-            SegmentBatching::PerSegment,
+            routing,
         )
     }
 
@@ -2272,7 +2377,7 @@ impl SearchIndexReader {
         window: TopKWindow,
         aux_collector: Option<TopKAuxiliaryCollector>,
         parallel_state_holding_shared_threshold: Option<*mut crate::postgres::ParallelScanState>,
-        batching: SegmentBatching,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         let n = window.limit.0;
         let offset = window.offset.0;
@@ -2422,8 +2527,6 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
-                self.validate_vector_segments()
-                    .expect("vector segments must be readable");
                 if orderby_info[1..].iter().any(|o| o.is_score()) {
                     panic!(
                         "pdb.score() cannot tie-break a vector distance ORDER BY: no score is computed when ordering by a vector field"
@@ -2440,19 +2543,11 @@ impl SearchIndexReader {
                     .resolved()
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
-                let max_scan_levels = crate::gucs::vector_max_scan_levels();
+                let max_scan_levels = gucs::vector_max_scan_levels();
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_probe_params(ProbeParams {
-                        adaptive_probing: crate::gucs::vector_adaptive_probing(),
-                        max_probe_fraction: crate::gucs::vector_cluster_max_probe(),
-                        fixed_probe_cost_rows: crate::gucs::vector_fixed_probe_cost_rows(),
-                        router_rerank_factor: crate::gucs::vector_router_rerank_factor(),
-                        router_min_beam_fraction: crate::gucs::vector_router_min_beam_fraction(),
-                        router_aps: crate::gucs::vector_router_aps(),
-                        ..Default::default()
-                    })
+                    .with_probe_params(probe_params())
                     .with_max_scan_levels(max_scan_levels);
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     collector = collector.with_shared_threshold(std::sync::Arc::new(
@@ -2479,9 +2574,9 @@ impl SearchIndexReader {
                         .inspect(|(_, reader, _)| {
                             collected_ids.borrow_mut().push(reader.segment_id());
                         });
-                let batches: Box<dyn Iterator<Item = Vec<_>>> = match batching {
-                    SegmentBatching::PerSegment => Box::new(readers.map(|reader| vec![reader])),
-                    SegmentBatching::Global => Box::new(std::iter::once(readers.collect())),
+                let batches: Box<dyn Iterator<Item = Vec<_>>> = match routing {
+                    VectorRouting::Shared(..) => Box::new(readers.map(|reader| vec![reader])),
+                    VectorRouting::Local => Box::new(std::iter::once(readers.collect())),
                 };
                 // Fruit is `VectorSimilarityFruit` — hits plus per-segment
                 // ProbeStats — for every tie-break shape.
@@ -2493,38 +2588,41 @@ impl SearchIndexReader {
                         batches,
                         tantivy_field,
                         partition_bounds,
-                        collector.build(),
+                        collector,
                         aux_collector,
+                        routing,
                     ),
                     1 => self.collect_vector_maybe_auxiliary(
                         batches,
                         tantivy_field,
                         partition_bounds,
-                        collector.with_tie_break(next()).build(),
+                        collector.with_tie_break(next()),
                         aux_collector,
+                        routing,
                     ),
                     2 => self.collect_vector_maybe_auxiliary(
                         batches,
                         tantivy_field,
                         partition_bounds,
-                        collector.with_tie_break((next(), next())).build(),
+                        collector.with_tie_break((next(), next())),
                         aux_collector,
+                        routing,
                     ),
                     3 => self.collect_vector_maybe_auxiliary(
                         batches,
                         tantivy_field,
                         partition_bounds,
-                        collector.with_tie_break((next(), next(), next())).build(),
+                        collector.with_tie_break((next(), next(), next())),
                         aux_collector,
+                        routing,
                     ),
                     4 => self.collect_vector_maybe_auxiliary(
                         batches,
                         tantivy_field,
                         partition_bounds,
-                        collector
-                            .with_tie_break((next(), next(), next(), next()))
-                            .build(),
+                        collector.with_tie_break((next(), next(), next(), next())),
                         aux_collector,
+                        routing,
                     ),
                     x => panic!(
                         "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
@@ -2935,7 +3033,7 @@ impl SearchIndexReader {
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
     /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
-        if (crate::gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
+        if (gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
             || query_input.has_postgres_expressions()
             || query_input.has_parameters()
         {
@@ -3186,30 +3284,39 @@ impl SearchIndexReader {
         reader_batches: impl Iterator<Item = Vec<(SegmentOrdinal, &'a SegmentReader, SegmentQueryKind)>>,
         vector_field: Field,
         partition_bounds: Option<&SearchQueryInput>,
-        collector: TopDocsByVectorSimilarity<f32, S>,
+        builder: TopDocsByVectorSimilarityBuilder<f32, S>,
         aux_collector: Option<TopKAuxiliaryCollector>,
+        routing: &VectorRouting,
     ) -> (
         VectorSimilarityFruit,
         Option<IntermediateAggregationResults>,
     )
     where
-        S: SortKeyComputer + Send + Sync + 'static,
+        S: SortKeyComputer + Clone + Send + Sync + 'static,
     {
-        if aux_collector.is_some() || partition_bounds.is_some() {
-            return self.collect_maybe_auxiliary(
-                reader_batches.flatten(),
-                partition_bounds,
-                collector,
-                aux_collector,
-            );
-        }
-        collector
-            .check_schema(self.searcher.schema())
-            .expect("vector schema should be valid");
-        let weight = self
-            .query
-            .weight(enable_scoring(false, &self.searcher))
-            .expect("creating vector filter weight should not fail");
+        let base = Arc::new(LazyWeight::new(
+            self.query().box_clone(),
+            false,
+            self.searcher.clone(),
+        ));
+        let constrained = partition_bounds.map(|bounds| {
+            Arc::new(base.and_query(Box::new(ConstScoreQuery::new(
+                self.make_query(bounds, None),
+                0.0,
+            ))))
+        });
+        let (aggregation, visibility) = match aux_collector {
+            Some(TopKAuxiliaryCollector {
+                aggregation_collector,
+                vischeck,
+            }) => (
+                Some(aggregation_collector),
+                vischeck.map(|checker| {
+                    MVCCFilterCollector::new(tantivy::collector::DocSetCollector, checker)
+                }),
+            ),
+            None => (None, None),
+        };
         if let Some(stats) = &self.directory.io_stats {
             stats.reset();
         }
@@ -3219,41 +3326,151 @@ impl SearchIndexReader {
                 stats.end_segment(self.searcher.segment_reader(ord).segment_id());
             }
         };
-        let fruits = reader_batches
-            .flat_map(|readers| {
-                let use_centroids = readers.len() > 1;
-                let mut centroids = vec![None; readers.len()];
-                let segments = readers
-                    .into_iter()
-                    .zip(&mut centroids)
-                    .map(|((ordinal, reader, _), centroid)| {
-                        if use_centroids {
-                            *centroid = SegmentStats::of_reader(reader)
-                                .expect("segment stats should be readable")
-                                .and_then(|stats| {
-                                    stats
-                                        .vector_partition(vector_field)
-                                        .expect("partition centroid should be readable")
-                                });
-                            on_segment(ordinal);
-                        }
-                        VectorSegment {
-                            ordinal,
-                            reader,
-                            partition_centroid: centroid.as_deref(),
-                        }
+        let shared_work = routing.work_for_pull();
+        let mut collector: Option<TopDocsByVectorSimilarity<f32, S>> = None;
+        let mut fruits = Vec::new();
+        let mut aggregation_fruits = Vec::new();
+        for readers in reader_batches {
+            pgrx::check_for_interrupts!();
+            let mut weight = VectorFilterWeight {
+                base: Arc::clone(&base),
+                visible_docs: Default::default(),
+                constrained: constrained.clone(),
+                constrained_segments: readers
+                    .iter()
+                    .filter_map(|(_, reader, kind)| {
+                        matches!(kind, SegmentQueryKind::RangeConstrained)
+                            .then_some(reader.segment_id())
                     })
-                    .collect::<Vec<_>>();
+                    .collect(),
+            };
+            if let Some(visibility) = &visibility {
+                for &(ordinal, reader, _) in &readers {
+                    let (_, docs) = visibility
+                        .collect_segment(&weight, ordinal, reader)
+                        .expect("vector visibility should collect");
+                    let mut visible = tantivy_common::BitSet::with_max_value(reader.max_doc());
+                    for doc in docs {
+                        visible.insert(doc);
+                    }
+                    weight.visible_docs.insert(reader.segment_id(), visible);
+                    on_segment(ordinal);
+                }
+            }
+            let use_centroids = matches!(routing, VectorRouting::Local) && readers.len() > 1;
+            let segments = readers
+                .iter()
+                .map(|&(ordinal, reader, _)| {
+                    let mut segment = VectorSegment::from((ordinal, reader));
+                    if use_centroids {
+                        segment.partition_centroid = SegmentStats::of_reader(reader)
+                            .expect("segment stats should be readable")
+                            .and_then(|stats| {
+                                stats
+                                    .vector_partition(vector_field)
+                                    .expect("partition centroid should be readable")
+                            })
+                            .map(Into::into);
+                        on_segment(ordinal);
+                    }
+                    segment
+                })
+                .collect::<Vec<_>>();
+            match routing {
+                VectorRouting::Local => {
+                    collector = Some(
+                        builder
+                            .clone()
+                            .build_for_segments(&weight, &segments, on_segment)
+                            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+                            .expect("vector scan preparation should not fail"),
+                    );
+                }
+                VectorRouting::Shared(shared, _) => {
+                    let prepared = builder
+                        .prepare(&weight, &segments, shared.budget, on_segment)
+                        .expect("vector filters should prepare");
+                    let routing_segments = prepared.routing_segments();
+                    let inputs = if routing_segments.is_empty() {
+                        prepared.with_candidates(Vec::new(), shared_work.clone())
+                    } else {
+                        let results = shared
+                            .get()
+                            .expect("vector routing results should be available");
+                        let candidates = routing_segments
+                            .iter()
+                            .flat_map(|segment| {
+                                results
+                                    .candidates
+                                    .get(&segment.ordinal)
+                                    .into_iter()
+                                    .flatten()
+                                    .copied()
+                            })
+                            .collect();
+                        prepared
+                            .with_candidates(candidates, shared_work.clone())
+                            .map(|inputs| {
+                                inputs.with_routing_statistics(
+                                    results
+                                        .statistics
+                                        .iter()
+                                        .filter(|stat| {
+                                            segments.iter().any(|segment| {
+                                                segment.ordinal == stat.segment_ordinal
+                                            })
+                                        })
+                                        .cloned()
+                                        .collect(),
+                                )
+                            })
+                    }
+                    .expect("vector candidates should match prepared segments");
+                    if let Some(collector) = &mut collector {
+                        collector
+                            .set_inputs(inputs)
+                            .expect("vector assignment should match this query");
+                    } else {
+                        collector = Some(builder.clone().build(inputs));
+                    }
+                }
+            }
+            let collector = collector.as_ref().unwrap();
+            fruits.extend(
                 collector
-                    .collect_segments(weight.as_ref(), &segments, on_segment)
-                    .expect("vector collection should not fail")
-            })
-            .collect();
+                    .collect_segments(&weight, &segments, on_segment)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+                    .expect("vector collection should not fail"),
+            );
+            for &(ordinal, reader, _) in &readers {
+                if let Some(aggregation) = &aggregation {
+                    aggregation_fruits.push(
+                        aggregation
+                            .collect_segment(&weight, ordinal, reader)
+                            .expect("aggregation should collect"),
+                    );
+                }
+                on_segment(ordinal);
+            }
+        }
+        let collector = collector.unwrap_or_else(|| {
+            builder
+                .build_for_segments(base.get(), &[], on_segment)
+                .expect("empty vector scan should prepare")
+        });
+        collector
+            .check_schema(self.searcher.schema())
+            .expect("vector schema should be valid");
+        let aggregation = aggregation.map(|aggregation| {
+            aggregation
+                .merge_fruits(aggregation_fruits)
+                .expect("aggregation should merge")
+        });
         (
             collector
                 .merge_fruits(fruits)
                 .expect("vector results should merge"),
-            None,
+            aggregation,
         )
     }
 
@@ -3442,6 +3659,7 @@ impl SearchIndexReader {
             .map(|(segment_ord, segment_reader)| {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("should be able to collect in segment");
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
@@ -3482,6 +3700,7 @@ impl SearchIndexReader {
                 };
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
+                    .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                     .expect("should be able to collect in segment");
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
@@ -3519,7 +3738,7 @@ impl SearchIndexManifest {
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
-            .with_disjunction_pruning(crate::gucs::disjunction_pruning())
+            .with_disjunction_pruning(gucs::disjunction_pruning())
     } else {
         EnableScoring::disabled_from_searcher(searcher)
     }
@@ -4655,36 +4874,41 @@ mod tests {
             vec![score_order.clone()],
             vec![score_order, field_order],
         ] {
-            for batching in [SegmentBatching::Global, SegmentBatching::PerSegment] {
-                let trace = io_stats::Trace::default();
-                let reader = SearchIndexReader::open_with_context(
-                    &index_rel,
-                    query.clone(),
-                    true,
-                    MvccSatisfies::Snapshot,
-                    None,
-                    None,
-                    false,
-                    Some(trace.clone()),
-                )
-                .unwrap();
-                let ids = reader.segment_ids();
-                assert_eq!(ids.len(), 3);
-                let segments = ids.iter().copied().enumerate().map(|(i, id)| {
-                    if i > 0 {
-                        let mut info = BTreeMap::from([(ids[i - 1], serde_json::json!({}))]);
-                        trace.attach(&mut info);
-                        assert!(
-                            info[&ids[i - 1]]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
-                            "collection must finish before claiming the next segment: {order:?}, {batching:?}"
-                        );
-                    }
-                    id
-                });
-                let top =
-                    reader.search_top_k_in_segments(segments, &order, 50, 0, None, None, batching);
-                assert_eq!(top.results.len(), 30);
-            }
+            let trace = io_stats::Trace::default();
+            let reader = SearchIndexReader::open_with_context(
+                &index_rel,
+                query.clone(),
+                true,
+                MvccSatisfies::Snapshot,
+                None,
+                None,
+                false,
+                Some(trace.clone()),
+            )
+            .unwrap();
+            let ids = reader.segment_ids();
+            assert_eq!(ids.len(), 3);
+            let segments = ids.iter().copied().enumerate().map(|(i, id)| {
+                if i > 0 {
+                    let mut info = BTreeMap::from([(ids[i - 1], serde_json::json!({}))]);
+                    trace.attach(&mut info);
+                    assert!(
+                        info[&ids[i - 1]]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
+                        "collection must finish before claiming the next segment: {order:?}"
+                    );
+                }
+                id
+            });
+            let top = reader.search_top_k_in_segments(
+                segments,
+                &order,
+                50,
+                0,
+                None,
+                None,
+                &VectorRouting::Local,
+            );
+            assert_eq!(top.results.len(), 30);
         }
     }
 
@@ -4719,16 +4943,103 @@ mod tests {
             pg_sys::QueryCancelPending = 1;
             pg_sys::InterruptPending = 1;
         });
-        reader.search_top_k_in_segments(
-            segments,
-            &order,
-            10,
-            0,
-            None,
-            None,
-            SegmentBatching::Global,
-        );
+        reader.search_top_k_in_segments(segments, &order, 10, 0, None, None, &VectorRouting::Local);
         panic!("global vector collection ignored cancellation");
+    }
+
+    #[pg_test]
+    fn vector_topk_with_aggregation_and_visibility() {
+        use crate::api::QueryVector;
+        use crate::vector::metric::VectorMetric;
+        use tantivy::aggregation::{AggContextParams, AggregationLimitsGuard};
+        Spi::run(
+            "CREATE TABLE vector_window (id bigint PRIMARY KEY, embedding vector(3));
+             INSERT INTO vector_window SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,20) g;
+             CREATE INDEX vector_window_idx ON vector_window USING paradedb (id, embedding vector_l2_ops)
+             WITH (background_layer_sizes = '0');
+             DELETE FROM vector_window WHERE id = 1;"
+        ).unwrap();
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let index_rel = open_index("vector_window_idx");
+        let heap = PgSearchRelation::open(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'vector_window'::regclass::oid")
+                .unwrap()
+                .unwrap(),
+        );
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let order = vec![OrderByInfo {
+            feature: OrderByFeature::VectorDistance {
+                name: FieldName::from("embedding"),
+                rti: 0,
+                query_vector: QueryVector::Resolved(vec![0.0, 1.0, 0.0]),
+                metric: VectorMetric::L2,
+            },
+            direction: SortDirection::AscNullsLast,
+        }];
+        for visible in [false, true] {
+            let request: tantivy::aggregation::agg_req::Aggregations =
+                serde_json::from_value(serde_json::json!({"total":{"value_count":{"field":"id"}}}))
+                    .unwrap();
+            let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                request.clone(),
+                AggContextParams::new(
+                    Default::default(),
+                    reader.searcher().index().tokenizers().clone(),
+                ),
+            );
+            let vischeck = visible.then(|| {
+                let mut check = VisibilityChecker::with_rel_and_snap(&heap, unsafe {
+                    pg_sys::GetActiveSnapshot()
+                });
+                check.set_ffhelper(Arc::new(FFHelper::for_ctid(&reader)));
+                check
+            });
+            let top = reader.search_top_k_in_segments(
+                reader.segment_ids().into_iter(),
+                &order,
+                3,
+                0,
+                Some(TopKAuxiliaryCollector {
+                    aggregation_collector,
+                    vischeck,
+                }),
+                None,
+                &VectorRouting::Local,
+            );
+            let ids = top
+                .results
+                .iter()
+                .map(|(_, doc)| {
+                    reader
+                        .searcher()
+                        .segment_reader(doc.segment_ord)
+                        .fast_fields()
+                        .i64("id")
+                        .unwrap()
+                        .first(doc.doc_id)
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                ids,
+                if visible {
+                    vec![2, 3, 4]
+                } else {
+                    vec![1, 2, 3]
+                }
+            );
+            let results = top
+                .aggregation_results
+                .unwrap()
+                .into_final_result(request, AggregationLimitsGuard::default())
+                .unwrap();
+            let results = serde_json::to_value(results).unwrap();
+            assert_eq!(
+                results["total"]["value"].as_f64().unwrap(),
+                if visible { 19.0 } else { 20.0 }
+            );
+        }
+        unsafe { pg_sys::PopActiveSnapshot() };
     }
 
     #[pg_test]
@@ -4758,6 +5069,7 @@ mod tests {
                 for (tie_break, individual_segments) in
                     [(false, false), (true, false), (false, true), (true, true)]
                 {
+                    let trace = io_stats::Trace::default();
                     let reader = SearchIndexReader::open_with_context(
                         &index_rel,
                         range_query("id", lo, hi),
@@ -4766,7 +5078,7 @@ mod tests {
                         None,
                         None,
                         false,
-                        Some(io_stats::Trace::default()),
+                        Some(trace.clone()),
                     )
                     .unwrap();
                     let mut ids = reader.segment_ids();
@@ -4791,24 +5103,45 @@ mod tests {
                             direction: SortDirection::AscNullsLast,
                         });
                     }
+                    let routing = if individual_segments {
+                        let results = reader.vector_routing_plan(
+                            &FieldName::from("embedding"),
+                            &[1.0, 0.0, 0.0],
+                            reader.estimate_vector_match_fraction(),
+                            reader.vector_search_budget(&FieldName::from("embedding")),
+                        );
+                        let bytes = serde_cbor::to_vec(&results).unwrap();
+                        let results =
+                            serde_cbor::from_slice::<VectorRoutingResults>(&bytes).unwrap();
+                        let shared = if reverse {
+                            SharedVectorRouting {
+                                budget: results.budget,
+                                results: OnceLock::new(),
+                                work: OnceLock::new(),
+                                shared: None,
+                            }
+                        } else {
+                            SharedVectorRouting::from(results)
+                        };
+                        VectorRouting::Shared(Arc::new(shared), Default::default())
+                    } else {
+                        VectorRouting::Local
+                    };
                     let checked_out = std::cell::Cell::new(0);
-                    let initial_reads = io_stats::vector_buffer_reads();
+                    let first_id = ids[0];
                     let ids = ids.into_iter().inspect(|_| {
                         if individual_segments && expected_segments == 2 && checked_out.get() == 1 {
+                            let mut info = BTreeMap::from([(first_id, serde_json::json!({}))]);
+                            trace.attach(&mut info);
                             assert!(
-                                io_stats::vector_buffer_reads() > initial_reads,
-                                "collection must search before claiming another segment"
+                                info[&first_id]["blocks_fetched"].as_u64().unwrap_or(0) > 0,
+                                "collection must finish before claiming another segment"
                             );
                         }
                         checked_out.set(checked_out.get() + 1);
                     });
-                    let batching = if individual_segments {
-                        SegmentBatching::PerSegment
-                    } else {
-                        SegmentBatching::Global
-                    };
                     let top =
-                        reader.search_top_k_in_segments(ids, &order, 50, 0, None, None, batching);
+                        reader.search_top_k_in_segments(ids, &order, 50, 0, None, None, &routing);
                     let docs = top
                         .results
                         .into_iter()
@@ -4844,6 +5177,73 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[pg_test]
+    fn vector_topk_retry_replays_a_spent_shared_budget() {
+        use crate::api::QueryVector;
+        use crate::vector::metric::VectorMetric;
+        use tantivy::vector::SharedVectorWork;
+        Spi::run(
+            "SET paradedb.vector_clustering_threshold = 1;
+             SET paradedb.global_mutable_segment_rows = 0;
+             SET paradedb.vector_cluster_max_probe = 1;
+             CREATE TABLE retry_vectors (id bigint PRIMARY KEY, embedding vector(3));
+             CREATE INDEX retry_vectors_idx ON retry_vectors
+             USING paradedb (id, embedding vector_l2_ops)
+             WITH (partition_by = 'id', target_segment_count = 1, background_layer_sizes = '0');
+             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(1,10) g;
+             INSERT INTO retry_vectors SELECT g, ARRAY[g::real,1,0]::vector FROM generate_series(11,20) g;
+             REINDEX INDEX retry_vectors_idx;",
+        ).unwrap();
+        let index_rel = open_index("retry_vectors_idx");
+        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let field = FieldName::from("embedding");
+        let query = vec![1.0, 0.0, 0.0];
+        let plan = Arc::new(SharedVectorRouting::from(reader.vector_routing_plan(
+            &field,
+            &query,
+            1.0,
+            reader.vector_search_budget(&field),
+        )));
+        let spent = Arc::new(tantivy::vector::AtomicVectorWork::default());
+        let routing = VectorRouting::Shared(Arc::clone(&plan), Arc::clone(&spent));
+        let order = [OrderByInfo {
+            feature: OrderByFeature::VectorDistance {
+                name: field,
+                rti: 0,
+                query_vector: QueryVector::Resolved(query),
+                metric: VectorMetric::L2,
+            },
+            direction: SortDirection::AscNullsLast,
+        }];
+        let search = |limit, offset, routing: &VectorRouting| {
+            reader
+                .search_top_k_in_segments(
+                    reader.segment_ids().into_iter(),
+                    &order,
+                    limit,
+                    offset,
+                    None,
+                    None,
+                    routing,
+                )
+                .results
+                .into_iter()
+                .map(|(_, doc)| doc)
+                .collect::<Vec<_>>()
+        };
+        let expected = search(10, 0, &VectorRouting::Local);
+        assert_eq!(expected.len(), 10);
+        let mut actual = search(5, 0, &routing);
+        assert_eq!(actual.len(), 5);
+        assert!(spent.charged() > 0.0);
+        // A peer can finish its last cluster after the shared ceiling is reached.
+        plan.work().charge(1.0);
+        let charged = plan.work().charged();
+        actual.extend(search(5, 5, &routing));
+        assert_eq!(actual, expected);
+        assert_eq!(plan.work().charged(), charged);
     }
 
     #[pg_test]

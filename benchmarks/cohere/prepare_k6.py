@@ -56,7 +56,7 @@ def operating_points(reports, dataset="cohere"):
                 selected = result["targets"].get(str(target))
                 metrics = measured[selected["value"]] if selected else None
                 if selected and (
-                    not 0 < float(selected["value"]) <= 1
+                    not 1 <= float(selected["value"]) <= 100_000
                     or not target - 1e-12 <= selected["recall"] <= 1
                     or metrics["recall"]["recall"] != selected["recall"]
                 ):

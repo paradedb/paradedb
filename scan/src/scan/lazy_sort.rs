@@ -43,8 +43,8 @@ use tantivy::index::SegmentId;
 use crate::api::OrderByInfo;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::{
-    MultiSegmentSearchResults, RaLookupWeights, SearchIndexReader, SegmentBatching,
-    TopKAuxiliaryCollector, TopKLimit, TopKOffset, TopKSearch, TopKWindow,
+    MultiSegmentSearchResults, RaLookupWeights, SearchIndexReader, TopKAuxiliaryCollector,
+    TopKLimit, TopKOffset, TopKSearch, TopKWindow, VectorRouting,
 };
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
@@ -344,6 +344,7 @@ impl LazySegmentTarget {
         reader: &SearchIndexReader,
         lazy_sort: &LazySortConfig,
         pull: &WindowPull,
+        routing: &VectorRouting,
     ) -> TopKSearch {
         match self {
             Self::RangePartitioned { target } => {
@@ -354,6 +355,7 @@ impl LazySegmentTarget {
                         bounds,
                         orderby_info,
                         pull.window,
+                        routing,
                     )
                 } else {
                     reader.search_top_k_unordered_segments_with_range_filter(
@@ -401,11 +403,6 @@ impl LazySegmentTarget {
                     all_segments_claimed,
                 );
                 if let Some(ref orderby_info) = lazy_sort.orderby_info {
-                    let batching = if parallel_state.is_some() {
-                        SegmentBatching::PerSegment
-                    } else {
-                        SegmentBatching::Global
-                    };
                     reader.search_top_k_in_segments(
                         seg_iter,
                         orderby_info,
@@ -413,7 +410,7 @@ impl LazySegmentTarget {
                         pull.window.offset.0,
                         aux_collector,
                         shared_threshold_state,
-                        batching,
+                        routing,
                     )
                 } else {
                     let mut res = reader.search_top_k_unordered_in_segments(
@@ -654,6 +651,7 @@ struct LazySortStreamState {
     ffhelper: Arc<FFHelper>,
     visibility: Box<VisibilityChecker>,
     segment_target: LazySegmentTarget,
+    vector_routing: VectorRouting,
     window_cursor: TopKWindowCursor,
     filter_metrics: FilterStepMetrics,
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
@@ -679,6 +677,7 @@ impl LazySortStreamState {
         token: crate::postgres::customscan::mpp::MainThreadToken,
     ) -> Result<Self> {
         let ScanStreamContext {
+            vector_routing,
             mut scan_state,
             parallel_state,
             range_boundaries,
@@ -759,6 +758,7 @@ impl LazySortStreamState {
             ffhelper,
             visibility,
             segment_target,
+            vector_routing,
             window_cursor,
             filter_metrics,
             dynamic_filters,
@@ -903,9 +903,12 @@ impl LazySortStreamState {
             schema: &self.schema,
         });
 
-        let mut top_k_search =
-            self.segment_target
-                .search_window(&self.sa_reader, &self.lazy_sort, pull);
+        let mut top_k_search = self.segment_target.search_window(
+            &self.sa_reader,
+            &self.lazy_sort,
+            pull,
+            &self.vector_routing,
+        );
         check_for_cancel()?;
         record_pull_telemetry(
             &self.lazy_sort,

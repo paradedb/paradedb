@@ -29,12 +29,12 @@ def reports(dataset="cohere"):
                         "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
                         f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
                         "targets": {
-                            "0.9": {"value": "0.001", "recall": 0.96},
-                            "0.95": {"value": "0.001", "recall": 0.96},
+                            "0.9": {"value": "100", "recall": 0.96},
+                            "0.95": {"value": "100", "recall": 0.96},
                         },
                         "points": [
                             {
-                                "value": "0.001",
+                                "value": "100",
                                 "metrics": {
                                     "recall": {"recall": 0.96, "k": neighbors},
                                     "buffers": {
@@ -67,7 +67,7 @@ class OperatingPointsTest(unittest.TestCase):
             self.assertIn("$1::vector(1024)", point["sql"])
             self.assertEqual(point["session"], inputs[0]["config"]["search"]["session"])
             if point["reached"]:
-                self.assertEqual(point["probe"], "0.001")
+                self.assertEqual(point["probe"], "100")
                 self.assertEqual(point["buffers"]["shared_hit_mean"], 1234.5)
             else:
                 self.assertIsNone(point["probe"])
@@ -79,7 +79,7 @@ class OperatingPointsTest(unittest.TestCase):
         """Reject a below-target selection rather than relabeling it."""
         inputs = reports()
         inputs[0]["data"]["variants"][QUERIES[0]]["targets"]["0.99"] = {
-            "value": "0.001",
+            "value": "100",
             "recall": 0.96,
         }
         with self.assertRaisesRegex(ValueError, "invalid selected point"):

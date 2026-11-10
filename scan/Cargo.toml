@@ -27,6 +27,7 @@ arrow-schema.workspace = true
 arrow-select.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 bigdecimal.workspace = true
 bytes.workspace = true
 datafusion.workspace = true
@@ -40,6 +41,7 @@ postcard.workspace = true
 proptest = { workspace = true, optional = true }
 prost.workspace = true
 serde.workspace = true
+serde_cbor.workspace = true
 serde_json.workspace = true
 tantivy.workspace = true
 tokio.workspace = true

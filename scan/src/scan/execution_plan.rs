@@ -32,8 +32,11 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
+use crate::index::reader::vector::{SharedVectorRouting, VectorRoutingResults};
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, SchemaRef};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -62,15 +65,16 @@ use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
 
-use crate::api::OrderByInfo;
+use crate::api::{HashMap, OrderByInfo};
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FieldDelivery, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SegmentPruningEstimate};
+use crate::index::reader::index::{SearchIndexReader, SegmentPruningEstimate, VectorRouting};
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::mpp::interrupt::check_for_cancel;
+use crate::postgres::customscan::mpp::{run_on_main_thread, try_run_on_main_thread};
 use crate::postgres::customscan::parallel::segment_view;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -133,6 +137,7 @@ pub enum ExecutionState {
     /// In Shared mode, we optionally load-balance via ParallelScanState.
     /// The state is consumed at most once by this plan or one of its task variants.
     Shared {
+        is_parallel: bool,
         parallel_state: Option<
             crate::postgres::customscan::mpp::MainThread<*mut crate::postgres::ParallelScanState>,
         >,
@@ -339,6 +344,7 @@ impl PgSearchScanPlan {
                     }
                 } else {
                     ExecutionState::Shared {
+                        is_parallel: parallel_state.is_some(),
                         parallel_state: parallel_state
                             .map(crate::postgres::customscan::mpp::MainThread::new),
                         scan_state: Box::new(crate::postgres::customscan::mpp::MainThread::new(s)),
@@ -441,6 +447,7 @@ impl PgSearchScanPlan {
                 match std::mem::replace(&mut *state_guard, ExecutionState::Uninitialized) {
                     ExecutionState::RangePartitioned { scan_state, .. }
                     | ExecutionState::Shared { scan_state, .. } => ExecutionState::Shared {
+                        is_parallel: false,
                         parallel_state: None,
                         scan_state,
                     },
@@ -484,9 +491,11 @@ impl PgSearchScanPlan {
             let state_guard = self.state.lock().unwrap();
             match &*state_guard {
                 ExecutionState::Shared {
+                    is_parallel,
                     parallel_state,
                     scan_state,
                 } => ExecutionState::Shared {
+                    is_parallel: *is_parallel,
                     parallel_state: parallel_state.clone(),
                     scan_state: scan_state.clone(),
                 },
@@ -586,6 +595,9 @@ impl PgSearchScanPlan {
         );
         let mut variant = self.clone();
         variant.assigned_partition = Some(assigned);
+        if let ExecutionState::Shared { is_parallel, .. } = variant.state.get_mut().unwrap() {
+            *is_parallel = true;
+        }
         let new_properties = Arc::new(
             PlanProperties::clone(variant.properties.as_ref())
                 .with_partitioning(Partitioning::UnknownPartitioning(1)),
@@ -625,23 +637,46 @@ impl PgSearchScanPlan {
     /// Under the plan-first MPP launch the leader builds its plan before the DSM exists, so
     /// `Shared` scans start with `parallel_state: None`. Once the DSM is created and populated,
     /// the launch stamps the leader's pointer in here — before the first `execute()`, which is
-    /// the only reader of the field. `RangePartitioned` and `Uninitialized` scans never consult
-    /// the pointer, so they are left untouched.
-    pub fn set_parallel_state(&self, ps: *mut ParallelScanState) {
-        if self
-            .lazy_sort
-            .as_ref()
-            .is_some_and(|ls| ls.parallel_mode == LazyParallelMode::Unpartitioned)
-        {
-            return;
-        }
+    /// the only reader of the field. Vector scans also bind their work counter to their source
+    /// in the DSM, including range-partitioned scans.
+    ///
+    /// # Safety
+    /// `ps` must point to initialized scan DSM that outlives this plan and its streams.
+    pub unsafe fn set_parallel_state(&self, ps: *mut ParallelScanState) {
         let mut state_guard = self
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let ExecutionState::Shared { parallel_state, .. } = &mut *state_guard {
-            *parallel_state = Some(crate::postgres::customscan::mpp::MainThread::new(ps));
+        if let ExecutionState::Shared {
+            is_parallel,
+            parallel_state,
+            ..
+        } = &mut *state_guard
+        {
+            *is_parallel = true;
+            if self
+                .lazy_sort
+                .as_ref()
+                .is_none_or(|ls| ls.parallel_mode != LazyParallelMode::Unpartitioned)
+            {
+                *parallel_state = Some(crate::postgres::customscan::mpp::MainThread::new(ps));
+            }
         }
+        run_on_main_thread(|token| {
+            let scan_state = match &*state_guard {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state.get(token),
+                _ => return,
+            };
+            if let Some(routing) = &scan_state.reader.vector_routing_plan {
+                routing.work.get_or_init(|| unsafe {
+                    crate::index::reader::vector::shared_vector_work(
+                        ps,
+                        scan_state.source_idx.unwrap_or(0),
+                    )
+                });
+            }
+        });
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -1159,6 +1194,23 @@ impl PgSearchScanPlan {
             None => None,
         };
 
+        let vector_routing_plan = try_run_on_main_thread(|token| {
+            state
+                .get(token)
+                .reader
+                .vector_routing_plan
+                .as_ref()
+                .map(|provider| {
+                    let plan = provider
+                        .get()
+                        .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                    serde_cbor::to_vec(plan)
+                        .map(|bytes| STANDARD.encode(bytes))
+                        .map_err(|e| DataFusionError::External(Box::new(e)))
+                })
+                .transpose()
+        })?;
+
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             dynamic_filters,
@@ -1179,6 +1231,7 @@ impl PgSearchScanPlan {
             partition_segments: self.partition_segments.clone(),
             scan_mode: scanner_config.scan_mode,
             lazy_sort,
+            vector_routing_plan,
             check_visibility,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
@@ -1205,6 +1258,20 @@ impl PgSearchScanPlan {
         let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
         })?;
+
+        if parallel_state.is_some()
+            && descriptor.lazy_sort.as_ref().is_some_and(|sort| {
+                sort.orderby_info
+                    .as_ref()
+                    .and_then(|orders| orders.first())
+                    .is_some_and(OrderByInfo::is_vector_distance)
+            })
+            && descriptor.vector_routing_plan.is_none()
+        {
+            return Err(DataFusionError::Internal(
+                "PgSearchScan dispatch: vector scan is missing its global routing plan".into(),
+            ));
+        }
 
         let schema_proto = <datafusion_proto::protobuf::Schema as prost::Message>::decode(
             descriptor.schema_proto.as_slice(),
@@ -1273,7 +1340,7 @@ impl PgSearchScanPlan {
             }
             None => (None, None),
         };
-        let reader = SearchIndexReader::open_with_context(
+        let mut reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
             descriptor.score_needed,
@@ -1289,6 +1356,28 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
         })?;
 
+        reader.vector_routing_plan = descriptor
+            .vector_routing_plan
+            .map(|encoded| {
+                let bytes = STANDARD
+                    .decode(encoded)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                serde_cbor::from_slice::<VectorRoutingResults>(&bytes)
+                    .map(|plan| {
+                        let routing = SharedVectorRouting::from(plan);
+                        if let Some(state) = parallel_state {
+                            routing.work.get_or_init(|| unsafe {
+                                crate::index::reader::vector::shared_vector_work(
+                                    state,
+                                    descriptor.source_idx.unwrap_or(0),
+                                )
+                            });
+                        }
+                        Arc::new(routing)
+                    })
+                    .map_err(|e| DataFusionError::External(Box::new(e)))
+            })
+            .transpose()?;
         let ffhelper = Arc::new(FFHelper::with_fields(
             &reader,
             &descriptor.which_fast_fields,
@@ -1455,6 +1544,7 @@ struct ScanDispatchDescriptor {
     partition_segments: Option<PartitionSegments>,
     scan_mode: crate::scan::ScanMode,
     lazy_sort: Option<LazySortConfigDescriptor>,
+    vector_routing_plan: Option<String>,
 }
 
 /// A classification received with a dispatched task, tagged by the view it is checked
@@ -1843,11 +1933,12 @@ impl PgSearchScanPlan {
         drop(state_guard);
 
         // Handle state transitions for execution.
-        let (scan_state, parallel_state, range_boundaries) = match state {
+        let (scan_state, parallel_state, range_boundaries, is_parallel) = match state {
             ExecutionState::Shared {
+                is_parallel,
                 parallel_state,
                 scan_state,
-            } => (scan_state, parallel_state, None),
+            } => (scan_state, parallel_state, None, is_parallel),
             ExecutionState::RangePartitioned {
                 range_boundaries,
                 scan_state,
@@ -1860,7 +1951,7 @@ impl PgSearchScanPlan {
                     )));
                 }
 
-                (scan_state, None, Some(range_boundaries))
+                (scan_state, None, Some(range_boundaries), true)
             }
             ExecutionState::Consumed => {
                 return Err(DataFusionError::Internal(format!(
@@ -1918,7 +2009,26 @@ impl PgSearchScanPlan {
             .collect();
         let assigned_partition_segments = self.partition_segments.clone();
 
+        let vector_routing = if self.vector_order_by().is_some() && is_parallel {
+            crate::postgres::customscan::mpp::try_run_on_main_thread(|token| {
+                scan_state
+                    .get(token)
+                    .reader
+                    .vector_routing_plan
+                    .clone()
+                    .map(|plan| VectorRouting::Shared(plan, Default::default()))
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(
+                            "shared vector scan requires a prepared global routing plan".into(),
+                        )
+                    })
+            })?
+        } else {
+            VectorRouting::Local
+        };
+
         let stream_ctx = ScanStreamContext {
+            vector_routing,
             scan_state,
             parallel_state,
             range_boundaries,
@@ -1949,6 +2059,7 @@ impl PgSearchScanPlan {
 }
 
 pub(super) struct ScanStreamContext {
+    pub(super) vector_routing: VectorRouting,
     pub(super) scan_state: Box<crate::postgres::customscan::mpp::MainThread<ScanState>>,
     pub(super) parallel_state:
         Option<crate::postgres::customscan::mpp::MainThread<*mut ParallelScanState>>,
@@ -2102,6 +2213,7 @@ impl FilterStepMetrics {
 /// Builds the standard segment-by-segment stream for a `PgSearchScanPlan` when `lazy_sort` is `None`.
 fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<RecordBatch>> {
     let ScanStreamContext {
+        vector_routing: _,
         mut scan_state,
         parallel_state,
         range_boundaries,
@@ -2461,8 +2573,11 @@ pub fn pg_search_scan_scale_up_leaf_node(
 /// `original` (its `DistributedTaskContext` is `task_count = 1`), but stamp the variants too:
 /// they are usually clones of the same instance, and a future divergence must not silently
 /// un-stamp them.
-pub fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut ParallelScanState) {
-    visit_scan_nodes(plan, &mut |scan| scan.set_parallel_state(ps));
+///
+/// # Safety
+/// `ps` must point to initialized scan DSM that outlives the plan and its streams.
+pub unsafe fn stamp_parallel_state(plan: &Arc<dyn ExecutionPlan>, ps: *mut ParallelScanState) {
+    visit_scan_nodes(plan, &mut |scan| unsafe { scan.set_parallel_state(ps) });
 }
 
 /// Visit every [`PgSearchScanPlan`] reachable from `plan`, including scans wrapped in
@@ -2495,6 +2610,48 @@ pub fn visit_scan_nodes(plan: &Arc<dyn ExecutionPlan>, visit: &mut impl FnMut(&P
     for child in plan.children() {
         visit_scan_nodes(child, visit);
     }
+}
+
+pub fn prepare_vector_routing(plan: &Arc<dyn ExecutionPlan>) {
+    run_on_main_thread(|token| {
+        let mut plans = HashMap::default();
+        visit_scan_nodes(plan, &mut |scan| {
+            let Some((name, query, _)) = scan
+                .lazy_sort()
+                .and_then(|sort| sort.orderby_info.as_ref())
+                .and_then(|orders| orders.first())
+                .and_then(OrderByInfo::as_vector_distance)
+            else {
+                return;
+            };
+            let mut state = scan.state.lock().unwrap();
+            let scan_state = match &mut *state {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state.get_mut(token),
+                ExecutionState::Consumed | ExecutionState::Uninitialized => return,
+            };
+            let key = serde_json::to_vec(&(
+                scan_state.source_idx,
+                scan.indexrelid,
+                name,
+                query,
+                scan.resolved_query(),
+            ))
+            .expect("vector routing identity must serialize");
+            let plan = plans.entry(key).or_insert_with(|| {
+                // Build-side join filters are not available until workers execute.
+                Arc::new(SharedVectorRouting::from(
+                    scan_state.reader.vector_routing_plan(
+                        name,
+                        query,
+                        0.0,
+                        scan_state.reader.vector_search_budget(name),
+                    ),
+                ))
+            });
+            scan_state.reader.vector_routing_plan = Some(Arc::clone(plan) as Arc<_>);
+        });
+    });
 }
 
 /// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values

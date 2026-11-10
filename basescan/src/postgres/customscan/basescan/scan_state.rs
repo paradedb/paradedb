@@ -20,7 +20,7 @@ use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
+use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
@@ -44,6 +44,7 @@ use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::BitmapCell;
 use std::ptr::NonNull;
 
+use crate::index::reader::vector::SharedVectorRouting;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
 use tantivy::index::SegmentId;
@@ -62,6 +63,9 @@ pub struct BaseScanState {
     pub telemetry: ScanTelemetry,
     /// Set when this scan is parallel-aware (DSM attached).
     pub parallel: Option<ParallelScanHandle>,
+    /// Workers wait for the leader to publish this plan when they first need it.
+    pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
+    pub vector_routing_pending: bool,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -403,6 +407,75 @@ impl BaseScanState {
         match &self.exec_method_type {
             ExecMethodType::TopK { orderby_info, .. } => orderby_info,
             _ => &None,
+        }
+    }
+
+    pub(super) fn needs_vector_routing(&self) -> bool {
+        self.parallel.is_some()
+            && self
+                .orderby_info()
+                .as_ref()
+                .and_then(|orders| orders.first())
+                .is_some_and(|order| order.is_vector_distance())
+    }
+
+    pub(super) unsafe fn leader_publish_vector_routing_plan(
+        &mut self,
+        query_area: *mut pg_sys::dsa_area,
+        defer: bool,
+    ) {
+        let plan = match self.orderby_info().as_ref().and_then(|infos| infos.first()) {
+            Some(OrderByInfo {
+                feature:
+                    OrderByFeature::VectorDistance {
+                        name, query_vector, ..
+                    },
+                ..
+            }) if self.needs_vector_routing() => {
+                // A nonparticipating leader never executes this scan, so it must route at init.
+                let parallel = self.parallel.expect("parallel scan must be attached");
+                if unsafe { (*parallel.dsm_ptr()).vector_search_budget.is_none() } {
+                    let budget = self
+                        .search_reader
+                        .as_ref()
+                        .expect("search reader must be open")
+                        .vector_search_budget(name);
+                    unsafe { (*parallel.dsm_ptr()).vector_search_budget = Some(budget) };
+                }
+                if defer {
+                    self.vector_routing_pending = true;
+                    return;
+                }
+                let query = query_vector
+                    .resolved()
+                    .expect("query vector must be resolved before routing");
+                let reader = self
+                    .search_reader
+                    .as_ref()
+                    .expect("search reader must be open");
+                Some(reader.vector_routing_plan(
+                    name,
+                    query,
+                    reader.estimate_vector_match_fraction(),
+                    unsafe { (*parallel.dsm_ptr()).vector_search_budget.unwrap() },
+                ))
+            }
+            _ => None,
+        };
+        let parallel = self.parallel.expect("parallel scan must be attached");
+        unsafe { (*parallel.dsm_ptr()).publish_vector_routing_plan(query_area, plan.as_ref()) }
+            .expect("should be able to publish the vector routing plan");
+        let plan = plan.map(|plan| {
+            let shared = SharedVectorRouting::from(plan);
+            shared.work.get_or_init(|| unsafe {
+                crate::index::reader::vector::shared_vector_work(parallel.dsm_ptr(), 0)
+            });
+            Arc::new(shared)
+        });
+        self.vector_routing_plan = plan.clone();
+        self.vector_routing_pending = false;
+        if let Some(reader) = self.search_reader.as_mut() {
+            reader.vector_routing_plan = plan;
         }
     }
 

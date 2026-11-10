@@ -56,7 +56,7 @@ jobs:
     env:
       COHERE_SIZE: ${{ matrix.size }}
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'ac64c0a34a1558ca72e07a342b51b52076befa50' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
 

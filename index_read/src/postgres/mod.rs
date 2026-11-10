@@ -30,13 +30,16 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
+use crate::index::reader::vector::VectorRoutingResults;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
+use crate::postgres::customscan::mpp::check_for_interrupts_or_cancel;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::options::IndexType;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::SharedBitmapHandle;
+use tantivy::vector::VectorSearchBudget;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
@@ -165,6 +168,7 @@ struct ParallelScanPayloadLayout {
     /// multi-source MPP plan be partitioned across workers, not just the planner-chosen
     /// partitioning source.
     remaining_by_source: Range<usize>,
+    vector_work: Range<usize>,
     /// One `u32` per segment (all sources, `all_ids` order): the first count slot of the
     /// segment's [`SegmentViewDocs`]; see [`encode_docs`].
     all_max_docs: Range<usize>,
@@ -216,6 +220,10 @@ impl ParallelScanPayloadLayout {
         let remaining_layout = Layout::array::<u32>(n_sources)?;
         let (layout, remaining_offset) = layout.extend(remaining_layout)?;
         let remaining_range = remaining_offset..(remaining_offset + remaining_layout.size());
+
+        let work_layout = Layout::array::<tantivy::vector::AtomicVectorWork>(n_sources)?;
+        let (layout, work_offset) = layout.extend(work_layout)?;
+        let vector_work = work_offset..(work_offset + work_layout.size());
 
         // Per-segment view docs for every source: [u32; total_segs] x 2 and [u8; total_segs].
         let all_max_layout = Layout::array::<u32>(total_segs)?;
@@ -274,6 +282,7 @@ impl ParallelScanPayloadLayout {
             all_counts: all_counts_range,
             all_ids: all_ids_range,
             remaining_by_source: remaining_range,
+            vector_work,
             all_max_docs: all_max_docs_range,
             all_deleted_docs: all_deleted_docs_range,
             all_docs_flags: all_docs_flags_range,
@@ -318,6 +327,13 @@ impl ParallelScanPayload {
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[counts_range]).unwrap();
         for (source, target) in all_sources.iter().zip(counts_slice.iter_mut()) {
             *target = source.len() as u32;
+        }
+
+        for source in 0..all_sources.len() {
+            unsafe {
+                self.vector_work_ptr(source)
+                    .write(tantivy::vector::AtomicVectorWork::default());
+            }
         }
 
         // Every source's view, flattened in ascending source-index order. Each source keeps its
@@ -366,6 +382,18 @@ impl ParallelScanPayload {
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
         for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
             *target = source.len() as u32;
+        }
+    }
+
+    fn vector_work_ptr(&self, source: usize) -> *mut tantivy::vector::AtomicVectorWork {
+        assert!(source < self.all_counts().len());
+        unsafe {
+            std::ptr::addr_of!(self.data)
+                .cast::<u8>()
+                .add(self.layout.vector_work.start)
+                .cast::<tantivy::vector::AtomicVectorWork>()
+                .add(source)
+                .cast_mut()
         }
     }
 
@@ -588,6 +616,11 @@ pub struct ParallelScanState {
 
     query: pg_sys::dsa_pointer,
     query_len: usize,
+    pub vector_search_budget: Option<VectorSearchBudget>,
+    vector_routing_plan: pg_sys::dsa_pointer,
+    vector_routing_plan_len: usize,
+    pub vector_routing_ready: bool,
+    vector_routing_cv: ConditionVariable,
 
     spilled: AtomicU32,
 
@@ -639,6 +672,11 @@ impl ParallelScanState {
         self.bitmap_table = 0;
         self.query = 0;
         self.query_len = 0;
+        self.vector_search_budget = None;
+        self.vector_routing_plan = 0;
+        self.vector_routing_plan_len = 0;
+        self.vector_routing_ready = false;
+        self.vector_routing_cv.init();
         self.spilled.store(0, Ordering::Relaxed);
         self.shared_threshold.init();
         self.populate(
@@ -1102,6 +1140,78 @@ impl ParallelScanState {
         self.query_len = query.len();
     }
 
+    /// Leader-only publication; workers cannot probe until the plan is ready.
+    pub unsafe fn publish_vector_routing_plan(
+        &mut self,
+        area: *mut pg_sys::dsa_area,
+        plan: Option<&VectorRoutingResults>,
+    ) -> anyhow::Result<()> {
+        unsafe {
+            if self.vector_routing_plan != 0 {
+                pg_sys::dsa_free(area, self.vector_routing_plan);
+            }
+            self.vector_routing_plan = 0;
+            self.vector_routing_plan_len = 0;
+            if let Some(plan) = plan {
+                let bytes = serde_cbor::to_vec(plan)?;
+                self.vector_routing_plan = pg_sys::dsa_allocate_extended(area, bytes.len(), 0);
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr(),
+                    pg_sys::dsa_get_address(area, self.vector_routing_plan).cast::<u8>(),
+                    bytes.len(),
+                );
+                self.vector_routing_plan_len = bytes.len();
+            }
+        }
+        {
+            let _lock = self.mutex.acquire();
+            self.vector_routing_ready = true;
+        }
+        self.vector_routing_cv.broadcast();
+        Ok(())
+    }
+
+    /// Workers wait here until the leader publishes the routing plan, then read it from shared memory.
+    pub unsafe fn poll_vector_routing_plan(
+        &mut self,
+        area: *mut pg_sys::dsa_area,
+    ) -> anyhow::Result<Option<VectorRoutingResults>> {
+        loop {
+            unsafe { pg_sys::ResetLatch(pg_sys::MyLatch) };
+            if check_for_interrupts_or_cancel() {
+                ConditionVariable::cancel_sleep();
+                anyhow::bail!("vector routing interrupted");
+            }
+            self.vector_routing_cv.prepare_to_sleep();
+            {
+                let _lock = self.mutex.acquire();
+                if self.vector_routing_ready {
+                    break;
+                }
+            }
+            // ConditionVariableSleep would swallow cancellation while Tokio holds interrupts.
+            unsafe {
+                pg_sys::WaitLatch(
+                    pg_sys::MyLatch,
+                    (pg_sys::WL_LATCH_SET | pg_sys::WL_EXIT_ON_PM_DEATH) as i32,
+                    -1,
+                    pg_sys::PG_WAIT_EXTENSION,
+                );
+            }
+        }
+        ConditionVariable::cancel_sleep();
+        if self.vector_routing_plan == 0 {
+            return Ok(None);
+        }
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                pg_sys::dsa_get_address(area, self.vector_routing_plan).cast::<u8>(),
+                self.vector_routing_plan_len,
+            )
+        };
+        Ok(Some(serde_cbor::from_slice(bytes)?))
+    }
+
     /// Worker: the query the leader published for this round.
     pub unsafe fn query(&self, area: *mut pg_sys::dsa_area) -> anyhow::Result<SearchQueryInput> {
         anyhow::ensure!(self.query != 0, "no query was published for this scan");
@@ -1139,8 +1249,19 @@ impl ParallelScanState {
         {
             *slot = *count;
         }
+        for source in 0..counts.len() {
+            unsafe {
+                self.payload
+                    .vector_work_ptr(source)
+                    .write(tantivy::vector::AtomicVectorWork::default());
+            }
+        }
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.
+    }
+
+    pub(crate) fn vector_work(&self, source: usize) -> &tantivy::vector::AtomicVectorWork {
+        unsafe { &*self.payload.vector_work_ptr(source) }
     }
 
     /// Per-source frozen segment view for `MvccSatisfies::ParallelWorker(view)`. Lives
@@ -1224,6 +1345,34 @@ mod tests {
     use crate::index::segment_pruning::STATS_OPENS;
     use pgrx::prelude::*;
     use std::sync::atomic::Ordering::Relaxed;
+
+    #[pg_test]
+    fn vector_work_is_shared_per_source_and_reset_on_rescan() {
+        use tantivy::vector::SharedVectorWork;
+        let args = ParallelScanArgs {
+            all_sources: vec![SegmentView::new(vec![]), SegmentView::new(vec![])],
+            with_aggregates: false,
+            with_segment_info: false,
+        };
+        let size = ParallelScanState::size_of(&args.all_nsegments(), false, false);
+        unsafe {
+            let state = pg_sys::palloc0(size).cast::<ParallelScanState>();
+            (*state).create_and_populate(args);
+            let first = crate::index::reader::vector::shared_vector_work(state, 0);
+            let peer = crate::index::reader::vector::shared_vector_work(state, 0);
+            let second = crate::index::reader::vector::shared_vector_work(state, 1);
+            first.charge(3.25);
+            peer.charge(1.75);
+            second.charge(9.0);
+            assert_eq!(first.charged(), 5.0);
+            assert_eq!(peer.charged(), 5.0);
+            assert_eq!(second.charged(), 9.0);
+            drop((first, peer, second));
+            (*state).reset();
+            assert_eq!((*state).vector_work(0).charged(), 0.0);
+            assert_eq!((*state).vector_work(1).charged(), 0.0);
+        }
+    }
 
     /// A lazily checked-out scan decides each segment as it is claimed, so a participant never
     /// reads statistics for segments it does not own.

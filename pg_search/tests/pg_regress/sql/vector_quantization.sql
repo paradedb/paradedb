@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
 
 SELECT pg_get_function_result('paradedb.vector_clusters(regclass,text)'::regprocedure)
@@ -212,7 +212,7 @@ FROM q_estimator_held_out held_out
 JOIN q_estimator_provided provided USING (depth)
 ORDER BY depth;
 
-SET paradedb.vector_cluster_max_probe = 0.25;
+SET paradedb.vector_cluster_max_probe = 10;
 CREATE TEMP TABLE q_cosine_unquantized_ivf AS
 SELECT
     row_number() OVER (ORDER BY distance, id) AS ordinal,
@@ -241,7 +241,7 @@ SELECT
     jsonb_path_query_first(value, '$.**.exact_scan_ns') IS NULL
         AS diagnostics_absent_skips_ivf_exact
 FROM segment_info;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 
 WITH plan AS (
     SELECT quant_explain(
@@ -373,7 +373,7 @@ SELECT
 -- 120 of 200 documents match, well above the probe budget's rows: the segment routes, and
 -- admission scores and charges only rows that pass the filter. Skipping a cluster whose rows all
 -- fail the filter is asserted in tantivy's filtered_empty_cluster_skips_band_reads.
-SET paradedb.vector_cluster_max_probe = 0.25;
+SET paradedb.vector_cluster_max_probe = 10;
 WITH plan AS (
     SELECT quant_explain(
         'SELECT id FROM q_cosine '
@@ -410,7 +410,7 @@ SELECT
         ORDER BY vec <=> quant_fixture_vector(768, 0), id
         LIMIT 10
     ) AS routed_matches_exhaustive;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 DROP TABLE q_cosine_oracle;
 
 CREATE TABLE q_l2 (id integer PRIMARY KEY, vec vector(768));
@@ -473,7 +473,7 @@ USING paradedb (id, vec vector_cosine_ops);
 INSERT INTO q_flat SELECT g, quant_fixture_vector(100, g) FROM generate_series(1, 32) g;
 
 SET paradedb.max_scan_levels = 0;
-SET paradedb.vector_cluster_max_probe = 0.25;
+SET paradedb.vector_cluster_max_probe = 10;
 
 CREATE TEMP TABLE q_cosine_lvl0 AS
 SELECT

@@ -15,7 +15,7 @@ SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
 SET paradedb.vector_cluster_max_probe = 100000;
 SET paradedb.vector_stats = on;
-CREATE FUNCTION spill_fixture_vector(d integer, n integer)
+CREATE FUNCTION replication_fixture_vector(d integer, n integer)
 RETURNS vector
 LANGUAGE SQL IMMUTABLE PARALLEL SAFE
 AS $$
@@ -28,7 +28,7 @@ AS $$
     )::vector
     FROM generate_series(1, d) i
 $$;
-CREATE FUNCTION spill_explain(query_text text)
+CREATE FUNCTION replication_explain(query_text text)
 RETURNS jsonb
 LANGUAGE plpgsql
 AS $$
@@ -41,42 +41,43 @@ BEGIN
     RETURN plan;
 END
 $$;
--- Two copies of one table, indexed with identical options but the spill. target_leaf_size = 10
--- gives this fixture at least 4 clusters, so routed and located queries both open several.
-CREATE TABLE spill_on (id integer PRIMARY KEY, emb vector(768));
-INSERT INTO spill_on SELECT g, spill_fixture_vector(768, g) FROM generate_series(1, 200) g;
-CREATE TABLE spill_off AS SELECT * FROM spill_on;
-ALTER TABLE spill_off ADD PRIMARY KEY (id);
-CREATE INDEX spill_on_idx ON spill_on
+-- Two copies of one table, indexed with identical options but the replication.
+-- target_leaf_size = 10 gives this fixture at least 4 clusters, so routed and located queries
+-- both open several.
+CREATE TABLE replication_on (id integer PRIMARY KEY, emb vector(768));
+INSERT INTO replication_on SELECT g, replication_fixture_vector(768, g) FROM generate_series(1, 200) g;
+CREATE TABLE replication_off AS SELECT * FROM replication_on;
+ALTER TABLE replication_off ADD PRIMARY KEY (id);
+CREATE INDEX replication_on_idx ON replication_on
 USING paradedb (id, emb vector_cosine_ops)
-WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, spill = true);
-CREATE INDEX spill_off_idx ON spill_off
+WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, replication = 2);
+CREATE INDEX replication_off_idx ON replication_off
 USING paradedb (id, emb vector_cosine_ops)
-WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, spill = false);
--- 1. The option took: a spilled index holds two rows per vector, an unspilled one one.
+WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, replication = 1);
+-- 1. The option took: a replicated index holds two rows per vector, an unreplicated one one.
 SELECT bool_and(vector_format = 'ivf' AND quantized AND vector_total_rows = 2 * vector_num_vectors)
-    AS spill_on_two_rows_per_vector
-FROM paradedb.vector_info('spill_on_idx', 'emb');
- spill_on_two_rows_per_vector 
-------------------------------
+    AS replicated_two_rows_per_vector
+FROM paradedb.vector_info('replication_on_idx', 'emb');
+ replicated_two_rows_per_vector 
+--------------------------------
  t
 (1 row)
 
-SELECT bool_and(vector_total_rows = vector_num_vectors) AS spill_off_one_row_per_vector
-FROM paradedb.vector_info('spill_off_idx', 'emb');
- spill_off_one_row_per_vector 
-------------------------------
+SELECT bool_and(vector_total_rows = vector_num_vectors) AS unreplicated_one_row_per_vector
+FROM paradedb.vector_info('replication_off_idx', 'emb');
+ unreplicated_one_row_per_vector 
+---------------------------------
  t
 (1 row)
 
--- 2. At full probe the spill changes no result: the same top-10 set for three query vectors.
+-- 2. At full probe replication changes no result: the same top-10 set for three query vectors.
 SELECT q,
        (SELECT array_agg(id ORDER BY id) FROM (
-            SELECT id FROM spill_on WHERE id @@@ pdb.all()
-            ORDER BY emb <=> spill_fixture_vector(768, q), id LIMIT 10) s)
+            SELECT id FROM replication_on WHERE id @@@ pdb.all()
+            ORDER BY emb <=> replication_fixture_vector(768, q), id LIMIT 10) s)
      = (SELECT array_agg(id ORDER BY id) FROM (
-            SELECT id FROM spill_off WHERE id @@@ pdb.all()
-            ORDER BY emb <=> spill_fixture_vector(768, q), id LIMIT 10) s)
+            SELECT id FROM replication_off WHERE id @@@ pdb.all()
+            ORDER BY emb <=> replication_fixture_vector(768, q), id LIMIT 10) s)
         AS same_top10
 FROM (VALUES (0), (7), (1000)) AS queries (q)
 ORDER BY q;
@@ -87,13 +88,13 @@ ORDER BY q;
  1000 | t
 (3 rows)
 
--- 3. A filter matching 5% of the rows takes the located path on the spilled index, which holds
--- one primary row per document: it drops nothing and returns the unspilled index's ids.
+-- 3. A filter matching 5% of the rows takes the located path on the replicated index, which holds
+-- one primary row per document: it drops nothing and returns the unreplicated index's ids.
 WITH plan AS (
-    SELECT spill_explain(
-        'SELECT id FROM spill_on '
+    SELECT replication_explain(
+        'SELECT id FROM replication_on '
         'WHERE id @@@ paradedb.range(''id'', int4range(1, 11, ''[)'')) '
-        'ORDER BY emb <=> spill_fixture_vector(768, 0), id LIMIT 10'
+        'ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10'
     ) AS value
 ), segment_info AS (
     SELECT (jsonb_path_query_first(value, '$.**."Segment Info"') #>> '{}')::jsonb AS value
@@ -101,7 +102,7 @@ WITH plan AS (
 )
 SELECT
     (jsonb_path_query_first(value, '$.**.access_path') #>> '{}') = 'Located' AS located,
-    (jsonb_path_query_first(value, '$.**.spill_dropped') #>> '{}')::bigint = 0 AS nothing_dropped
+    (jsonb_path_query_first(value, '$.**.replication_dropped') #>> '{}')::bigint = 0 AS nothing_dropped
 FROM segment_info;
  located | nothing_dropped 
 ---------+-----------------
@@ -109,13 +110,13 @@ FROM segment_info;
 (1 row)
 
 SELECT (SELECT array_agg(id ORDER BY id) FROM (
-            SELECT id FROM spill_on
+            SELECT id FROM replication_on
             WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
-            ORDER BY emb <=> spill_fixture_vector(768, 0), id LIMIT 10) s)
+            ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10) s)
      = (SELECT array_agg(id ORDER BY id) FROM (
-            SELECT id FROM spill_off
+            SELECT id FROM replication_off
             WHERE id @@@ paradedb.range('id', int4range(1, 11, '[)'))
-            ORDER BY emb <=> spill_fixture_vector(768, 0), id LIMIT 10) s)
+            ORDER BY emb <=> replication_fixture_vector(768, 0), id LIMIT 10) s)
         AS located_same_ids;
  located_same_ids 
 ------------------
@@ -123,25 +124,25 @@ SELECT (SELECT array_agg(id ORDER BY id) FROM (
 (1 row)
 
 -- 4. The option round-trips through REINDEX.
-ALTER INDEX spill_on_idx SET (spill = false);
-REINDEX INDEX spill_on_idx;
+ALTER INDEX replication_on_idx SET (replication = 1);
+REINDEX INDEX replication_on_idx;
 SELECT bool_and(vector_total_rows = vector_num_vectors) AS one_row_per_vector
-FROM paradedb.vector_info('spill_on_idx', 'emb');
+FROM paradedb.vector_info('replication_on_idx', 'emb');
  one_row_per_vector 
 --------------------
  t
 (1 row)
 
-ALTER INDEX spill_on_idx SET (spill = true);
-REINDEX INDEX spill_on_idx;
+ALTER INDEX replication_on_idx SET (replication = 2);
+REINDEX INDEX replication_on_idx;
 SELECT bool_and(vector_total_rows = 2 * vector_num_vectors) AS two_rows_per_vector
-FROM paradedb.vector_info('spill_on_idx', 'emb');
+FROM paradedb.vector_info('replication_on_idx', 'emb');
  two_rows_per_vector 
 ---------------------
  t
 (1 row)
 
-DROP TABLE spill_off;
-DROP TABLE spill_on;
-DROP FUNCTION spill_explain(text);
-DROP FUNCTION spill_fixture_vector(integer, integer);
+DROP TABLE replication_off;
+DROP TABLE replication_on;
+DROP FUNCTION replication_explain(text);
+DROP FUNCTION replication_fixture_vector(integer, integer);

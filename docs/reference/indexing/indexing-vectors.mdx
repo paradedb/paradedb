@@ -168,7 +168,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, target_leaf_size=200);
+WITH (training_sample_ratio=0.32, target_leaf_size=200, replication=2);
 ```
 
 ```ts Drizzle
@@ -266,12 +266,13 @@ modelBuilder.Entity<MockItem>()
   segments clustered after the option is set; existing segments keep their
   router until the index is rebuilt.
 </ParamField>
-<ParamField body="spill" default={true}>
-  Assign each vector to a second IVF cluster chosen to cover queries its first
-  cluster misses. Doubles the quantized rows scanned per cluster and adds about
-  one quantized row per vector to the index. Applies to quantized vector fields
-  of segments clustered after the option is set. Set `spill = false` to disable
-  the second assignment.
+<ParamField body="replication" default={2}>
+  Number of IVF clusters each vector is assigned to. `2` adds a second cluster
+  chosen to cover queries the first misses; it roughly doubles the quantized
+  rows scanned per cluster and the index build time, and adds about one
+  quantized row per vector to the index. Full-precision rows are not duplicated.
+  Applies to quantized vector fields of segments clustered after the option is
+  set. Set `replication = 1` to disable the second assignment.
 </ParamField>
 
 <Note>

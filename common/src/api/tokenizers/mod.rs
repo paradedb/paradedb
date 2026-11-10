@@ -507,6 +507,11 @@ pub fn search_field_config_from_type(
                 .unwrap_or_else(|| panic!("unknown search_tokenizer: {expr}"))
         });
 
+    let synonyms = parsed_typmod
+        .get("synonyms")
+        .and_then(|p| p.as_str())
+        .map(str::to_string);
+
     let k1 = parsed_typmod.get("k1").and_then(|p| p.as_f32());
     let b = parsed_typmod.get("b").and_then(|p| p.as_f32());
 
@@ -519,6 +524,7 @@ pub fn search_field_config_from_type(
             bitmap_postings,
             tokenizer,
             search_tokenizer,
+            synonyms,
             record,
             normalizer,
             column: None,
@@ -535,6 +541,7 @@ pub fn search_field_config_from_type(
             pnorms,
             tokenizer,
             search_tokenizer,
+            synonyms,
             record,
             normalizer,
             column: None,

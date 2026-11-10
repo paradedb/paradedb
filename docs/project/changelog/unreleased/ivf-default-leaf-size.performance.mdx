@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Raised the default IVF `target_leaf_size` from `100` to `200` for better query latency. Existing indexes are unaffected.
+Set the default IVF `target_leaf_size` to `150` sampled training vectors to produce smaller clusters with geometric splitting. Existing segments retain their clustering until rebuilt.

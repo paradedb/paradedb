@@ -415,6 +415,25 @@ mod tests {
     use super::*;
     use pgrx::{PgTryBuilder, Spi, pg_guard, pg_test};
 
+    #[pg_test]
+    fn syscache_entry_handles_missing_tuples() {
+        unsafe {
+            assert!(
+                SysCacheEntry::search1(
+                    pg_sys::SysCacheIdentifier::INDEXRELID,
+                    pg_sys::Datum::from(0),
+                )
+                .is_none()
+            );
+            let entry = SysCacheEntry::search1(
+                pg_sys::SysCacheIdentifier::TYPEOID,
+                pg_sys::INT4OID.into_datum().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(entry.attr::<i16>(pg_sys::Anum_pg_type_typlen), Some(4));
+        }
+    }
+
     #[pg_guard]
     unsafe extern "C-unwind" fn reject_planning(
         _parse: *mut pg_sys::Query,

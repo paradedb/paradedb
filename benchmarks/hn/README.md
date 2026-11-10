@@ -66,8 +66,7 @@ and database logs.
 
 ## pg_vectorsearch
 
-Apply `benchmark-hn-pg_vectorsearch` to run HN with PRISM, or
-`benchmark-pg-vectorsearch` to run both HN and MS MARCO. Manual runs accept
+Apply `benchmark-hn-pg_vectorsearch` to run HN with PRISM. Manual runs accept
 `engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
 PRISM uses the existing heap and ground truth, the parallel-build memory fix
 at `paradedb/pg_vectorsearch@1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, automatic

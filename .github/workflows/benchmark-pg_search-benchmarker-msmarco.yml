@@ -37,11 +37,11 @@ jobs:
     name: MS MARCO 113m (${{ matrix.engine }})
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmark-cohere-msmarco", "benchmark-msmarco-pg_vectorsearch", "benchmark-pg-vectorsearch"]'), github.event.label.name)
+      contains(fromJSON('["benchmark-cohere-msmarco", "benchmark-msmarco-pg_vectorsearch"]'), github.event.label.name)
     strategy:
       matrix:
         engine: >-
-          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || contains(fromJSON('["benchmark-msmarco-pg_vectorsearch", "benchmark-pg-vectorsearch"]'), github.event.label.name)) && '["pg_vectorsearch"]' || '["pg_search"]') }}
+          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch') && '["pg_vectorsearch"]' || '["pg_search"]') }}
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}

@@ -37,11 +37,11 @@ jobs:
     name: HN vector 28m (${{ matrix.engine }})
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmark-hn-vector", "benchmark-hn-pg_vectorsearch", "benchmark-pg-vectorsearch"]'), github.event.label.name)
+      contains(fromJSON('["benchmark-hn-vector", "benchmark-hn-pg_vectorsearch"]'), github.event.label.name)
     strategy:
       matrix:
         engine: >-
-          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || contains(fromJSON('["benchmark-hn-pg_vectorsearch", "benchmark-pg-vectorsearch"]'), github.event.label.name)) && '["pg_vectorsearch"]' || '["pg_search"]') }}
+          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-hn-pg_vectorsearch') && '["pg_vectorsearch"]' || '["pg_search"]') }}
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}

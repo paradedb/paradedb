@@ -168,7 +168,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, target_leaf_size=200);
+WITH (training_sample_ratio=0.32, target_leaf_size=200, replication=2);
 ```
 
 ```ts Drizzle
@@ -198,7 +198,6 @@ with connection.schema_editor() as schema_editor:
             fields={'id': {}, 'description': {}, 'category': {}, 'embedding': {'metric': 'cosine'}},
             name="search_idx",
             training_sample_ratio=0.32,
-            target_leaf_size=200,
         ),
     )
 ```
@@ -231,7 +230,7 @@ ActiveRecord::Base.connection.add_paradedb_index(
     embedding: { metric: :cosine },
   },
   name: :search_idx,
-  index_options: { training_sample_ratio: 0.32, target_leaf_size: 200 }
+  index_options: { training_sample_ratio: 0.32 }
 )
 ```
 
@@ -241,8 +240,7 @@ modelBuilder.Entity<MockItem>()
     .HasField(e => e.Description)
     .HasField(e => e.Category)
     .HasField(e => e.Embedding, VectorMetric.Cosine)
-    .HasTrainingSampleRatio(0.32)
-    .HasTargetLeafSize(200);
+    .HasTrainingSampleRatio(0.32);
 ```
 
 </CodeGroup>
@@ -256,10 +254,10 @@ modelBuilder.Entity<MockItem>()
 <ParamField body="target_leaf_size" default={200}>
   The target number of sampled training vectors in a leaf of the hierarchical
   clustering tree. Must be an integer between `1` and `2147483647`. Smaller
-  values generally produce more centroids and smaller clusters. Actual leaves
-  may be somewhat larger than the target. This setting is independent of
-  `training_sample_ratio` and does not cap the number of indexed vectors
-  assigned to a cluster.
+  values generally produce more centroids and smaller clusters. Training leaves
+  are split until they contain at most this many vectors. This setting is
+  independent of `training_sample_ratio` and does not cap the number of indexed
+  vectors assigned to a cluster.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the
@@ -267,6 +265,14 @@ modelBuilder.Entity<MockItem>()
   precision. Set it to `false` to keep full-precision routing. Applies to
   segments clustered after the option is set; existing segments keep their
   router until the index is rebuilt.
+</ParamField>
+<ParamField body="replication" default={2}>
+  Number of IVF clusters each vector is assigned to. `2` adds a second cluster
+  chosen to cover queries the first misses; it roughly doubles the quantized
+  rows scanned per cluster and the index build time, and adds about one
+  quantized row per vector to the index. Full-precision rows are not duplicated.
+  Applies to quantized vector fields of segments clustered after the option is
+  set. Set `replication = 1` to disable the second assignment.
 </ParamField>
 
 <Note>

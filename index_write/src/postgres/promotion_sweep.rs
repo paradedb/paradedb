@@ -67,11 +67,9 @@ impl SweepResult {
     }
 }
 
-impl Drop for SweepResult {
-    fn drop(&mut self) {
-        unsafe { pg_sys::dsm_detach(self.0) };
-    }
-}
+crate::impl_safe_drop!(SweepResult, |self| {
+    unsafe { pg_sys::dsm_detach(self.0) };
+});
 
 /// What a database worker receives: the database to sweep and where to report.
 struct SweepTask {

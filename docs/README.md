@@ -24,7 +24,7 @@ Production documentation updates are deployed manually through the
 rebuild the configured production branch.
 
 - After Mintlify successfully deploys production docs from `main`,
-  `Refresh Website Docs` triggers a Vercel website rebuild, which downloads the published
+  the workflow triggers a Vercel website rebuild, which downloads the published
   docs and refreshes `/mcp`.
 
 ## Troubleshooting

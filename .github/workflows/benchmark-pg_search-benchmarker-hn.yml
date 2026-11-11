@@ -2,7 +2,7 @@ name: Benchmark pg_search (Benchmarker HN vector)
 
 on:
   schedule:
-    - cron: "30 7 * * *" # Daily, alongside Cohere and MS MARCO.
+    - cron: "30 15 * * *" # Daily at 15:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -51,7 +51,6 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      pg_version: "18"
       PDBENCH_REF: ${{ inputs.pdbench_ref || '6ad13aed213d86feca4e4596867c930eac8c82a6' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
@@ -75,13 +74,12 @@ jobs:
           ref: ${{ env.BENCHMARK_REF }}
           persist-credentials: false
 
-      - name: Record benchmark commit and connection
+      - name: Record benchmark commit
         id: commit_info
         run: |
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           tantivy="$(awk '/^name = "tantivy"$/ { found = 1 } found && /^source = / { sub(/.*#/, ""); gsub(/"/, ""); print; exit }' Cargo.lock)"
           echo "tantivy_sha=$tantivy" >> "$GITHUB_OUTPUT"
-          echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark workflow for backfills
         if: inputs.commit != ''
@@ -97,6 +95,7 @@ jobs:
           rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
+          cp benchmark-workflow/docker/Dockerfile.source docker/Dockerfile.source
 
       - name: Record benchmark configuration
         run: |
@@ -111,10 +110,13 @@ jobs:
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Set up benchmark cluster
-        uses: ./.github/actions/setup-benchmark-cluster
+      - name: Set up Docker benchmark cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
-          pg_version: ${{ env.pg_version }}
+          ref: ${{ env.BENCHMARK_REF }}
+          dataset: hackernews/vector
+          size: ${{ env.HN_SIZE }}/39152428323-1
+          backup: "20261018-214625F"
 
       - name: Create pdbench checkout token
         id: pdbench_token
@@ -172,34 +174,6 @@ jobs:
           python3 -m venv .hn-fixtures
           .hn-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
           .hn-fixtures/bin/python benchmarks/hn/prepare.py --output benchmark-artifacts/fixtures
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
-        with:
-          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
-          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
-          role-duration-seconds: 21600
-          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
-          unset-current-credentials: true
-          aws-region: us-east-1
-
-      - name: Restore HN vector heap snapshot
-        env:
-          PGBACKREST_SET: "20261018-214625F"
-        run: |
-          set -euo pipefail
-          mkdir -p benchmark-artifacts
-          (cd pg_search && cargo pgrx stop pg18)
-          (cd benchmarks && cargo run --release -- restore-heap \
-            --dataset hackernews/vector --size "$HN_SIZE/39152428323-1" \
-            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
-            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
-            --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
-            --repo-s3-key-type shared)
-          (cd pg_search && cargo pgrx start pg18)
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET max_worker_processes = 32;"
-          (cd pg_search && cargo pgrx stop pg18 && cargo pgrx start pg18)
 
       - name: Verify restored heap and import ground truth
         run: |
@@ -321,14 +295,14 @@ jobs:
           } > benchmark-artifacts/tool-commits.txt
           {
             printf '%s\n\n' "HN vector 28m: six filtered top-10 workloads using the same exact-author and timestamp predicates and published ground truth. Strict ID recall may leave targets unreached on tied vectors."
-            printf 'Engine: `%s`; pg_search source: `%s`; pdbench: `%s`; Benchmarker: `%s`.\n\n' "$BENCHMARK_ENGINE" "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
+            printf "Engine: \`%s\`; pg_search source: \`%s\`; pdbench: \`%s\`; Benchmarker: \`%s\`.\n\n" "$BENCHMARK_ENGINE" "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
             if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
-              printf 'PRISM revision: `%s`. Automatic nlist, default replication, integer nprobe sweep 1..4096.\n\n' "$PG_VECTORSEARCH_REF"
+              printf "PRISM revision: \`%s\`. Automatic nlist, default replication, integer nprobe sweep 1..4096.\n\n" "$PG_VECTORSEARCH_REF"
               printf 'HN uses one global PRISM index with PostgreSQL post-filtering and no scalar filter indexes. Sequential scans, bitmap scans, and sorts are disabled; executed plans must use PRISM. k6 series are marked prism-postfilter. work_mem is 256 MiB.\n\n'
             else
-              printf 'Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: `%s`.\n\n' "$TANTIVY_SHA"
+              printf "Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: \`%s\`.\n\n" "$TANTIVY_SHA"
             fi
-            printf 'Uses the existing heap snapshot and 100 held-out vectors. Eight build/query workers and a 32-process worker pool are available. Build RSS sums sampled processes, including shared mappings. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
+            printf 'Uses the existing heap snapshot and 100 held-out vectors. Eight build/query workers and a 16-process worker pool are available. Build RSS sums sampled processes, including shared mappings. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
           if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then
@@ -352,7 +326,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \
@@ -382,7 +356,7 @@ jobs:
         if: always()
         run: |
           mkdir -p benchmark-artifacts
-          if [[ -f ~/.pgrx/18.log ]]; then cp ~/.pgrx/18.log benchmark-artifacts/postgres.log; fi
+          docker logs paradedb > benchmark-artifacts/postgres.log 2>&1 || true
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()
@@ -397,12 +371,11 @@ jobs:
 
       - name: Database logs
         if: failure() || cancelled()
-        run: tail -200 ~/.pgrx/18.log
+        run: docker logs --tail 200 paradedb
 
       - name: Stop database
         if: always()
-        working-directory: pg_search
-        run: cargo pgrx stop pg18
+        run: docker stop --time 600 paradedb
 
   publish-results:
     name: Publish Benchmark Results

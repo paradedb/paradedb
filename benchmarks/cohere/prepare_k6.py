@@ -158,6 +158,9 @@ def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
     parameter = "nprobe" if points[0]["param"] == NPROBE else "max_probe"
     lines = [
+        # GitHub renders Markdown inside <details> only with a blank line after the summary.
+        "<details><summary>Operating points</summary>",
+        "",
         (
             f"| Workload / recall target | k | {parameter} | Achieved recall@k "
             "| Shared hits/query | Shared reads/query | EXPLAIN queries |"
@@ -203,6 +206,7 @@ def summary(points):
             "HN pg_vectorsearch reports short result counts without failing k6. "
             "Query errors still fail the run; the 100-vector recall gate remains strict.\n"
         )
+    lines.append("</details>\n")
     return "\n".join(lines)
 
 

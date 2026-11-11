@@ -218,6 +218,19 @@ class OperatingPointsTest(unittest.TestCase):
             self.assertEqual(points[0]["probe"], str(value))
             self.assertEqual(points[0]["filter_fields"], ["time"])
 
+    def test_summary_collapses_the_table_and_its_paragraph(self):
+        """Keep the table and paragraph inside one details block that GitHub renders."""
+        text = summary(operating_points(reports()))
+        self.assertTrue(
+            text.startswith(
+                "<details><summary>Operating points</summary>\n\n| Workload / recall target |"
+            )
+        )
+        self.assertTrue(text.endswith("results.\n\n</details>\n"))
+        self.assertEqual((text.count("<details>"), text.count("</details>")), (1, 1))
+        self.assertIn("\n\npdbench selects max_probe separately", text)
+        self.assertEqual(text.count("| `knn_top10_"), 9)
+
     def test_refuses_below_target_point_even_when_pdbench_labels_it_selected(self):
         """Reject a below-target selection rather than relabeling it."""
         inputs = reports()

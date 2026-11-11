@@ -234,15 +234,15 @@ SET LOCAL ROLE authenticated;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT count(*) FROM leaky_rls_agg WHERE body @@@ 'sheriff' AND secret::int > 0;
 WARNING:  Aggregate Scan not used: WHERE clause has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: leaky_rls_agg)
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_agg
          Table: leaky_rls_agg
          Index: leaky_rls_agg_bm25
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"const_score":{"query":{"term":{"field":"org_id","value":1}},"score":0.0}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
 (7 rows)
 
 SELECT count(*) FROM leaky_rls_agg WHERE body @@@ 'sheriff' AND secret::int > 0;
@@ -259,15 +259,15 @@ SET LOCAL ROLE authenticated;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT count(*) FILTER (WHERE secret::int > 0) FROM leaky_rls_agg WHERE body @@@ 'sheriff';
 WARNING:  Aggregate Scan not used: aggregate FILTER has a predicate that must be evaluated after row-level security policies. To disable this warning: SET paradedb.planner_warnings = 'off' (table: leaky_rls_agg)
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_agg
          Table: leaky_rls_agg
          Index: leaky_rls_agg_bm25
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"const_score":{"query":{"term":{"field":"org_id","value":1}},"score":0.0}}]}}
 (7 rows)
 
 SELECT count(*) FILTER (WHERE secret::int > 0) FROM leaky_rls_agg WHERE body @@@ 'sheriff';
@@ -286,8 +286,8 @@ SELECT d.id, t.id FROM leaky_rls_agg d JOIN leaky_rls_tags t ON t.doc_id = d.id
 WHERE d.body @@@ 'sheriff' AND t.label @@@ 'sheriff' AND d.secret::int > 0
 ORDER BY d.id, t.id LIMIT 10;
 WARNING:  JoinScan not used: a WHERE predicate must be evaluated after row-level security policies (tables: d, t)
-                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: d.id, t.id
@@ -299,7 +299,7 @@ WARNING:  JoinScan not used: a WHERE predicate must be evaluated after row-level
                      Exec Method: ColumnarExecState
                      Columnar: id
                      Scores: false
-                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"const_score":{"query":{"term":{"field":"org_id","value":1}},"score":0.0}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
                ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_tags t
                      Table: leaky_rls_tags
                      Index: leaky_rls_tags_bm25
@@ -495,8 +495,8 @@ BEGIN;
 SET LOCAL ROLE authenticated;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 5;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on leaky_rls_indexed
          Table: leaky_rls_indexed
@@ -505,7 +505,7 @@ SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 OR
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"const_score":{"query":{"term":{"field":"org_id","value":1}},"score":0.0}}]}},"always_filters":[{"heap_filter":"((secret)::integer > 0)"}]}}]}}
 (9 rows)
 
 SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id;
@@ -532,8 +532,8 @@ BEGIN;
 SET LOCAL ROLE authenticated;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 ORDER BY id LIMIT 5;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: leaky_rls_indexed.id
@@ -543,7 +543,7 @@ SELECT id FROM leaky_rls_indexed WHERE body @@@ 'sheriff' AND secret::int > 0 OR
                Index: leaky_rls_indexed_bm25
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"org_id","value":1}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"sheriff","lenient":null,"conjunction_mode":null}}}},{"const_score":{"query":{"term":{"field":"org_id","value":1}},"score":0.0}}]}}
                SubPlan 1
                  ->  Seq Scan on leaky_rls_members m
                        Filter: (role_name = CURRENT_USER)

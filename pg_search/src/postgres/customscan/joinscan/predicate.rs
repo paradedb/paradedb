@@ -236,21 +236,13 @@ pub unsafe fn extract_single_table_predicate(
 ) -> Option<crate::postgres::customscan::joinscan::build::JoinLevelSearchPredicate> {
     let (_, bm25_idx) = rel_get_bm25_index(side.heaprelid)?;
 
-    // Create a RestrictInfo wrapping the expression for extract_quals
-    let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
-    let fake_ri =
-        pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>()) as *mut pg_sys::RestrictInfo;
-    (*fake_ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
-    (*fake_ri).clause = expr.cast();
-    ri_list.push(fake_ri);
-
     let context = PlannerContext::from_planner(root);
     let mut state = QualExtractState::default();
 
     let qual = extract_quals(
         &context,
         rti,
-        ri_list.as_ptr().cast(),
+        expr,
         RestrictInfoType::BaseRelation,
         &bm25_idx,
         false,

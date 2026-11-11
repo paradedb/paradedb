@@ -680,9 +680,9 @@ SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
 -- 17. Arithmetic OpExpr (`*`) maps natively
 -- =====================================================================
--- `translate_op_expr` now handles `+`, `-`, `*`, `/`, `%` — the `(e.id * 2)`
--- subtree maps directly to `Operator::Multiply`. EXPLAIN should contain a
--- native multiplication (e.g. `id * 2`) and NO `pdb_eval_expr_opexpr_*`.
+-- `translate_op_expr` handles `+`, `-`, `*`, `/`, `%` natively. Integer `(e.id * 2)`
+-- maps to the overflow-checked `pdb_int_mul`, so EXPLAIN should contain
+-- `pdb_int_mul(id, 2)` and NO `pdb_eval_expr_opexpr_*`.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i

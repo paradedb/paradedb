@@ -199,12 +199,14 @@ pub fn int_arith_udfs() -> [Arc<ScalarUDF>; 3] {
     ]
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int16Type, Int32Type, Int64Type};
     use arrow_array::{Array, Int16Array, Int32Array, Int64Array};
+    use pgrx::prelude::*;
 
     fn array(a: impl Array + 'static) -> ColumnarValue {
         ColumnarValue::Array(Arc::new(a))
@@ -218,7 +220,7 @@ mod tests {
         matches!(result, Err(ArrowError::ArithmeticOverflow(_)))
     }
 
-    #[test]
+    #[pg_test]
     fn checked_at_each_width() {
         let i16s = Int16Array::from(vec![i16::MAX, i16::MIN, 1]);
         let i32s = Int32Array::from(vec![i32::MAX, i32::MIN, 1]);
@@ -251,7 +253,7 @@ mod tests {
         )));
     }
 
-    #[test]
+    #[pg_test]
     fn boundaries_that_fit() {
         let a = Int32Array::from(vec![i32::MAX - 1, i32::MIN + 1, i32::MIN, -46340, 46340]);
         let b = Int32Array::from(vec![1, -1, 0, 46341, 46340]);
@@ -272,7 +274,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn boundaries_that_fit_i16_i64() {
         let product = IntOp::Mul
             .apply(
@@ -296,7 +298,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pg_test]
     fn nulls_propagate_and_hide_overflow() {
         // The value under a NULL slot is not checked, so MAX + NULL is not an overflow.
         let a = array(Int32Array::from(vec![Some(i32::MAX), Some(2), None]));
@@ -317,7 +319,7 @@ mod tests {
         assert_eq!(out.null_count(), 2);
     }
 
-    #[test]
+    #[pg_test]
     fn scalars_and_empty_arrays() {
         let a = ColumnarValue::Scalar(ScalarValue::Int16(Some(7)));
         let b = ColumnarValue::Scalar(ScalarValue::Int16(Some(-3)));
@@ -342,7 +344,7 @@ mod tests {
         assert_eq!(out.len(), 0);
     }
 
-    #[test]
+    #[pg_test]
     fn rejects_mixed_or_non_integer_types() {
         let i32s = array(Int32Array::from(vec![1]));
         let i64s = array(Int64Array::from(vec![1]));
@@ -357,7 +359,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[pg_test]
     fn plan_codec_resolves_each_udf_by_name() {
         for name in [INT_ADD_UDF_NAME, INT_SUB_UDF_NAME, INT_MUL_UDF_NAME] {
             let udf = crate::postgres::customscan::datafusion::udf_by_name(name)

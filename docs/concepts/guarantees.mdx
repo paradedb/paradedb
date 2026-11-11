@@ -31,7 +31,7 @@ Physical replication refers to running ParadeDB itself in a multi-node, high-ava
 [ParadeDB Community](https://github.com/paradedb/paradedb) supports logical replication, but not physical replication:
 
 - It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
-- The ParadeDB index does not get physically replicated and won't be available on other nodes in a high availability setup.
+- The ParadeDB index does not get physically replicated and won't be available on other nodes in a high availability setup. Standbys keep replaying WAL for all other tables and indexes; a query that uses a ParadeDB index on a standby fails with a `feature not supported` error. After a Community standby is promoted, the ParadeDB indexes it received through replication are marked unusable and refuse queries until `REINDEX` rebuilds them on the new primary; the tables, their writes and every other index keep working.
 
 [ParadeDB Enterprise](/operate/deploy/enterprise) supports both:
 

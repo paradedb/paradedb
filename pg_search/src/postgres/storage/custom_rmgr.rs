@@ -28,10 +28,12 @@ const XLOG_PG_SEARCH_INIT_INDEX_NAME: &CStr = c"INIT_INDEX";
 #[pg_guard]
 unsafe extern "C-unwind" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
     let info = (*(*record).record).header.xl_info & !(pg_sys::XLR_INFO_MASK as u8);
+    // The index pages reached the standby as full-page images before this record. An ERROR in
+    // the startup process is FATAL and stops replay for the whole cluster, so this only logs.
     if info == XLOG_PG_SEARCH_INIT_INDEX && pg_sys::StandbyMode {
-        pgrx::error!(
-            "replicas are not supported on community and require paradedb enterprise, \
-             which guarantees physical replication safety on standbys."
+        pgrx::log!(
+            "a ParadeDB index was created on the primary; ParadeDB Community does not serve \
+             ParadeDB indexes on a standby, and after promotion they refuse queries until REINDEX"
         );
     }
 }
@@ -52,10 +54,14 @@ unsafe extern "C-unwind" fn rm_identify(info: u8) -> *const ::core::ffi::c_char 
 }
 
 #[pg_guard]
-unsafe extern "C-unwind" fn rm_startup() {}
+unsafe extern "C-unwind" fn rm_startup() {
+    crate::postgres::promotion::recovery_starting();
+}
 
 #[pg_guard]
-unsafe extern "C-unwind" fn rm_cleanup() {}
+unsafe extern "C-unwind" fn rm_cleanup() {
+    crate::postgres::promotion::recovery_ending();
+}
 
 #[pg_guard]
 unsafe extern "C-unwind" fn rm_mask(

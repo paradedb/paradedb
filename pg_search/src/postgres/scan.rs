@@ -51,6 +51,12 @@ pub extern "C-unwind" fn ambeginscan(
     norderbys: ::std::os::raw::c_int,
 ) -> pg_sys::IndexScanDesc {
     unsafe {
+        // The planner's own index paths do not consult `rel_get_bm25_index`.
+        let rel = PgSearchRelation::from_pg(indexrel);
+        if crate::postgres::promotion::index_blocked_after_promotion(&rel) {
+            crate::postgres::promotion::report_blocked(&rel);
+        }
+
         let scandesc = pg_sys::RelationGetIndexScan(indexrel, nkeys, norderbys);
 
         // we may or may not end up doing an Index Only Scan, but regardless we only need to do

@@ -1343,6 +1343,13 @@ pub fn pg_search_extension_installed() -> bool {
     unsafe { pg_sys::get_extension_oid(c"pg_search".as_ptr(), true) != pg_sys::InvalidOid }
 }
 
+/// True in a backend of a hot standby that is still replaying WAL. ParadeDB Community does not
+/// serve its indexes there: `MetaPage::open` refuses, and the planner entry points decline before
+/// reaching it so queries that do not need the index keep working.
+pub fn in_hot_standby() -> bool {
+    unsafe { pg_sys::HotStandbyActive() && !pg_sys::XLogInsertAllowed() }
+}
+
 /// RAII wrapper for `pg_sys::List` that automatically frees the list on drop.
 ///
 /// This is useful when you need to create a temporary PostgreSQL list for use with

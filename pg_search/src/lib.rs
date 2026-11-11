@@ -151,6 +151,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     postgres::build_logging::init();
     gucs::init();
     postgres::mutable_sweep::init();
+    postgres::promotion::init();
     postgres::customscan::mpp::wakeup::init_wakeup_pool();
     postgres::customscan::joinscan::scan_state::init_base_session_state();
     postgres::customscan::mpp::worker::init_worker_base_session_state();

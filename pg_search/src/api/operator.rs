@@ -882,6 +882,7 @@ pub unsafe fn tantivy_field_name_from_node(
         return None;
     }
     let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
+        crate::postgres::promotion::report_if_blocked(heaprelid);
         panic!(
             "`{}` does not contain a `USING paradedb` index",
             PgSearchRelation::open(heaprelid).name()

@@ -86,6 +86,10 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// Nonzero once the promotion sweep (`postgres::promotion`) found this index on a server
+    /// promoted from a standby. Indexes built on this server read zero.
+    standby_taint: u32,
 }
 
 /// Provides read access to the metadata page
@@ -163,7 +167,7 @@ impl MetaPage {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if unsafe { pgrx::pg_sys::HotStandbyActive() } && unsafe { !pg_sys::XLogInsertAllowed() } {
+        if crate::postgres::utils::in_hot_standby() {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
                 "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
@@ -510,6 +514,20 @@ impl MetaPage {
     // been updated and this value is stale
     pub fn ambulkdelete_epoch(&self) -> u32 {
         self.data.ambulkdelete_epoch
+    }
+
+    pub fn standby_tainted(&self) -> bool {
+        self.data.standby_taint != 0
+    }
+
+    /// Records that the index arrived through physical replication. Does not go through `open`,
+    /// whose callers refuse a marked index.
+    pub fn mark_standby_tainted(indexrel: &PgSearchRelation) {
+        let mut bman = BufferManager::new(indexrel);
+        let mut buffer = bman.get_buffer_mut(METAPAGE);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        metadata.standby_taint = 1;
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

@@ -65,7 +65,7 @@ pub(crate) fn init() {
         .load();
 }
 
-unsafe fn connect(database: Option<pg_sys::Oid>) {
+pub(crate) unsafe fn connect(database: Option<pg_sys::Oid>) {
     unsafe extern "C-unwind" {
         #[link_name = "die"]
         fn worker_sigterm(signal: i32);
@@ -84,6 +84,50 @@ unsafe fn connect(database: Option<pg_sys::Oid>) {
             pg_sys::GucSource::PGC_S_OVERRIDE,
         );
     }
+}
+
+/// Databases a background worker may connect to. Needs a transaction but no database connection.
+pub(crate) unsafe fn connectable_databases() -> HashSet<pg_sys::Oid> {
+    let relation = pg_sys::table_open(pg_sys::DatabaseRelationId, pg_sys::AccessShareLock as _);
+    let scan = pg_sys::systable_beginscan(
+        relation,
+        pg_sys::InvalidOid,
+        false,
+        std::ptr::null_mut(),
+        0,
+        std::ptr::null_mut(),
+    );
+    let mut databases = HashSet::default();
+    loop {
+        let tuple = pg_sys::systable_getnext(scan);
+        if tuple.is_null() {
+            break;
+        }
+        let database = &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_database>();
+        if database.datallowconn && !database.datistemplate && database.datconnlimit >= -1 {
+            databases.insert(database.oid);
+        }
+    }
+    pg_sys::systable_endscan(scan);
+    pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
+    databases
+}
+
+/// The valid, non-temporary ParadeDB leaf indexes of the connected database, by catalog
+/// lookup, so it works without the extension's SQL objects. Needs a transaction.
+pub(crate) fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
+    Spi::get_one::<Vec<pg_sys::Oid>>(
+        "SELECT array_agg(i.indexrelid ORDER BY i.indexrelid)
+         FROM pg_catalog.pg_index i
+         JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+         JOIN pg_catalog.pg_am am ON am.oid = c.relam
+         JOIN pg_catalog.pg_proc p ON p.oid = am.amhandler
+         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'paradedb' AND p.proname = 'bm25_handler'
+           AND i.indisvalid AND i.indisready AND c.relkind = 'i' AND c.relpersistence <> 't'",
+    )
+    .expect("should be able to discover ParadeDB indexes")
+    .unwrap_or_default()
 }
 
 unsafe fn reload() {
@@ -121,34 +165,7 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
                         active.insert((*status).st_databaseid);
                     }
                 }
-                let relation =
-                    pg_sys::table_open(pg_sys::DatabaseRelationId, pg_sys::AccessShareLock as _);
-                let scan = pg_sys::systable_beginscan(
-                    relation,
-                    pg_sys::InvalidOid,
-                    false,
-                    std::ptr::null_mut(),
-                    0,
-                    std::ptr::null_mut(),
-                );
-                let mut databases = HashSet::default();
-                loop {
-                    let tuple = pg_sys::systable_getnext(scan);
-                    if tuple.is_null() {
-                        break;
-                    }
-                    let database =
-                        &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_database>();
-                    if database.datallowconn
-                        && !database.datistemplate
-                        && database.datconnlimit >= -1
-                    {
-                        databases.insert(database.oid);
-                    }
-                }
-                pg_sys::systable_endscan(scan);
-                pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
-                (databases, active)
+                (connectable_databases(), active)
             });
             for database in databases {
                 if active.contains(&database) {
@@ -233,18 +250,7 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                     if version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
                         return None;
                     }
-                    let indexes = Spi::get_one::<Vec<pg_sys::Oid>>(
-                        "SELECT array_agg(i.indexrelid ORDER BY i.indexrelid)
-                         FROM pg_catalog.pg_index i
-                         JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
-                         JOIN pg_catalog.pg_am am ON am.oid = c.relam
-                         JOIN pg_catalog.pg_proc p ON p.oid = am.amhandler
-                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-                         WHERE n.nspname = 'paradedb' AND p.proname = 'bm25_handler'
-                           AND i.indisvalid AND i.indisready AND c.relkind = 'i' AND c.relpersistence <> 't'",
-                    )
-                    .expect("should be able to discover ParadeDB indexes")
-                    .unwrap_or_default();
+                    let indexes = paradedb_index_oids();
                     let mut current_counts = HashMap::default();
                     let indexes = free_leaf_partition_indexes(&indexes)
                         .filter_map(|index| {

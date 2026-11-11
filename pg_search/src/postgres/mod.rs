@@ -22,7 +22,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::gucs;
 use crate::index::mvcc::{MutableSegmentBound, SegmentView, SegmentViewDocs, SegmentViewEntry};
-use crate::postgres::catalog::OidExt;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
@@ -71,6 +70,7 @@ mod parallel;
 pub mod pdb_owned_value;
 pub(crate) mod pgstat;
 pub mod planner_warnings;
+pub(crate) mod promotion;
 pub mod rel;
 pub(crate) mod search_operator_relations;
 pub(crate) mod sequentialscan;
@@ -164,13 +164,10 @@ pub fn rel_get_bm25_index(
     }
 
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    let index = unsafe {
-        rel.indices(pg_sys::AccessShareLock as _)
-            .filter(|index| {
-                pg_sys::get_index_isvalid(index.oid()) && (*index.rd_rel).relam.is_paradedb_am()
-            })
-            .max_by_key(|i| i.oid().to_u32())?
-    };
+    let index = rel
+        .valid_paradedb_indices()
+        .filter(|index| !promotion::index_blocked_after_promotion(index))
+        .max_by_key(|i| i.oid().to_u32())?;
     Some((rel, index))
 }
 

@@ -490,7 +490,8 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the target leaf size for Tantivy training, scaled by the sample
+    /// ratio so final cluster sizes approximate the configured `target_leaf_size`.
     pub fn target_leaf_size(&self) -> usize {
         self.options_data().target_leaf_size()
     }
@@ -966,9 +967,15 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the target leaf size for Tantivy training, scaled by the sample
+    /// ratio so final cluster sizes approximate the configured `target_leaf_size`.
+    ///
+    /// For example, with defaults (`target_leaf_size=200`,
+    /// `training_sample_ratio=0.32`) this returns `64`.
     pub fn target_leaf_size(&self) -> usize {
-        self.target_leaf_size as usize
+        ((self.target_leaf_size as f64) * self.training_sample_ratio)
+            .round()
+            .max(1.0) as usize
     }
 
     /// Returns the fraction of vectors sampled for IVF training.

@@ -41,9 +41,8 @@
 //!      two-sided score joins (falling back to the original `ScanMode::Tagged` subtree if the
 //!      join is single-sided or fails any gate). A leaf's single-table `base_query` (for
 //!      example a row-level security policy on an indexed column) is kept as a `0.0`-score
-//!      filter on both `SA` and `RA`; a base that is not a pushed SQL restriction
-//!      (`SearchQueryInput::is_pushdown_filter`), or one with heap filters, blocks the
-//!      conversion.
+//!      filter on both `SA` and `RA`; a base that scores (`SearchQueryInput::is_pushdown_filter`
+//!      refuses it), or one with heap filters, blocks the conversion.
 //!
 //! 2. **Gate 2 (Score Contribution Balance & Disjunctive Restriction)**:
 //!    - When both sides contribute to the monotonic `ORDER BY` expression (`uses_left &&

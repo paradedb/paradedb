@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794386532315,
+  "lastUpdate": 1794386558174,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -80953,6 +80953,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13745180441-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794386556770,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.605,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.666,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.547,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.555,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.551,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.201,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13837308555-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -81221,6 +81289,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13745180441-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794386558162,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6967.449436192845,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7582.62805467255,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.0339361849881,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13837308555-throughput"
       }
     ],
     "benchmarker msmarco-113m (latency)": [

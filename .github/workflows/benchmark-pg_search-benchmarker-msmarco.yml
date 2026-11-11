@@ -289,7 +289,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \

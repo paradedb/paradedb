@@ -10,9 +10,9 @@ The workflow runs the 1M and 10M snapshots independently. Each uses the existing
 eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. Cohere, MS MARCO, HN, Wikipedia, and Stack Exchange share
 `setup-docker-benchmark-cluster` and the same Docker Compose configuration:
-CPUs 0–7, 64 GiB memory, 16 GiB shared memory, 24 GiB shared buffers and maintenance
+CPUs 0–63, 64 GiB memory, 16 GiB shared memory, 24 GiB shared buffers and maintenance
 memory, a 48 GiB effective cache, and eight parallel workers in a 16-process pool.
-k6 runs on CPUs 8–11. Vector containers share the host PID namespace so pdbench
+k6 runs on CPUs 64–67. Vector containers share the host PID namespace so pdbench
 can still sample build RSS. Both tools use the same database and index
 throughout a run.
 

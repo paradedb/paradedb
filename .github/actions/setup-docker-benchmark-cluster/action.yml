@@ -108,7 +108,7 @@ runs:
         PARADEDB_IMAGE: ${{ inputs.image_tag }}
         SNAPSHOT_FORMAT: ${{ inputs.snapshot_format }}
         PARADEDB_DATA_DIR: ${{ runner.temp }}/benchmark-pgdata
-        POSTGRES_CPUSET: "0-7"
+        POSTGRES_CPUSET: "0-63"
         MEMORY: 64g
         EFFECTIVE_CACHE_SIZE: 48GB
       run: |

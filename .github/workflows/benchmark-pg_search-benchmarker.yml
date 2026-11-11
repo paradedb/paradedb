@@ -312,7 +312,7 @@ jobs:
             echo "== Running workload=${workload} query_style=${style} =="
             (
               cd "$root/results"
-              taskset -c 8-11 "$root/k6" run --out dashboard=json,html \
+              taskset -c 64-67 "$root/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL=postgres://postgres:postgres@127.0.0.1:5432/benchmark \
                 -e PARADEDB_CONTAINER=paradedb \
                 -e WORKLOAD="${workload}" \

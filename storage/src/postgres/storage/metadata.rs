@@ -535,6 +535,7 @@ impl MetaPage {
         self.data.ambulkdelete_epoch
     }
 
+    /// True once a standby's WAL replay set the taint; see `postgres::promotion`.
     pub fn standby_tainted(&self) -> bool {
         self.data.standby_taint != 0
     }

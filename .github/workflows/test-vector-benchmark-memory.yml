@@ -1,0 +1,133 @@
+name: Test Vector Benchmark Memory
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/test-vector-benchmark-memory.yml"
+      - ".github/workflows/benchmark-pg_search-benchmarker-hn.yml"
+      - ".github/workflows/benchmark-pg_search-benchmarker-msmarco.yml"
+      - ".github/actions/setup-vector-benchmark-docker/**"
+      - ".github/actions/setup-pg-vectorsearch/**"
+      - ".github/actions/build-vector-benchmark-index/**"
+      - "benchmarks/vector/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prism-image:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PARADEDB_IMAGE: paradedb-vector:ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Create pg_vectorsearch checkout token
+        id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pg_vectorsearch
+          permission-contents: read
+
+      - name: Prepare base image
+        run: |
+          docker pull paradedb/paradedb:latest-pg18
+          docker tag paradedb/paradedb:latest-pg18 "$PARADEDB_IMAGE"
+
+      - name: Build PRISM image
+        uses: ./.github/actions/setup-pg-vectorsearch
+        with:
+          ref: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+          github_token: ${{ steps.token.outputs.token }}
+
+      - name: Create PRISM index
+        run: |
+          set -euo pipefail
+          docker run -d --name prism-test -e POSTGRES_HOST_AUTH_METHOD=trust "$PARADEDB_IMAGE"
+          for _ in {1..60}; do
+            if docker exec prism-test pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec -i prism-test psql -U postgres -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;
+          CREATE TABLE fixture (emb vec32(3));
+          INSERT INTO fixture SELECT ARRAY[i, i % 7, i % 13]::real[]::vec32 FROM generate_series(1, 1000) i;
+          CREATE INDEX fixture_idx ON fixture USING prism (emb vec32_cosine_ops) WITH (nlist=0);
+          SELECT * FROM prism_index_settings('fixture_idx');
+          SQL
+
+      - name: Container diagnostics
+        if: always()
+        run: docker logs prism-test && docker rm -fv prism-test
+
+  memory:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Test benchmark configuration
+        run: python3 -m unittest discover -s benchmarks/vector -p 'test_*.py'
+
+      - name: Create pdbench checkout token
+        id: pdbench_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pdbench
+          permission-contents: read
+
+      - name: Checkout pdbench
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: paradedb/pdbench
+          ref: e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c
+          path: pdbench
+          token: ${{ steps.pdbench_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libssl-dev pkg-config
+
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Cache pdbench build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: pdbench -> target
+
+      - name: Build pdbench load and report
+        working-directory: pdbench
+        run: |
+          cargo +1.97.1 build --locked --release -p pdbench-load -p pdbench-report --target-dir target -j 2
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+
+      - name: Verify successful builds and recovery after OOM
+        run: |
+          mkdir -p benchmark-artifacts
+          bash benchmarks/vector/test_memory_recovery.sh
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: vector-memory-recovery-test
+          path: benchmark-artifacts/memory-recovery-test/
+          retention-days: 7
+          if-no-files-found: warn

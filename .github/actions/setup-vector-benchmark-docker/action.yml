@@ -1,0 +1,47 @@
+name: Set Up Vector Benchmark Docker
+description: Build the benchmark image and prepare a PostgreSQL 18 directory for heap restore
+
+inputs:
+  ref:
+    description: pg_search revision to build
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up benchmark tools
+      uses: ./.github/actions/setup-pg-search-toolchain
+      with:
+        pg_version: "18"
+        install_cargo_pgrx: "false"
+        cache_prefix_key: v2-benchmarks-rust-cache
+        cache_save: "true"
+        cache_on_failure: "true"
+
+    - name: Install heap restore dependencies
+      uses: ./.github/actions/setup-postgres
+      with:
+        pg_version: "18"
+        initialize_pgrx: "false"
+        extra_packages: pgbackrest libopenblas-dev lld time
+
+    - name: Build benchmark image
+      uses: ./.github/actions/build-paradedb-image
+      with:
+        ref: ${{ inputs.ref }}
+        image_tag: paradedb-vector:ci
+        cache_scope: vector-source-pg18-arm64
+
+    - name: Prepare heap restore directory
+      shell: bash
+      run: |
+        set -euo pipefail
+        pgdata="$RUNNER_TEMP/vector-pgdata"
+        initdb --no-sync --auth=trust -D "$pgdata"
+        : > "$pgdata/postgresql.auto.conf"
+        {
+          echo "BENCHMARK_PGDATA=$pgdata"
+          echo "PARADEDB_IMAGE=paradedb-vector:ci"
+          echo "PARADEDB_CONTAINER=paradedb-vector-benchmark"
+          echo "PARADEDB_URL=postgresql://$(whoami)@127.0.0.1:28818/postgres"
+        } >> "$GITHUB_ENV"

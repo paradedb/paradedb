@@ -3,7 +3,7 @@
 The MS MARCO workflow restores the existing 113,520,750-row PostgreSQL 18 heap
 backup `20261102-224214F`, builds pg_search from the requested revision, and
 creates an eight-segment cosine index with a 0.32 training sample ratio and
-quantized vector routing. It uses the same runner and cluster setup as Cohere.
+quantized vector routing. It uses the same runner and Docker setup as HN.
 
 Apply `benchmark-cohere-msmarco` to a PR to benchmark its head. The label is
 removed when the run starts so it can be applied again. This large dataset is
@@ -32,9 +32,12 @@ reached operating point runs with one VU, 10 seconds of discarded warmup, and
 50 seconds of measurement. Unreached targets remain explicit in the results.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, worker count, and peak summed RSS under `benchmarker msmarco-113m`.
-RSS includes shared mappings. Scheduled and manual main runs establish and
-refresh the baseline; subsequent PRs compare with it. Diagnostics retain
+index size, parallel workers, and peak container memory with and without reclaimable file cache
+under `benchmarker msmarco-113m`. The index is built with `pdbench-load finalize`
+after restoring the heap; no heap load is performed. See
+[build memory diagnostics](../vector/README.md) for retrieving the timeline
+after an OOM or another build failure. Scheduled and manual main runs establish
+and refresh the baseline; subsequent PRs compare with it. Diagnostics retain
 extension/tool revisions, configuration, the verified query hash, segment
 statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
 
@@ -42,6 +45,8 @@ statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
 
 Apply `benchmark-msmarco-pg_vectorsearch` to run MS MARCO with PRISM. Manual runs accept
 `engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
+
+Both engines use the shared Docker setup and index-build memory tracking.
 
 The PRISM profile reuses the same heap, query vectors, ground truth, runner,
 worker limits, and k6 measurement procedure. It pins the parallel-build memory

@@ -1,0 +1,91 @@
+name: Build Vector Benchmark Index
+description: Build an index with pdbench-load and retain its memory timeline on failure
+
+inputs:
+  config:
+    description: pdbench search profile
+    required: true
+  assets:
+    description: Directory containing the dataset's index SQL
+    required: true
+  artifact_name:
+    description: Artifact name for the build timeline and failure diagnostics
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare index build
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        ASSETS: ${{ inputs.assets }}
+      run: |
+        set -euo pipefail
+        python3 benchmarks/vector/prepare_index_build.py --config "$CONFIG" --assets "$ASSETS"
+        if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
+          table=$(jq -r '.datastore.table' benchmark-artifacts/index-build/load.json)
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -v table="$table" <<'SQL'
+        CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;
+        ALTER TABLE :"table" SET (parallel_workers = 8);
+        SQL
+        else
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+        fi
+        psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+          -c "SELECT name, setting, unit FROM pg_settings
+              WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                             'max_worker_processes', 'max_parallel_maintenance_workers',
+                             'parallel_leader_participation', 'huge_pages',
+                             'paradedb.global_target_segment_count', 'paradedb.vector_router_rerank_factor',
+                             'paradedb.vector_router_min_beam_fraction', 'paradedb.vector_router_aps')
+              ORDER BY name;" > benchmark-artifacts/index-build/settings.log
+
+    - name: Build index and record container memory
+      shell: bash
+      run: |
+        set -euo pipefail
+        /usr/bin/time --format=%e --output=benchmark-artifacts/index-build/seconds.txt \
+          python3 benchmarks/vector/build_index.py benchmark-artifacts/index-build/load.json \
+          2>&1 | tee benchmark-artifacts/index-build/build.log
+
+    - name: Export index metrics
+      shell: bash
+      run: |
+        set -euo pipefail
+        index=$(jq -r '.datastore.vars.index_name' benchmark-artifacts/index-build/load.json)
+        psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -v index="$index" \
+          > benchmark-artifacts/index-build/index.json <<'SQL'
+        SELECT json_build_object('name', c.relname, 'access_method', am.amname,
+                                 'size_bytes', pg_total_relation_size(c.oid))
+        FROM pg_class c JOIN pg_am am ON am.oid = c.relam
+        WHERE c.oid = :'index'::regclass;
+        SQL
+        jq -s --arg index "$index" \
+          --slurpfile metadata benchmark-artifacts/index-build/index.json \
+          --slurpfile workers benchmark-artifacts/index-build/workers.jsonl \
+          --argjson seconds "$(cat benchmark-artifacts/index-build/seconds.txt)" '
+          def peak($metric): [.[] | select(.type == "Point" and .metric == $metric) | .value] | max;
+          [
+            {name: ($index + " build time"), unit: "min", value: ($seconds / 60)},
+            {name: ($index + " index size"), unit: "MiB", value: ($metadata[0].size_bytes / 1048576)},
+            {name: ($index + " parallel workers"), unit: "workers", value: ($workers | map(.workers) | max)},
+            {name: ($index + " peak container memory"), unit: "GiB", value: (peak("container_memory") / 1073741824)},
+            {name: ($index + " peak container memory including cache"), unit: "GiB", value: (peak("container_memory_usage") / 1073741824)}
+          ]' benchmark-artifacts/index-build/runs/load/*_load/points.jsonl \
+          > benchmark-artifacts/index-metrics.json
+
+    - name: Save build diagnostics
+      if: always()
+      shell: bash
+      run: bash benchmarks/vector/save_build_diagnostics.sh
+
+    - name: Upload build diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: benchmark-artifacts/index-build/
+        retention-days: 30
+        if-no-files-found: warn

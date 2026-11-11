@@ -1,0 +1,21 @@
+services:
+  paradedb:
+    image: ${PARADEDB_IMAGE:?}
+    container_name: ${PARADEDB_CONTAINER:?}
+    environment:
+      PGDATA: /var/lib/postgresql/18/benchmark
+    ports:
+      - "127.0.0.1:28818:5432"
+    volumes:
+      - ${BENCHMARK_PGDATA:?}:/var/lib/postgresql/18/benchmark
+      - ./postgresql.conf:/etc/paradedb-benchmark.conf:ro
+      - ./pg_hba.conf:/etc/paradedb-benchmark-hba.conf:ro
+    command: ["postgres", "-c", "config_file=/etc/paradedb-benchmark.conf"]
+    mem_limit: 128g
+    memswap_limit: 128g
+    shm_size: 16g
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "5432"]
+      interval: 2s
+      timeout: 5s
+      retries: 150

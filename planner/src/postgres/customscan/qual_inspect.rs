@@ -329,11 +329,11 @@ impl Qual {
     }
 }
 
-/// Wraps `qual` in [`Qual::Security`], descending through AND and OR. The arms of an OR
-/// clause are `RestrictInfo` nodes at the same level, so they arrive already wrapped and are
-/// left as they are. A heap filter is left as it is: the heap-filter machinery matches
-/// `Qual::HeapExpr` in place, and its indexed part is already the zero-score `All`. A score
-/// condition is left as it is too, since the AND lowering must see it at the top level.
+/// Wraps `qual` in [`Qual::Security`]. The arms of an OR clause are `RestrictInfo` nodes at
+/// the same level, so they arrive already wrapped and are left as they are. A heap filter is
+/// left as it is: the heap-filter machinery matches `Qual::HeapExpr` in place, and its indexed
+/// part is already the zero-score `All`. A score condition is left as it is too, since the AND
+/// lowering must see it at the top level.
 fn mark_security(qual: Qual) -> Qual {
     match qual {
         Qual::And(quals) => Qual::And(quals.into_iter().map(mark_security).collect()),
@@ -892,15 +892,13 @@ pub unsafe fn has_leaky_heap_filter(
 }
 
 /// Whether `ri`, a clause on `rti`, came from the range table entry's `securityQuals`: a
-/// row-level security policy. Such a clause has a `security_level` below
-/// `qual_security_level`, but a low level alone does not prove it. A clause PostgreSQL
-/// regenerated from an equivalence class carries the class's lowest level, not the level of
-/// the clause it stands for: a policy's `division = 1` and the statement's `client_id = 1`
-/// share one class through the constant, and both come back at the policy's level. The
-/// clauses that were written are still in `ec_sources` with their own levels, so a class
-/// member's clause is a policy only if every source on that member is. A partition child's
-/// copy keeps the parent's level but no class link (`apply_child_basequals`), so the top
-/// parent's clause is classified in its place.
+/// row-level security policy. A clause PostgreSQL regenerated from an equivalence class
+/// carries the class's lowest level, not the level of the clause it stands for: a policy's
+/// `division = 1` and the statement's `client_id = 1` share one class through the constant
+/// and both come back at the policy's level, so a class member's clause is a policy only if
+/// every source in `ec_sources` on that member is. A partition child's copy keeps the
+/// parent's level but no class link (`apply_child_basequals`), so the top parent's clause is
+/// classified in its place.
 unsafe fn is_security_clause(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -1053,8 +1051,6 @@ pub fn extract_quals(
                 state,
                 attempt_pushdown,
             )?;
-            // A clause below the query's `qual_security_level` came from the range table
-            // entry's `securityQuals`: a row-level security policy.
             let from_security_qual = context
                 .planner_info()
                 .is_some_and(|root| unsafe { is_security_clause(root, rti, ri) });

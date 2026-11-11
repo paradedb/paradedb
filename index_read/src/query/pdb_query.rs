@@ -18,6 +18,7 @@
 
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
+use crate::index::synonym_index::{expand_with_index, open_synonym_index, rule_tokenizer};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_datetime_type;
@@ -42,26 +43,32 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use pgrx::AnyNumeric;
 use pgrx::PgOid;
-use pgrx::pg_sys::BuiltinOid;
+use pgrx::pg_sys::{self, BuiltinOid};
 use pgrx::{InOutFuncs, StringInfo, pg_schema};
 use serde_json::Value;
 use std::collections::Bound;
 use std::ffi::CStr;
 use tantivy::query::{
-    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, ExistsQuery,
-    FastFieldRangeQuery, FuzzyTermQuery, Occur, PhrasePrefixQuery, PhraseQuery,
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
+    ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur, PhrasePrefixQuery, PhraseQuery,
     Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
     TermSetQuery,
 };
 use tantivy::query_grammar::{self, UserInputAst, UserInputBound, UserInputLeaf, UserInputLiteral};
 use tantivy::schema::FieldType;
+use tantivy::synonyms::{Expansion, expansion_query};
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
 use super::dot_path_to_facet;
 
 pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    SearchQueryInput::FieldedQuery { field, query }
+    match query {
+        pdb::Query::ScoreAdjusted { query, score } => {
+            SearchQueryInput::score_adjusted(to_search_query_input(field, *query), score)
+        }
+        query => SearchQueryInput::FieldedQuery { field, query },
+    }
 }
 
 pub fn to_search_query_input_unfielded(query: pdb::Query) -> SearchQueryInput {
@@ -74,7 +81,7 @@ pub mod pdb {
     use crate::query::more_like_this::MoreLikeThisOptions;
     use crate::query::proximity::{ProximityClause, ProximityDistance};
     use crate::query::range::{deserialize_bound, serialize_bound};
-    use pgrx::PostgresType;
+    use pgrx::{PostgresType, pg_sys};
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
     use std::fmt::{Display, Formatter};
@@ -187,6 +194,9 @@ pub mod pdb {
             fuzzy_data: Option<FuzzyData>,
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
+            /// The synonym index that `pdb.with_synonyms` names.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            synonyms: Option<pg_sys::Oid>,
         },
         /// This is instantiated in places where a text array is used
         /// as the right-hand-side of one of our operators.  For example, in
@@ -237,6 +247,9 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
+            /// The synonym index whose rules expand the tokens of `value`.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            synonyms: Option<pg_sys::Oid>,
         },
         MatchArray {
             tokens: Vec<String>,
@@ -366,6 +379,7 @@ impl pdb::Query {
             string: s.to_string(),
             fuzzy_data: None,
             slop_data: None,
+            synonyms: None,
         }
     }
 
@@ -374,6 +388,7 @@ impl pdb::Query {
             string: s.to_string(),
             fuzzy_data: Some(fuzz),
             slop_data: None,
+            synonyms: None,
         }
     }
 
@@ -382,6 +397,16 @@ impl pdb::Query {
             string: s.to_string(),
             fuzzy_data: None,
             slop_data: Some(slop),
+            synonyms: None,
+        }
+    }
+
+    /// Only a text value can expand, since a rule key matches the tokens of a tokenizer.
+    pub fn apply_synonyms(&mut self, index: pg_sys::Oid) {
+        match self {
+            pdb::Query::UnclassifiedString { synonyms, .. } => *synonyms = Some(index),
+            pdb::Query::ScoreAdjusted { query, .. } => query.apply_synonyms(index),
+            _ => panic!("`pdb.with_synonyms` takes a text value"),
         }
     }
 
@@ -570,6 +595,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                synonyms,
             } => match_query(
                 &field,
                 schema,
@@ -581,6 +607,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                synonyms,
             )?,
             pdb::Query::MatchArray {
                 tokens: value,
@@ -749,7 +776,6 @@ impl pdb::Query {
     ) -> bool {
         match self {
             pdb::Query::Term { .. } => term_is_filter(field),
-            pdb::Query::ScoreAdjusted { .. } => false,
             _ => self.is_constant_score(),
         }
     }
@@ -911,6 +937,7 @@ impl InOutFuncs for pdb::Query {
                     .to_string(),
                 fuzzy_data: None,
                 slop_data: None,
+                synonyms: None,
             }
         }
     }
@@ -946,6 +973,7 @@ fn term_set(
     index_created_by_version: Option<Version>,
     terms: Vec<PdbOwnedValue>,
 ) -> anyhow::Result<TermSetQuery> {
+    crate::query::check_term_set_size(terms.len());
     let search_field = schema
         .search_field(&field)
         .expect("field should exist in schema");
@@ -1830,20 +1858,27 @@ fn stored_range(
     )
 }
 
+/// The `search_tokenizer` of the field, or else of the index.
+fn search_tokenizer_option(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<SearchTokenizer> {
+    search_field
+        .field_config()
+        .search_tokenizer()
+        .cloned()
+        .or_else(|| schema.index_search_tokenizer())
+}
+
 fn resolve_search_tokenizer(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     searcher: &Searcher,
 ) -> anyhow::Result<tantivy::tokenizer::TextAnalyzer> {
-    if let Some(st) = search_field.field_config().search_tokenizer() {
+    if let Some(st) = search_tokenizer_option(search_field, schema) {
         return Ok(st
             .to_tantivy_tokenizer()
-            .expect("field-level search_tokenizer should be a valid tantivy tokenizer"));
-    }
-    if let Some(ref st) = schema.index_search_tokenizer() {
-        return Ok(st
-            .to_tantivy_tokenizer()
-            .expect("index-level search_tokenizer should be a valid tantivy tokenizer"));
+            .expect("search_tokenizer should be a valid tantivy tokenizer"));
     }
     Ok(searcher.index().tokenizer_for_field(search_field.field())?)
 }
@@ -2173,6 +2208,7 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
+    synonyms: Option<pg_sys::Oid>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
@@ -2190,25 +2226,50 @@ fn match_query(
         None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
     let mut stream = analyzer.token_stream(value);
-    let mut terms = Vec::new();
-
+    let mut tokens = Vec::new();
     while stream.advance() {
-        let token = stream.token().text.clone();
-        terms.push(value_to_term(
-            search_field.field(),
-            &PdbOwnedValue::Str(token),
-            field_type,
-            field.path().as_deref(),
-            index_created_by_version,
-        )?);
+        tokens.push(stream.token().text.clone());
     }
+
+    let mut expansions = match synonyms {
+        Some(index) => expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?,
+        None => no_expansion(&tokens),
+    };
 
     // For conjunction mode, duplicate terms produce redundant Must clauses.
     // This can happen with ngram tokenizers on strings with repeated substrings.
     if conjunction_mode {
         let mut seen = crate::api::HashSet::default();
-        terms.retain(|term| seen.insert(term.clone()));
+        expansions.retain(|expansion| {
+            let group = expansion
+                .alternatives
+                .clone()
+                .unwrap_or_else(|| vec![expansion.tokens.clone()]);
+            // Two fuzzy groups with the same alternatives differ in their typed tokens.
+            let typed = (distance > 0).then(|| expansion.tokens.clone());
+            seen.insert((typed, group))
+        });
     }
+
+    let mut terms = crate::api::HashMap::default();
+    for token in expansions.iter().flat_map(|expansion| {
+        expansion
+            .tokens
+            .iter()
+            .chain(expansion.alternatives.iter().flatten().flatten())
+    }) {
+        if !terms.contains_key(token) {
+            let term = value_to_term(
+                search_field.field(),
+                &PdbOwnedValue::Str(token.clone()),
+                field_type,
+                field.path().as_deref(),
+                index_created_by_version,
+            )?;
+            terms.insert(token.clone(), term);
+        }
+    }
+    let term = |token: &str| terms[token].clone();
 
     let occur = if conjunction_mode {
         Occur::Must
@@ -2216,20 +2277,152 @@ fn match_query(
         Occur::Should
     };
 
-    let clauses: BooleanClauses = terms
-        .into_iter()
-        .map(|term| {
-            let query: Box<dyn TantivyQuery> = match (distance, prefix) {
-                (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
-                (d, true) => Box::new(FuzzyTermQuery::new_prefix(term, d, transposition_cost_one)),
-                (d, false) => Box::new(FuzzyTermQuery::new(term, d, transposition_cost_one)),
+    let clauses = expansions
+        .iter()
+        .map(|expansion| {
+            check_phrase_positions(field, &search_field, expansion)?;
+            let query = match (distance, prefix) {
+                (0, _) => expansion_query(expansion, term)?,
+                (d, prefix) => {
+                    let fuzzy = |token: &str| -> Box<dyn TantivyQuery> {
+                        if prefix {
+                            Box::new(FuzzyTermQuery::new_prefix(
+                                term(token),
+                                d,
+                                transposition_cost_one,
+                            ))
+                        } else {
+                            Box::new(FuzzyTermQuery::new(term(token), d, transposition_cost_one))
+                        }
+                    };
+                    fuzzy_expansion_query(expansion, fuzzy, term)?
+                }
             };
-            (occur, query)
+            Ok((occur, query))
         })
-        .collect();
+        .collect::<anyhow::Result<BooleanClauses>>()?;
 
     Ok(clauses.into_query())
 }
+
+fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
+    tokens
+        .iter()
+        .map(|token| Expansion {
+            tokens: vec![token.clone()],
+            alternatives: None,
+        })
+        .collect()
+}
+
+/// The tokenizer of a query on `search_field`, from the index options.
+fn query_tokenizer(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<SearchTokenizer> {
+    search_tokenizer_option(search_field, schema)
+        .or_else(|| search_field.field_config().tokenizer().cloned())
+}
+
+/// A key of a synonym index matches only the tokens of the tokenizer that analyzed it, so a query
+/// with another tokenizer is an error.
+fn expand_match(
+    index: pg_sys::Oid,
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    tokenizer: Option<&Value>,
+    tokens: &[String],
+) -> anyhow::Result<Vec<Expansion>> {
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let index = open_synonym_index(index)?;
+    let query_tokenizer = match tokenizer {
+        Some(tokenizer) => Some(SearchTokenizer::from_json_value(tokenizer)?),
+        None => query_tokenizer(search_field, schema),
+    };
+    let rule_tokenizer = rule_tokenizer(&index);
+    // `PartialEq` compares the declared options, so two spellings of one tokenizer differ.
+    // TODO(https://github.com/paradedb/paradedb/issues/7380): Accept the two spellings.
+    if query_tokenizer != rule_tokenizer {
+        let name_of = |tokenizer: Option<SearchTokenizer>| {
+            tokenizer.map_or_else(|| "none".to_string(), |tokenizer| tokenizer.name())
+        };
+        return Err(anyhow::anyhow!(
+            "field `{}` tokenizes queries with `{}`, but synonym index \"{}\" uses `{}`",
+            search_field.field_name(),
+            name_of(query_tokenizer),
+            index.name(),
+            name_of(rule_tokenizer),
+        ));
+    }
+    expand_with_index(&index, tokens)
+}
+
+/// A multi-token alternative is a phrase, which needs positions.
+fn check_phrase_positions(
+    field: &FieldName,
+    search_field: &SearchField,
+    expansion: &Expansion,
+) -> anyhow::Result<()> {
+    if search_field.supports_positions() {
+        return Ok(());
+    }
+    if let Some(phrase) = expansion
+        .alternatives
+        .iter()
+        .flatten()
+        .find(|alternative| alternative.len() > 1)
+    {
+        return Err(anyhow::anyhow!(
+            "the synonym `{}` of `{}` is a phrase, and field `{field}` is not indexed with positions",
+            phrase.join(" "),
+            expansion.tokens.join(" "),
+        ));
+    }
+    Ok(())
+}
+
+/// Only the typed tokens are fuzzy. An alternative comes from a rule, so the query matches it
+/// exactly.
+fn fuzzy_expansion_query(
+    expansion: &Expansion,
+    fuzzy: impl Fn(&str) -> Box<dyn TantivyQuery>,
+    term: impl Fn(&str) -> Term,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let typed = || -> Box<dyn TantivyQuery> {
+        match expansion.tokens.as_slice() {
+            [token] => fuzzy(token),
+            tokens => Box::new(BooleanQuery::new(
+                tokens
+                    .iter()
+                    .map(|token| (Occur::Must, fuzzy(token)))
+                    .collect(),
+            )),
+        }
+    };
+    let Some(alternatives) = &expansion.alternatives else {
+        return Ok(typed());
+    };
+    let mut disjuncts = alternatives
+        .iter()
+        .map(|alternative| {
+            if *alternative == expansion.tokens {
+                return Ok(typed());
+            }
+            let exact = Expansion {
+                tokens: alternative.clone(),
+                alternatives: None,
+            };
+            expansion_query(&exact, &term)
+        })
+        .collect::<tantivy::Result<Vec<_>>>()?;
+    Ok(match disjuncts.len() {
+        1 => disjuncts.remove(0),
+        _ => Box::new(DisjunctionMaxQuery::new(disjuncts)),
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn match_array_query(
     field: &FieldName,
@@ -2830,6 +3023,7 @@ mod tests {
             transposition_cost_one: None,
             prefix: None,
             conjunction_mode: None,
+            synonyms: None,
         }
     }
 
@@ -2841,6 +3035,30 @@ mod tests {
             field: crate::api::FieldName::from("field"),
             query,
         }
+    }
+
+    #[pg_test]
+    fn to_search_query_input_hoists_score_adjustment() {
+        use super::pdb::ScoreAdjustStyle;
+        use crate::query::SearchQueryInput;
+
+        let nested = Query::ScoreAdjusted {
+            query: Box::new(Query::ScoreAdjusted {
+                query: Box::new(match_query("x")),
+                score: Some(ScoreAdjustStyle::Boost(2.0)),
+            }),
+            score: Some(ScoreAdjustStyle::Const(0.0)),
+        };
+        assert_eq!(
+            super::to_search_query_input(crate::api::FieldName::from("field"), nested),
+            SearchQueryInput::ConstScore {
+                query: Box::new(SearchQueryInput::Boost {
+                    query: Box::new(fielded(match_query("x"))),
+                    factor: 2.0,
+                }),
+                score: 0.0,
+            }
+        );
     }
 
     #[pg_test]

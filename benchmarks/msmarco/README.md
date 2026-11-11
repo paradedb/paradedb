@@ -32,8 +32,9 @@ reached operating point runs with one VU, 10 seconds of discarded warmup, and
 50 seconds of measurement. Unreached targets remain explicit in the results.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, worker count, and peak summed RSS under `benchmarker msmarco-113m`.
-RSS includes shared mappings. Scheduled and manual main runs establish and
+index size, and peak container memory during the build under
+`benchmarker msmarco-113m`. Container memory excludes inactive page cache.
+Scheduled and manual main runs establish and
 refresh the baseline; subsequent PRs compare with it. Diagnostics retain
 extension/tool revisions, configuration, the verified query hash, segment
 statistics, plans, raw pdbench reports, k6 dashboards, and database logs.

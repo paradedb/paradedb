@@ -52,9 +52,15 @@ INSERT INTO rjf_jobs VALUES
 -- The roles are cluster-wide, so a run that stopped before the cleanup leaves them behind.
 DROP ROLE IF EXISTS rjf_user;
 DROP ROLE IF EXISTS rjf_const_user;
+DROP ROLE IF EXISTS rjf_eq_user;
+DROP ROLE IF EXISTS rjf_or_user;
+DROP ROLE IF EXISTS rjf_range_user;
 CREATE ROLE rjf_user NOLOGIN;
 CREATE ROLE rjf_const_user NOLOGIN;
-GRANT SELECT ON rjf_jobs, rjf_clients TO rjf_user, rjf_const_user;
+CREATE ROLE rjf_eq_user NOLOGIN;
+CREATE ROLE rjf_or_user NOLOGIN;
+CREATE ROLE rjf_range_user NOLOGIN;
+GRANT SELECT ON rjf_jobs, rjf_clients TO rjf_user, rjf_const_user, rjf_eq_user, rjf_or_user, rjf_range_user;
 
 ALTER TABLE rjf_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rjf_clients ENABLE ROW LEVEL SECURITY;
@@ -66,6 +72,18 @@ CREATE POLICY rjf_clients_user ON rjf_clients TO rjf_user
 -- Policy with a constant list: the predicate reaches the leaf as a plain term set.
 CREATE POLICY rjf_jobs_const ON rjf_jobs TO rjf_const_user USING (division = ANY ('{1}'::int[]));
 CREATE POLICY rjf_clients_const ON rjf_clients TO rjf_const_user USING (division = ANY ('{1}'::int[]));
+-- Policy with a plain equality: it joins an equivalence class with any user equality on the
+-- same constant.
+CREATE POLICY rjf_jobs_eq ON rjf_jobs TO rjf_eq_user USING (division = 1);
+-- Policy with a SQL OR: each arm reaches the planner as its own RestrictInfo.
+CREATE POLICY rjf_jobs_or ON rjf_jobs TO rjf_or_user USING (division = 1 OR client_id = 3);
+CREATE POLICY rjf_clients_or ON rjf_clients TO rjf_or_user USING (true);
+-- Policy with a `@@@` query: one range for each run of visible division numbers, as an OR in a
+-- query string built at execution.
+CREATE POLICY rjf_jobs_range ON rjf_jobs TO rjf_range_user
+    USING (id @@@ pdb.parse((SELECT string_agg(format('division:[%s TO %s]', lower(r), upper(r) - 1), ' OR ')
+                              FROM unnest(coalesce(nullif(current_setting('rjf.division_ranges', true), ''), '{}')::int4multirange) AS r)));
+CREATE POLICY rjf_clients_range ON rjf_clients TO rjf_range_user USING (true);
 
 -- ============================================================
 -- Baseline: superuser bypasses RLS, so every row competes.
@@ -97,8 +115,8 @@ WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
 
--- The hash join path for the same role returns the same rows in the same order. Its scores
--- include the constant score of the policy term set (+1 per table).
+-- The hash join path for the same role returns the same rows, in the same order, with the
+-- same scores: a policy adds nothing to pdb.score in either plan.
 SET paradedb.enable_rank_join = off;
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
 FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
@@ -184,8 +202,9 @@ ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
 
 -- ============================================================
--- Test 5: an OR of two constant filters scores once per matching branch, so it keeps the
--- hash join and the branch count still counts.
+-- Test 5: an OR of two constant filters scores once per matching branch, so job 1, which
+-- matches both, outranks job 8, which matches one. The rank join would score both 0.0 and
+-- swap them, so it declines and the hash join keeps the branch count.
 -- ============================================================
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
@@ -202,6 +221,33 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
   AND (j.division = ANY ('{1}'::int[]) OR j.client_id = ANY ('{1,3}'::int[]))
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
+
+-- The same OR with each branch at ::pdb.const(0) already scores 0.0 in every plan, so it
+-- keeps RankJoinExec, and the hash join returns the same rows, order and scores.
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
 
 -- ============================================================
 -- Test 6: a filter the index cannot answer keeps the hash join.
@@ -254,7 +300,181 @@ LIMIT 10
 $$);
 
 -- ============================================================
--- Test 10: with MPP enabled but inputs that are not range co-partitioned, a filtered join
+-- Test 10: a policy written as a @@@ query of ranges keeps RankJoinExec, because a policy is
+-- lowered at score 0.0 whatever its shape. Every client is visible to this role, so job 3
+-- joins through its division 2 client.
+-- ============================================================
+SET rjf.division_ranges = '{[1,2)}';
+SET ROLE rjf_range_user;
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+-- Two runs of divisions see every job, like the superuser.
+SET rjf.division_ranges = '{[1,2),[2,3)}';
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+-- The hash join scores the same rows the same.
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
+
+RESET ROLE;
+RESET rjf.division_ranges;
+
+-- ============================================================
+-- Test 11: a policy adds nothing to pdb.score in a single-table search either: a restricted
+-- role scores a job as the superuser does, while a WHERE filter the user writes still adds
+-- its own score.
+-- ============================================================
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' ORDER BY id;
+SET ROLE rjf_const_user;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' ORDER BY id;
+RESET ROLE;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND division = 1 ORDER BY id;
+
+-- ============================================================
+-- Test 12: a @@@ query whose score is constant (pdb.range, pdb.term_set, pdb.exists) is a
+-- filter the user wrote with the search operator. It keeps RankJoinExec like the plain SQL
+-- range it is equivalent to. An OR of two such ranges scores per matching branch and declines,
+-- as in Test 5.
+-- ============================================================
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(2, 3))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(2, 3))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+-- The hash join adds the range's constant score to every row it keeps, so the rows and their
+-- order are the same and only the job score differs by that constant.
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(2, 3))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.range(int4range(1, 2)) OR j.division @@@ pdb.range(int4range(2, 3)))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.range(int4range(1, 2)) OR j.division @@@ pdb.range(int4range(2, 3)))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+-- ============================================================
+-- Test 13: a policy equality and a user equality on the same constant share one equivalence
+-- class, and PostgreSQL regenerates both clauses at the policy's level. The user's
+-- client_id = 1 still scores as it does for the superuser, and only division = 1 is lowered
+-- as the policy. With client_id = 2 no class forms, so that case is the control.
+-- ============================================================
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND client_id = 2 ORDER BY id;
+SET ROLE rjf_eq_user;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND client_id = 2 ORDER BY id;
+SELECT explain_redact_oid($$
+SELECT id FROM rjf_jobs WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id
+$$);
+-- A user equality that repeats the policy's own is one regenerated clause for both; it keeps
+-- the user's score, so the row scores as it does for the superuser (Test 11).
+SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND division = 1 ORDER BY id;
+RESET ROLE;
+
+-- A partition's copy of the regenerated clause has no equivalence-class link of its own, so
+-- the parent's clause decides: the user's client_id = 1 scores as for the superuser here too.
+CREATE TABLE rjf_jobs_part (
+    id INT NOT NULL,
+    division INT NOT NULL,
+    client_id INT NOT NULL,
+    body TEXT NOT NULL
+) PARTITION BY LIST (division);
+CREATE TABLE rjf_jobs_part_1 PARTITION OF rjf_jobs_part FOR VALUES IN (1);
+CREATE TABLE rjf_jobs_part_2 PARTITION OF rjf_jobs_part FOR VALUES IN (2);
+INSERT INTO rjf_jobs_part SELECT id, division, client_id, body FROM rjf_jobs;
+CREATE INDEX rjf_jobs_part_bm25 ON rjf_jobs_part USING bm25 (id, division, client_id, body);
+GRANT SELECT ON rjf_jobs_part TO rjf_eq_user;
+ALTER TABLE rjf_jobs_part ENABLE ROW LEVEL SECURITY;
+CREATE POLICY rjf_jobs_part_eq ON rjf_jobs_part TO rjf_eq_user USING (division = 1);
+
+SELECT id, pdb.score(id) AS score FROM rjf_jobs_part WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id;
+SET ROLE rjf_eq_user;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs_part WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id;
+SELECT explain_redact_oid($$
+SELECT id FROM rjf_jobs_part WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id
+$$);
+RESET ROLE;
+DROP TABLE rjf_jobs_part;
+
+-- ============================================================
+-- Test 14: a policy written as a SQL OR keeps RankJoinExec: each arm is lowered at 0.0 once,
+-- so the OR already scores 0.0 in every plan, and the hash join agrees on rows and scores.
+-- ============================================================
+SET ROLE rjf_or_user;
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
+RESET ROLE;
+
+-- ============================================================
+-- Test 15: with MPP enabled but inputs that are not range co-partitioned, a filtered join
 -- still plans and runs the single-task RankJoinExec (mode=CollectLeft).
 -- ============================================================
 SET paradedb.mpp_min_rows = 0;
@@ -288,7 +508,7 @@ RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
 
 -- ============================================================
--- Test 11: range co-partitioned inputs keep RankJoinExec (mode=Partitioned) under
+-- Test 16: range co-partitioned inputs keep RankJoinExec (mode=Partitioned) under
 -- DistributedExec, with the policy applied on every task's leaf. Extra rows let the join
 -- key split into two partitions; the indexes are rebuilt with partition keys.
 -- ============================================================
@@ -354,3 +574,6 @@ DROP TABLE rjf_jobs CASCADE;
 DROP TABLE rjf_clients CASCADE;
 DROP ROLE rjf_user;
 DROP ROLE rjf_const_user;
+DROP ROLE rjf_eq_user;
+DROP ROLE rjf_or_user;
+DROP ROLE rjf_range_user;

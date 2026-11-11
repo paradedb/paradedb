@@ -17,7 +17,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "e1bd111cb1c2aa64303493c60f067b22a43f039d"
+        default: "d8c42a466e72ff4e39910d3f95a98c50577d0002"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -55,7 +55,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       COHERE_SIZE: ${{ matrix.size }}
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'ac64c0a34a1558ca72e07a342b51b52076befa50' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'd8c42a466e72ff4e39910d3f95a98c50577d0002' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
 
@@ -101,13 +101,7 @@ jobs:
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Set up Docker benchmark cluster
-        uses: ./.github/actions/setup-docker-benchmark-cluster
-        with:
-          ref: ${{ env.BENCHMARK_REF }}
-          dataset: cohere
-          size: ${{ matrix.size }}
-
+      # pdbench comes first: it holds the compose file the cluster starts with.
       - name: Create pdbench checkout token
         id: pdbench_token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -127,6 +121,14 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      - name: Set up Docker benchmark cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          dataset: cohere
+          size: ${{ matrix.size }}
+          compose_file: pdbench/datasets/cohere/docker-compose.yml
+
       - name: Install pdbench toolchain
         run: rustup toolchain install 1.97.1 --profile minimal
 
@@ -138,7 +140,10 @@ jobs:
       - name: Build pdbench
         working-directory: pdbench
         run: |
-          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          # rust-cache saves target/duckdb-sources with its files stripped, and libduckdb-sys
+          # cannot unpack over the leftover directories when its build script reruns.
+          rm -rf target/duckdb-sources
+          cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load -p pdbench-report --target-dir target -j 16
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       - name: Set up Benchmarker
@@ -158,15 +163,28 @@ jobs:
                                'parallel_leader_participation', 'paradedb.global_target_segment_count')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
-          cp benchmarks/datasets/cohere/indexes/pg_search.sql benchmarks/cohere/assets/cohere/index.sql
-          pdbench build --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
-            --assets-dir benchmarks/cohere/assets --runs-dir benchmark-artifacts/search \
-            --force-rebuild \
-            | tee benchmark-artifacts/index-build.log
-          jq '.data | [
-            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
-            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)}
-          ]' benchmark-artifacts/search/"${COHERE_SIZE}"/*_build.json > benchmark-artifacts/index-metrics.json
+          # The index definition, its options and the Postgres settings it is built under come
+          # from pdbench's load config and dataset files.
+          (
+            cd pdbench
+            pdbench-load finalize "configs/load/cohere-${COHERE_SIZE}-paradedb.yaml" \
+              --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load"
+          ) 2>&1 | tee benchmark-artifacts/index-build.log
+          runs=(benchmark-artifacts/load/*/*_load)
+          test "${#runs[@]}" -eq 1
+          # Writes report.html into the run directory, which is uploaded with the diagnostics.
+          pdbench-report html "${runs[0]}"
+          index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
+          # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
+          created="$(jq -r '.created_at' "${runs[0]}/run.json")"
+          finished="$(jq -r '.finished_at' "${runs[0]}/run.json")"
+          build_seconds=$(( $(date -d "$finished" +%s) - $(date -d "$created" +%s) ))
+          size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+            -c "SELECT pg_total_relation_size('${index}'::regclass)")"
+          jq -n --arg index "$index" --argjson build_seconds "$build_seconds" --argjson size_bytes "$size_bytes" '[
+            {name: ($index + " build time"), unit: "min", value: ($build_seconds / 60)},
+            {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)}
+          ]' > benchmark-artifacts/index-metrics.json
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
@@ -319,7 +337,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 16-19 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \
@@ -333,6 +351,98 @@ jobs:
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
 
+      # Router quality runs after k6 so its flat sweeps do not change the cache k6 measures on.
+      - name: Write router-quality arm profiles
+        run: |
+          python3 benchmarks/cohere/router_quality.py configs \
+            --profile "benchmarks/cohere/${COHERE_SIZE}.toml" --output benchmark-artifacts/router
+
+      # Per query: the stored arm, seeded from the existing sweep on the unfiltered query, then flat
+      # and stored-adaptive seeded from it. The existing sweep's unfiltered report stands in for
+      # stored-adaptive when that query routes every segment. A run whose console projection fails
+      # with "representative layer0 has no scan stage" is kept when it saved its report; any other
+      # failure fails the step.
+      - name: Sweep max_probe per router-quality arm with pdbench
+        run: |
+          python3 benchmarks/cohere/router_quality.py sweep --runs benchmark-artifacts/router \
+            --existing "benchmark-artifacts/search/${COHERE_SIZE}" --assets-dir benchmarks/cohere/assets
+
+      - name: Measure router quality at the selected budgets
+        run: |
+          python3 benchmarks/cohere/router_quality.py measure --runs benchmark-artifacts/router \
+            --vectors benchmark-artifacts/query_vectors.json \
+            --output benchmark-artifacts/router/measurements.json
+
+      - name: Find mainline router-quality baseline
+        id: router_baseline
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const name = `cohere-${process.env.COHERE_SIZE}-router-quality`;
+            const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
+              ...context.repo,
+              workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
+              branch: 'main', event: 'push', status: 'success', per_page: 100,
+            });
+            for await (const { data: runs } of pages) {
+              for (const run of runs) {
+                // Keep the baseline stable if a newer main run finishes first.
+                if (run.run_number >= context.runNumber) continue;
+                const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                  ...context.repo, run_id: run.id, per_page: 100,
+                });
+                const artifact = artifacts.find(a => a.name === name && !a.expired);
+                if (!artifact) continue;
+                core.setOutput('run_id', run.id);
+                core.setOutput('commit', run.head_sha);
+                core.setOutput('url', run.html_url);
+                core.info(`Baseline: ${run.html_url} (${run.head_sha})`);
+                return;
+              }
+            }
+            core.info(`No successful main push has an unexpired ${name} artifact.`);
+
+      - name: Download mainline router-quality baseline
+        if: steps.router_baseline.outputs.run_id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cohere-${{ matrix.size }}-router-quality
+          path: router-baseline
+          run-id: ${{ steps.router_baseline.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      # The publisher copies sweep_reports_dir/*.html to gh-pages under
+      # benchmarker-runs/<commit>/<dataset>/sweep/, so the full report is published there.
+      - name: Render router-quality section
+        env:
+          CURRENT_COMMIT: ${{ steps.commit_info.outputs.commit_sha }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          baseline=()
+          if [ -f router-baseline/router_quality.json ]; then
+            baseline=(--baseline router-baseline)
+          fi
+          report_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPOSITORY_NAME}/benchmarker-runs/${CURRENT_COMMIT}/cohere-${COHERE_SIZE}/sweep/router_quality.html"
+          python3 benchmarks/cohere/router_quality.py render \
+            --measurements benchmark-artifacts/router/measurements.json \
+            --output benchmark-artifacts/router \
+            --commit "$CURRENT_COMMIT" --pdbench "$PDBENCH_REF" --report-url "$report_url" "${baseline[@]}"
+          mkdir -p benchmark-artifacts/comparison
+          cp benchmark-artifacts/router/router_quality.html benchmark-artifacts/comparison/
+          cat benchmark-artifacts/router/router_quality.md >> "$GITHUB_STEP_SUMMARY"
+          cat benchmark-artifacts/operating_points.md benchmark-artifacts/router/router_quality.md \
+            > benchmark-artifacts/context.md
+
+      - name: Upload router-quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cohere-${{ matrix.size }}-router-quality
+          path: benchmark-artifacts/router/
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results
         with:
@@ -341,10 +451,12 @@ jobs:
             {"dataset":"cohere-${{ matrix.size }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
-             "context_file":"benchmark-artifacts/operating_points.md",
+             "context_file":"benchmark-artifacts/context.md",
              "sweep_reports_dir":"benchmark-artifacts/comparison",
              "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
-             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json",
+             "router_metrics_file":"benchmark-artifacts/router/router-metrics.json",
+             "router_detail_metrics_file":"benchmark-artifacts/router/router-detail-metrics.json"}
 
       - name: Database logs
         if: failure() || cancelled()

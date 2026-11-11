@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Adding a vector to an L2 (`vector_l2_ops`) or inner-product (`vector_ip_ops`) field of a ParadeDB index now fails when the vector's magnitude (its length from the origin) is above about 6.5e18, and searching such a field with a query vector above that magnitude fails too. Vectors that large overflowed the index's single-precision arithmetic. Cosine fields accept any finite vector. Vectors already in an index are not re-checked, but `REINDEX` of an index holding one fails.

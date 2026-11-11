@@ -42,7 +42,7 @@ jobs:
       matrix:
         engine: >-
           ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-hn-pg_vectorsearch') && '["pg_vectorsearch"]' || '["pg_search"]') }}
-    timeout-minutes: 720
+    timeout-minutes: ${{ matrix.engine == 'pg_vectorsearch' && 1440 || 720 }}
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted

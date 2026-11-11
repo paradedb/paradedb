@@ -2342,6 +2342,7 @@ fn expand_match(
     };
     let rule_tokenizer = rule_tokenizer(&index);
     // `PartialEq` compares the declared options, so two spellings of one tokenizer differ.
+    // TODO(https://github.com/paradedb/paradedb/issues/7380): Accept the two spellings.
     if query_tokenizer != rule_tokenizer {
         let name_of = |tokenizer: Option<SearchTokenizer>| {
             tokenizer.map_or_else(|| "none".to_string(), |tokenizer| tokenizer.name())

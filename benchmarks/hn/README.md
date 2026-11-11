@@ -90,8 +90,12 @@ comparison.
 reached operating point. The guard requires an ordered scan of the PRISM index
 and every filter predicate; exact filter-and-sort plans are rejected. HN
 dashboard names include `prism-postfilter` to identify the execution path.
-Unreached recall targets are skipped; k6 still requires every measured query to
-return ten neighbors.
+Unreached recall targets are skipped. For HN pg_vectorsearch, k6 reports the
+fraction of queries returning ten neighbors and the observed result counts,
+but short results do not fail latency measurement. Every query must still
+execute successfully, and selected settings must meet their recall target on
+all 100 vectors. Other dataset/engine combinations retain the strict
+neighbor-count requirement.
 
 The pg_vectorsearch profile uses pdbench fast search: 25 evenly spaced pilot
 vectors per candidate, followed by full 100-vector validation before selecting

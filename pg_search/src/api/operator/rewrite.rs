@@ -89,14 +89,18 @@ impl SearchOperator {
             } if self != Self::Parse => (self.array_query(array), fuzzy_data, slop_data, None),
             query => (query, None, None, None),
         };
-        if let Some(index) = synonyms {
+        if let Some(rules) = synonyms {
             let pdb::Query::Match { synonyms, .. } = &mut query else {
+                let function = match rules {
+                    pdb::SynonymRules::Index(_) => "pdb.with_synonyms",
+                    pdb::SynonymRules::Rules(_) => "pdb.expand",
+                };
                 panic!(
-                    "`pdb.with_synonyms` expands the `|||` and `&&&` operators, not `{}`",
+                    "`{function}` expands the `|||` and `&&&` operators, not `{}`",
                     self.name()
                 );
             };
-            *synonyms = Some(index);
+            *synonyms = Some(rules);
         }
         if self != Self::Phrase {
             query.apply_fuzzy_data(fuzzy_data);

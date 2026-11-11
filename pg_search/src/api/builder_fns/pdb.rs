@@ -106,7 +106,7 @@ mod pdb {
     /// The same for a text value that already has a cast, such as `'sofa'::pdb.fuzzy(1)`.
     #[pg_extern(immutable, parallel_safe, name = "with_synonyms")]
     pub fn with_synonyms_query(mut query: pdb::Query, index: IndexOid) -> pdb::Query {
-        query.apply_synonyms(index.oid());
+        query.apply_synonyms(pdb::SynonymRules::Index(index.oid()));
         query
     }
 

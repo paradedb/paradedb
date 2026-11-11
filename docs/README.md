@@ -19,25 +19,9 @@ mint dev
 
 ## 😎 Publishing Changes
 
-Mintlify publishes docs changes on `main`. After its production deployment check
-succeeds, `Refresh Website Docs` requests a website rebuild to refresh `/mcp`.
-Preview deployments and failed or skipped checks do not trigger a rebuild.
-
-`Publish ParadeDB (Docs)` also runs on version tags (excluding release candidates)
-and manual dispatches. It asks Mintlify to rebuild its configured production
-branch, waits up to 15 minutes for success, then requests the website rebuild.
-`Refresh Website Docs` can be run manually to retry only the website refresh.
-
-### Website deploy hook
-
-Merge [website#516](https://github.com/paradedb/website/pull/516) before enabling
-these workflows. In the Vercel `website` project's **Settings → Git → Deploy
-Hooks**, create a hook for `main`. Store its URL as the `WEBSITE_DEPLOY_HOOK_URL`
-Actions secret in `paradedb/paradedb`.
-
-The website build downloads the published Markdown and rebuilds its MCP index.
-No generated docs are committed. A successful hook request means the website
-build was queued; check Vercel for its deployment result.
+- To refresh the website MCP after docs deploy, create a deploy hook for `main`
+  in the Vercel `website` project's **Settings → Git → Deploy Hooks**, then save
+  its URL as the `WEBSITE_DEPLOY_HOOK_URL` Actions secret in `paradedb/paradedb`.
 
 ## Troubleshooting
 

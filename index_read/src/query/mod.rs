@@ -72,6 +72,27 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Raises an ERROR if a term set in the query has more terms than `paradedb.max_term_set_size`,
+/// or a WARNING (once per statement) if it has more than half that many.
+pub(crate) fn check_term_set_size(num_terms: usize) {
+    use crate::postgres::planner_warnings::{LARGE_TERM_SET_HINT, warn_large_term_set};
+
+    let max = crate::gucs::max_term_set_size();
+    if num_terms > max {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+            format!(
+                "term set contains {num_terms} terms, which exceeds paradedb.max_term_set_size ({max})"
+            ),
+            function_name!(),
+        )
+        .set_hint(LARGE_TERM_SET_HINT)
+        .report(PgLogLevel::ERROR);
+    } else if num_terms > max / 2 {
+        warn_large_term_set(num_terms, max);
+    }
+}
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -1813,6 +1834,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {
+                check_term_set_size(fields.len());
                 let terms = fields
                     .into_iter()
                     .map(|TermInput { field, value }| {

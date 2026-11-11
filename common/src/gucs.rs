@@ -129,6 +129,9 @@ static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
 /// The maximum chunk size for a Top K query.
 static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
+/// The maximum number of terms a single term set in a query may contain.
+static MAX_TERM_SET_SIZE: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024);
+
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
@@ -696,6 +699,17 @@ pub fn init() {
         &MAX_TERM_AGG_BUCKETS,
         1,
         DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_term_set_size",
+        c"Maximum number of terms in a single term set in a query",
+        c"A query whose term set (e.g. `pdb.term_set`, `IN (...)`, or `= ANY(array)` against an indexed field) contains more terms than this is rejected with an error, and one with more than half this many emits a warning. Very large term sets are usually better expressed as a join.",
+        &MAX_TERM_SET_SIZE,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1354,6 +1368,10 @@ pub fn max_term_agg_buckets() -> i32 {
         pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
     }
     v
+}
+
+pub fn max_term_set_size() -> usize {
+    MAX_TERM_SET_SIZE.get().max(1) as usize
 }
 
 pub fn max_window_aggregate_response_bytes() -> usize {

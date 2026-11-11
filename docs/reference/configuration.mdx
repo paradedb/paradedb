@@ -45,6 +45,7 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.explain_recursive_estimates`              | `off`         | user    | Shows recursive document-count estimates in `EXPLAIN VERBOSE`; intended for debugging.                                                                                                 |
 | `paradedb.planner_warnings`                         | `warning`     | user    | Controls warnings when an optimized scan cannot be used, and `EXPLAIN` warnings explaining why a faster plan variant within a scan was not used. Accepts `off`, `warning`, or `error`. |
 | `paradedb.spill_to_disk`                            | `off`         | user    | Allows eligible join and aggregate queries to spill to disk when they exceed `work_mem`.                                                                                               |
+| `paradedb.max_term_set_size`                        | `262144`      | user    | Maximum number of terms in a single term set (e.g. `pdb.term_set`, `===` with an array) before ParadeDB errors. Warns once per statement above half this value.                        |
 
 ## Synonyms
 

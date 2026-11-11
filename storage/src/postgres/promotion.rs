@@ -15,143 +15,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Refuses ParadeDB indexes that reached this server through physical replication once the
-//! server has been promoted. A standby's pages must stay byte copies of the primary's, so the
-//! startup process records standby mode in a file under the data directory; the sweep in
-//! `index_write` marks every ParadeDB index once the server is read-write and removes the file.
+//! Refuses ParadeDB indexes that reached this server through physical replication. The primary
+//! names an index in the rmgr record it emits when the index is built and at the end of every
+//! VACUUM; a standby replaying the record sets a taint in the index's metapage. VACUUM is the
+//! only routine writer of that page, and its record follows the write, so the taint outlives the
+//! full-page images that replication delivers; the one-time metapage upgrade of an index built by
+//! an old release clears it until the next VACUUM. `REINDEX` starts from a fresh metapage.
 
 use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
-use std::cell::Cell;
-use std::ffi::{CStr, OsStr};
-use std::fs;
-use std::io::{ErrorKind, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
-
-const MARKER_FILE: &str = "pg_search_standby";
-
-pub fn marker_path() -> PathBuf {
-    let data_dir = unsafe { CStr::from_ptr(pg_sys::DataDir) };
-    Path::new(OsStr::from_bytes(data_dir.to_bytes())).join(MARKER_FILE)
-}
-
-/// A marker that cannot be inspected counts as present, so a damaged file never unblocks a
-/// replicated index.
-pub fn marker_present() -> bool {
-    match fs::metadata(marker_path()) {
-        Ok(_) => true,
-        Err(e) => e.kind() != ErrorKind::NotFound,
-    }
-}
-
-fn write_marker() -> std::io::Result<()> {
-    let path = marker_path();
-    let tmp = path.with_extension("tmp");
-    let mut file = fs::File::create(&tmp)?;
-    file.write_all(b"standby\n")?;
-    file.sync_all()?;
-    fs::rename(&tmp, &path)?;
-    fs::File::open(path.parent().expect("marker lives in the data directory"))?.sync_all()
-}
-
-pub fn remove_marker() -> std::io::Result<bool> {
-    match fs::remove_file(marker_path()) {
-        Ok(()) => Ok(true),
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-/// The rmgr startup callback, in the startup process before redo. Point-in-time and crash
-/// recovery of this server's own data leave `StandbyMode` false and are not restores, so they
-/// neither write nor remove the marker.
-pub(crate) fn recovery_starting() {
-    if unsafe { pg_sys::StandbyMode } {
-        record_standby();
-    } else if restoring_base_backup() {
-        forget_standby();
-    }
-}
-
-/// The rmgr cleanup callback, after the redo loop. On a promoting standby `StandbyMode` is still
-/// set here, so the marker is fresh at promotion even if it was removed while the standby ran.
-pub(crate) fn recovery_ending() {
-    if unsafe { pg_sys::StandbyMode } {
-        record_standby();
-    }
-}
-
-fn record_standby() {
-    if let Err(e) = write_marker() {
-        pgrx::warning!(
-            "pg_search could not record that this server is a standby in {}: {e}",
-            marker_path().display()
-        );
-    }
-}
-
-/// A base backup taken from a standby carries the marker, and restoring it is not a promotion:
-/// the same bytes taken from the primary carry no marker.
-fn forget_standby() {
-    match remove_marker() {
-        Ok(true) => pgrx::log!(
-            "pg_search removed the standby marker carried by the base backup; this restore is not a promotion"
-        ),
-        Ok(false) => {}
-        Err(e) => pgrx::warning!(
-            "pg_search could not remove {}: {e}",
-            marker_path().display()
-        ),
-    }
-}
-
-/// True while recovery starts from a base backup: `InitWalRecovery` copies the backup start
-/// point from `backup_label` into `pg_control` before the rmgr startup callbacks run, and it is
-/// cleared once the backup end is reached.
-fn restoring_base_backup() -> bool {
-    let mut crc_ok = false;
-    let control = unsafe { pg_sys::get_controlfile(pg_sys::DataDir, &mut crc_ok) };
-    if control.is_null() {
-        return false;
-    }
-    let restoring = crc_ok && unsafe { (*control).backupStartPoint } != 0;
-    unsafe { pg_sys::pfree(control.cast()) };
-    restoring
-}
-
-thread_local! {
-    // Timeline on which this backend last found no marker. An in-place promotion starts a new
-    // timeline, so a backend that lived through one looks again.
-    static CLEAR_ON_TIMELINE: Cell<Option<pg_sys::TimeLineID>> = const { Cell::new(None) };
-}
-
-fn sweep_pending() -> bool {
-    let timeline = unsafe { pg_sys::GetWALInsertionTimeLine() };
-    if CLEAR_ON_TIMELINE.get() == Some(timeline) {
-        return false;
-    }
-    let pending = marker_present();
-    if !pending {
-        CLEAR_ON_TIMELINE.set(Some(timeline));
-    }
-    pending
-}
-
-/// True when `index` must not serve queries: it arrived through physical replication and this
-/// server has since been promoted, or the promotion sweep has not finished yet. Always false
-/// while the server is in recovery, where the standby read gate applies instead.
+/// True when `index` must not serve queries: its metapage carries the standby taint. Always
+/// false while the server is in recovery, where the standby read gate applies instead.
 pub fn index_blocked_after_promotion(index: &PgSearchRelation) -> bool {
     if unsafe { pg_sys::RecoveryInProgress() } {
         return false;
     }
-    if sweep_pending() {
-        return true;
-    }
-    // A partitioned index has no metapage; the sweep marks its leaves.
+    // A partitioned index has no storage of its own; the records name its leaves.
     if is_partitioned_index(index.oid()) {
         return leaf_partition_indexes(index).any(|leaf| MetaPage::open(&leaf).standby_tainted());
     }

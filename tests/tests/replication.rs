@@ -700,6 +700,15 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
 
+    // An index built before the standby is cloned: the clone carries its files and replays no
+    // build record for it. A VACUUM on the primary names it to the standby.
+    "
+    CREATE TABLE early (id INT, body TEXT);
+    INSERT INTO early VALUES (1, 'early shoes');
+    CREATE INDEX early_idx ON early USING paradedb (id, body);
+    "
+    .execute(&mut source_conn);
+
     // Set up the standby using pg_basebackup
     let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
     let target_tempdir_path = target_tempdir.keep();
@@ -747,7 +756,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     assert_eq!(standby_rows.len(), 4);
 
     // Build a ParadeDB index on the primary. ambuild logs the index pages and then emits the
-    // rmgr 137 INIT_INDEX marker; replaying that marker must not stop recovery (#6007).
+    // rmgr 137 INIT_INDEX record; replaying that record must not stop recovery (#6007).
     "
     CREATE INDEX items_search_idx ON items
     USING paradedb (id, description, category);
@@ -764,7 +773,9 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     "
     .execute(&mut source_conn);
 
-    // Replay continues past the marker: heap WAL written after the index still arrives.
+    "VACUUM early".execute(&mut source_conn);
+
+    // Replay continues past the records: heap WAL written after them still arrives.
     "INSERT INTO items (description, category, created_at) VALUES
         ('Green hiking shoes', 'Footwear', NOW())"
         .execute(&mut source_conn);
@@ -799,25 +810,12 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     );
     assert_eq!(standby_rows[5].0, "Bluetooth speaker");
 
-    // The standby logged the marker instead of dying on it.
+    // The standby logged the records instead of dying on them.
     let log = std::fs::read_to_string(&standby_postgres.log_path)?;
     assert!(
         log.contains("ParadeDB Community does not serve ParadeDB indexes on a standby"),
         "standby log {:?} lacks the INIT_INDEX notice",
         standby_postgres.log_path
-    );
-
-    // The startup process recorded standby mode in the data directory; the primary has no such
-    // record.
-    let standby_marker = Path::new(&standby_postgres.tempdir_path).join("pg_search_standby");
-    assert!(
-        standby_marker.exists(),
-        "startup process did not record standby mode"
-    );
-    assert!(
-        !Path::new(&source_postgres.tempdir_path)
-            .join("pg_search_standby")
-            .exists()
     );
 
     // Promote. The backend behind `standby_conn` lives through it.
@@ -831,23 +829,14 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         |result| result.first().is_some_and(|(in_recovery,)| !in_recovery),
     );
 
-    // The promotion sweep marks every ParadeDB index and then removes the marker.
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while standby_marker.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "promotion sweep did not finish; see {:?}",
-            standby_postgres.log_path
-        );
-        thread::sleep(Duration::from_millis(200));
-    }
-
-    // The replicated indexes refuse queries on the promoted server, with a REINDEX hint.
+    // The tainted indexes refuse queries on the promoted server, with a REINDEX hint. The
+    // vacuumed index predates the clone; VACUUM's record is what tainted it.
     for query in [
         "SELECT description FROM items WHERE description ||| 'shoes'",
         "SELECT id FROM items WHERE description @@@ 'shoes'",
         "SELECT body FROM events WHERE body ||| 'shoes'",
         "SELECT body FROM events_1 WHERE body ||| 'shoes'",
+        "SELECT body FROM early WHERE body ||| 'shoes'",
     ] {
         assert_feature_not_supported(&mut standby_conn, query, "has since been promoted");
     }
@@ -872,6 +861,10 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let rows: Vec<(String,)> =
         "SELECT body FROM events WHERE body ||| 'shoes' ORDER BY id".fetch(&mut standby_conn);
     assert_eq!(rows.len(), 2);
+    "REINDEX INDEX early_idx".execute(&mut standby_conn);
+    let rows: Vec<(String,)> =
+        "SELECT body FROM early WHERE body ||| 'shoes'".fetch(&mut standby_conn);
+    assert_eq!(rows.len(), 1);
 
     // An index built after promotion is usable at once.
     "CREATE TABLE after_promotion (id SERIAL PRIMARY KEY, body TEXT)".execute(&mut standby_conn);
@@ -887,13 +880,6 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     let rows: Vec<(String,)> =
         "SELECT description FROM items WHERE description ||| 'shoes'".fetch(&mut source_conn);
     assert_eq!(rows.len(), 3);
-
-    let log = std::fs::read_to_string(&standby_postgres.log_path)?;
-    assert!(
-        log.contains("marked the indexes replicated from the former primary"),
-        "promoted server log {:?} lacks the sweep notice",
-        standby_postgres.log_path
-    );
 
     Ok(())
 }

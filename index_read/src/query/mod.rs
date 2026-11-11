@@ -2307,15 +2307,6 @@ mod tests {
             query: Box::new(term.clone()),
             score: 7.0,
         };
-        let cast_const_over_text = SearchQueryInput::FieldedQuery {
-            field: "test".into(),
-            query: pdb::Query::ScoreAdjusted {
-                query: Box::new(pdb::Query::Term {
-                    value: PdbOwnedValue::Str("value".to_string()),
-                }),
-                score: Some(pdb::ScoreAdjustStyle::Const(7.0)),
-            },
-        };
 
         let explicit_or_of_filters = SearchQueryInput::WithIndex {
             oid: pgrx::pg_sys::Oid::INVALID,
@@ -2418,8 +2409,6 @@ mod tests {
         assert!(zero_const_over_or.is_pushdown_filter(&no_filter));
         assert!(!zero_const_over_score_filter.is_pushdown_filter(&filter));
         assert!(!const_over_text.is_pushdown_filter(&no_filter));
-        assert!(!cast_const_over_text.is_pushdown_filter(&filter));
-        assert!(!cast_const_over_text.is_pushdown_filter(&no_filter));
     }
 
     fn create_term_query() -> SearchQueryInput {

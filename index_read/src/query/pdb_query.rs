@@ -754,7 +754,6 @@ impl pdb::Query {
     ) -> bool {
         match self {
             pdb::Query::Term { .. } => term_is_filter(field),
-            pdb::Query::ScoreAdjusted { .. } => false,
             _ => self.is_constant_score(),
         }
     }

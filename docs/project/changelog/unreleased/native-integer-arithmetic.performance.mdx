@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Join Scan evaluates `smallint`, `integer` and `bigint` `+`, `-` and `*` natively instead of through a PostgreSQL expression per row, while still raising PostgreSQL's `smallint out of range`, `integer out of range` and `bigint out of range` errors (#7134).

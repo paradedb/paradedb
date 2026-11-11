@@ -25,21 +25,92 @@
 //! MinMaxExpr, ScalarArrayOpExpr, and CoerceViaIO — plus a UDF fallback hook
 //! (`try_wrap_as_udf`) for opaque expressions.
 
+use datafusion::arrow::datatypes::DataType;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
-use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, col, lit};
+use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, cast, col, lit};
 use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::datafusion::int_arith::{IntOp, int_arith_udf};
 use crate::postgres::customscan::datafusion::translator::{
     PredicateTranslator, node_tag_debug, type_name,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::{InputDecode, PgExprUdf};
 use crate::postgres::node::NodeExt;
+
+/// Arrow type of a PostgreSQL integer type, `None` for any other type.
+fn int_arrow_type(type_oid: pg_sys::Oid) -> Option<DataType> {
+    match type_oid {
+        pg_sys::INT2OID => Some(DataType::Int16),
+        pg_sys::INT4OID => Some(DataType::Int32),
+        pg_sys::INT8OID => Some(DataType::Int64),
+        _ => None,
+    }
+}
+
+/// The checked integer operation PostgreSQL's integer `+`, `-` or `*` function
+/// `funcid` performs, at any operand widths. Keyed by function rather than
+/// operator symbol, so a user operator named `-` over `int4pl` still adds.
+fn int_arith_op(funcid: pg_sys::Oid) -> Option<IntOp> {
+    match funcid.to_u32() {
+        pg_sys::F_INT2PL
+        | pg_sys::F_INT4PL
+        | pg_sys::F_INT8PL
+        | pg_sys::F_INT24PL
+        | pg_sys::F_INT42PL
+        | pg_sys::F_INT28PL
+        | pg_sys::F_INT82PL
+        | pg_sys::F_INT48PL
+        | pg_sys::F_INT84PL => Some(IntOp::Add),
+        pg_sys::F_INT2MI
+        | pg_sys::F_INT4MI
+        | pg_sys::F_INT8MI
+        | pg_sys::F_INT24MI
+        | pg_sys::F_INT42MI
+        | pg_sys::F_INT28MI
+        | pg_sys::F_INT82MI
+        | pg_sys::F_INT48MI
+        | pg_sys::F_INT84MI => Some(IntOp::Sub),
+        pg_sys::F_INT2MUL
+        | pg_sys::F_INT4MUL
+        | pg_sys::F_INT8MUL
+        | pg_sys::F_INT24MUL
+        | pg_sys::F_INT42MUL
+        | pg_sys::F_INT28MUL
+        | pg_sys::F_INT82MUL
+        | pg_sys::F_INT48MUL
+        | pg_sys::F_INT84MUL => Some(IntOp::Mul),
+        _ => None,
+    }
+}
+
+/// Whether `node` is built only from columns, constants and integer `+`, `-`
+/// and `*`. Only those translate natively with exactly PostgreSQL's results and
+/// errors, so only those may feed the native checked integer UDFs. Other native
+/// translations differ from PostgreSQL in edge cases (integer `/` by zero,
+/// `abs(INT_MIN)`, `ln(0)`, float `-0.0 = 0.0`, `oid::int4` above 2^31), which
+/// the UDF fallback used to hide by evaluating the whole expression.
+unsafe fn is_plain_int_arith(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var | pg_sys::NodeTag::T_Const => true,
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            int_arith_op(pg_sys::get_opcode((*op).opno)).is_some()
+                && PgList::<pg_sys::Node>::from_pg((*op).args)
+                    .iter_ptr()
+                    .all(|arg| is_plain_int_arith(arg))
+        }
+        _ => false,
+    }
+}
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
@@ -599,16 +670,32 @@ impl<'a> PredicateTranslator<'a> {
             }
         };
 
-        // Arrow wraps integer overflow where PostgreSQL raises an error, so let the
-        // UDF fallback evaluate integer arithmetic.
+        // Arrow's `BinaryExpr` wraps on integer overflow, so integer +, - and * use
+        // the checked UDFs at the `opresulttype` width, where PostgreSQL's cross-width
+        // operators (int24pl, int48mul, ...) check.
+        if let Some(int_op) = int_arith_op(pg_sys::get_opcode(opno))
+            && let Some(result_type) = int_arrow_type((*op_expr).opresulttype)
+        {
+            if !is_plain_int_arith(left_arg) || !is_plain_int_arith(right_arg) {
+                pgrx::debug1!(
+                    "PredicateTranslator: integer arithmetic over other expressions left to PostgreSQL [OpExpr] op=\"{}\" | {}",
+                    op_str,
+                    self.deparse_for_debug(node)
+                );
+                return None;
+            }
+            return Some(int_arith_udf(int_op).call(vec![
+                cast(left, result_type.clone()),
+                cast(right, result_type),
+            ]));
+        }
+        // Other +, - and * with an integer result, such as `date - date`, have no
+        // native equivalent; keep them on the UDF fallback.
         if matches!(op, Operator::Plus | Operator::Minus | Operator::Multiply)
-            && matches!(
-                (*op_expr).opresulttype,
-                pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID
-            )
+            && int_arrow_type((*op_expr).opresulttype).is_some()
         {
             pgrx::debug1!(
-                "PredicateTranslator: integer arithmetic left to PostgreSQL [OpExpr] op=\"{}\", types=({}, {}) | {}",
+                "PredicateTranslator: non-integer operands with integer result left to PostgreSQL [OpExpr] op=\"{}\", types=({}, {}) | {}",
                 op_str,
                 type_name(left_type),
                 type_name(right_type),
@@ -1016,7 +1103,7 @@ mod tests {
             Just("length(e.pattern) > 3".to_string()),
             Just("upper(e.pattern) = upper(i.name)".to_string()),
             Just("COALESCE(e.pattern, '') = i.name".to_string()),
-            // Arithmetic operators. Integer +, - and * go through the UDF fallback.
+            // Arithmetic operators. Integer +, - and * use the checked int_arith UDFs.
             Just("e.threshold + 10 > i.value".to_string()),
             Just("e.threshold * 2 > 50".to_string()),
             Just("i.value - e.threshold > 0".to_string()),
@@ -1074,7 +1161,7 @@ mod tests {
             Just("e.pattern = i.name OR length(e.pattern) > 100".to_string()),
             Just("e.pattern = i.name OR e.pattern IS NULL".to_string()),
             Just("upper(e.pattern) = i.name OR e.threshold > i.value".to_string()),
-            // Arithmetic cross-table predicates, absorbed via the UDF fallback.
+            // Arithmetic cross-table predicates, native via the checked int_arith UDFs.
             Just("e.threshold * 2 > i.value".to_string()),
             Just("e.threshold + i.value > 100".to_string()),
         ]

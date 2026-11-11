@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Quantized IVF vector segments store their full-precision rows in document order in an entry of their own, so each cluster block carries document IDs and quantized columns only. Exact scoring reads one row per admitted document from that entry. The `.vec` format moves to version 6; existing vector indexes require `REINDEX`.

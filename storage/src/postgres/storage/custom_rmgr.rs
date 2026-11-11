@@ -35,9 +35,10 @@ type IndexLocator = pg_sys::RelFileNode;
 #[cfg(not(feature = "pg15"))]
 type IndexLocator = pg_sys::RelFileLocator;
 
-/// Sets the standby taint in block 0 of the named index. A block that does not exist is left
-/// to Postgres's invalid-page tracking, as for any rmgr: a later DROP forgets it. Releases
-/// before 0.26.7 wrote a one-byte record, which is skipped.
+/// Sets the standby taint in block 0 of the named index, following the shape of
+/// `XLogReadBufferForRedo`: a block that does not exist is skipped without logging an invalid
+/// page, and a page already at or past this record's LSN is left alone. Releases before 0.26.7
+/// wrote a one-byte record, which is skipped.
 unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     let decoded = (*record).record;
     if ((*decoded).main_data_len as usize) < std::mem::size_of::<IndexLocator>() {
@@ -48,7 +49,7 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
         locator,
         pg_sys::ForkNumber::MAIN_FORKNUM,
         0,
-        pg_sys::ReadBufferMode::RBM_NORMAL,
+        pg_sys::ReadBufferMode::RBM_NORMAL_NO_LOG,
         pg_sys::InvalidBuffer as pg_sys::Buffer,
     );
     if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
@@ -56,8 +57,13 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     }
     pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
     let page = pg_sys::BufferGetPage(buffer);
+    let lsn = (*record).EndRecPtr;
+    if lsn <= pg_sys::PageGetLSN(page) {
+        pg_sys::UnlockReleaseBuffer(buffer);
+        return;
+    }
     MetaPage::taint_page(page);
-    pg_sys::PageSetLSN(page, (*record).EndRecPtr);
+    pg_sys::PageSetLSN(page, lsn);
     pg_sys::MarkBufferDirty(buffer);
     pg_sys::UnlockReleaseBuffer(buffer);
     pgrx::log!(

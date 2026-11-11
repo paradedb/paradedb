@@ -114,6 +114,60 @@ class OperatingPointsTest(unittest.TestCase):
         self.assertIn("Not reached", summary(points))
         self.assertEqual(inputs, original)
 
+    def test_fast_search_rejects_pilots_as_published_measurements(self):
+        """Require 100 measured vectors even if the report claims a full population."""
+        for count, samples in [(25, 25), (100, 25), (25, 100)]:
+            inputs = reports("hn", "pg_vectorsearch")
+            for report in inputs:
+                report["data"]["fast_search"] = True
+                for result in report["data"]["variants"].values():
+                    result["points"][0]["query_vectors"] = count
+                    result["points"][0]["metrics"]["recall"]["samples"] = samples
+            with self.assertRaisesRegex(ValueError, "full 100-vector validation"):
+                operating_points(inputs, "hn")
+
+    def test_fast_search_keeps_budget_exhaustion_distinct_and_skips_pilots(self):
+        """Preserve budget outcomes without publishing incomplete recall measurements."""
+        inputs = reports("hn", "pg_vectorsearch")
+        for report in inputs:
+            report["data"]["fast_search"] = True
+            for result in report["data"]["variants"].values():
+                result["pilot_points"] = result.pop("points")
+                result["points"] = []
+                result["targets"] = {}
+                result["target_status"] = {
+                    "0.9": {"status": "budget_exceeded", "reason": "statement timeout"},
+                    "0.95": {"status": "probe_budget_exceeded"},
+                    "0.99": {"status": "unreachable"},
+                }
+        points = operating_points(inputs, "hn")
+        self.assertTrue(all(not point["reached"] for point in points))
+        self.assertTrue(all(point["recall"] is None for point in points))
+        rendered = summary(points)
+        self.assertIn("Time budget exceeded", rendered)
+        self.assertIn("Probe budget exceeded", rendered)
+        self.assertIn("Not reached", rendered)
+        self.assertNotIn("96.0%", rendered)
+
+    def test_fast_search_publishes_full_validation_with_sampled_diagnostics(self):
+        """Allow fewer diagnostics while retaining the full recall population."""
+        inputs = reports("hn", "pg_vectorsearch")
+        for report in inputs:
+            report["data"]["fast_search"] = True
+            for result in report["data"]["variants"].values():
+                point = result["points"][0]
+                point["query_vectors"] = 100
+                point["metrics"]["recall"]["samples"] = 100
+                point["metrics"]["buffers"]["queries_measured"] = 10
+                result["pilot_points"] = [
+                    {"value": "1", "metrics": {"recall": {"recall": 1}}}
+                ]
+        points = operating_points(inputs, "hn")
+        self.assertTrue(
+            all(point["probe"] == "100" for point in points if point["reached"])
+        )
+        self.assertIn("| 1234.5 | 0.0 | 10 |", summary(points))
+
     def test_prism_preserves_backend_and_integer_probe_for_both_datasets(self):
         """Carry the chosen engine through the recall-to-k6 handoff."""
         for dataset in ("hn", "msmarco"):

@@ -25,8 +25,8 @@ nlist = 0
 [search]
 queries = 100
 runs = 1
-warmup_runs = 1
-explain_sample = 100
+warmup_runs = 0
+explain_sample = 10
 
 [search.session]
 enable_seqscan = "off"
@@ -46,3 +46,10 @@ start = 64
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001
 max_probes = 20
+
+[search.fast]
+pilot_queries = 25
+max_probes = 20
+bracket_ratio = 1.1
+query_timeout_seconds = 60
+budget_seconds = 900

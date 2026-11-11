@@ -55,6 +55,21 @@ for both top-10 and top-100.
 Artifacts and baseline history use `msmarco-113m-pg-vectorsearch`, separately
 from ParadeDB. The shared publisher retains the same QPS/latency time series.
 
+The pg_vectorsearch profile uses pdbench fast search: 25 evenly spaced pilot
+vectors per candidate, followed by full 100-vector validation before selecting
+an operating point. Candidate searches have no warmups or EXPLAIN. Selected
+settings receive 10 EXPLAIN diagnostics each, shared across recall targets using
+the same setting; k6 retains its separate warmup and measurement procedure.
+
+Each query shape gets at most 20 pilot/validation evaluations and a 15-minute
+search/diagnostic budget, with a 60-second statement timeout. Progress is logged
+per query, completed evaluations are checkpointed in the diagnostics artifact,
+and an exhausted budget lets CI continue other shapes. The summary distinguishes
+time/probe budget exhaustion from an unreachable target. Only fully validated
+operating points reach k6. CI restores and saves only prior selected values as
+starting hints, keyed by dataset, engine revision, profile, and query assets;
+pdbench checks its fingerprint and fully revalidates each hint.
+
 Run the shared handoff tests locally with:
 
 ```sh

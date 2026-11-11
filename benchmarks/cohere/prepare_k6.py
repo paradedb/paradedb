@@ -90,6 +90,14 @@ def operating_points(reports, dataset="cohere"):
                 raise ValueError("CI requires strict recall targets")
             if result["query"].count(qvec) != 1:
                 raise ValueError(f"{query}: expected exactly one query-vector operand")
+            if report["data"].get("fast_search") and any(
+                point.get("query_vectors") != 100
+                or point["metrics"]["recall"].get("samples") != 100
+                for point in result["points"]
+            ):
+                raise ValueError(
+                    f"{query}: fast search requires full 100-vector validation"
+                )
             measured = {point["value"]: point["metrics"] for point in result["points"]}
             if report["config"]["search"].get("k", 10) != neighbors or any(
                 point["recall"]["k"] != neighbors for point in measured.values()
@@ -111,6 +119,12 @@ def operating_points(reports, dataset="cohere"):
                         else ([] if query.endswith("_unfiltered") else ["text"]),
                         "target": target,
                         "reached": selected is not None,
+                        "status": result.get("target_status", {})
+                        .get(str(target), {})
+                        .get("status", "reached" if selected else "unreachable"),
+                        "reason": result.get("target_status", {})
+                        .get(str(target), {})
+                        .get("reason"),
                         "probe": selected["value"] if selected else None,
                         "param": param,
                         "engine": config.get("engine", "pg_search"),
@@ -123,7 +137,8 @@ def operating_points(reports, dataset="cohere"):
                         "recall": selected["recall"]
                         if selected
                         else max(
-                            point["recall"]["recall"] for point in measured.values()
+                            (point["recall"]["recall"] for point in measured.values()),
+                            default=None,
                         ),
                         "sql": result["query"].replace(qvec, "$1"),
                         "session": config["search"]["session"],
@@ -144,9 +159,9 @@ def summary(points):
         "",
         (
             f"| Workload / recall target | k | {parameter} | Achieved recall@k "
-            "| Shared hits/query | Shared reads/query |"
+            "| Shared hits/query | Shared reads/query | EXPLAIN queries |"
         ),
-        "|---|---:|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for point in points:
         buffers = point["buffers"]
@@ -160,14 +175,25 @@ def summary(points):
             if buffers and buffers["shared_read_mean"] is not None
             else "—"
         )
-        probe = f"`{point['probe']}`" if point["reached"] else "⚠️ Not reached"
+        status = {
+            "budget_exceeded": "⚠️ Time budget exceeded",
+            "probe_budget_exceeded": "⚠️ Probe budget exceeded",
+            "unreachable": "⚠️ Not reached",
+        }.get(point["status"], point["status"])
+        probe = f"`{point['probe']}`" if point["reached"] else status
+        recall = f"{point['recall']:.1%}" if point["recall"] is not None else "—"
+        samples = buffers.get("queries_measured", 0) if buffers else 0
         lines.append(
             f"| `{point['name']}` | {point['neighbors']} | {probe} | "
-            f"{point['recall']:.1%} | {hits} | {reads} |"
+            f"{recall} | {hits} | {reads} | {samples} |"
         )
     lines.append(
         f"\npdbench selects {parameter} separately for each workload and recall target. "
-        "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
+        "Every selected point is validated on all 100 query vectors. "
+        "Buffer counts are means over the listed EXPLAIN sample count; "
+        "zero means diagnostics were not collected. "
+        "Time/probe budget exhaustion does not establish that a target is unreachable. "
+        "k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"
     )

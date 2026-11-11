@@ -888,6 +888,33 @@ pub unsafe fn has_leaky_heap_filter(
     })
 }
 
+/// The `security_level` that says where `ri` came from. A clause PostgreSQL regenerated from
+/// an equivalence class carries the class's lowest level, not the level of the clause it
+/// stands for: a policy's `division = 1` and the statement's `client_id = 1` share one class
+/// through the constant, and both come back at the policy's level. The clauses that were
+/// written are still in `ec_sources` with their own levels, so a class member's clause takes
+/// the highest level of the sources on that member. A clause outside any class, or a
+/// partition child's copy, which keeps no class link, is read as it is.
+unsafe fn security_level(ri: &pg_sys::RestrictInfo) -> pg_sys::Index {
+    if ri.left_ec.is_null() {
+        return ri.security_level;
+    }
+    let is_const = |em: *mut pg_sys::EquivalenceMember| unsafe { (*em).em_is_const };
+    let members: Vec<_> = [ri.left_em, ri.right_em]
+        .into_iter()
+        .filter(|&em| !em.is_null() && !is_const(em))
+        .collect();
+    unsafe { PgList::<pg_sys::RestrictInfo>::from_pg((*ri.left_ec).ec_sources) }
+        .iter_ptr()
+        .filter(|&source| {
+            let source = unsafe { &*source };
+            members.contains(&source.left_em) || members.contains(&source.right_em)
+        })
+        .map(|source| unsafe { (*source).security_level })
+        .max()
+        .unwrap_or(ri.security_level)
+}
+
 /// A `RestrictInfo` for a clause the statement wrote, as `extract_quals` expects one. It
 /// carries `qual_security_level`, the level PostgreSQL gives such a clause; left at the
 /// zeroed default of a bare allocation, `extract_quals` would take it for a policy clause
@@ -998,10 +1025,10 @@ pub fn extract_quals(
                 attempt_pushdown,
             )?;
             // A clause below the query's `qual_security_level` came from the range table
-            // entry's `securityQuals`: a row-level security policy or a security-barrier view.
+            // entry's `securityQuals`: a row-level security policy.
             let from_security_qual = context
                 .planner_info()
-                .is_some_and(|root| ri.security_level < unsafe { (*root).qual_security_level });
+                .is_some_and(|root| unsafe { security_level(ri) < (*root).qual_security_level });
             Some(if from_security_qual {
                 mark_security(qual)
             } else {

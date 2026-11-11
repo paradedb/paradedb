@@ -69,7 +69,7 @@
 //!     leader and workers so PostgreSQL signal handlers cannot `siglongjmp` across Tokio frames;
 //!     [`interrupt::cancel_pending`] is polled inside `DsmAsyncStream` and
 //!     `DsmWorkerShutdownWatcher` so queries abort cleanly before `RESUME_INTERRUPTS` +
-//!     `check_for_interrupts!()`.
+//!     `check_for_interrupts()`.
 //!   - `postmaster_alive_fds[POSTMASTER_FD_WATCH]` is monitored via a non-closing `AsyncFd` wrapper
 //!     so workers abort immediately if `postmaster` dies.
 //!

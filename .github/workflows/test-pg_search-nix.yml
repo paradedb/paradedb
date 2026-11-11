@@ -1,7 +1,7 @@
 # workflows/test-pg_search-nix.yml
 #
 # Test pg_search (Nix)
-# Test building and running the ParadeDB Docker Image using Determinate Nix.
+# Check the Nix Cargo dependency hash.
 
 name: Test pg_search (Nix)
 

@@ -32,8 +32,8 @@ use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
-    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, check_for_interrupts,
-    pg_guard, pg_sys,
+    GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum, PgTryBuilder, Spi,
+    check_for_interrupts, pg_guard, pg_sys,
 };
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
@@ -88,7 +88,7 @@ unsafe fn connect(database: Option<pg_sys::Oid>) {
 }
 
 unsafe fn reload() {
-    check_for_interrupts!();
+    check_for_interrupts();
     if BackgroundWorker::sighup_received() {
         pg_sys::ProcessConfigFile(pg_sys::GucContext::PGC_SIGHUP);
     }
@@ -138,8 +138,9 @@ unsafe extern "C-unwind" fn mutable_sweep_launcher(_arg: pg_sys::Datum) {
                     if tuple.is_null() {
                         break;
                     }
-                    let database =
-                        &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_database>();
+                    let database = &*pgrx::GETSTRUCT!(tuple)
+                        .get()
+                        .cast::<pg_sys::FormData_pg_database>();
                     if database.datallowconn
                         && !database.datistemplate
                         && database.datconnlimit >= -1
@@ -180,6 +181,19 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
         AdvisoryLock::conditional_lock_session(i64::from_be_bytes(*b"pdbsweep"))
     }) else {
         return;
+    };
+    // TODO(pgcentralfoundation/pgrx#2483): Debug installs use pgrx's temporary SQL
+    // fragment version. Release workers must match their loaded library, even when a newer package
+    // has replaced the control file.
+    let development_version = if cfg!(debug_assertions) {
+        BackgroundWorker::transaction(|| {
+            Spi::get_one::<String>(
+                "SELECT default_version FROM pg_catalog.pg_available_extensions WHERE name = 'pg_search'",
+            )
+            .expect("should be able to inspect pg_search's default version")
+        })
+    } else {
+        None
     };
     let mut pass_context = pgrx::PgMemoryContexts::new("pg_search mutable sweep pass");
     let mut next_sweep = Instant::now();
@@ -228,7 +242,11 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
             let observed_counts = pass_context.switch_to(|_| {
                 let indexes = BackgroundWorker::transaction(|| {
                     let version = lookup_extension_version(c"pg_search");
-                    if version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
+                    if !sweep_version_matches(
+                        version.as_deref(),
+                        env!("CARGO_PKG_VERSION"),
+                        development_version.as_deref(),
+                    ) {
                         return None;
                     }
                     // Planner hooks can hide shard indexes or race with concurrent drops.
@@ -365,5 +383,40 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
         )) {
             return;
         }
+    }
+}
+
+fn sweep_version_matches(
+    database_version: Option<&str>,
+    library_version: &str,
+    development_version: Option<&str>,
+) -> bool {
+    database_version == Some(development_version.unwrap_or(library_version))
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::sweep_version_matches;
+
+    #[test]
+    fn release_worker_rejects_a_different_schema_version() {
+        assert!(sweep_version_matches(Some("0.26.6"), "0.26.6", None));
+        assert!(!sweep_version_matches(Some("0.26.7"), "0.26.6", None));
+        assert!(!sweep_version_matches(Some("0.26.5"), "0.26.6", None));
+        assert!(!sweep_version_matches(None, "0.26.6", None));
+    }
+
+    #[test]
+    fn debug_worker_accepts_only_its_temporary_schema_version() {
+        assert!(sweep_version_matches(
+            Some("0.26.7"),
+            "0.26.6",
+            Some("0.26.7")
+        ));
+        assert!(!sweep_version_matches(
+            Some("0.26.6"),
+            "0.26.6",
+            Some("0.26.7")
+        ));
     }
 }

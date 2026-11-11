@@ -618,7 +618,7 @@ pub unsafe fn merge_index(
         }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
-        check_for_interrupts!();
+        check_for_interrupts();
 
         if let Err(e) = merge_result {
             if unsafe { pg_sys::InterruptPending } != 0 {

@@ -135,7 +135,9 @@ pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
             if tuple.is_null() {
                 break;
             }
-            let class = &*pg_sys::GETSTRUCT(tuple).cast::<pg_sys::FormData_pg_class>();
+            let class = &*pgrx::GETSTRUCT!(tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_class>();
             if class.relkind as u8 != pg_sys::RELKIND_INDEX
                 || class.relpersistence as u8 == pg_sys::RELPERSISTENCE_TEMP
                 || !class.relam.is_paradedb_am()
@@ -148,7 +150,9 @@ pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
             ) else {
                 continue;
             };
-            let index = &*pg_sys::GETSTRUCT(entry.tuple).cast::<pg_sys::FormData_pg_index>();
+            let index = &*pgrx::GETSTRUCT!(entry.tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_index>();
             if index.indisvalid && index.indisready {
                 indexes.push(class.oid);
             }
@@ -457,13 +461,20 @@ mod tests {
             .unwrap(),
         );
         expected.sort_unstable_by_key(|oid| oid.to_u32());
+        // TODO(pgcentralfoundation/pgrx#2483): Unreleased SQL fragments cause cargo-pgrx
+        // to install the extension under an ephemeral default_version rather than CARGO_PKG_VERSION.
+        let expected_version = Spi::get_one::<String>(
+            "SELECT default_version FROM pg_catalog.pg_available_extensions WHERE name = 'pg_search'",
+        )
+        .unwrap()
+        .unwrap();
         unsafe {
             let previous_hook = pg_sys::planner_hook;
             pg_sys::planner_hook = Some(reject_planning);
             PgTryBuilder::new(|| {
                 assert_eq!(
                     lookup_extension_version(c"pg_search").as_deref(),
-                    Some(env!("CARGO_PKG_VERSION"))
+                    Some(expected_version.as_str())
                 );
                 assert_eq!(lookup_extension_version(c"sweep_missing_extension"), None);
                 assert_eq!(paradedb_index_oids(), expected);

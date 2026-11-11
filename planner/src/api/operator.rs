@@ -68,7 +68,7 @@ pub unsafe fn tantivy_field_name_from_node(
     };
     let field_name = field_name_from_node(context, &heaprel, &indexrel, field_node);
     if field_name.is_none() {
-        let var = nodecast!(Var, T_Var, node)?;
+        let var = nodecast!(Var, node)?;
         if (*var).varattno != 0 {
             return None;
         }
@@ -100,7 +100,7 @@ pub unsafe fn field_name_from_node(
     indexrel: &PgSearchRelation,
     node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
-    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node)
+    if let Some(relabel) = nodecast!(RelabelType, node)
         && type_is_alias((*relabel).resulttype)
     {
         let typmod = AliasTypmod::try_from((*relabel).resulttypmod).unwrap_or_else(|e| e.report());
@@ -110,7 +110,7 @@ pub unsafe fn field_name_from_node(
     }
 
     let index_info = unsafe { *indexrel.index_info() };
-    if let Some(var) = nodecast!(Var, T_Var, node) {
+    if let Some(var) = nodecast!(Var, node) {
         if (*var).varattno == 0 {
             return None;
         }

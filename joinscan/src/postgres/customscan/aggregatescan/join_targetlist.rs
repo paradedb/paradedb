@@ -828,16 +828,16 @@ unsafe fn keys_decide_column(
     keys: &[*mut pg_sys::Node],
     expr: *mut pg_sys::Node,
 ) -> bool {
-    let Some(var) = nodecast!(Var, T_Var, strip_relabel(expr)) else {
+    let Some(var) = nodecast!(Var, strip_relabel(expr)) else {
         return false;
     };
-    let rte = pg_sys::rt_fetch((*var).varno as pg_sys::Index, (*parse).rtable);
+    let rte = pgrx::rt_fetch!((*var).varno as pg_sys::Index, (*parse).rtable).get();
     if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION || (*var).varlevelsup != 0 {
         return false;
     };
     let mut key_vars = PgList::<pg_sys::Var>::new();
     for key in keys {
-        if let Some(key_var) = nodecast!(Var, T_Var, strip_relabel(*key)) {
+        if let Some(key_var) = nodecast!(Var, strip_relabel(*key)) {
             key_vars.push(key_var);
         }
     }
@@ -950,7 +950,7 @@ unsafe fn extract_raw_group_column(
         GroupColumnOrigin::RowValue => "output column".to_string(),
     };
     let dependent = matches!(origin, GroupColumnOrigin::Dependent)
-        && nodecast!(Var, T_Var, strip_relabel(expr)).is_some_and(|var| {
+        && nodecast!(Var, strip_relabel(expr)).is_some_and(|var| {
             matches!(
                 pg_sys::getBaseType((*var).vartype),
                 pg_sys::TEXTOID | pg_sys::VARCHAROID
@@ -991,8 +991,8 @@ unsafe fn extract_raw_group_column(
             "DISTINCT group expressions are plain columns by construction"
         );
         // The field holds the column's value, not the value of a cast of it.
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, strip_relabel(expr))
-            && nodecast!(Var, T_Var, strip_relabel((*coerce).arg.cast())).is_some()
+        if let Some(coerce) = nodecast!(CoerceViaIO, strip_relabel(expr))
+            && nodecast!(Var, strip_relabel((*coerce).arg.cast())).is_some()
         {
             return Err(format!(
                 "GROUP BY item {position} is a cast of a column; only plain columns and indexed \
@@ -1116,7 +1116,7 @@ unsafe fn extract_raw_window_entry(
             return Err("`pdb.combine_agg()` requires a single `pdb.agg()` argument".into());
         }
         let arg = strip_relabel(args.get_ptr(0).unwrap());
-        let Some(inner_aggref) = nodecast!(Aggref, T_Aggref, arg) else {
+        let Some(inner_aggref) = nodecast!(Aggref, arg) else {
             return Err("`pdb.combine_agg()` argument must be a direct `pdb.agg()` call".into());
         };
         if !context

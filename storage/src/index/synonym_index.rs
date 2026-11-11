@@ -57,7 +57,7 @@ pub unsafe fn is_synonym_index_relation(indexrel: pg_sys::Relation) -> bool {
             } else {
                 expressions
                     .next()
-                    .and_then(|expression| nodecast!(Var, T_Var, strip_tokenizer_cast(expression)))
+                    .and_then(|expression| nodecast!(Var, strip_tokenizer_cast(expression)))
                     .map(|var| (*var).varattno)
                     .filter(|&attno| attno > 0)
             };

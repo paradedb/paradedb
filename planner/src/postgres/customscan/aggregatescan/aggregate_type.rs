@@ -968,7 +968,7 @@ impl AggregateFieldExpression {
             bail!("aggregate pushdown is not supported for array columns");
         }
 
-        let Some(coalesce) = nodecast!(CoalesceExpr, T_CoalesceExpr, expr) else {
+        let Some(coalesce) = nodecast!(CoalesceExpr, expr) else {
             return Ok(Self::Direct(expr));
         };
 

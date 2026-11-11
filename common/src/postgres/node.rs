@@ -104,7 +104,7 @@ pub trait NodeExt: Copy {
     fn collect_rtis(self) -> HashSet<pg_sys::Index> {
         let mut rtis = HashSet::new();
         self.visit(|node| {
-            if let Some(var) = unsafe { nodecast!(Var, T_Var, node) } {
+            if let Some(var) = unsafe { nodecast!(Var, node) } {
                 let varno = unsafe { (*var).varno } as pg_sys::Index;
                 if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
                     rtis.insert(varno);
@@ -118,7 +118,7 @@ pub trait NodeExt: Copy {
     fn collect_var_refs(self, include_special_vars: bool) -> Vec<VarRef> {
         let mut vars = Vec::new();
         self.visit(|node| {
-            if let Some(var) = unsafe { nodecast!(Var, T_Var, node) } {
+            if let Some(var) = unsafe { nodecast!(Var, node) } {
                 let var = unsafe { &*var };
                 let varno = var.varno as pg_sys::Index;
                 if var.varattno > 0
@@ -137,7 +137,7 @@ pub trait NodeExt: Copy {
 
     fn collect_subplan_ids(self, ids: &mut crate::api::HashSet<i32>) {
         self.visit(|node| {
-            if let Some(subplan) = unsafe { nodecast!(SubPlan, T_SubPlan, node) } {
+            if let Some(subplan) = unsafe { nodecast!(SubPlan, node) } {
                 ids.insert(unsafe { (*subplan).plan_id });
             }
         });
@@ -165,7 +165,7 @@ pub trait NodeExt: Copy {
 
     fn contains_param_kind(self, kind: pg_sys::ParamKind::Type) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(Param, T_Param, node) }
+            unsafe { nodecast!(Param, node) }
                 .is_some_and(|param| unsafe { (*param).paramkind } == kind)
         })
     }
@@ -184,7 +184,7 @@ pub trait NodeExt: Copy {
         assert!(!root.is_null(), "planner root must not be null");
         let root = unsafe { &*root };
         self.any(|node| {
-            unsafe { nodecast!(Param, T_Param, node) }.is_some_and(|param| {
+            unsafe { nodecast!(Param, node) }.is_some_and(|param| {
                 let param = unsafe { &*param };
                 param.paramkind == pg_sys::ParamKind::PARAM_EXEC
                     && !unsafe { PgList::<pg_sys::SubPlan>::from_pg(root.init_plans) }
@@ -198,14 +198,14 @@ pub trait NodeExt: Copy {
 
     fn contains_relation_reference(self, target_rti: pg_sys::Index) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(Var, T_Var, node) }
+            unsafe { nodecast!(Var, node) }
                 .is_some_and(|var| unsafe { (*var).varno } as pg_sys::Index == target_rti)
         })
     }
 
     fn contains_functions(self, funcids: &[pg_sys::Oid]) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+            unsafe { nodecast!(FuncExpr, node) }
                 .is_some_and(|expr| funcids.contains(&unsafe { (*expr).funcid }))
         })
     }
@@ -226,7 +226,7 @@ pub trait NodeExt: Copy {
 
     fn contains_unnest(self) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+            unsafe { nodecast!(FuncExpr, node) }
                 .is_some_and(|expr| is_unnest_func(unsafe { (*expr).funcid }))
         })
     }
@@ -240,7 +240,7 @@ impl<T: pg_sys::PgNode> NodeExt for *mut T {
         // STABLE functions can change between executions (for example now() or
         // current_setting()), so they need the same runtime path as parameters.
         self.any(|node| unsafe {
-            nodecast!(Var, T_Var, node).is_some() || nodecast!(Param, T_Param, node).is_some()
+            nodecast!(Var, node).is_some() || nodecast!(Param, node).is_some()
         }) || unsafe { pg_sys::contain_mutable_functions(self.cast()) }
     }
 
@@ -320,7 +320,7 @@ mod tests {
 
             visited.clear();
             assert!(tree.any(|node| {
-                if let Some(var) = nodecast!(Var, T_Var, node) {
+                if let Some(var) = nodecast!(Var, node) {
                     visited.push(node);
                     return var == vars[1];
                 }
@@ -336,12 +336,12 @@ mod tests {
             let (tree, vars) = expression_tree();
             let mut visited = Vec::new();
             assert!(!tree.walk(|node| {
-                if let Some(expr) = nodecast!(BoolExpr, T_BoolExpr, node)
+                if let Some(expr) = nodecast!(BoolExpr, node)
                     && (*expr).boolop == pg_sys::BoolExprType::OR_EXPR
                 {
                     return WalkControl::SkipChildren;
                 }
-                if let Some(var) = nodecast!(Var, T_Var, node) {
+                if let Some(var) = nodecast!(Var, node) {
                     visited.push(var);
                 }
                 WalkControl::Continue
@@ -356,7 +356,7 @@ mod tests {
             let (tree, vars) = expression_tree();
             let mut visits = 0;
             tree.visit(|node| {
-                if let Some(var) = nodecast!(Var, T_Var, node) {
+                if let Some(var) = nodecast!(Var, node) {
                     (*var).varno = 7;
                     visits += 1;
                 }
@@ -371,7 +371,7 @@ mod tests {
         unsafe {
             let (tree, _) = expression_tree();
             tree.visit(|node| {
-                if nodecast!(Var, T_Var, node).is_some() {
+                if nodecast!(Var, node).is_some() {
                     panic!("node walk visitor failure");
                 }
             });
@@ -381,7 +381,7 @@ mod tests {
     #[pg_test]
     fn node_walk_contains_unnest_at_root_and_inside_target_entry() {
         unsafe {
-            let mut func = PgBox::<pg_sys::FuncExpr>::alloc_node(pg_sys::NodeTag::T_FuncExpr);
+            let mut func = PgBox::from_pg(pgrx::makeNode!(pg_sys::FuncExpr).get());
             func.funcid = pg_sys::F_UNNEST_ANYARRAY.into();
             let func = func.into_pg();
             let target = pg_sys::makeTargetEntry(func.cast(), 1, std::ptr::null_mut(), false);
@@ -395,11 +395,11 @@ mod tests {
     #[pg_test]
     fn node_walk_distinguishes_prepared_initplan_and_correlated_params() {
         unsafe {
-            let mut param = PgBox::<pg_sys::Param>::alloc_node(pg_sys::NodeTag::T_Param);
+            let mut param = PgBox::from_pg(pgrx::makeNode!(pg_sys::Param).get());
             param.paramkind = pg_sys::ParamKind::PARAM_EXTERN;
             param.paramid = 7;
             let param = param.into_pg();
-            let mut root = PgBox::<pg_sys::PlannerInfo>::alloc_node(pg_sys::NodeTag::T_PlannerInfo);
+            let mut root = PgBox::from_pg(pgrx::makeNode!(pg_sys::PlannerInfo).get());
             assert!(param.contains_param());
             assert!(param.contains_extern_param());
             assert!(!param.contains_exec_param());
@@ -410,7 +410,7 @@ mod tests {
             assert!(!param.contains_extern_param());
             assert!(param.contains_correlated_param(root.as_ptr()));
 
-            let mut subplan = PgBox::<pg_sys::SubPlan>::alloc_node(pg_sys::NodeTag::T_SubPlan);
+            let mut subplan = PgBox::from_pg(pgrx::makeNode!(pg_sys::SubPlan).get());
             subplan.setParam = pg_sys::lappend_int(std::ptr::null_mut(), 7);
             let mut init_plans = PgList::new();
             init_plans.push(subplan.into_pg());
@@ -429,7 +429,7 @@ mod tests {
     #[pg_test]
     fn node_walk_complexity_detects_nested_non_immutable_functions() {
         unsafe {
-            let mut func = PgBox::<pg_sys::FuncExpr>::alloc_node(pg_sys::NodeTag::T_FuncExpr);
+            let mut func = PgBox::from_pg(pgrx::makeNode!(pg_sys::FuncExpr).get());
             func.funcid = pg_sys::F_CLOCK_TIMESTAMP.into();
             let func = func.into_pg();
             let target = pg_sys::makeTargetEntry(func.cast(), 1, std::ptr::null_mut(), false);
@@ -443,7 +443,7 @@ mod tests {
             assert!(!std::ptr::null_mut::<pg_sys::Node>().is_complex());
             let (tree, _) = expression_tree();
             assert!(tree.is_complex());
-            let param = PgBox::<pg_sys::Param>::alloc_node(pg_sys::NodeTag::T_Param);
+            let param = PgBox::from_pg(pgrx::makeNode!(pg_sys::Param).get());
             assert!(param.as_ptr().is_complex());
         }
     }

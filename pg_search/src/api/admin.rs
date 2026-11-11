@@ -819,7 +819,7 @@ fn verify_heap_references(
 
             // Check for interrupts periodically (every 10k docs)
             if total_checked.is_multiple_of(10_000) {
-                pgrx::check_for_interrupts!();
+                pgrx::check_for_interrupts();
             }
         }
 

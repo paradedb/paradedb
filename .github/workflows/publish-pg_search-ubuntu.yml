@@ -269,7 +269,7 @@ jobs:
         with:
           pg_version: ${{ matrix.pg_version }}
           initialize_pgrx: "false"
-          extra_packages: debhelper devscripts dput gnupg libopenblas-dev
+          extra_packages: libopenblas-dev clang llvm libclang-dev
 
       - name: Extract pgrx Version
         id: pgrx
@@ -294,71 +294,13 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      - name: Package pg_search Extension with pgrx
-        working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH
-
-      - name: Create .deb Package
+      - name: Build Native DEB Package
         env:
-          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          STEP_VERSION_OS_VERSION: ${{ steps.version.outputs.os_version }}
-        run: |
-          # Create installable package
-          mkdir archive
-          cp `find target/release -type f -name "pg_search*"` archive
-          package_dir="pg_search-${STEP_VERSION_TAG_VERSION}-""${STEP_VERSION_OS_VERSION}"-${{ matrix.arch }}-pg${{ matrix.pg_version }}
-
-          # Copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-
-          # Create control file (package name cannot have underscore)
-          mkdir -p ${package_dir}/DEBIAN
-          touch ${package_dir}/DEBIAN/control
-          deb_version="${STEP_VERSION_TAG_VERSION}"
-          CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: postgresql-${{ matrix.pg_version }}-pg-search' >> $CONTROL_FILE
-          echo 'Version:' ${deb_version} >> $CONTROL_FILE
-          echo 'Section: database' >> $CONTROL_FILE
-          echo 'Priority: optional' >> $CONTROL_FILE
-          echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
-          echo 'Depends: postgresql-${{ matrix.pg_version }}, libopenblas0' >> $CONTROL_FILE
-          echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full-text search, vector retrieval, and aggregations for Postgres' >> $CONTROL_FILE
-          echo ' pg_search upgrades Postgres with a custom index for fast full-text and' >> $CONTROL_FILE
-          echo ' vector search, BM25 scoring, filtering, and aggregations. Your application' >> $CONTROL_FILE
-          echo ' data and search engine live in one database, with no second system to' >> $CONTROL_FILE
-          echo ' deploy and nothing to sync.' >> $CONTROL_FILE
-
-          # Copyright file (Debian Policy §12.5). Also consumed by the
-          # CloudNativePG postgres-extensions-containers Dockerfiles, which
-          # COPY /usr/share/doc/<pkg>/copyright into the extension image's
-          # /licenses/ tree.
-          doc_dir=${package_dir}/usr/share/doc/postgresql-${{ matrix.pg_version }}-pg-search
-          mkdir -p ${doc_dir}
-          cat > ${doc_dir}/copyright <<'EOF'
-          Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-          Upstream-Name: pg_search
-          Upstream-Contact: ParadeDB <support@paradedb.com>
-          Source: https://github.com/paradedb/paradedb
-
-          Files: *
-          Copyright: ParadeDB <support@paradedb.com>
-          License: AGPL-3.0-or-later
-           The full license text is in this package at LICENSE,
-           and online at https://www.gnu.org/licenses/agpl-3.0.txt
-          EOF
-          cp LICENSE ${doc_dir}/LICENSE
-
-          # Create .deb package
-          sudo chown -R root:root ${package_dir}
-          sudo chmod -R 755 ${package_dir}
-          sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
+          PG_CONFIG: /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          PACKAGE_FORMAT: deb
+          PACKAGE_PATH: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          PACKAGE_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: ./scripts/package-linux.sh
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2; Upstream does not publish a moving @v4 tag

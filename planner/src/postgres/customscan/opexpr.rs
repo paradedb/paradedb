@@ -148,7 +148,7 @@ pub enum OpExpr {
 
 impl OpExpr {
     pub unsafe fn from_array(node: *mut pg_sys::Node) -> Option<Self> {
-        nodecast!(ScalarArrayOpExpr, T_ScalarArrayOpExpr, node).map(OpExpr::Array)
+        nodecast!(ScalarArrayOpExpr, node).map(OpExpr::Array)
     }
 
     pub unsafe fn from_single(node: *mut pg_sys::Node) -> Option<Self> {
@@ -237,31 +237,31 @@ pub trait UnwrapFromExpr: Sized {
 
 impl UnwrapFromExpr for *mut pg_sys::Var {
     unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
-        unwrap_expr(expr, |e| nodecast!(Var, T_Var, e))
+        unwrap_expr(expr, |e| nodecast!(Var, e))
     }
 
     unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
-        unwrap_coercion(expr, |e| nodecast!(Var, T_Var, e))
+        unwrap_coercion(expr, |e| nodecast!(Var, e))
     }
 }
 
 impl UnwrapFromExpr for *mut pg_sys::RowExpr {
     unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
-        unwrap_expr(expr, |e| nodecast!(RowExpr, T_RowExpr, e))
+        unwrap_expr(expr, |e| nodecast!(RowExpr, e))
     }
 
     unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
-        unwrap_coercion(expr, |e| nodecast!(RowExpr, T_RowExpr, e))
+        unwrap_coercion(expr, |e| nodecast!(RowExpr, e))
     }
 }
 
 impl UnwrapFromExpr for *mut pg_sys::Const {
     unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
-        unwrap_expr(expr, |e| nodecast!(Const, T_Const, e))
+        unwrap_expr(expr, |e| nodecast!(Const, e))
     }
 
     unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
-        unwrap_coercion(expr, |e| nodecast!(Const, T_Const, e))
+        unwrap_coercion(expr, |e| nodecast!(Const, e))
     }
 }
 
@@ -291,16 +291,16 @@ where
         }
 
         // Try to unwrap type coercion wrappers
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+        if let Some(coerce) = nodecast!(CoerceViaIO, expr) {
             expr = (*coerce).arg.cast();
             continue;
         }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(relabel) = nodecast!(RelabelType, expr) {
             expr = (*relabel).arg.cast();
             continue;
         }
         // Handle type coercion via single-arg function call (e.g., float4 -> float8)
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr)
+        if let Some(func) = nodecast!(FuncExpr, expr)
             && matches!(
                 (*func).funcformat,
                 pg_sys::CoercionForm::COERCE_EXPLICIT_CAST
@@ -332,11 +332,11 @@ where
         if let Some(result) = extract(expr) {
             return Some(result);
         }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+        if let Some(coerce) = nodecast!(CoerceViaIO, expr) {
             expr = (*coerce).arg.cast();
             continue;
         }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(relabel) = nodecast!(RelabelType, expr) {
             expr = (*relabel).arg.cast();
             continue;
         }
@@ -645,26 +645,25 @@ pub unsafe fn expr_matches_node(
 ) -> bool {
     let mut reduced_expression = indexed_expr;
     loop {
-        let inner_expression =
-            if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, reduced_expression) {
-                (*coerce).arg
-            } else {
-                reduced_expression
-            };
+        let inner_expression = if let Some(coerce) = nodecast!(CoerceViaIO, reduced_expression) {
+            (*coerce).arg
+        } else {
+            reduced_expression
+        };
 
         // Use our custom comparison that ignores context-dependent fields
         if expr_equal_ignoring_context(node, inner_expression.cast()) {
             return true;
         }
 
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression) {
+        if let Some(relabel) = nodecast!(RelabelType, reduced_expression) {
             reduced_expression = (*relabel).arg.cast();
             continue;
         }
 
         // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
         // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression)
+        if let Some(func) = nodecast!(FuncExpr, reduced_expression)
             && type_is_alias((*func).funcresulttype)
         {
             let args = PgList::<pg_sys::Node>::from_pg((*func).args);

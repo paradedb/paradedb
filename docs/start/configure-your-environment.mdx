@@ -490,9 +490,9 @@ To get started, create a .NET project with [EF Core](https://learn.microsoft.com
 ```bash
 dotnet new console --framework net10.0
 dotnet new tool-manifest
-dotnet tool install dotnet-ef
-dotnet add package Microsoft.EntityFrameworkCore.Design
-dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+dotnet tool install dotnet-ef --version 10.0.15
+dotnet add package Microsoft.EntityFrameworkCore.Design --version 10.0.15
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL --version 10.0.3
 dotnet add package ParadeDB.EntityFrameworkCore --version 0.5.0
 ```
 

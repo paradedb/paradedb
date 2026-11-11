@@ -84,7 +84,7 @@ impl LimitOffset {
         if node.is_null() {
             return Ok(None);
         }
-        if let Some(const_node) = crate::nodecast!(Const, T_Const, node)
+        if let Some(const_node) = crate::nodecast!(Const, node)
             && (*const_node).constisnull
         {
             return Ok(None);

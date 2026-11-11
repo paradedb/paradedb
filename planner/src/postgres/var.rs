@@ -20,7 +20,7 @@ pub use index_read::postgres::var::*;
 
 use crate::api::FieldName;
 use crate::postgres::customscan::pullup::{Access, ResTarget, ResolvedFastField, SourceContext};
-use pgrx::is_a;
+use common::postgres::utils::is_a;
 use pgrx::pg_sys::{self, CoerceViaIO, NodeTag::*, RelabelType};
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and

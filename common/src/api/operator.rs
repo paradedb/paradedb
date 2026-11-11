@@ -126,7 +126,7 @@ impl SearchPredicate {
             });
         }
 
-        let function = nodecast!(FuncExpr, T_FuncExpr, node)?;
+        let function = nodecast!(FuncExpr, node)?;
         if !is_search_with_query_input_exec_procoid((*function).funcid) {
             return None;
         }
@@ -201,7 +201,11 @@ pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
         return false;
     }
 
-    let operform = unsafe { &*(pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator) };
+    let operform = unsafe {
+        &*pgrx::GETSTRUCT!(opertup)
+            .get()
+            .cast::<pg_sys::FormData_pg_operator>()
+    };
     let opername = pgrx::name_data_to_str(&operform.oprname);
     let oprleft = operform.oprleft;
 
@@ -229,7 +233,9 @@ pub fn operator_name_from_oid(opno: pg_sys::Oid) -> String {
         if opertup.is_null() {
             return "unknown".to_string();
         }
-        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let operform = pgrx::GETSTRUCT!(opertup)
+            .get()
+            .cast::<pg_sys::FormData_pg_operator>();
         let name = pgrx::name_data_to_str(&(*operform).oprname).to_string();
         pg_sys::ReleaseSysCache(opertup);
         name
@@ -328,14 +334,14 @@ pub unsafe fn row_expr_from_indexed_expr(
     mut expr: *mut pg_sys::Expr,
 ) -> Option<*mut pg_sys::RowExpr> {
     loop {
-        if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
+        if let Some(row_expr) = nodecast!(RowExpr, expr) {
             return Some(row_expr);
         }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+        if let Some(coerce) = nodecast!(CoerceViaIO, expr) {
             expr = (*coerce).arg.cast();
             continue;
         }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+        if let Some(relabel) = nodecast!(RelabelType, expr) {
             expr = (*relabel).arg.cast();
             continue;
         }

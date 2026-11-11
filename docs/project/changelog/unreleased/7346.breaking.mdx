@@ -2,4 +2,4 @@
 header: breaking
 ---
 
-Renamed the IVF index option `max_leaf_size` to `target_leaf_size`. The value is a clustering target rather than a hard cap; actual leaves may be somewhat larger. Indexes that explicitly store `max_leaf_size` must be updated with `ALTER INDEX ... SET (target_leaf_size = ...)` or recreated.
+Renamed the IVF index option `max_leaf_size` to `target_leaf_size`. The value caps the number of sampled training vectors per leaf; it does not cap the number of indexed vectors assigned to a cluster. Indexes that explicitly store `max_leaf_size` must be updated with `ALTER INDEX ... SET (target_leaf_size = ...)` or recreated.

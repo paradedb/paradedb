@@ -254,10 +254,10 @@ modelBuilder.Entity<MockItem>()
 <ParamField body="target_leaf_size" default={200}>
   The target number of sampled training vectors in a leaf of the hierarchical
   clustering tree. Must be an integer between `1` and `2147483647`. Smaller
-  values generally produce more centroids and smaller clusters. Actual leaves
-  may be somewhat larger than the target. This setting is independent of
-  `training_sample_ratio` and does not cap the number of indexed vectors
-  assigned to a cluster.
+  values generally produce more centroids and smaller clusters. Training leaves
+  are split until they contain at most this many vectors. This setting is
+  independent of `training_sample_ratio` and does not cap the number of indexed
+  vectors assigned to a cluster.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the

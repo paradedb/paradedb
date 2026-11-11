@@ -940,16 +940,18 @@ impl SearchIndexReader {
     pub fn estimate_vector_match_fraction(&self) -> f64 {
         let (matches, docs) =
             self.candidate_segment_readers()
-                .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
+                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
                     let estimated = self
                         .query
                         .estimate_docs(reader)
                         .ok()
                         .flatten()
-                        .map_or(0, |estimate| estimate.live_docs(reader));
+                        .map_or(f64::from(reader.num_docs()) * 0.01, |estimate| {
+                            estimate.live_docs(reader) as f64
+                        });
                     (matches + estimated, docs + u64::from(reader.num_docs()))
                 });
-        matches as f64 / docs.max(1) as f64
+        matches / docs.max(1) as f64
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -3860,6 +3862,73 @@ mod tests {
             }
             assert_eq!(calls.load(Relaxed), 2);
         }
+    }
+
+    #[pg_test]
+    fn vector_match_fraction_uses_range_statistics() {
+        let (index, _) = segmented_index_fixture("vector_range_estimate", 1, false);
+        let range = range_query("id", 9, 10);
+        for query in [
+            range.clone(),
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, range.clone()],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            },
+            SearchQueryInput::ConstScore {
+                query: Box::new(range),
+                score: 1.0,
+            },
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
+            assert_eq!(reader.search().count(), 2);
+        }
+        for (query, expected) in [
+            (SearchQueryInput::All, 1.0),
+            (SearchQueryInput::Empty, 0.0),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::Regex {
+                        pattern: "sil.*".into(),
+                    },
+                },
+                0.01,
+            ),
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), expected);
+        }
+        let (mutable, _) = segmented_index_fixture("vector_range_without_stats", 0, true);
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let reader = open_snapshot_reader(&mutable, range_query("id", 1, 5), false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.01);
+        drop(reader);
+        unsafe { pg_sys::PopActiveSnapshot() };
+
+        Spi::run(
+            "CREATE TABLE vector_date_estimate AS
+             SELECT g AS id, TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time
+             FROM generate_series(1, 100) g;
+             ALTER TABLE vector_date_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX vector_date_estimate_idx ON vector_date_estimate
+             USING paradedb (id, time) WITH (target_segment_count = 1);",
+        ).unwrap();
+        let index = open_index("vector_date_estimate_idx");
+        let query = SearchQueryInput::FieldedQuery {
+            field: "time".into(),
+            query: pdb::Query::Range {
+                lower_bound: std::ops::Bound::Included(PdbOwnedValue::Date(
+                    crate::postgres::datetime::PostgresDateTime::try_from_raw(91).unwrap(),
+                )),
+                upper_bound: std::ops::Bound::Unbounded,
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.1);
+        assert_eq!(reader.search().count(), 10);
     }
 
     #[pg_test]

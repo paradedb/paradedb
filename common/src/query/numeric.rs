@@ -224,28 +224,27 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
 ///
 /// A query is serialized between planning and execution and `IpAddr` does not survive that
 /// round trip: it comes back as a string, or as an array of octets when the serializer is not
-/// human-readable. Both are mapped back here. Anything else is left for the caller to reject.
-pub fn to_ip_addr(value: PdbOwnedValue) -> PdbOwnedValue {
+/// human-readable. Both are mapped back here, and a string or array that is not an address is an
+/// error. Any other value is returned unchanged.
+pub fn to_ip_addr(value: PdbOwnedValue) -> Result<PdbOwnedValue> {
     let parsed = match &value {
         PdbOwnedValue::Str(s) => s.parse::<IpAddr>().ok(),
-        PdbOwnedValue::Array(items) => {
-            let octets = items
-                .iter()
-                .map(|item| match item {
-                    PdbOwnedValue::U64(n) => u8::try_from(*n).ok(),
-                    PdbOwnedValue::I64(n) => u8::try_from(*n).ok(),
-                    _ => None,
-                })
-                .collect::<Option<Vec<u8>>>();
-            match octets.as_deref() {
-                Some(&[a, b, c, d]) => Some(IpAddr::from([a, b, c, d])),
-                Some(bytes) => <[u8; 16]>::try_from(bytes).ok().map(IpAddr::from),
-                None => None,
-            }
-        }
-        _ => None,
+        PdbOwnedValue::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                PdbOwnedValue::U64(n) => u8::try_from(*n).ok(),
+                _ => None,
+            })
+            .collect::<Option<Vec<u8>>>()
+            .and_then(|octets| match octets.as_slice() {
+                &[a, b, c, d] => Some(IpAddr::from([a, b, c, d])),
+                bytes => <[u8; 16]>::try_from(bytes).ok().map(IpAddr::from),
+            }),
+        _ => return Ok(value),
     };
-    parsed.map_or(value, |addr| PdbOwnedValue::IpAddr(addr.into_ipv6_addr()))
+    parsed
+        .map(|addr| PdbOwnedValue::IpAddr(addr.into_ipv6_addr()))
+        .ok_or_else(|| anyhow::anyhow!("{value:?} is not an IP address"))
 }
 
 // ============================================================================
@@ -576,7 +575,7 @@ pub fn convert_value_for_field(
             }
         }
         SearchFieldType::F64(_) => Ok(string_to_f64(value)),
-        SearchFieldType::Inet(_) => Ok(to_ip_addr(value)),
+        SearchFieldType::Inet(_) => to_ip_addr(value),
         _ => Ok(value),
     }
 }
@@ -591,6 +590,7 @@ mod tests {
     #[test]
     fn to_ip_addr_restores_serialized_addresses() {
         let v4 = PdbOwnedValue::IpAddr("::ffff:192.168.0.1".parse().unwrap());
+        let v6 = PdbOwnedValue::IpAddr("2001:db8::1".parse().unwrap());
         let octets = |bytes: &[u8]| {
             PdbOwnedValue::Array(
                 bytes
@@ -599,25 +599,56 @@ mod tests {
                     .collect(),
             )
         };
-        assert_eq!(to_ip_addr(PdbOwnedValue::Str("192.168.0.1".into())), v4);
-        assert_eq!(to_ip_addr(octets(&[192, 168, 0, 1])), v4);
         assert_eq!(
-            to_ip_addr(PdbOwnedValue::Str("2001:db8::1".into())),
-            PdbOwnedValue::IpAddr("2001:db8::1".parse().unwrap())
+            to_ip_addr(PdbOwnedValue::Str("192.168.0.1".into())).unwrap(),
+            v4
         );
+        assert_eq!(to_ip_addr(octets(&[192, 168, 0, 1])).unwrap(), v4);
         assert_eq!(
-            to_ip_addr(octets(
-                &"2001:db8::1"
-                    .parse::<std::net::Ipv6Addr>()
-                    .unwrap()
-                    .octets()
-            )),
-            PdbOwnedValue::IpAddr("2001:db8::1".parse().unwrap())
+            to_ip_addr(PdbOwnedValue::Str("2001:db8::1".into())).unwrap(),
+            v6
         );
-        // Not an address: left untouched.
-        let junk = PdbOwnedValue::Str("not an ip".into());
-        assert_eq!(to_ip_addr(junk.clone()), junk);
-        assert_eq!(to_ip_addr(octets(&[1, 2, 3])), octets(&[1, 2, 3]));
+        let v6_octets = "2001:db8::1"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap()
+            .octets();
+        assert_eq!(to_ip_addr(octets(&v6_octets)).unwrap(), v6);
+        // An address passes through, and so does a value that is not text or an array.
+        assert_eq!(to_ip_addr(v4.clone()).unwrap(), v4);
+        assert_eq!(
+            to_ip_addr(PdbOwnedValue::Null).unwrap(),
+            PdbOwnedValue::Null
+        );
+        // Text or an array that is not an address is an error.
+        for bad in [
+            PdbOwnedValue::Str("not an ip".into()),
+            PdbOwnedValue::Str("10.0.0.1/24".into()),
+            octets(&[1, 2, 3]),
+            PdbOwnedValue::Array(vec![PdbOwnedValue::U64(300); 4]),
+        ] {
+            let err = to_ip_addr(bad).unwrap_err().to_string();
+            assert!(err.contains("is not an IP address"), "{err}");
+        }
+    }
+
+    #[test]
+    fn inet_term_survives_serialization_round_trip() {
+        let inet = SearchFieldType::Inet(pgrx::pg_sys::INETOID);
+        for addr in ["192.168.0.1", "2001:db8::1"] {
+            let original = PdbOwnedValue::IpAddr(addr.parse::<IpAddr>().unwrap().into_ipv6_addr());
+            let json = serde_json::to_value(&original).unwrap();
+            let from_json: PdbOwnedValue = serde_json::from_value(json).unwrap();
+            assert_eq!(
+                convert_value_for_field(from_json, &inet, None).unwrap(),
+                original
+            );
+            let bytes = serde_cbor::to_vec(&original).unwrap();
+            let from_cbor: PdbOwnedValue = serde_cbor::from_slice(&bytes).unwrap();
+            assert_eq!(
+                convert_value_for_field(from_cbor, &inet, None).unwrap(),
+                original
+            );
+        }
     }
 
     #[test]

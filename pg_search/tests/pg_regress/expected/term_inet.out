@@ -30,4 +30,59 @@ SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', '2001:db8::1'::inet) O
   3
 (1 row)
 
+SELECT id FROM inet_docs WHERE ip @@@ pdb.term('2001:db8::1'::inet) ORDER BY id;
+ id 
+----
+  3
+(1 row)
+
+-- text literal
+SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', '192.168.0.1') ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- term_set
+SELECT id FROM inet_docs
+WHERE id @@@ paradedb.term_set(ARRAY[
+    paradedb.term('ip', '192.168.0.1'::inet),
+    paradedb.term('ip', '2001:db8::1'::inet)
+]) ORDER BY id;
+ id 
+----
+  1
+  3
+(2 rows)
+
+-- generic plan with a parameter
+SET plan_cache_mode = force_generic_plan;
+PREPARE inet_term(inet) AS
+SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', $1) ORDER BY id;
+EXECUTE inet_term('192.168.0.1');
+ id 
+----
+  1
+(1 row)
+
+EXECUTE inet_term('2001:db8::1');
+ id 
+----
+  3
+(1 row)
+
+DEALLOCATE inet_term;
+RESET plan_cache_mode;
+-- without the custom scan
+SET paradedb.enable_custom_scan = off;
+SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', '192.168.0.1'::inet) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+RESET paradedb.enable_custom_scan;
+-- a value that is not an address
+SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', 'not an ip'::text) ORDER BY id;
+ERROR:  Str("not an ip") is not an IP address
 DROP TABLE inet_docs;

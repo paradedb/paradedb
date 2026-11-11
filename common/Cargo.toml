@@ -48,3 +48,4 @@ uuid.workspace = true
 pgrx-tests.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+serde_cbor.workspace = true

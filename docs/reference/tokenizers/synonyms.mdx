@@ -126,6 +126,32 @@ so it still works after you rename the synonym index.
 The role that runs the query needs `SELECT` on the rules table and `USAGE` on its schema. If row security on the rules
 table applies to that role, the query fails.
 
+### Rules from a Subquery
+
+A query can also read the rules with a subquery on the rules table. `pdb.expand` collects the rules that the subquery
+returns, and the match expands with them:
+
+```sql
+SELECT description FROM mock_items
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+```
+
+This form names the table and not the synonym index. When the subquery reads the whole table, as above, the query uses
+the synonym index on that column that has the tokenizer of the field you search. `EXPLAIN` then shows the same `Synonyms`
+line as with `pdb.with_synonyms`.
+
+The subquery is regular SQL, so it can also pick the rules. With several sets in one table, a filter picks the set:
+
+```sql
+SELECT description FROM mock_items
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM synonyms WHERE set_name = 'shop');
+```
+
+A subquery with a filter, or on a table that has no synonym index, reads its rules on every query and matches them with
+the tokenizer of the field you search. It needs no synonym index, but each query reads every rule that the subquery
+returns, so keep such a set small. Postgres checks your rights on the rules table, and row security applies, so each role
+expands with the rules it can see. A subquery that returns no rule searches the words you typed.
+
 ## Scoring
 
 A group of single words scores as one term. A row that has both `sofa` and `couch` scores a little above a row with one of

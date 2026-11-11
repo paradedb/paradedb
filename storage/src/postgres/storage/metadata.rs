@@ -105,6 +105,10 @@ pub struct MetaPageData {
     created_by_version_patch: u16,
 
     created_at: pg_sys::TimestampTz,
+
+    /// Nonzero once a standby's WAL replay found this index named by the primary
+    /// (`postgres::promotion`). Indexes built on this server read zero.
+    standby_taint: u32,
 }
 
 /// Provides read access to the metadata page
@@ -258,10 +262,14 @@ impl MetaPage {
                 }
             }
 
-            Self {
-                data: *metadata,
-                bman,
+            let data = *metadata;
+            // The rewrite reaches a standby as a full-page image, which drops the standby's
+            // taint; the record following the write restores it.
+            drop(buffer);
+            if indexrel.need_wal() {
+                crate::postgres::storage::custom_rmgr::emit_init_record(indexrel);
             }
+            Self { data, bman }
         } else {
             Self {
                 data: metadata,
@@ -529,6 +537,24 @@ impl MetaPage {
     // been updated and this value is stale
     pub fn ambulkdelete_epoch(&self) -> u32 {
         self.data.ambulkdelete_epoch
+    }
+
+    pub fn standby_tainted(&self) -> bool {
+        self.data.standby_taint != 0
+    }
+
+    /// Sets the taint on a raw metapage during WAL replay, where no relation can be opened.
+    pub unsafe fn taint_page(page: pg_sys::Page) {
+        let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
+            .get()
+            .cast::<MetaPageData>();
+        (*contents).standby_taint = 1;
+        // Keep the field inside pd_lower, as `contents_mut` does: a full-page image written
+        // after promotion omits the hole past pd_lower.
+        let header = page.cast::<pg_sys::PageHeaderData>();
+        (*header).pd_lower = (contents.add(1) as usize - header as usize)
+            .try_into()
+            .expect("pd_lower overflowed");
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

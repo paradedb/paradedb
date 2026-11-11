@@ -822,19 +822,12 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         standby_postgres.log_path
     );
 
-    // The startup process listed the replicated indexes in the data directory, the vacuumed one
-    // included; the primary has no such list.
-    let registry = std::fs::read_to_string(
-        Path::new(&standby_postgres.tempdir_path).join("pg_search_standby"),
-    )?;
-    let early_line: Vec<(String,)> = "SELECT format('%s %s %s',
-            (SELECT oid FROM pg_database WHERE datname = current_database()),
-            'early_idx'::regclass::oid, pg_relation_filenode('early_idx'))"
-        .fetch(&mut source_conn);
+    // The startup process recorded standby mode in the data directory; the primary has no such
+    // record.
+    let standby_marker = Path::new(&standby_postgres.tempdir_path).join("pg_search_standby");
     assert!(
-        registry.lines().any(|line| line == early_line[0].0),
-        "registry {registry:?} lacks the vacuumed index {}",
-        early_line[0].0
+        standby_marker.exists(),
+        "startup process did not record standby mode"
     );
     assert!(
         !Path::new(&source_postgres.tempdir_path)
@@ -853,7 +846,11 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         |result| result.first().is_some_and(|(in_recovery,)| !in_recovery),
     );
 
-    // The listed indexes refuse queries on the promoted server, with a REINDEX hint.
+    // Leaving recovery removes the marker: the server is a primary now.
+    assert!(!standby_marker.exists(), "marker survived promotion");
+
+    // The tainted indexes refuse queries on the promoted server, with a REINDEX hint. The
+    // vacuumed index predates the clone; VACUUM's record is what tainted it.
     for query in [
         "SELECT description FROM items WHERE description ||| 'shoes'",
         "SELECT id FROM items WHERE description @@@ 'shoes'",

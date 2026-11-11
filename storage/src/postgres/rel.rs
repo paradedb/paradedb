@@ -313,6 +313,18 @@ impl PgSearchRelation {
         }
     }
 
+    /// The tablespace the relation lives in, from its file locator.
+    pub fn tablespace_oid(&self) -> pg_sys::Oid {
+        #[cfg(feature = "pg15")]
+        {
+            self.rd_node.spcNode
+        }
+        #[cfg(not(feature = "pg15"))]
+        {
+            self.rd_locator.spcOid
+        }
+    }
+
     /// The database the relation lives in, from its file locator.
     pub fn database_oid(&self) -> pg_sys::Oid {
         #[cfg(feature = "pg15")]

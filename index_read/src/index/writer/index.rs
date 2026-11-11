@@ -247,6 +247,11 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let mut writer = Self::open(index_relation, config, worker_number)?;
+        crate::index::set_ivf_clusterer(
+            &mut writer.index,
+            index_relation.options(),
+            writer.config.memory_budget.get(),
+        );
         let directory = BuildDirectory::new();
         let mut index = writer.index.clone();
         *index.directory_mut() = ManagedDirectory::wrap(Box::new(directory.clone()))?;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794384481523,
+  "lastUpdate": 1794384512722,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -112953,6 +112953,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13745222604-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794384509730,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1713.3850945384813,
+            "unit": "median tps",
+            "extra": "avg tps: 1723.08906595272, max tps: 1849.6520626378128, count: 59274"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.025724526312719,
+            "unit": "median tps",
+            "extra": "avg tps: 6.067796938837231, max tps: 7.175082642781257, count: 59274"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1657.7596873582715,
+            "unit": "median tps",
+            "extra": "avg tps: 1640.9411810630334, max tps: 1912.7041415736828, count: 59274"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2948.358811770787,
+            "unit": "median tps",
+            "extra": "avg tps: 2895.0014338321967, max tps: 3235.4596754467952, count: 59274"
+          }
+        ],
+        "publication_id": "13838438454-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -157922,6 +157969,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13745222604-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794384512610,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05923339069406485, max background_merging: 2.0, count: 59274"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6087375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3907290531450816, max cpu: 9.81595, count: 59274"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.526896212399198, max mem: 26.52734375, count: 59274"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.886663933805773, max cpu: 32.40116, count: 59274"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 50.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.69206342051321, max mem: 56.890625, count: 59274"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45321,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45051.524479535714, max block_count: 45324.0, count: 59274"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.713685595708068, max segment_count: 18.0, count: 59274"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.92323417589563, max cpu: 33.168808, count: 59274"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 35.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.74980605166262, max mem: 35.76953125, count: 59274"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.630961050701002, max cpu: 28.346458, count: 59274"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 50.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.864908359904845, max mem: 54.69140625, count: 59274"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.613167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.558914556838118, max cpu: 28.22146, count: 59274"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 46.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.04524854911091, max mem: 51.1953125, count: 59274"
+          }
+        ],
+        "publication_id": "13838438454-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

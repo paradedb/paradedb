@@ -712,9 +712,7 @@ def index_facts(segments):
 # --- render ---
 
 # Policy thresholds for flagging unfiltered rows, set for review rather than derived.
-MAX_RATIO = 1.15  # A Ratio above this is ❌ at every target.
-WARN_TARGETS = (0.99,)  # At these targets a Ratio above WARN_RATIO, up to MAX_RATIO, is ⚠️.
-WARN_RATIO = 1.05
+MAX_RATIO = 1.15  # A Ratio above this is ⚠️ at every target.
 RATIO_RISE = 0.15  # With a baseline, a Ratio flags (either mark) only past main's by more than this.
 MAIN_TARGETS = (0.9, 0.95)  # Against-main flags apply at these targets only.
 FLAT_WORSE = 0.10  # Flat clusters or Flat vectors, relative increase against main.
@@ -814,26 +812,19 @@ FOOTNOTE = (
     "Each Ratio is Router divided by Flat for the two columns before it. Flat and Router use fixed "
     "probes (adaptive off). Adaptive on vs off is the router's vectors probed with adaptive probing "
     "on, divided by off. Vectors in filtered rows count only vectors that pass the filter. Routing "
-    "ms is the router's time, with its share of query time in brackets. ❌ marks an unfiltered "
-    f"ratio above {ratio_text(MAX_RATIO)} (above {ratio_text(MAX_RATIO)} at "
-    f"{', '.join(label(t) for t in WARN_TARGETS)}, where {ratio_text(WARN_RATIO)} to "
-    f"{ratio_text(MAX_RATIO)} shows ⚠️); filtered rows are informational."
+    "ms is the router's time, with its share of query time in brackets. ⚠️ marks an unfiltered "
+    f"ratio above {ratio_text(MAX_RATIO)}; filtered rows are informational."
 )
-
-
-def ratio_threshold(target):
-    """The Ratio above which an unfiltered cell at `target` flags."""
-    return WARN_RATIO if target in WARN_TARGETS else MAX_RATIO
 
 
 def flags(current, baseline):
     """Flags on unfiltered rows, keyed by (column id, target). Filtered rows never flag.
 
-    Either Ratio above MAX_RATIO is ❌; at WARN_TARGETS one above WARN_RATIO and up to MAX_RATIO is
-    ⚠️. With a main baseline either mark also needs the Ratio past main's by more than RATIO_RISE,
-    and a cell main did not reach keeps the absolute rule. Against main, at MAIN_TARGETS, a cell is
-    ⚠️ when Flat clusters or Flat vectors rose by more than FLAT_WORSE, Adaptive on vs off by more
-    than ADAPTIVE_RATIO_RISE, or Routing ms by more than ROUTING_WORSE and ROUTING_WORSE_MS.
+    Either Ratio above MAX_RATIO is ⚠️ at every target. With a main baseline it also needs to be
+    past main's by more than RATIO_RISE, and a cell main did not reach keeps the absolute rule.
+    Against main, at MAIN_TARGETS, a cell is ⚠️ when Flat clusters or Flat vectors rose by more
+    than FLAT_WORSE, Adaptive on vs off by more than ADAPTIVE_RATIO_RISE, or Routing ms by more
+    than ROUTING_WORSE and ROUTING_WORSE_MS.
     """
     query, found = UNFILTERED, {}
     for target in TARGETS:
@@ -842,13 +833,13 @@ def flags(current, baseline):
             before = GETTERS[column](baseline, query, target)
             if (
                 now is not None
-                and now > ratio_threshold(target)
+                and now > MAX_RATIO
                 and (before is None or now - before > RATIO_RISE)
             ):
                 found[(column, target)] = {
                     "column": column,
                     "target": target,
-                    "mark": "❌" if now > MAX_RATIO else "⚠️",
+                    "mark": "⚠️",
                     "kind": "ratio",
                     "noun": noun,
                     "value": now,
@@ -915,16 +906,12 @@ def verdict(current, flagged, baseline_note, baseline_commit, baseline=None):
     """The verdict line and its mark. `baseline_note` ends the line when main has no comparable
     baseline."""
     ratio_flags = [f for f in flagged.values() if f["kind"] == "ratio"]
-    failures = [f for f in ratio_flags if f["mark"] == "❌"]
-    warnings = [f for f in ratio_flags if f["mark"] == "⚠️"]
     against_main = [f for f in flagged.values() if f["kind"] != "ratio"]
     cells = ratio_cells(current)
     worst = highest(cells)
-    above = highest([cell for cell in cells if cell[0] > ratio_threshold(cell[1])])
+    above = highest([cell for cell in cells if cell[0] > MAX_RATIO])
     period = True
-    if failures:
-        text, mark = router_needs(failures), "❌"
-    elif against_main:
+    if against_main:
         flag = max(against_main, key=lambda f: (f["change"], -f["target"]))
         kinds = {f["kind"] for f in flagged.values()}
         areas = ", ".join(area for kind, area in AREAS.items() if kind in kinds)
@@ -935,10 +922,10 @@ def verdict(current, flagged, baseline_note, baseline_commit, baseline=None):
             f"Look at: {areas}"
         )
         mark = "⚠️"
-    elif warnings:
-        text, mark = router_needs(warnings), "⚠️"
+    elif ratio_flags:
+        text, mark = router_needs(ratio_flags), "⚠️"
     elif baseline_note is None and above is not None:
-        # Above its threshold without a flag: within RATIO_RISE of main's ratio for the same cell.
+        # Above MAX_RATIO without a flag: within RATIO_RISE of main's ratio for the same cell.
         now, target, column = above
         before = GETTERS[column](baseline, UNFILTERED, target)
         main_text = f" (main {ratio_text(before)})" if before is not None else ""
@@ -1283,7 +1270,6 @@ def render(measurements, output, commit, pdbench, baseline=None, report_url=None
         "report_url": report_url,
         "baseline_commit": baseline["commit"] if baseline else None,
         "max_ratio": MAX_RATIO,
-        "warn_ratio": WARN_RATIO,
         "flags": sorted(flagged.values(), key=lambda f: (f["column"], f["target"])),
         "baseline_note": note,
         "verdict": mark,

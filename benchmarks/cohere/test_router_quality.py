@@ -702,8 +702,7 @@ class RenderTest(unittest.TestCase):
             "Adaptive on vs off is the router's vectors probed with adaptive probing on, divided by off.",
             "Vectors in filtered rows count only vectors that pass the filter.",
             "with its share of query time in brackets.",
-            "❌ marks an unfiltered ratio above 1.15x (above 1.15x at r99, where 1.05x to 1.15x shows ⚠️); "
-            "filtered rows are informational.",
+            "⚠️ marks an unfiltered ratio above 1.15x; filtered rows are informational.",
         ):
             self.assertIn(phrase, rq.FOOTNOTE)
         self.assertEqual(report["flags"], [])
@@ -732,12 +731,12 @@ class RenderTest(unittest.TestCase):
         cells = {(U, 0.95, "stored"): arm_cell(clusters=118.0, vectors_probed=47_200.0)}
         report, files = self.render(measurements(cells))
         row = table(files["router_quality.md"])["Unfiltered r95"]
-        self.assertEqual(row["ratio:clusters"], "**1.18x** ❌")
-        self.assertEqual(row["ratio:vectors"], "**1.18x** ❌")
+        self.assertEqual(row["ratio:clusters"], "**1.18x** ⚠️")
+        self.assertEqual(row["ratio:vectors"], "**1.18x** ⚠️")
         self.assertEqual(row["router:clusters"], "118")
-        self.assertEqual(report["verdict"], "❌")
-        self.assertVerdict(files, "❌ Router needs 1.18x flat's clusters at r95 · no main baseline yet.")
-        # At r90 and r95 a Ratio up to 1.15x does not flag.
+        self.assertEqual(report["verdict"], "⚠️")
+        self.assertVerdict(files, "⚠️ Router needs 1.18x flat's clusters at r95 · no main baseline yet.")
+        # A Ratio up to 1.15x does not flag.
         cells = {(U, 0.95, "stored"): arm_cell(clusters=115.0)}
         report, files = self.render(measurements(cells))
         self.assertEqual(report["flags"], [])
@@ -750,33 +749,27 @@ class RenderTest(unittest.TestCase):
         }
         _, files = self.render(measurements(cells))
         rows = table(files["router_quality.md"])
-        self.assertEqual(rows["Unfiltered r90"]["ratio:vectors"], "**1.20x** ❌")
+        self.assertEqual(rows["Unfiltered r90"]["ratio:vectors"], "**1.20x** ⚠️")
         self.assertEqual(rows["Unfiltered r90"]["ratio:clusters"], "1.00x")
-        self.assertVerdict(files, "❌ Router needs 1.16x flat's clusters at r95 · no main baseline yet.")
+        self.assertVerdict(files, "⚠️ Router needs 1.16x flat's clusters at r95 · no main baseline yet.")
         cells = {(U, 0.9, "stored"): arm_cell(vectors_probed=48_000.0)}
         _, files = self.render(measurements(cells))
-        self.assertVerdict(files, "❌ Router needs 1.20x flat's vectors at r90 · no main baseline yet.")
+        self.assertVerdict(files, "⚠️ Router needs 1.20x flat's vectors at r90 · no main baseline yet.")
 
-    def test_r99_shows_a_warning_band_below_the_failure_threshold(self):
-        # Above 1.05x and up to 1.15x is ⚠️; 1.05x itself does not flag.
-        for clusters, cell in ((105.0, "1.05x"), (110.0, "**1.10x** ⚠️"), (115.0, "**1.15x** ⚠️")):
+    def test_r99_flags_like_the_other_targets(self):
+        # Up to 1.15x does not flag; above it is ⚠️ and the verdict names r99.
+        for clusters, cell in ((110.0, "1.10x"), (115.0, "1.15x"), (116.0, "**1.16x** ⚠️")):
             report, files = self.render(measurements({(U, 0.99, "stored"): arm_cell(clusters=clusters)}))
             self.assertEqual(table(files["router_quality.md"])["Unfiltered r99"]["ratio:clusters"], cell)
         self.assertEqual(report["verdict"], "⚠️")
-        self.assertVerdict(files, "⚠️ Router needs 1.15x flat's clusters at r99 · no main baseline yet.")
-        # Above 1.15x is ❌, and the verdict names r99.
-        cells = {(U, 0.99, "stored"): arm_cell(clusters=116.0)}
-        report, files = self.render(measurements(cells))
-        self.assertEqual(table(files["router_quality.md"])["Unfiltered r99"]["ratio:clusters"], "**1.16x** ❌")
-        self.assertEqual(report["verdict"], "❌")
-        self.assertVerdict(files, "❌ Router needs 1.16x flat's clusters at r99 · no main baseline yet.")
-        # A ❌ at another target outranks an r99 ⚠️.
+        self.assertVerdict(files, "⚠️ Router needs 1.16x flat's clusters at r99 · no main baseline yet.")
+        # The verdict names the highest flagged Ratio across targets.
         cells = {
             (U, 0.9, "stored"): arm_cell(clusters=120.0),
-            (U, 0.99, "stored"): arm_cell(clusters=112.0),
+            (U, 0.99, "stored"): arm_cell(clusters=116.0),
         }
         _, files = self.render(measurements(cells))
-        self.assertVerdict(files, "❌ Router needs 1.20x flat's clusters at r90 · no main baseline yet.")
+        self.assertVerdict(files, "⚠️ Router needs 1.20x flat's clusters at r90 · no main baseline yet.")
 
     def test_with_a_baseline_a_ratio_flags_only_past_main_by_more_than_015(self):
         high = {(U, 0.95, "stored"): arm_cell(clusters=120.0)}
@@ -790,37 +783,35 @@ class RenderTest(unittest.TestCase):
         worse = {(U, 0.95, "stored"): arm_cell(clusters=136.0)}
         report, files = self.render(measurements(worse), base)
         self.assertEqual(
-            table(files["router_quality.md"])["Unfiltered r95"]["ratio:clusters"], "**1.36x** ❌ (main 1.20x)"
+            table(files["router_quality.md"])["Unfiltered r95"]["ratio:clusters"], "**1.36x** ⚠️ (main 1.20x)"
         )
-        self.assertVerdict(files, "❌ Router needs 1.36x flat's clusters at r95.")
+        self.assertVerdict(files, "⚠️ Router needs 1.36x flat's clusters at r95.")
         # A cell main did not reach keeps the absolute rule.
         missed = self.baseline({(U, 0.9, "stored"): arm_cell(reached=False)})
         cells = {(U, 0.9, "stored"): arm_cell(vectors_probed=48_000.0)}
         _, files = self.render(measurements(cells), missed)
-        self.assertEqual(table(files["router_quality.md"])["Unfiltered r90"]["ratio:vectors"], "**1.20x** ❌")
-        # At r99 the rise applies to both marks: within 0.15 of main's stays unflagged ...
+        self.assertEqual(table(files["router_quality.md"])["Unfiltered r90"]["ratio:vectors"], "**1.20x** ⚠️")
+        # At r99 too, a Ratio within 0.15 of main's stays unflagged ...
         base = self.baseline({(U, 0.99, "stored"): arm_cell(vectors_probed=44_800.0)})
-        cells = {(U, 0.99, "stored"): arm_cell(vectors_probed=46_000.0)}
+        cells = {(U, 0.99, "stored"): arm_cell(vectors_probed=48_000.0)}
         report, files = self.render(measurements(cells), base)
         self.assertEqual(report["flags"], [])
         self.assertVerdict(
-            files, f"✅ No regression against main {'b' * 7}. Router is at 1.15x flat at r99 (main 1.12x)."
+            files, f"✅ No regression against main {'b' * 7}. Router is at 1.20x flat at r99 (main 1.12x)."
         )
-        # ... past it, a Ratio in the band is ⚠️ and one above 1.15x is ❌.
+        # ... and up to 1.15x does not flag even well past main's ...
         base = self.baseline({(U, 0.99, "stored"): arm_cell(vectors_probed=36_000.0)})
         cells = {(U, 0.99, "stored"): arm_cell(vectors_probed=44_000.0)}
-        _, files = self.render(measurements(cells), base)
-        self.assertEqual(
-            table(files["router_quality.md"])["Unfiltered r99"]["ratio:vectors"], "**1.10x** ⚠️ (main 0.90x)"
-        )
-        self.assertVerdict(files, "⚠️ Router needs 1.10x flat's vectors at r99.")
+        report, _ = self.render(measurements(cells), base)
+        self.assertEqual(report["flags"], [])
+        # ... while above 1.15x and more than 0.15 past main's is ⚠️.
         base = self.baseline({(U, 0.99, "stored"): arm_cell(vectors_probed=44_800.0)})
         cells = {(U, 0.99, "stored"): arm_cell(vectors_probed=52_000.0)}
         _, files = self.render(measurements(cells), base)
         self.assertEqual(
-            table(files["router_quality.md"])["Unfiltered r99"]["ratio:vectors"], "**1.30x** ❌ (main 1.12x)"
+            table(files["router_quality.md"])["Unfiltered r99"]["ratio:vectors"], "**1.30x** ⚠️ (main 1.12x)"
         )
-        self.assertVerdict(files, "❌ Router needs 1.30x flat's vectors at r99.")
+        self.assertVerdict(files, "⚠️ Router needs 1.30x flat's vectors at r99.")
 
     def test_a_clean_baseline_adds_no_brackets_and_names_main(self):
         _, files = self.render(measurements(), self.baseline())
@@ -878,12 +869,11 @@ class RenderTest(unittest.TestCase):
             self.assertEqual(report["flags"], [], (before, after))
 
     def test_where_to_look_lists_every_flagged_area(self):
-        # Main's r99 Ratio of 0.90x lets 1.10x clear the 0.15 rise and show ⚠️.
-        base = self.baseline({(U, 0.99, "stored"): arm_cell(clusters=90.0)})
+        base = self.baseline()
         cells = {
             (U, 0.9, "flat"): arm_cell(clusters=120.0),
             (U, 0.95, "stored"): arm_cell(routing_ms=1.2),
-            (U, 0.99, "stored"): arm_cell(clusters=110.0),
+            (U, 0.99, "stored"): arm_cell(clusters=120.0),
         }
         report, files = self.render(measurements(cells), base)
         self.assertEqual(

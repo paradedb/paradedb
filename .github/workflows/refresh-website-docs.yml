@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
   checks: read
 
 jobs:
@@ -17,26 +16,30 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        (github.event.check_run.app.id == 222410 &&
         github.event.check_run.name == 'Mintlify Deployment' &&
-        github.event.check_run.conclusion == 'success'))
+        github.event.check_run.conclusion == 'success' &&
+        contains(github.event.check_run.output.summary, 'https://www.paradedb.com/docs')))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
       group: refresh-website-docs
       cancel-in-progress: false
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: main
-          persist-credentials: false
-
       - name: Refresh Website Docs
         env:
           GH_TOKEN: ${{ github.token }}
+          CHECK_SUITE_ID: ${{ github.event.check_run.check_suite.id }}
           WEBSITE_DEPLOY_HOOK_URL: ${{ secrets.WEBSITE_DEPLOY_HOOK_URL }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "check_run" ]]; then
-            python3 .github/scripts/refresh_website_docs.py check
-          else
-            python3 .github/scripts/refresh_website_docs.py refresh
+            branch=$(gh api "repos/$GITHUB_REPOSITORY/check-suites/$CHECK_SUITE_ID" --jq '.head_branch')
+            if [[ "$branch" != "main" ]]; then
+              echo "Not a production docs deployment; skipping."
+              exit 0
+            fi
           fi
+
+          : "${WEBSITE_DEPLOY_HOOK_URL:?Set WEBSITE_DEPLOY_HOOK_URL}"
+          curl --fail --silent --show-error --max-time 30 --request POST \
+            "$WEBSITE_DEPLOY_HOOK_URL" --output response.json
+          jq --exit-status '.job.id != null and .job.state != "ERROR" and .job.state != "CANCELED"' response.json > /dev/null
+          echo "Website rebuild queued."

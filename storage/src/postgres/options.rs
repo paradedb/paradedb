@@ -490,7 +490,8 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the configured target vectors per clustering leaf on the full
+    /// dataset. Tantivy scales this by `training_sample_ratio` during training.
     pub fn target_leaf_size(&self) -> usize {
         self.options_data().target_leaf_size()
     }
@@ -966,7 +967,8 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the configured target vectors per clustering leaf on the full
+    /// dataset. Tantivy scales this by `training_sample_ratio` during training.
     pub fn target_leaf_size(&self) -> usize {
         self.target_leaf_size as usize
     }

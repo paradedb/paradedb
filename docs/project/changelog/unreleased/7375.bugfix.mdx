@@ -1,0 +1,5 @@
+---
+header: bugfix
+---
+
+Fixed IVF `target_leaf_size` so it describes the desired full-dataset leaf size. Training now scales it by `training_sample_ratio` (for example, defaults pass `64` into SuperKMeans) so final clusters stay near the configured target. Existing indexes are unaffected until they are rebuilt.

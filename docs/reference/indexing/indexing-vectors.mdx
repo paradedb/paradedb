@@ -254,12 +254,12 @@ modelBuilder.Entity<MockItem>()
   improve centroid quality at the cost of a slower, more memory-intensive build.
 </ParamField>
 <ParamField body="target_leaf_size" default={200}>
-  The target number of sampled training vectors in a leaf of the hierarchical
-  clustering tree. Must be an integer between `1` and `2147483647`. Smaller
-  values generally produce more centroids and smaller clusters. Actual leaves
-  may be somewhat larger than the target. This setting is independent of
-  `training_sample_ratio` and does not cap the number of indexed vectors
-  assigned to a cluster.
+  The target number of indexed vectors in a leaf of the hierarchical clustering
+  tree. Must be an integer between `1` and `2147483647`. Training scales this by
+  `training_sample_ratio` so sampled leaves stay proportional and final clusters
+  approximate this size. Smaller values generally produce more centroids and
+  smaller clusters. Actual leaves may be somewhat larger than the target. This
+  setting does not cap the number of indexed vectors assigned to a cluster.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the
@@ -273,8 +273,8 @@ modelBuilder.Entity<MockItem>()
   These options replace `centroid_ratio` and `training_samples_per_centroid`.
   The old names are no longer accepted. Recreate indexes that explicitly store
   either old option using the new options. `REINDEX` alone does not remove
-  obsolete index options. The new defaults sample 32% of vectors and use a
-  maximum training leaf size of 200.
+  obsolete index options. The new defaults sample 32% of vectors and target
+  about 200 vectors per clustering leaf.
 </Note>
 
 <ParamField body="quantization" default="[1,1]">

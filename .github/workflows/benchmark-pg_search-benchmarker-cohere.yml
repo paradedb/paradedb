@@ -339,45 +339,15 @@ jobs:
           python3 benchmarks/cohere/router_quality.py configs \
             --profile "benchmarks/cohere/${COHERE_SIZE}.toml" --output benchmark-artifacts/router
 
-      # pdbench saves each run's report before building its console projection. That projection can
-      # fail with "representative layer0 has no scan stage" on a parallel plan; such a run is kept
-      # when its report was saved. Any other failure fails the step.
+      # Per query: the stored arm, seeded from the existing sweep on the unfiltered query, then flat
+      # and stored-adaptive seeded from it. The existing sweep's unfiltered report stands in for
+      # stored-adaptive when that query routes every segment. A run whose console projection fails
+      # with "representative layer0 has no scan stage" is kept when it saved its report; any other
+      # failure fails the step.
       - name: Sweep max_probe per router-quality arm with pdbench
         run: |
-          set -euo pipefail
-          tolerated=benchmark-artifacts/router/tolerated.txt
-          : > "$tolerated"
-          for arm in stored flat stored-adaptive; do
-            for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
-              runs="benchmark-artifacts/router/${arm}"
-              stderr="$RUNNER_TEMP/pdbench-${arm}-${query}.stderr"
-              mkdir -p "$runs"
-              before=$(find "$runs" -name '*_search.json' | sort)
-              echo "::group::${arm} ${query}"
-              status=0
-              pdbench search --url "$PARADEDB_URL" --config "benchmark-artifacts/router/router-${arm}.toml" \
-                --assets-dir benchmarks/cohere/assets --runs-dir "$runs" \
-                --query "$query" --no-compare 2> "$stderr" || status=$?
-              cat "$stderr" >&2
-              echo "::endgroup::"
-              if [ "$status" -ne 0 ]; then
-                saved=""
-                while IFS= read -r report; do
-                  if [ -n "$report" ] && jq -e --arg q "$query" '.data.variants | has($q)' "$report" > /dev/null; then
-                    saved=$report
-                  fi
-                done < <(comm -13 <(echo "$before") <(find "$runs" -name '*_search.json' | sort))
-                if ! grep -q 'representative layer0 has no scan stage' "$stderr" || [ -z "$saved" ]; then
-                  echo "::error::pdbench search ${arm} ${query} failed with exit ${status}"
-                  exit "$status"
-                fi
-                echo "${arm} ${query} ${saved}" >> "$tolerated"
-                echo "- Tolerated pdbench exit ${status} for \`${arm}\` \`${query}\`: \"representative layer0 has no scan stage\"; report saved to \`${saved}\`." \
-                  >> "$GITHUB_STEP_SUMMARY"
-              fi
-              echo "${arm} ${query} finished at $(date -u +%FT%TZ)"
-            done
-          done
+          python3 benchmarks/cohere/router_quality.py sweep --runs benchmark-artifacts/router \
+            --existing "benchmark-artifacts/search/${COHERE_SIZE}" --assets-dir benchmarks/cohere/assets
 
       - name: Measure router quality at the selected budgets
         run: |

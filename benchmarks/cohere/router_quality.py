@@ -7,6 +7,7 @@ is Router / Flat. Both run with adaptive probing off; a third arm repeats the st
 adaptive probing on.
 
     configs  write router-<arm>.toml for every arm from a Cohere profile
+    sweep    find each arm's budget per query and recall target with pdbench, seeding the ranges
     measure  rerun pdbench's selected budgets under EXPLAIN and record per-segment work
     render   write router_quality.{json,md,html} and the router history metrics
 """
@@ -18,11 +19,13 @@ import html
 import json
 import math
 import os
+import re
 import subprocess
+import sys
+import time
 import tomllib
 from pathlib import Path
 
-from compare_search import search_reports
 from prepare_k6 import PROBE, QUERIES, TARGETS
 
 AUDIT = "paradedb.vector_router_audit"
@@ -34,6 +37,8 @@ ARMS = {
     "stored-adaptive": ("stored", "on"),
 }
 FIXED = ("stored", "flat")
+FLAT, ROUTER, ROUTER_ADAPTIVE = "flat", "stored", "stored-adaptive"
+UNFILTERED = "knn_top10_unfiltered"
 # The `termination` value of a segment the adaptive stop ended; `Ceiling` and `Exhausted` are not.
 ADAPTIVE_STOP = "QuantizedRecall"
 MAX_RATIO = 1.05
@@ -43,7 +48,6 @@ LABELS = {
     "knn_top10_1pct": "Filter 1%",
 }
 QVEC = "current_setting('cohere.qvec')"
-TOLERATED = "tolerated.txt"
 
 # Per-query sums over segments and workers, from each segment's vector statistics.
 SUMS = {
@@ -120,6 +124,299 @@ def configs(profile, output):
     text = profile.read_text()
     for arm in ARMS:
         (output / f"router-{arm}.toml").write_text(arm_profile(text, arm))
+
+
+# --- sweep ---
+
+SWEEPS = "sweeps.json"
+TOLERATED_ERROR = "representative layer0 has no scan stage"
+# Policy, not derived: a seeded range reaches SEED_SPAN times past its seed on each open side. A
+# target outside it is not bracketed and is swept again over the profile's full range.
+SEED_SPAN = 2.0
+# pdbench stops at the first probed budget whose recall equals the target, so the selected budget can
+# lie anywhere on that recall plateau, not at its lowest budget.
+BUDGET_NOTE = (
+    "Budgets are the first probed value that meets the target, not the minimum. At r99 the selected "
+    "budget can sit a few percent above the minimum."
+)
+# The unfiltered query's only predicate matches every row.
+MATCH_ALL = re.compile(r"\bWHERE\s+\w+\s+@@@\s+paradedb\.all\(\)\s+ORDER\s+BY\b", re.IGNORECASE)
+
+
+def seeded_range(arm, seed):
+    """pdbench's [search.sweep] start, min and max for one target, seeded at budget `seed`.
+
+    pdbench probes `start`; while every probe lies on one side of the target it steps to `min` or
+    `max` (both within its 8x gallop of `start`), then bisects. A target past `min` or `max` is not
+    bracketed (see `bracketed`).
+    """
+    seed = float(seed)
+    low, high = math.floor(seed / SEED_SPAN), math.ceil(seed * SEED_SPAN)
+    if arm == ROUTER:
+        # Seeded from the existing sweep, the stored router with adaptive probing on. Off, the
+        # router probes every cluster up to the budget, a superset of what it probes on, so it needs
+        # at most the seed: an exact seed costs a probe below it and the seed.
+        start, high = seed - 1, seed
+    elif arm == ROUTER_ADAPTIVE:
+        # Seeded from the stored arm: adaptive probing stops early, so it needs at least the seed:
+        # an exact seed costs the seed and a probe below it.
+        start, low = seed, seed - 1
+    else:
+        # Flat has no order against the stored router.
+        start = seed
+    low = max(1.0, float(low))
+    high = max(float(high), low + 1)
+    return {"start": min(max(float(start), low), high), "min": low, "max": high}
+
+
+def bracketed(report, query, target, floor):
+    """The point pdbench selected for `target` when the run bracketed it: an exact hit, a selection
+    at `floor` (the profile's own minimum, so a full-range sweep cannot go lower), or a selection
+    at or above the target with a probe below it. Otherwise pdbench settled on `min`, which says
+    only that the answer may lie under the range."""
+    variant = report["data"]["variants"][query]
+    selected = variant["targets"].get(str(target))
+    if selected is None:
+        return None
+    tolerance = report["config"]["search"]["sweep"]["tolerance"]
+    if abs(selected["recall"] - target) <= tolerance or float(selected["value"]) <= floor:
+        return selected
+    recalls = [point["metrics"]["recall"]["recall"] for point in variant["points"]]
+    return selected if any(recall < target - tolerance for recall in recalls) else None
+
+
+def comparable_config(report):
+    """The report's configuration without what varies per run: the query, k and the sweep range."""
+    config = json.loads(json.dumps(report["config"]))
+    for key in ("query", "k", "sweep"):
+        config["search"].pop(key, None)
+    return config
+
+
+def without_arm_settings(config):
+    """A comparable configuration without the router-audit and adaptive-probing settings."""
+    config = json.loads(json.dumps(config))
+    config["search"]["session"].pop(AUDIT, None)
+    config["search"]["session"].pop(ADAPTIVE, None)
+    return config
+
+
+def stand_in_refusal(existing, stored):
+    """Why the existing sweep's unfiltered report cannot stand in for stored-adaptive, or None.
+
+    The existing sweep runs the profile's session: the stored router with adaptive probing on, the
+    arm's settings except the audit. The audit only forces routing, so the report stands in when
+    the query has no filter, every segment routed at every point, and its configuration matches the
+    stored arm's beyond those two settings.
+    """
+    if existing is None:
+        return "the existing sweep has no unfiltered report"
+    variant = existing["data"]["variants"][UNFILTERED]
+    if not MATCH_ALL.search(variant["query"]):
+        return "the unfiltered query has a filter"
+    if variant["query"] != stored["data"]["variants"][UNFILTERED]["query"]:
+        return "the existing sweep ran other SQL than the stored arm"
+    session = existing["config"]["search"]["session"]
+    if session.get(AUDIT, "off") != "off" or session.get(ADAPTIVE, "on") not in ("on", "true"):
+        return "the existing sweep sets the router audit or turns adaptive probing off"
+    if without_arm_settings(comparable_config(existing)) != without_arm_settings(
+        comparable_config(stored)
+    ):
+        return "the existing sweep's configuration differs from the stored arm's"
+    for point in variant["points"]:
+        probes = point["metrics"]["probes"]
+        routed = probes["per_query"].get("segments_routed_mean")
+        if not probes["queries_measured"] or routed != probes["execution"]["segment_count_mean"]:
+            return f"not every segment routed at {PROBE} = {point['value']}"
+    return None
+
+
+class Pdbench:
+    """`pdbench search` for the router sweeps. Each run gets a fresh runs directory, so no run
+    revalidates another's cached sweep values, and skips pg_prewarm, which affects timing but not
+    which rows a query returns."""
+
+    def __init__(self, configs, assets, url, run=subprocess.run, summary=None):
+        self.configs, self.assets, self.url, self.run, self.summary = (
+            configs,
+            assets,
+            url,
+            run,
+            summary,
+        )
+
+    def search(self, arm, query, runs, sweep):
+        """One search into `runs`, a directory that must not exist yet, with `sweep` overriding
+        [search.sweep] keys. Returns (report path, report, tolerated, seconds).
+
+        pdbench saves the report before building its console projection, which can fail on a
+        parallel plan with TOLERATED_ERROR. That failure is tolerated when the run saved its
+        report; any other failure raises.
+        """
+        runs.mkdir(parents=True)
+        command = [
+            "pdbench", "search", "--url", self.url,
+            "--config", str(self.configs / f"router-{arm}.toml"),
+            "--assets-dir", str(self.assets), "--runs-dir", str(runs),
+            "--query", query, "--no-compare", "--no-prewarm",
+        ]  # fmt: skip
+        for key, value in sweep.items():
+            command += ["--set", f"search.sweep.{key}={value}"]
+        print(f"::group::{arm} {query} {runs.name}", flush=True)
+        started = time.monotonic()
+        result = self.run(command, stderr=subprocess.PIPE, text=True)
+        seconds = time.monotonic() - started
+        sys.stderr.write(result.stderr or "")
+        print("::endgroup::", flush=True)
+        saved = [
+            path
+            for path in sorted(runs.rglob("*_search.json"))
+            if query in json.loads(path.read_text())["data"]["variants"]
+        ]
+        if result.returncode != 0 and (TOLERATED_ERROR not in (result.stderr or "") or not saved):
+            raise RuntimeError(f"pdbench search {arm} {query} failed with exit {result.returncode}")
+        if len(saved) != 1:
+            raise ValueError(f"expected one {query} report under {runs}")
+        tolerated = result.returncode != 0
+        if tolerated:
+            self.note(
+                f"- Tolerated pdbench exit {result.returncode} for `{arm}` `{query}`: "
+                f'"{TOLERATED_ERROR}"; report saved to `{saved[0]}`.'
+            )
+        return saved[0], json.loads(saved[0].read_text()), tolerated, seconds
+
+    def floor(self, arm):
+        """The arm profile's own sweep minimum."""
+        profile = tomllib.loads((self.configs / f"router-{arm}.toml").read_text())
+        return profile["search"]["sweep"]["min"]
+
+    def note(self, line):
+        if self.summary is not None:
+            with open(self.summary, "a") as summary:
+                summary.write(line + "\n")
+
+
+def target_list(targets):
+    return "[" + ", ".join(str(target) for target in targets) + "]"
+
+
+def existing_reports(directory):
+    """The existing sweep's report path per query."""
+    found = {}
+    for path in sorted(directory.glob("*_search.json")):
+        (query,) = json.loads(path.read_text())["data"]["variants"]
+        if query in found:
+            raise ValueError(f"two existing sweeps of {query} under {directory}")
+        found[query] = path
+    return found
+
+
+def sweep(runs, existing, pdbench):
+    """Sweeps every arm per query and writes runs/SWEEPS: every pdbench run, and the point that
+    resolved each arm, query and target.
+
+    Per query the stored arm runs first: seeded from the existing sweep's budgets on the unfiltered
+    query, and over the profile's full range on the filtered ones, whose existing sweep may take
+    the located path. Flat and stored-adaptive follow, seeded from the budgets the stored arm
+    selected. Seeded sweeps run one target each; a target its range does not bracket is swept
+    again over the full range. On the unfiltered query the existing sweep's report stands in for
+    stored-adaptive unless `stand_in_refusal` gives a reason.
+    """
+    existing_paths = existing_reports(existing)
+    log = {"runs": [], "selected": {}, "stand_in": None}
+
+    def run(arm, query, name, targets, kind, seed=None, sweep_range=None):
+        overrides = {"targets": target_list(targets)} | (sweep_range or {})
+        path, report, tolerated, seconds = pdbench.search(
+            arm, query, runs / arm / query / name, overrides
+        )
+        log["runs"].append(
+            {
+                "arm": arm,
+                "query": query,
+                "targets": list(targets),
+                "kind": kind,
+                "seed": seed,
+                "range": sweep_range,
+                "report": str(path),
+                "probes": len(report["data"]["variants"][query]["points"]),
+                "seconds": round(seconds, 1),
+                "tolerated": tolerated,
+            }
+        )
+        return path, report
+
+    def select(arm, query, target, path, report):
+        point = report["data"]["variants"][query]["targets"].get(str(target))
+        if point is not None:
+            log["selected"].setdefault(arm, {}).setdefault(query, {})[str(target)] = point | {
+                "report": str(path)
+            }
+
+    def seeds(arm, query):
+        """Seed budget per target, or None for a full-range sweep of every target."""
+        if arm != ROUTER:
+            chosen = log["selected"].get(ROUTER, {}).get(query, {})
+            return {t: chosen[str(t)]["value"] if str(t) in chosen else None for t in TARGETS}
+        if query != UNFILTERED or query not in existing_paths:
+            return None
+        report = json.loads(existing_paths[query].read_text())
+        chosen = report["data"]["variants"][query]["targets"]
+        return {t: chosen[str(t)]["value"] if str(t) in chosen else None for t in TARGETS}
+
+    for query in QUERIES:
+        for arm in ARMS:
+            if arm == ROUTER_ADAPTIVE and query == UNFILTERED:
+                stored = next(r for r in log["runs"] if r["arm"] == ROUTER and r["query"] == query)
+                existing_path = existing_paths.get(query)
+                refusal = stand_in_refusal(
+                    json.loads(existing_path.read_text()) if existing_path else None,
+                    json.loads(Path(stored["report"]).read_text()),
+                )
+                log["stand_in"] = {"arm": arm, "query": query, "refusal": refusal}
+                if refusal is None:
+                    report = json.loads(existing_path.read_text())
+                    log["runs"].append(
+                        {
+                            "arm": arm,
+                            "query": query,
+                            "targets": list(TARGETS),
+                            "kind": "existing",
+                            "seed": None,
+                            "range": None,
+                            "report": str(existing_path),
+                            "probes": 0,
+                            "seconds": 0.0,
+                            "tolerated": False,
+                        }
+                    )
+                    for target in TARGETS:
+                        select(arm, query, target, existing_path, report)
+                    continue
+                pdbench.note(f"- `{arm}` `{query}` swept: {refusal}.")
+            budgets = seeds(arm, query)
+            if budgets is None:
+                path, report = run(arm, query, "all", TARGETS, "full")
+                for target in TARGETS:
+                    select(arm, query, target, path, report)
+                continue
+            for target in TARGETS:
+                seed = budgets[target]
+                name = label(target)
+                if seed is None:
+                    path, report = run(arm, query, f"{name}-full", [target], "full")
+                else:
+                    sweep_range = seeded_range(arm, seed)
+                    path, report = run(arm, query, name, [target], "seeded", seed, sweep_range)
+                    if bracketed(report, query, target, pdbench.floor(arm)) is None:
+                        pdbench.note(
+                            f"- `{arm}` `{query}` {name}: the range seeded at {seed} did not "
+                            "bracket the target; swept again over the full range."
+                        )
+                        path, report = run(arm, query, f"{name}-full", [target], "fallback", seed)
+                select(arm, query, target, path, report)
+    (runs / SWEEPS).write_text(json.dumps(log, indent=2) + "\n")
+    return log
 
 
 # --- measure ---
@@ -281,51 +578,39 @@ def psql(script):
     ).stdout
 
 
-def arm_reports(runs, arm):
-    """The arm's pdbench search report per query."""
-    directories = [path.parent for path in (runs / arm).rglob("*_search.json")]
-    if len(set(directories)) != 1:
-        raise ValueError(f"expected one pdbench profile directory under {runs / arm}")
-    reports = search_reports(directories[0])
-    if set(reports) != set(QUERIES):
-        raise ValueError(f"{arm}: missing sweeps for {set(QUERIES) - set(reports)}")
-    audit, adaptive = ARMS[arm]
-    for query, report in reports.items():
-        if report["data"]["sweep_param"] != PROBE:
-            raise ValueError(f"{arm}/{query}: expected a {PROBE} sweep")
-        session = report["config"]["search"]["session"]
-        if session.get(AUDIT) != audit or session.get(ADAPTIVE) != adaptive:
-            raise ValueError(f"{arm}/{query}: report was not run with the arm's settings")
-    return reports
-
-
-def comparable_config(report):
-    config = json.loads(json.dumps(report["config"]))
-    config["search"].pop("query", None)
-    config["search"].pop("k", None)
-    return config
-
-
 def fingerprint(configs_by_arm):
     canonical = json.dumps(configs_by_arm, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def measure(runs, vectors, run=psql):
-    """Every arm x query x target at pdbench's selected budget, plus index facts and checks."""
-    reports = {arm: arm_reports(runs, arm) for arm in ARMS}
+    """Every arm x query x target at the budget its sweep selected (runs/SWEEPS), plus index facts
+    and checks."""
+    log = json.loads((runs / SWEEPS).read_text())
+    loaded = {}
+
+    def report_at(path):
+        if path not in loaded:
+            loaded[path] = json.loads(Path(path).read_text())
+            if loaded[path]["data"]["sweep_param"] != PROBE:
+                raise ValueError(f"{path}: expected a {PROBE} sweep")
+        return loaded[path]
+
     configs_by_arm = {}
-    for arm in ARMS:
-        found = {json.dumps(comparable_config(r), sort_keys=True) for r in reports[arm].values()}
+    for arm, (audit, adaptive) in ARMS.items():
+        # A stand-in report ran the profile's session, not the arm's; `sweep` compared it already.
+        found = {
+            json.dumps(comparable_config(report_at(entry["report"])), sort_keys=True)
+            for entry in log["runs"]
+            if entry["arm"] == arm and entry["kind"] != "existing"
+        }
         if len(found) != 1:
             raise ValueError(f"{arm}: sweeps used different configurations")
         configs_by_arm[arm] = json.loads(found.pop())
-    shared = []
-    for config in configs_by_arm.values():
-        config = json.loads(json.dumps(config))
-        config["search"]["session"].pop(AUDIT)
-        config["search"]["session"].pop(ADAPTIVE)
-        shared.append(config)
+        session = configs_by_arm[arm]["search"]["session"]
+        if session.get(AUDIT) != audit or session.get(ADAPTIVE) != adaptive:
+            raise ValueError(f"{arm}: sweeps were not run with the arm's settings")
+    shared = [without_arm_settings(config) for config in configs_by_arm.values()]
     if any(config != shared[0] for config in shared):
         raise ValueError(f"the arms differ beyond {AUDIT} and {ADAPTIVE}")
 
@@ -336,21 +621,19 @@ def measure(runs, vectors, run=psql):
     shapes = collections.defaultdict(set)
     results = {}
     for arm in ARMS:
+        arm_session = configs_by_arm[arm]["search"]["session"]
         for query in QUERIES:
-            report = reports[arm][query]
-            variant = report["data"]["variants"][query]
-            if variant["query"].count(QVEC) != 1:
-                raise ValueError(f"{arm}/{query}: expected exactly one query-vector operand")
-            sql = variant["query"].replace(QVEC, "$1")
-            dims = report["config"]["dataset"].get("dims", 1024)
             for target in TARGETS:
-                selected = variant["targets"].get(str(target))
+                selected = log["selected"].get(arm, {}).get(query, {}).get(str(target))
                 cell = {"reached": selected is not None}
                 if selected:
-                    session = report["config"]["search"]["session"] | {
-                        PROBE: selected["value"],
-                        "paradedb.vector_stats": "on",
-                    }
+                    report = report_at(selected["report"])
+                    variant = report["data"]["variants"][query]
+                    if variant["query"].count(QVEC) != 1:
+                        raise ValueError(f"{arm}/{query}: expected exactly one query-vector operand")
+                    sql = variant["query"].replace(QVEC, "$1")
+                    dims = report["config"]["dataset"].get("dims", 1024)
+                    session = arm_session | {PROBE: selected["value"], "paradedb.vector_stats": "on"}
                     plans = parse_plans(run(explain_script(session, sql, vectors, dims)))
                     if len(plans) != len(vectors):
                         raise ValueError(f"{arm}/{query}: expected {len(vectors)} plans")
@@ -360,9 +643,9 @@ def measure(runs, vectors, run=psql):
                         checks.observe(arm, query, segments)
                         terminations[arm].update(s.get("termination") for s in segments)
                         per_query.append(totals)
-                        if arm == "stored":
+                        if arm == ROUTER:
                             segments_seen.update(segment_entries(plan))
-                    if rerank_factor is None and arm == "stored":
+                    if rerank_factor is None and arm == ROUTER:
                         rerank_factor = run(
                             "".join(f"SET {k} = '{v}';\n" for k, v in session.items())
                             + "SHOW paradedb.vector_router_rerank_factor;\n"
@@ -379,17 +662,11 @@ def measure(runs, vectors, run=psql):
             len(shapes[query]) == 1 and "mixed" not in shapes[query],
             {"query": query, "shapes": sorted(shapes[query])},
         )
-    tolerated = []
-    if (runs / TOLERATED).exists():
-        for line in (runs / TOLERATED).read_text().splitlines():
-            if line.strip():
-                arm, query, report_path = line.split(maxsplit=2)
-                tolerated.append({"arm": arm, "query": query, "report": report_path})
     index = index_facts(segments_seen.values()) if segments_seen else None
     if index is not None:
         index["rerank_factor"] = rerank_factor
     return {
-        "dataset": configs_by_arm["stored"]["dataset"],
+        "dataset": configs_by_arm[ROUTER]["dataset"],
         "fingerprint": fingerprint(configs_by_arm),
         "query_vectors": len(vectors),
         "arms": {arm: {"session": configs_by_arm[arm]["search"]["session"]} for arm in ARMS},
@@ -400,8 +677,15 @@ def measure(runs, vectors, run=psql):
         "adaptive_stop": ADAPTIVE_STOP,
         "terminations": {arm: dict(counter) for arm, counter in terminations.items()},
         "plan_shapes": {query: sorted(shapes[query]) for query in QUERIES},
+        # Every pdbench run behind the selected budgets, and whether the existing sweep stood in.
+        "sweeps": log["runs"],
+        "stand_in": log["stand_in"],
         # pdbench runs whose console projection failed after their report was saved.
-        "tolerated": tolerated,
+        "tolerated": [
+            {"arm": r["arm"], "query": r["query"], "report": r["report"]}
+            for r in log["runs"]
+            if r["tolerated"]
+        ],
         "results": results,
     }
 
@@ -428,8 +712,6 @@ def index_facts(segments):
 
 # --- render ---
 
-FLAT, ROUTER, ROUTER_ADAPTIVE = "flat", "stored", "stored-adaptive"
-UNFILTERED = "knn_top10_unfiltered"
 # Policy thresholds for flagging unfiltered rows, set for review rather than derived.
 MAIN_TARGETS = (0.9, 0.95)  # Against-main flags apply at these targets only.
 RATIO_RISE = 0.05  # With a baseline, a Ratio above MAX_RATIO flags only past main's by this.
@@ -782,6 +1064,24 @@ MAIN_ROWS = (
 )
 
 
+def stand_in_text(stand_in):
+    if not stand_in:
+        return ""
+    where = f"{stand_in['arm']} on {LABELS[stand_in['query']]}"
+    if stand_in["refusal"] is None:
+        return f"{where}: budgets from the existing sweep, which runs the same router and settings."
+    return f"{where}: swept, because {stand_in['refusal']}."
+
+
+def fallback_text(sweeps):
+    fallbacks = [r for r in sweeps if r["kind"] == "fallback"]
+    if not fallbacks:
+        return "none fell back"
+    return "fell back: " + ", ".join(
+        f"{r['arm']} {LABELS[r['query']]} {label(r['targets'][0])}" for r in fallbacks
+    )
+
+
 def html_report(report, baseline=None):
     """Everything the comment leaves out, as one self-contained page, with main side by side."""
     e = html.escape
@@ -862,6 +1162,16 @@ def html_report(report, baseline=None):
                 f"<h3>{e(LABELS[query])}</h3>",
                 table(["Target", "Value", "This commit", "Main", "Change"], body),
             ]
+    sweeps = report.get("sweeps", [])
+
+    def bounds(run):
+        if run["range"] is None:
+            return ["", "", ""]
+        return [f"{run['range'][key]:g}" for key in ("start", "min", "max")]
+
+    def probes(arm, query):
+        return sum(run["probes"] for run in sweeps if (run["arm"], run["query"]) == (arm, query))
+
     parts += [
         "<h2>Checks</h2>",
         table(
@@ -878,6 +1188,31 @@ def html_report(report, baseline=None):
         ),
         "<p>Parallel plans cap each arm's candidate list at the router's k; serial plans take the "
         "whole ranking.</p>",
+        "<h2>Sweeps</h2>",
+        f"<p>{e(stand_in_text(report.get('stand_in')))} Seeded ranges reach {SEED_SPAN:g}x past "
+        "their seed; a target a seeded range does not bracket is swept again over the full range "
+        f"({e(fallback_text(sweeps))}).</p>",
+        f"<p>{e(BUDGET_NOTE)}</p>",
+        table(
+            ["Arm", "Query", "Targets", "Kind", "Seed", "Start", "Min", "Max", "Probes", "Seconds"],
+            [
+                [
+                    run["arm"],
+                    LABELS[run["query"]],
+                    " ".join(label(t) for t in run["targets"]),
+                    run["kind"],
+                    "" if run["seed"] is None else run["seed"],
+                    *bounds(run),
+                    run["probes"],
+                    run["seconds"],
+                ]
+                for run in sweeps
+            ],
+        ),
+        table(
+            ["Arm", "Query", "Probes"],
+            [[arm, LABELS[query], probes(arm, query)] for query in QUERIES for arm in ARMS],
+        ),
         "<h2>Tolerated pdbench runs</h2>",
         table(
             ["Arm", "Query", "Report"],
@@ -951,6 +1286,10 @@ if __name__ == "__main__":
     command = commands.add_parser("configs")
     command.add_argument("--profile", type=Path, required=True)
     command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("sweep")
+    command.add_argument("--runs", type=Path, required=True, help="holds router-<arm>.toml")
+    command.add_argument("--existing", type=Path, required=True, help="existing sweep's reports")
+    command.add_argument("--assets-dir", type=Path, required=True)
     command = commands.add_parser("measure")
     command.add_argument("--runs", type=Path, required=True)
     command.add_argument("--vectors", type=Path, required=True)
@@ -965,6 +1304,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.command == "configs":
         configs(args.profile, args.output)
+    elif args.command == "sweep":
+        pdbench = Pdbench(
+            args.runs,
+            args.assets_dir,
+            os.environ["PARADEDB_URL"],
+            summary=os.environ.get("GITHUB_STEP_SUMMARY"),
+        )
+        log = sweep(args.runs, args.existing, pdbench)
+        for entry in log["runs"]:
+            print(
+                f"{entry['arm']} {entry['query']} {entry['kind']} "
+                f"{' '.join(label(t) for t in entry['targets'])}: {entry['probes']} probes, "
+                f"{entry['seconds']} s"
+            )
     elif args.command == "measure":
         result = measure(args.runs, json.loads(args.vectors.read_text()))
         args.output.write_text(json.dumps(result, indent=2) + "\n")

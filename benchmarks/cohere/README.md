@@ -146,13 +146,40 @@ ranking. The setting is a diagnostic and is not documented for users.
 `router_quality.py configs` writes three arm profiles from the size's profile,
 each adding only the audit setting and `paradedb.vector_adaptive_probing`:
 `flat` and `stored` with adaptive probing off, and `stored-adaptive` with it on.
-`pdbench search` sweeps each arm and query to r90/r95/r99 into
-`benchmark-artifacts/router/<arm>`, separate from the operating-point sweeps and
-without HTML reports. pdbench saves each run's report before building its
-console projection, which can fail on a parallel plan with "representative
-layer0 has no scan stage". The router sweep keeps such a run when that
-invocation saved a report for the query, records it in `tolerated.txt`, the job
-summary, and the full report, and fails on any other error.
+
+`router_quality.py sweep` finds each arm's budget at r90/r95/r99 with
+`pdbench search` (no HTML, no prewarm), each run in its own directory under
+`benchmark-artifacts/router/<arm>/<query>/` so no run reuses another's cached
+sweep values. Per query, the stored arm runs first:
+
+- On the unfiltered query it is seeded from the budgets the existing sweep
+  selected. That sweep is the stored router with adaptive probing on, and with
+  it off the router probes a superset of the clusters at the same budget, so
+  each target's range ends at the seed and starts one below it.
+- On the filtered queries the existing sweep may take the located path, so the
+  stored arm sweeps the profile's full range.
+
+Flat and `stored-adaptive` are then seeded from the budgets the stored arm
+selected, one pdbench run per target. `stored-adaptive` needs at least the
+stored budget, so its range starts at the seed with the minimum one below it;
+flat's range spans half to twice the seed. The span is a policy. A target a
+seeded range does not bracket (no exact hit and no probe below the selection,
+unless it sits at the profile's minimum) is swept again over the full range.
+
+On the unfiltered query the existing sweep's report stands in for
+`stored-adaptive` when the query has no filter, every segment routed at every
+point, and its configuration matches the stored arm's beyond the audit and
+adaptive settings; otherwise the arm is swept like the filtered queries.
+
+pdbench saves each run's report before building its console projection, which
+can fail on a parallel plan with "representative layer0 has no scan stage". The
+sweep keeps such a run when it saved its report, notes it in the job summary and
+the full report, and fails on any other error. `sweeps.json` records every run
+(kind, seed, range, probes, seconds) and the point behind each selected budget.
+
+pdbench stops at the first probe whose recall equals the target, so a seeded
+sweep can select another budget on a recall plateau than a full-range sweep,
+with the same recall.
 
 `router_quality.py measure` reruns all 100 vectors at each selected budget under
 `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)` with `paradedb.vector_stats` on, after
@@ -180,7 +207,8 @@ arm reports.
 - `router_quality.html`, the full report: every arm's clusters, vectors probed,
   valid vectors, empty clusters, layer-0 scored, exact rows, routing time,
   centroids scored and adaptive stops per query and target, this commit's values
-  beside main's, the checks, tolerated runs, plan shapes and config. CI copies it
+  beside main's, the checks, every sweep run with its seed, range and probes
+  (including full-range reruns), tolerated runs, plan shapes and config. CI copies it
   into the sweep reports directory, so the publisher puts it on gh-pages under
   `benchmarker-runs/<commit>/cohere-<size>/sweep/router_quality.html`.
 - `router-metrics.json` and `router-detail-metrics.json`, unfiltered values per

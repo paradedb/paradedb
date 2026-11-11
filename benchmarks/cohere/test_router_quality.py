@@ -2,6 +2,7 @@
 
 import copy
 import json
+import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -232,45 +233,300 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(measured.count("EXECUTE router_quality("), 2)
 
 
+def search_report(query, arm=None, targets=None, points=(), sql=None, session=None, sweep=None):
+    """A pdbench search report for one query; `arm` adds the arm's audit and adaptive settings."""
+    config = copy.deepcopy(tomllib.loads(PROFILE.read_text()))
+    config["search"]["query"] = query
+    if arm is not None:
+        audit, adaptive = rq.ARMS[arm]
+        config["search"]["session"] |= {rq.AUDIT: audit, rq.ADAPTIVE: adaptive}
+    if session is not None:
+        config["search"]["session"] = session
+    config["search"]["sweep"] = (config["search"]["sweep"] | {"tolerance": 0.000001}) | (sweep or {})
+    if sql is None:
+        where = "WHERE emb @@@ paradedb.all()" if query == rq.UNFILTERED else "WHERE text @@@ 'x'"
+        sql = f"SELECT _id FROM cohere {where} ORDER BY emb <=> {rq.QVEC}::vector(1024) LIMIT 10"
+    return {
+        "kind": "search",
+        "config": config,
+        "data": {
+            "sweep_param": PROBE,
+            "variants": {query: {"query": sql, "targets": targets or {}, "points": list(points)}},
+        },
+    }
+
+
+def sweep_point(value, recall, routed=8, segments=8):
+    return {
+        "value": str(value),
+        "metrics": {
+            "recall": {"recall": recall},
+            "probes": {
+                "queries_measured": 100,
+                "per_query": {"segments_routed_mean": float(routed)},
+                "execution": {"segment_count_mean": float(segments)},
+            },
+        },
+    }
+
+
+class FakePdbench:
+    """Stands in for `pdbench search`: each arm, query and target has an answer budget, the
+    smallest with recall at the target. A run probes `start`, then the bound on the far side of the
+    target, then the answer and its neighbour below when the range holds the answer; outside the
+    range it settles on `min` or reaches nothing, as pdbench does."""
+
+    def __init__(self, answers, fail=None):
+        self.answers, self.fail, self.commands = answers, fail or {}, []
+
+    def __call__(self, command, stderr, text):
+        self.commands.append(command)
+        option = lambda name: command[command.index(name) + 1]
+        arm = Path(option("--config")).stem.removeprefix("router-")
+        query, runs = option("--query"), Path(option("--runs-dir"))
+        sets = dict(c.split("=", 1) for c in command[command.index("--no-prewarm") + 1 :] if c != "--set")
+        sweep = {k.removeprefix("search.sweep."): v for k, v in sets.items()}
+        targets = json.loads(sweep["targets"])
+        low, high = float(sweep.get("min", 1)), float(sweep.get("max", 100_000))
+        points, chosen = {}, {}
+        for target in targets:
+            answer = self.answers[(arm, query, target)]
+            recall = lambda b, a=answer, t=target: round(t + 0.001 * (b - a), 3) if b >= a else t - 0.01
+            if answer < low:
+                points |= {low: recall(low)}
+                chosen[str(target)] = {"value": str(int(low)), "recall": recall(low)}
+            elif answer > high:
+                points |= {high: recall(high)}
+            else:
+                for b in (float(sweep.get("start", answer)), answer - 1, answer):
+                    if b >= low:
+                        points[b] = recall(b)
+                chosen[str(target)] = {"value": str(int(answer)), "recall": target}
+        report = search_report(
+            query, arm, chosen, [sweep_point(int(b), r) for b, r in sorted(points.items())]
+        )
+        status, message = self.fail.get((arm, query), (0, ""))
+        if status != 2:
+            (runs / f"router-{arm}").mkdir(parents=True)
+            (runs / f"router-{arm}" / "1_search.json").write_text(json.dumps(report))
+        return subprocess.CompletedProcess(command, 1 if status else 0, None, message)
+
+
+def existing_dir(directory, unfiltered=None, budgets=(32, 77, 248)):
+    """The existing sweep's reports: the unfiltered one routed everywhere unless replaced."""
+    directory.mkdir(parents=True)
+    for index, query in enumerate(QUERIES):
+        targets = {str(t): {"value": str(b), "recall": t} for t, b in zip(TARGETS, budgets)}
+        session = tomllib.loads(PROFILE.read_text())["search"]["session"]
+        report = search_report(query, None, targets, [sweep_point(b, t) for t, b in zip(TARGETS, budgets)])
+        if query == rq.UNFILTERED and unfiltered is not None:
+            report = unfiltered(report)
+        assert report["config"]["search"]["session"] == session or unfiltered
+        (directory / f"{index}_search.json").write_text(json.dumps(report))
+    return directory
+
+
+class SweepTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.runs = self.root / "router"
+        rq.configs(PROFILE, self.runs)
+        self.summary = self.root / "summary.md"
+        self.answers = {}
+        for query in QUERIES:
+            for target, stored in zip(TARGETS, (30, 70, 200)):
+                self.answers |= {
+                    ("stored", query, target): stored,
+                    ("flat", query, target): stored - 3,
+                    ("stored-adaptive", query, target): stored + 1,
+                }
+
+    def sweep(self, fake=None, existing=None):
+        fake = fake or FakePdbench(self.answers)
+        existing = existing or existing_dir(self.root / "search")
+        pdbench = rq.Pdbench(self.runs, Path("assets"), "postgresql://x", run=fake, summary=self.summary)
+        return rq.sweep(self.runs, existing, pdbench), fake
+
+    def test_seeded_ranges_put_an_exact_seed_two_probes_away(self):
+        self.assertEqual(rq.seeded_range("stored", 32), {"start": 31.0, "min": 16.0, "max": 32.0})
+        self.assertEqual(rq.seeded_range("stored-adaptive", 32), {"start": 32.0, "min": 31.0, "max": 64.0})
+        self.assertEqual(rq.seeded_range("flat", 33), {"start": 33.0, "min": 16.0, "max": 66.0})
+        for arm in rq.ARMS:
+            for seed in (1, 2, 3):
+                r = rq.seeded_range(arm, seed)
+                self.assertTrue(
+                    1 <= r["min"] <= r["start"] <= r["max"] and r["min"] < r["max"], (arm, seed, r)
+                )
+                self.assertTrue(all(float(v).is_integer() for v in r.values()))
+
+    def test_bracketed_needs_an_exact_hit_or_a_probe_below(self):
+        def bracketed(points, chosen):
+            targets = {"0.9": chosen} if chosen else {}
+            report = search_report(rq.UNFILTERED, "flat", targets, [sweep_point(b, r) for b, r in points])
+            return rq.bracketed(report, rq.UNFILTERED, 0.9, 1.0)
+
+        hit = {"value": "40", "recall": 0.9}
+        self.assertEqual(bracketed([(40, 0.9)], hit), hit)
+        above = {"value": "40", "recall": 0.91}
+        self.assertEqual(bracketed([(39, 0.899), (40, 0.91)], above), above)
+        self.assertIsNone(bracketed([(40, 0.91), (20, 0.905)], {"value": "20", "recall": 0.905}))
+        self.assertIsNone(bracketed([(40, 0.85)], None))
+        # At the profile's minimum a full-range sweep cannot go lower either.
+        floor = {"value": "1", "recall": 0.95}
+        self.assertEqual(bracketed([(1, 0.95), (2, 0.97)], floor), floor)
+
+    def test_stored_first_then_flat_and_adaptive_seeded_from_it(self):
+        log, fake = self.sweep()
+        # One run per target, except filtered stored (one full-range run) and the stand-in.
+        single = {("stored", q) for q in QUERIES if q != rq.UNFILTERED}
+        single.add(("stored-adaptive", rq.UNFILTERED))
+        order = [(r["query"], r["arm"]) for r in log["runs"]]
+        expected = [(q, a) for q in QUERIES for a in rq.ARMS for _ in range(1 if (a, q) in single else 3)]
+        self.assertEqual(order, expected)
+        runs = {(r["arm"], r["query"], tuple(r["targets"])): r for r in log["runs"]}
+        # Stored: seeded from the existing sweep on the unfiltered query, full range when filtered.
+        unfiltered = runs[("stored", rq.UNFILTERED, (0.9,))]
+        self.assertEqual(
+            (unfiltered["kind"], unfiltered["seed"], unfiltered["range"]),
+            ("seeded", "32", rq.seeded_range("stored", 32)),
+        )
+        self.assertEqual(runs[("stored", "knn_top10_10pct", TARGETS)]["kind"], "full")
+        self.assertIsNone(runs[("stored", "knn_top10_10pct", TARGETS)]["range"])
+        # Flat and stored-adaptive seed from the budgets stored selected for that query.
+        self.assertEqual(runs[("flat", "knn_top10_1pct", (0.95,))]["seed"], "70")
+        adaptive = runs[("stored-adaptive", "knn_top10_10pct", (0.99,))]
+        self.assertEqual(adaptive["range"], rq.seeded_range("stored-adaptive", 200))
+        # The existing sweep stands in for unfiltered stored-adaptive: no pdbench run.
+        stand_in = runs[("stored-adaptive", rq.UNFILTERED, TARGETS)]
+        self.assertEqual((stand_in["kind"], stand_in["probes"]), ("existing", 0))
+        self.assertEqual(log["stand_in"]["refusal"], None)
+        self.assertEqual(log["selected"]["stored-adaptive"][rq.UNFILTERED]["0.99"]["value"], "248")
+        for (arm, query, target), answer in self.answers.items():
+            if (arm, query) != ("stored-adaptive", rq.UNFILTERED):
+                self.assertEqual(log["selected"][arm][query][str(target)]["value"], str(answer))
+        # Every run has its own runs directory, skips prewarm and overrides only the sweep.
+        dirs = [c[c.index("--runs-dir") + 1] for c in fake.commands]
+        self.assertEqual(len(dirs), len(set(dirs)))
+        def command(arm, query):
+            config = f"router-{arm}.toml"
+            return next(c for c in fake.commands if query in c and config in c[c.index("--config") + 1])
+
+        def overrides(command):
+            return [command[i + 1] for i, c in enumerate(command) if c == "--set"]
+
+        flat = command("flat", rq.UNFILTERED)
+        self.assertIn("--no-prewarm", flat)
+        self.assertEqual(
+            overrides(flat),
+            [
+                "search.sweep.targets=[0.9]",
+                "search.sweep.start=30.0",
+                "search.sweep.min=15.0",
+                "search.sweep.max=60.0",
+            ],
+        )
+        self.assertEqual(
+            overrides(command("stored", "knn_top10_10pct")), ["search.sweep.targets=[0.9, 0.95, 0.99]"]
+        )
+        self.assertEqual(json.loads((self.runs / rq.SWEEPS).read_text()), log)
+
+    def test_a_target_the_seeded_range_misses_reruns_over_the_full_range(self):
+        self.answers[("flat", "knn_top10_10pct", 0.95)] = 20  # below 70 / SEED_SPAN
+        self.answers[("stored-adaptive", "knn_top10_1pct", 0.9)] = 90  # above 30 * SEED_SPAN
+        log, _ = self.sweep()
+        fallbacks = [(r["arm"], r["query"], r["targets"]) for r in log["runs"] if r["kind"] == "fallback"]
+        self.assertEqual(
+            fallbacks, [("flat", "knn_top10_10pct", [0.95]), ("stored-adaptive", "knn_top10_1pct", [0.9])]
+        )
+        fallback = next(r for r in log["runs"] if r["kind"] == "fallback")
+        self.assertIsNone(fallback["range"])
+        self.assertEqual(log["selected"]["flat"]["knn_top10_10pct"]["0.95"]["value"], "20")
+        self.assertEqual(log["selected"]["stored-adaptive"]["knn_top10_1pct"]["0.9"]["value"], "90")
+        self.assertIn("did not bracket the target", self.summary.read_text())
+
+    def test_stand_in_refusals_sweep_the_adaptive_arm(self):
+        def unrouted(report):
+            report["data"]["variants"][rq.UNFILTERED]["points"][1] = sweep_point(77, 0.95, routed=7)
+            return report
+
+        def filtered(report):
+            variant = report["data"]["variants"][rq.UNFILTERED]
+            variant["query"] = variant["query"].replace("paradedb.all()", "paradedb.all() AND year > 2000")
+            return report
+
+        def adaptive_off(report):
+            report["config"]["search"]["session"][rq.ADAPTIVE] = "off"
+            return report
+
+        for change in (unrouted, filtered, adaptive_off):
+            with self.subTest(change.__name__):
+                self.setUp()
+                log, _ = self.sweep(existing=existing_dir(self.root / "search", change))
+                self.assertIsNotNone(log["stand_in"]["refusal"])
+                arm = ("stored-adaptive", rq.UNFILTERED)
+                adaptive = [r for r in log["runs"] if (r["arm"], r["query"]) == arm]
+                self.assertEqual([r["kind"] for r in adaptive], ["seeded"] * 3)
+                self.assertEqual(log["selected"]["stored-adaptive"][rq.UNFILTERED]["0.9"]["value"], "31")
+                self.assertIn("swept", self.summary.read_text())
+
+    def test_a_failure_is_tolerated_only_with_the_projection_error_and_a_saved_report(self):
+        fake = FakePdbench(self.answers, {("flat", "knn_top10_10pct"): (1, f"Error: {rq.TOLERATED_ERROR}")})
+        log, _ = self.sweep(fake)
+        tolerated = [r for r in log["runs"] if r["tolerated"]]
+        self.assertEqual({(r["arm"], r["query"]) for r in tolerated}, {("flat", "knn_top10_10pct")})
+        self.assertIn("Tolerated pdbench exit 1", self.summary.read_text())
+        for failure in ((1, "Error: connection refused"), (2, f"Error: {rq.TOLERATED_ERROR}")):
+            with self.subTest(failure):
+                self.setUp()
+                with self.assertRaises(RuntimeError):
+                    self.sweep(FakePdbench(self.answers, {("flat", "knn_top10_10pct"): failure}))
+
+
+def run_entry(arm, query, kind, path, probes):
+    """One sweeps.json run covering every target."""
+    return {
+        "arm": arm,
+        "query": query,
+        "targets": list(TARGETS),
+        "kind": kind,
+        "report": str(path),
+        "probes": probes,
+        "tolerated": False,
+    }
+
+
 class MeasureTest(unittest.TestCase):
     def setUp(self):
         self.parallel = {"stored", "flat"}
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.runs = Path(self.temp.name)
-        base = tomllib.loads(PROFILE.read_text())
-        for arm, (audit, adaptive) in rq.ARMS.items():
-            directory = self.runs / arm / f"router-{arm}"
-            directory.mkdir(parents=True)
-            for index, query in enumerate(QUERIES):
-                config = copy.deepcopy(base)
-                config["search"]["query"] = query
-                config["search"]["session"] |= {rq.AUDIT: audit, rq.ADAPTIVE: adaptive}
+        self.log = {"runs": [], "selected": {}, "stand_in": None}
+        for arm in rq.ARMS:
+            for query in QUERIES:
                 targets = {str(t): {"value": "50", "recall": t} for t in TARGETS}
                 if arm == "stored-adaptive" and query == "knn_top10_1pct":
                     del targets["0.99"]
-                report = {
-                    "kind": "search",
-                    "config": config,
-                    "data": {
-                        "sweep_param": PROBE,
-                        "variants": {
-                            query: {
-                                "query": f"SELECT _id FROM cohere ORDER BY emb <=> "
-                                f"{rq.QVEC}::vector(1024) LIMIT 10",
-                                "targets": targets,
-                            }
-                        },
-                    },
-                }
-                (directory / f"2026_{index}_search.json").write_text(json.dumps(report))
+                path = self.runs / arm / query / "1_search.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(search_report(query, arm, targets, sweep={"start": 40.0})))
+                self.log["runs"].append(run_entry(arm, query, "seeded", path, probes=3))
+                selected = self.log["selected"].setdefault(arm, {}).setdefault(query, {})
+                for target, point in targets.items():
+                    selected[target] = point | {"report": str(path)}
+        self.write_log()
+
+    def write_log(self):
+        (self.runs / rq.SWEEPS).write_text(json.dumps(self.log))
 
     def fake_run(self, script):
         if "SHOW paradedb.vector_router_rerank_factor" in script:
             return "2\n"
         audit = "flat" if f"{rq.AUDIT} = 'flat'" in script else "stored"
         adaptive = f"{rq.ADAPTIVE} = 'on'" in script
-        unfiltered = "WHERE" not in script and "cohere.titles" not in script
+        unfiltered = "paradedb.all()" in script
         stats = segment(
             routing_mode="flat" if audit == "flat" else "hierarchical",
             termination=rq.ADAPTIVE_STOP if adaptive else "Ceiling",
@@ -302,31 +558,48 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual(result["checks"]["fixed_no_adaptive_stop"]["failed"], 0)
         self.assertEqual(result["checks"]["routed"]["failed"], 0)
         self.assertEqual(result["tolerated"], [])
+        self.assertEqual(result["sweeps"], self.log["runs"])
         self.assertEqual(result["terminations"]["stored"], {"Ceiling": 2 * 2 * 9})
         self.assertEqual(result["terminations"]["stored-adaptive"], {rq.ADAPTIVE_STOP: 2 * 2 * 8})
 
+    def test_a_stand_in_report_is_measured_with_the_arms_settings(self):
+        path = self.runs / "existing_search.json"
+        session = tomllib.loads(PROFILE.read_text())["search"]["session"]
+        targets = {str(t): {"value": "60", "recall": t} for t in TARGETS}
+        path.write_text(json.dumps(search_report(rq.UNFILTERED, None, targets, session=session)))
+        arm = ("stored-adaptive", rq.UNFILTERED)
+        self.log["runs"] = [r for r in self.log["runs"] if (r["arm"], r["query"]) != arm]
+        self.log["runs"].append(run_entry(*arm, "existing", path, probes=0))
+        self.log["selected"]["stored-adaptive"][rq.UNFILTERED] = {
+            t: p | {"report": str(path)} for t, p in targets.items()
+        }
+        self.write_log()
+        scripts = []
+
+        def run(script):
+            scripts.append(script)
+            return self.fake_run(script)
+
+        result = rq.measure(self.runs, ["[1]"], run=run)
+        cell = result["results"][rq.UNFILTERED]["0.9"]["stored-adaptive"]
+        self.assertEqual((cell["budget"], cell["adaptive_stops"]), ("60", 1))
+        script = next(s for s in scripts if "'60'" in s)
+        self.assertIn(f"SET {rq.AUDIT} = 'stored';", script)
+        self.assertIn(f"SET {rq.ADAPTIVE} = 'on';", script)
+
     def test_reads_tolerated_runs(self):
-        (self.runs / rq.TOLERATED).write_text(
-            "flat knn_top10_10pct benchmark-artifacts/router/flat/x_search.json\n\n"
-        )
+        self.log["runs"][4]["tolerated"] = True
+        self.write_log()
         result = rq.measure(self.runs, ["[1]"], run=self.fake_run)
+        entry = self.log["runs"][4]
         self.assertEqual(
-            result["tolerated"],
-            [
-                {
-                    "arm": "flat",
-                    "query": "knn_top10_10pct",
-                    "report": "benchmark-artifacts/router/flat/x_search.json",
-                }
-            ],
+            result["tolerated"], [{"arm": entry["arm"], "query": entry["query"], "report": entry["report"]}]
         )
 
     def test_index_facts_union_segment_ids_and_plan_shapes_must_agree(self):
-        for path in (self.runs / "stored").rglob("*_search.json"):
-            report = json.loads(path.read_text())
-            (variant,) = report["data"]["variants"].values()
-            variant["targets"]["0.95"]["value"] = "51"
-            path.write_text(json.dumps(report))
+        for query in QUERIES:
+            self.log["selected"]["stored"][query]["0.95"]["value"] = "51"
+        self.write_log()
         self.parallel = {"stored"}
         result = rq.measure(self.runs, ["[1]"], run=self.fake_run)
         self.assertEqual(result["index"]["segments"], 3)
@@ -341,6 +614,13 @@ class MeasureTest(unittest.TestCase):
             path.write_text(json.dumps(report))
         with self.assertRaises(ValueError):
             rq.measure(self.runs, ["[1]"], run=self.fake_run)
+
+    def test_sweep_ranges_do_not_split_an_arms_configuration(self):
+        path = Path(self.log["runs"][0]["report"])
+        report = json.loads(path.read_text())
+        report["config"]["search"]["sweep"] |= {"start": 7.0, "min": 3.0, "max": 14.0, "targets": [0.9]}
+        path.write_text(json.dumps(report))
+        rq.measure(self.runs, ["[1]"], run=self.fake_run)
 
 
 HEADER = (
@@ -686,11 +966,13 @@ class RenderTest(unittest.TestCase):
             "router/flat/r_search.json",
             "paradedb.vector_router_audit = stored",
             "cohere-1m-router-quality",
+            f"<p>{rq.BUDGET_NOTE}</p>",
         ):
             self.assertIn(text, page)
-        # Nine data rows and the config row.
-        self.assertEqual(page.count("<td>stored-adaptive</td>"), 10)
+        # Nine data rows, the config row and three probe-count rows.
+        self.assertEqual(page.count("<td>stored-adaptive</td>"), 13)
         self.assertNotIn("router/flat/r_search.json", files["router_quality.md"])
+        self.assertNotIn(rq.BUDGET_NOTE, files["router_quality.md"])
         _, files = self.render(measurements())
         self.assertIn("no main baseline yet", files["router_quality.html"])
 

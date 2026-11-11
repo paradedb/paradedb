@@ -175,7 +175,7 @@ await dbContext
 While BM25 scores will be returned as long as `description` is indexed, including `rating` in the ParadeDB index definition will allow results matching
 `rating < 2` to rank higher than those that do not match.
 
-A row-level security policy, or the condition of a security-barrier view, restricts which rows a user may see and adds nothing to the score. A row scores the same for every user and in every plan, whatever the policy's shape.
+A row-level security policy restricts which rows a user may see and adds nothing to the score. A row scores the same for every user and in every plan, whatever the policy's shape.
 
 ## Joined Scores
 

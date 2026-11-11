@@ -137,8 +137,8 @@ pub enum Qual {
     And(Vec<Qual>),
     Or(Vec<Qual>),
     Not(Box<Qual>),
-    /// A clause PostgreSQL attached from a row-level security policy or a security-barrier
-    /// view: its `RestrictInfo.security_level` is below `PlannerInfo.qual_security_level`. It
+    /// A clause PostgreSQL attached from a row-level security policy: its
+    /// `RestrictInfo.security_level` is below `PlannerInfo.qual_security_level`. It
     /// restricts which rows the user may see, so it is lowered at a constant score of `0.0`.
     Security(Box<Qual>),
 }

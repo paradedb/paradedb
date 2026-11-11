@@ -1,0 +1,103 @@
+name: Set Up Vector Benchmark Cluster
+description: Restore a vector heap in the same Docker configuration as Wikipedia and Stack Exchange
+
+inputs:
+  ref:
+    description: "pg_search commit/ref to build"
+    required: true
+  dataset:
+    description: "Snapshot dataset"
+    required: true
+  size:
+    description: "Snapshot size"
+    required: true
+  backup:
+    description: "Optional pgBackRest backup label"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Build ParadeDB Image
+      uses: ./.github/actions/build-paradedb-image
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Set Up Benchmark Toolchain
+      uses: ./.github/actions/setup-pg-search-toolchain
+      with:
+        pg_version: "18"
+        install_cargo_pgrx: "false"
+        cache_prefix_key: "v2-benchmarks-rust-cache"
+        cache_save: "true"
+
+    - name: Install Benchmark Dependencies
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+      with:
+        packages: pgbackrest postgresql-client build-essential pkg-config libssl-dev clang lld
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+      with:
+        role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+        role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+        role-duration-seconds: 21600
+        allowed-account-ids: "858265286872"
+        unset-current-credentials: true
+        aws-region: us-east-1
+
+    - name: Restore Heap
+      shell: bash
+      working-directory: benchmarks
+      env:
+        DATASET: ${{ inputs.dataset }}
+        SIZE: ${{ inputs.size }}
+        PGBACKREST_SET: ${{ inputs.backup }}
+      run: |
+        set -euo pipefail
+        if [ -z "$PGBACKREST_SET" ]; then unset PGBACKREST_SET; fi
+        cargo run --release -- restore-heap \
+          --dataset "$DATASET" --size "$SIZE" \
+          --pgdata "$RUNNER_TEMP/vector-pgdata" --stanza bench \
+          --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
+          --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
+          --repo-s3-key-type shared
+
+    - name: Start Database
+      shell: bash
+      env:
+        PARADEDB_IMAGE: paradedb-source:ci
+        PARADEDB_DATA_DIR: ${{ runner.temp }}/vector-pgdata
+        POSTGRES_CPUSET: "0-7"
+        MEMORY: 64g
+        EFFECTIVE_CACHE_SIZE: 48GB
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/vector-compose" benchmark-artifacts
+        aws s3 cp s3://paradedb-benchmark/benchmarker/wikipedia/docker-compose.yml \
+          "$RUNNER_TEMP/vector-compose/docker-compose.yml" --no-sign-request
+
+        # Replace pgrx paths, authentication, and ALTER SYSTEM settings from the snapshot.
+        docker run --rm --entrypoint bash \
+          -v "$PARADEDB_DATA_DIR:/restored" "$PARADEDB_IMAGE" -c '
+            set -euo pipefail
+            gosu postgres initdb --no-sync --auth=trust -D /tmp/config
+            cp /tmp/config/postgresql.conf /tmp/config/postgresql.auto.conf /tmp/config/pg_hba.conf /tmp/config/pg_ident.conf /restored/
+            echo "listen_addresses = '\''*'\''" >> /restored/postgresql.conf
+            echo "host all all all trust" >> /restored/pg_hba.conf
+          '
+
+        # pdbench samples backend PIDs with the host's ps.
+        cat > "$RUNNER_TEMP/vector-compose/compose.override.yml" <<YAML
+        services:
+          paradedb:
+            pid: host
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $(whoami) -d postgres"]
+        YAML
+        docker compose -f "$RUNNER_TEMP/vector-compose/docker-compose.yml" \
+          -f "$RUNNER_TEMP/vector-compose/compose.override.yml" up -d --wait --wait-timeout 300 paradedb
+        url="postgresql://$(whoami)@127.0.0.1:5432/postgres"
+        psql "$url" -X -v ON_ERROR_STOP=1 -c 'SELECT version();'
+        echo "PARADEDB_URL=$url" >> "$GITHUB_ENV"

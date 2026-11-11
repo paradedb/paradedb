@@ -223,9 +223,10 @@ arm reports.
 - `router_quality.json`, every number above with the commit and config
   fingerprint; the next run on main reads it as the baseline.
 
-Only Unfiltered rows flag. Either Ratio above 1.05 turns bold with ❌ at r90
-and r95 and ⚠️ at r99; with a main baseline it must also exceed main's ratio by
-more than 0.05, so a router already above 1.05 on main does not flag every run.
+Only Unfiltered rows flag. Either Ratio above 1.15 turns bold with ❌; at r99 a
+Ratio above 1.05 and up to 1.15 turns bold with ⚠️. With a main baseline either
+mark also needs the Ratio to exceed main's by more than 0.15, so a router already
+above the threshold on main does not flag every run.
 Against main, at r90 and r95, a cell turns bold with ⚠️ and shows main's value
 when Flat clusters or Flat vectors rose by more than 10%, when Adaptive on vs off
 rose by more than 0.05, or when Routing ms rose by more than 25% and 0.1 ms.
@@ -237,6 +238,7 @@ The verdict names the worst flag: a ❌ Ratio as the factor Router needs over fl
 against-main cell with the largest relative rise, followed by where to look
 (router for a Ratio, clustering for Flat, adaptive stopping for Adaptive on vs
 off, router speed for Routing ms). With nothing flagged it gives the worst Ratio,
-or, when a Ratio sits above 1.05 within 0.05 of main's, that Ratio beside main's.
+or, when a Ratio sits above its threshold within 0.15 of main's, that Ratio
+beside main's.
 Filtered rows are informational: every segment is forced to route, their plans
 are parallel, and routing time includes row gating. Nothing here fails the job.

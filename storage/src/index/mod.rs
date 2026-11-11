@@ -44,7 +44,7 @@ use tantivy::{Index, IndexSettings};
 pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
     let memory_limit = (unsafe { pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
     let clusterer = SuperKMeansClusterer::new()
-        .with_max_leaf_size(options.max_leaf_size())
+        .with_target_leaf_size(options.target_leaf_size())
         .with_training_sample_ratio(options.training_sample_ratio())
         .with_memory_limit(memory_limit.max(1));
     index.set_ivf_clusterer(Arc::new(clusterer));
@@ -77,6 +77,7 @@ pub fn index_settings(
         codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
         vector_clustering_threshold: crate::gucs::vector_clustering_threshold(),
         vector_centroid_quantization: options.vector_router_quantization(),
+        vector_replication: options.replication(),
         vector_quantization,
         ..IndexSettings::default()
     })

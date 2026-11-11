@@ -10,6 +10,12 @@ See GitHub release: [v0.24.0](https://github.com/paradedb/paradedb/releases/tag/
 
 - Add support for indexing the Postgres `ltree` column type.
 
+## Performance Improvements 🚀
+
+- Improved the performance of large term set queries, and some types of hash join.
+- Introduce a first version of a MPP plan partitioning mode, to improve parallelism and remove redundant work during joins.
+- Improved performance of Top-K queries on `pdb.score`.
+
 ## Stability Improvements 💪
 
 - Significantly improved test coverage via concurrent property testing.
@@ -20,12 +26,6 @@ See GitHub release: [v0.24.0](https://github.com/paradedb/paradedb/releases/tag/
 - Fix for race condition in detoasting during VACUUM.
 - Added an error when mixing incompatible proximity operators.
 - Remove minimum CPU requirements, as they did not show a performance benefit.
-
-## Performance Improvements 🚀
-
-- Improved the performance of large term set queries, and some types of hash join.
-- Introduce a first version of a MPP plan partitioning mode, to improve parallelism and remove redundant work during joins.
-- Improved performance of Top-K queries on `pdb.score`.
 
 ## New Contributors 👋
 

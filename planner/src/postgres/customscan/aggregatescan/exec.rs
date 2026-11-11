@@ -329,7 +329,7 @@ impl AggregationResults {
 
         let mut filter_subtrees = Vec::with_capacity(filters.len());
         for bucket_entry in buckets {
-            check_for_interrupts!();
+            check_for_interrupts();
             filter_subtrees.clear();
             filter_subtrees.extend(filters.iter().zip(&lookups).map(|(filter, lookup)| {
                 match lookup {

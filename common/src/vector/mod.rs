@@ -76,7 +76,7 @@ impl FromDatum for PgVector {
         }
         let ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
         let detoasted = pg_sys::pg_detoast_datum(ptr);
-        let data = pgrx::varlena::vardata_any(detoasted);
+        let data = pgrx::VARDATA_ANY!(detoasted).get();
         let dim = *(data as *const i16) as usize;
         let floats_ptr = data.add(4) as *const f32;
         let floats = std::slice::from_raw_parts(floats_ptr, dim).to_vec();

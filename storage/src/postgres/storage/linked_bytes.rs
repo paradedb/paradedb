@@ -152,7 +152,7 @@ impl LinkedBytesListWriter {
         let mut new_buffers = self.list.bman.new_buffers(new_buffers_needed);
 
         while bytes_written < bytes.len() {
-            check_for_interrupts!();
+            check_for_interrupts();
             self.blocklist_builder.push(self.last_blockno);
 
             let mut buffer = self.list.bman.get_buffer_mut(self.last_blockno);
@@ -555,6 +555,7 @@ mod tests {
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::BM25PageSpecialData;
     use crate::postgres::storage::utils::RelationBufferAccess;
+    use pgrx::cmacros::c::Pointer;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -757,8 +758,10 @@ mod tests {
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = RelationBufferAccess::open(&indexrel)
                 .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            let page = pgrx::BufferGetPage!(buffer).get();
+            let special = pgrx::PageGetSpecialPointer!(Pointer::from(page))
+                .get()
+                .cast::<BM25PageSpecialData>();
 
             // NB:  There was a time when the call to `linked_list.returm_to_fsm()` above would
             // update every page in the list, setting the `xmax` in the special data to the transaction id

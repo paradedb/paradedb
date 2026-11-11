@@ -117,6 +117,7 @@ repos:
     rev: v4.1.2
     hooks:
       - id: pylint
+        additional_dependencies: [duckdb==2.0.0]
         args:
           - "--disable=R0911" # disables the "too many returns" lint
 

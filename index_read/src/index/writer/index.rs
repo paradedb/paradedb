@@ -263,7 +263,7 @@ impl SerialIndexWriter {
         if metas.is_empty() {
             return Ok(None);
         }
-        pgrx::check_for_interrupts!();
+        pgrx::check_for_interrupts();
         if let Some(disk_guard) = &self.disk_guard {
             disk_guard.check()?;
         }
@@ -282,7 +282,7 @@ impl SerialIndexWriter {
                 let source = build.index.directory().open_read(&path)?;
                 let mut target = self.index.directory().open_write(&path)?;
                 for chunk in source.stream_file_chunks() {
-                    pgrx::check_for_interrupts!();
+                    pgrx::check_for_interrupts();
                     target.write_all(&chunk?)?;
                 }
                 target.terminate()?;
@@ -766,8 +766,8 @@ impl Mergeable for SearchIndexMerger {
                 .build(),
         )?;
         // `writer.merge_foreground` polls `MVCCDirectory::wants_cancel()` and returns
-        // `Err(TantivyError::Cancelled)` on interrupt rather than calling `check_for_interrupts!()`.
-        // We cannot call `check_for_interrupts!()` here because `merge_index` in
+        // `Err(TantivyError::Cancelled)` on interrupt rather than calling `check_for_interrupts()`.
+        // We cannot call `check_for_interrupts()` here because `merge_index` in
         // `postgres/merge.rs` relies on `merge_segments` returning `Err` so it can remove its
         // `MergeEntry` before unwinding (see https://github.com/paradedb/paradedb/issues/6962).
         // The block writers underneath do check for interrupts; an entry orphaned by such an

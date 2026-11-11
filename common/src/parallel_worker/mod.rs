@@ -662,7 +662,7 @@ unsafe fn get_toc_entry(
 #[doc(hidden)]
 unsafe fn estimate_chunk(pcxt: *mut pg_sys::ParallelContext, sz: usize) {
     const BUFFERALIGN: fn(usize) -> usize =
-        |len: usize| unsafe { pg_sys::TYPEALIGN(pg_sys::ALIGNOF_BUFFER as usize, len) };
+        |len: usize| pg_sys::typealign(pg_sys::ALIGNOF_BUFFER as usize, len);
 
     let estimator = &mut (*pcxt).estimator;
     estimator.space_for_chunks = pg_sys::add_size(estimator.space_for_chunks, BUFFERALIGN(sz));

@@ -924,7 +924,7 @@ pub fn extract_quals(
         }
 
         pg_sys::NodeTag::T_RestrictInfo => {
-            let ri = unsafe { nodecast!(RestrictInfo, T_RestrictInfo, node) }?;
+            let ri = unsafe { nodecast!(RestrictInfo, node) }?;
             let ri = unsafe { &*ri };
             let clause = if !ri.orclause.is_null() {
                 ri.orclause
@@ -970,7 +970,7 @@ pub fn extract_quals(
         },
 
         pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = unsafe { nodecast!(BoolExpr, T_BoolExpr, node) }?;
+            let boolexpr = unsafe { nodecast!(BoolExpr, node) }?;
             let boolexpr = unsafe { &*boolexpr };
             let mut quals = unsafe {
                 list(
@@ -1031,7 +1031,7 @@ pub fn extract_quals(
                 // T_Var nodes represent boolean field references without explicit "= true" comparison
                 // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
                 // We need to handle both cases since they're semantically equivalent
-                let var_node = unsafe { nodecast!(Var, T_Var, node) }?;
+                let var_node = unsafe { nodecast!(Var, node) }?;
                 if let Some(qual) = unsafe {
                     try_create_heap_expr_from_var(
                         root,
@@ -1058,7 +1058,7 @@ pub fn extract_quals(
                     return None;
                 }
 
-                let var_node = unsafe { nodecast!(Var, T_Var, node) }?;
+                let var_node = unsafe { nodecast!(Var, node) }?;
                 // Check if this var references our relation
                 if unsafe { (*var_node).varno } as pg_sys::Index != rti {
                     return if external_is_special {
@@ -1082,7 +1082,7 @@ pub fn extract_quals(
         }
 
         pg_sys::NodeTag::T_NullTest => {
-            let nulltest = unsafe { nodecast!(NullTest, T_NullTest, node) }?;
+            let nulltest = unsafe { nodecast!(NullTest, node) }?;
             // Note: PushdownField::try_new requires PlannerInfo
             if let Some(root) = context.planner_info() {
                 if let Some(field) =
@@ -1160,7 +1160,7 @@ pub fn extract_quals(
         },
 
         pg_sys::NodeTag::T_Const => {
-            let const_node = unsafe { nodecast!(Const, T_Const, node) }?;
+            let const_node = unsafe { nodecast!(Const, node) }?;
             let const_node = unsafe { &*const_node };
 
             // Check if this is a boolean constant
@@ -1367,11 +1367,11 @@ unsafe fn node_opexpr(
     convert_external_to_special_qual: bool,
     attempt_pushdown: bool,
 ) -> Option<Qual> {
-    while let Some(relabel_target) = nodecast!(RelabelType, T_RelabelType, rhs) {
+    while let Some(relabel_target) = nodecast!(RelabelType, rhs) {
         rhs = (*relabel_target).arg.cast();
     }
 
-    let rhs_as_const = nodecast!(Const, T_Const, rhs);
+    let rhs_as_const = nodecast!(Const, rhs);
 
     let is_our_operator = is_anyelement_search_opoid(opexpr.opno());
 
@@ -1614,7 +1614,7 @@ pub fn collect_implicit_and_conjuncts(
         return;
     }
 
-    if let Some(bool_expr) = unsafe { nodecast!(BoolExpr, T_BoolExpr, node) }
+    if let Some(bool_expr) = unsafe { nodecast!(BoolExpr, node) }
         && unsafe { (*bool_expr).boolop } == pg_sys::BoolExprType::AND_EXPR
     {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg((*bool_expr).args) };
@@ -1646,7 +1646,7 @@ unsafe fn booltest(
     external_is_special: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
-    let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
+    let booltest = nodecast!(BooleanTest, node)?;
     let arg = (*booltest).arg;
 
     // We only support boolean test for simple field references (Var nodes)
@@ -1775,7 +1775,7 @@ fn simplify_join_clause_for_relation(
         pg_sys::NodeTag::T_OpExpr => unsafe { simplify_node_for_relation(node, current_rti) },
 
         pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = unsafe { nodecast!(BoolExpr, T_BoolExpr, node) }?;
+            let boolexpr = unsafe { nodecast!(BoolExpr, node) }?;
             let boolexpr = unsafe { &*boolexpr };
             let args = unsafe { PgList::<pg_sys::Node>::from_pg(boolexpr.args) };
             let mut simplified_args = Vec::new();
@@ -1834,7 +1834,7 @@ fn simplify_join_clause_for_relation(
         }
 
         pg_sys::NodeTag::T_RestrictInfo => {
-            let ri = unsafe { nodecast!(RestrictInfo, T_RestrictInfo, node) }?;
+            let ri = unsafe { nodecast!(RestrictInfo, node) }?;
             let ri = unsafe { &*ri };
             let clause = if !ri.orclause.is_null() {
                 ri.orclause
@@ -1895,7 +1895,7 @@ unsafe fn create_bool_const_false() -> Option<*mut pg_sys::Node> {
 
 /// Check if a node is a boolean constant TRUE
 unsafe fn is_bool_const_true(node: *mut pg_sys::Node) -> bool {
-    if let Some(const_node) = nodecast!(Const, T_Const, node) {
+    if let Some(const_node) = nodecast!(Const, node) {
         (*const_node).consttype == pg_sys::BOOLOID
             && !(*const_node).constisnull
             && bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
@@ -2098,7 +2098,7 @@ unsafe fn try_create_heap_expr_from_null_test(
     // Extract the field being tested
     let arg = (*nulltest).arg;
     // Check if the arg is a Var referencing our relation
-    if let Some(var) = nodecast!(Var, T_Var, arg) {
+    if let Some(var) = nodecast!(Var, arg) {
         create_heap_expr_for_field_ref(
             root,
             nulltest as *mut pg_sys::Node,

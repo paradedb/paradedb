@@ -341,7 +341,7 @@ impl ParallelWorker for BuildWorker<'_> {
     fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
         // Wait for the leader to publish the active participant count.
         while self.coordination.nparticipants() == 0 {
-            check_for_interrupts!();
+            check_for_interrupts();
             std::thread::yield_now();
         }
 
@@ -995,7 +995,7 @@ impl<'a> WorkerBuildState<'a> {
         {
             Ok(meta) => meta,
             Err(error) => {
-                check_for_interrupts!();
+                check_for_interrupts();
                 return Err(error);
             }
         };
@@ -1132,7 +1132,7 @@ impl<'a> WorkerBuildState<'a> {
             self.participant,
         );
         for partition in first_partition..first_partition + owned_partitions {
-            check_for_interrupts!();
+            check_for_interrupts();
             let Some(mut sorter) = (unsafe { files.gather(partition, self.gather_budget)? }) else {
                 continue;
             };
@@ -1159,7 +1159,7 @@ impl<'a> WorkerBuildState<'a> {
                 prefetch_distance,
             );
             for ctid in &mut ctids {
-                check_for_interrupts!();
+                check_for_interrupts();
 
                 // The doc's palloc traffic (detoast copies, expression evaluation) lands in the
                 // per-row context; the insert runs outside the closure because both the writer
@@ -1206,7 +1206,7 @@ impl<'a> WorkerBuildState<'a> {
         let nparticipants = self.nparticipants;
         self.coordination.add_spilled();
         while self.coordination.nspilled() < nparticipants {
-            check_for_interrupts!();
+            check_for_interrupts();
             // A short latch wait rather than a sleep: it shows up as a wait event, and a
             // parallel message (a peer's error) or postmaster death ends it at once.
             unsafe {
@@ -1275,7 +1275,7 @@ unsafe extern "C-unwind" fn build_callback(
     _tuple_is_alive: bool,
     state: *mut std::os::raw::c_void,
 ) {
-    check_for_interrupts!();
+    check_for_interrupts();
 
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
@@ -1481,7 +1481,7 @@ pub(super) fn build_index(
             // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
             // of the workers, which doesn't allow for "evenly" distributing the work
             while coordination.nstarted() != nlaunched {
-                check_for_interrupts!();
+                check_for_interrupts();
                 std::thread::yield_now();
             }
 
@@ -1495,7 +1495,7 @@ pub(super) fn build_index(
 
         // wait for the workers to finish by collecting all their response messages
         for (_, message) in process {
-            check_for_interrupts!();
+            check_for_interrupts();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
             total_tuples += worker_response.reltuples;
             total_merges += worker_response.nmerges;

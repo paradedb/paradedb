@@ -90,7 +90,7 @@ pub unsafe fn visibility_from_agg_arg(
     aggfnoid: u32,
     second_arg: Option<*mut pgrx::pg_sys::Node>,
 ) -> MvccVisibility {
-    let Some(const_node) = second_arg.and_then(|node| nodecast!(Const, T_Const, node)) else {
+    let Some(const_node) = second_arg.and_then(|node| nodecast!(Const, node)) else {
         return MvccVisibility::default();
     };
 
@@ -119,7 +119,7 @@ pub unsafe fn pdb_agg_spec(
     spec_arg: *mut pgrx::pg_sys::Node,
     visibility_arg: Option<*mut pgrx::pg_sys::Node>,
 ) -> Option<(serde_json::Value, MvccVisibility)> {
-    let const_node = nodecast!(Const, T_Const, spec_arg)?;
+    let const_node = nodecast!(Const, spec_arg)?;
     let spec = JsonB::from_datum((*const_node).constvalue, (*const_node).constisnull)?.0;
     Some((spec, visibility_from_agg_arg(aggfnoid, visibility_arg)))
 }

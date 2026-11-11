@@ -227,7 +227,7 @@ struct BuildFile {
 impl BuildFile {
     fn read_exact_at(&self, data: &mut [u8], offset: usize) -> io::Result<()> {
         let mut offset: pg_sys::off_t = offset.try_into().map_err(io::Error::other)?;
-        pgrx::check_for_interrupts!();
+        pgrx::check_for_interrupts();
         self.file.with(|file| {
             let mut data = data;
             while !data.is_empty() {
@@ -271,7 +271,7 @@ impl Write for BuildFileWriter {
             )
         })?;
         let _: pg_sys::off_t = new_len.try_into().map_err(io::Error::other)?;
-        pgrx::check_for_interrupts!();
+        pgrx::check_for_interrupts();
         file.file.with(|handle| {
             let mut offset = offset as pg_sys::off_t;
             let mut remaining = data;

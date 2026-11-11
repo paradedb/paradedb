@@ -76,8 +76,12 @@ pub const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub const DEFAULT_MAX_LEAF_SIZE: i32 = clustering::DEFAULT_MAX_LEAF_SIZE as i32;
+pub const DEFAULT_TARGET_LEAF_SIZE: i32 = clustering::DEFAULT_TARGET_LEAF_SIZE as i32;
 pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = clustering::DEFAULT_TRAINING_SAMPLE_RATIO;
+/// Default `replication`: every vector of a quantized IVF field in two clusters.
+pub const DEFAULT_REPLICATION: i32 = 2;
+/// Largest `replication` the IVF writer supports.
+pub const MAX_REPLICATION: i32 = 2;
 
 #[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
@@ -237,7 +241,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 19;
+const NUM_REL_OPTS: usize = 20;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -322,6 +326,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
+            optname: "replication".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, replication) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
             optname: "target_segment_count".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: std::mem::offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
@@ -358,9 +369,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "max_leaf_size".as_pg_cstr(),
+            optname: "target_leaf_size".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, max_leaf_size) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, target_leaf_size) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -456,6 +467,12 @@ impl BM25IndexOptions {
         self.options_data().vector_router_quantization
     }
 
+    /// Number of IVF clusters new quantized IVF segments assign each vector to: 1, or 2 with a
+    /// second cluster. Captured in stored index settings during creation or rebuilding.
+    pub fn replication(&self) -> u8 {
+        self.options_data().replication as u8
+    }
+
     pub fn target_segment_count(&self) -> usize {
         self.explicit_target_segment_count().unwrap_or_else(|| {
             default_target_segment_count(WorkerStyle::Query.max(), self.partition_by().len())
@@ -490,9 +507,9 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the maximum number of training vectors per clustering leaf.
-    pub fn max_leaf_size(&self) -> usize {
-        self.options_data().max_leaf_size()
+    /// Returns the target number of training vectors per clustering leaf.
+    pub fn target_leaf_size(&self) -> usize {
+        self.options_data().target_leaf_size()
     }
 
     /// Returns the fraction of vectors sampled for IVF training.
@@ -900,10 +917,11 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
-    max_leaf_size: i32,
+    target_leaf_size: i32,
     training_sample_ratio: f64,
     partition_by_offset: i32,
     vector_router_quantization: bool,
+    replication: i32,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -923,10 +941,11 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
-    max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
+    target_leaf_size: DEFAULT_TARGET_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
     vector_router_quantization: true,
+    replication: DEFAULT_REPLICATION,
 };
 
 impl BM25IndexOptionsData {
@@ -966,9 +985,9 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the maximum number of training vectors per clustering leaf.
-    pub fn max_leaf_size(&self) -> usize {
-        self.max_leaf_size as usize
+    /// Returns the target number of training vectors per clustering leaf.
+    pub fn target_leaf_size(&self) -> usize {
+        self.target_leaf_size as usize
     }
 
     /// Returns the fraction of vectors sampled for IVF training.
@@ -1184,6 +1203,18 @@ pub unsafe fn init() {
     );
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
+        "replication".as_pg_cstr(),
+        "Number of IVF clusters each vector is assigned to. 2 adds a second cluster chosen to cover \
+         queries the first misses; roughly doubles the quantized rows and index build time. \
+         Full-precision rows are not duplicated."
+            .as_pg_cstr(),
+        DEFAULT_REPLICATION,
+        1,
+        MAX_REPLICATION,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
         "target_segment_count".as_pg_cstr(),
         "When creating or reindexing, how many segments should be created".as_pg_cstr(),
         0,
@@ -1226,9 +1257,9 @@ pub unsafe fn init() {
     );
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "max_leaf_size".as_pg_cstr(),
-        "Maximum training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
-        DEFAULT_MAX_LEAF_SIZE,
+        "target_leaf_size".as_pg_cstr(),
+        "Target training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        DEFAULT_TARGET_LEAF_SIZE,
         1,
         i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,

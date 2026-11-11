@@ -135,23 +135,23 @@ impl MaybeInlineRow {
                         .cast(),
                 );
             }
-            let mut row = PgBox::<pg_sys::RowExpr>::alloc_node(pg_sys::NodeTag::T_RowExpr);
+            let mut row = PgBox::from_pg(pgrx::makeNode!(pg_sys::RowExpr).get());
             row.args = fields.into_pg();
             row.row_typeid = pg_sys::RECORDOID;
             row.row_format = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
             row.colnames = names.into_pg();
             row.location = (*whole_row).location;
 
-            let mut is_null = PgBox::<pg_sys::NullTest>::alloc_node(pg_sys::NodeTag::T_NullTest);
+            let mut is_null = PgBox::from_pg(pgrx::makeNode!(pg_sys::NullTest).get());
             is_null.arg = whole_row.cast();
             is_null.nulltesttype = pg_sys::NullTestType::IS_NULL;
             is_null.argisrow = false;
-            let mut when = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
+            let mut when = PgBox::from_pg(pgrx::makeNode!(pg_sys::CaseWhen).get());
             when.expr = is_null.into_pg().cast();
             when.result = pg_sys::makeNullConst(pg_sys::RECORDOID, -1, pg_sys::Oid::INVALID).cast();
             let mut cases = PgList::<pg_sys::Node>::new();
             cases.push(when.into_pg().cast());
-            let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
+            let mut case = PgBox::from_pg(pgrx::makeNode!(pg_sys::CaseExpr).get());
             case.casetype = pg_sys::RECORDOID;
             case.args = cases.into_pg();
             case.defresult = row.into_pg().cast();
@@ -164,7 +164,7 @@ impl MaybeInlineRow {
         let array_type = pg_sys::get_array_type(row_type);
         let mut rows = PgList::<pg_sys::Node>::new();
         rows.push(row);
-        let mut inline_row = PgBox::<pg_sys::ArrayExpr>::alloc_node(pg_sys::NodeTag::T_ArrayExpr);
+        let mut inline_row = PgBox::from_pg(pgrx::makeNode!(pg_sys::ArrayExpr).get());
         inline_row.array_typeid = array_type;
         inline_row.element_typeid = row_type;
         inline_row.elements = rows.into_pg();
@@ -238,20 +238,19 @@ impl MaybeInlineRow {
         let mut when_list = PgList::<pg_sys::Node>::new();
         for requirement in requirements {
             // Both FALSE and NULL mean the index cannot answer for this row.
-            let mut failed =
-                PgBox::<pg_sys::BooleanTest>::alloc_node(pg_sys::NodeTag::T_BooleanTest);
+            let mut failed = PgBox::from_pg(pgrx::makeNode!(pg_sys::BooleanTest).get());
             failed.arg = requirement;
             failed.booltesttype = pg_sys::BoolTestType::IS_NOT_TRUE;
             failed.location = (*whole_row).location;
 
-            let mut when = PgBox::<pg_sys::CaseWhen>::alloc_node(pg_sys::NodeTag::T_CaseWhen);
+            let mut when = PgBox::from_pg(pgrx::makeNode!(pg_sys::CaseWhen).get());
             when.expr = failed.into_pg().cast();
             when.result = pg_sys::copyObjectImpl(inline_row.cast()).cast();
             when.location = (*whole_row).location;
             when_list.push(when.into_pg().cast());
         }
 
-        let mut case = PgBox::<pg_sys::CaseExpr>::alloc_node(pg_sys::NodeTag::T_CaseExpr);
+        let mut case = PgBox::from_pg(pgrx::makeNode!(pg_sys::CaseExpr).get());
         case.casetype = pg_sys::RECORDARRAYOID;
         case.casecollid = pg_sys::Oid::INVALID;
         case.args = when_list.into_pg();
@@ -411,10 +410,11 @@ impl RowMatcher {
     }
 
     pub(super) unsafe fn matches(&mut self, row: pg_sys::Datum) -> Option<bool> {
-        let header = pg_sys::pg_detoast_datum(row.cast_mut_ptr()).cast();
+        let header =
+            pg_sys::pg_detoast_datum(row.cast_mut_ptr()).cast::<pg_sys::HeapTupleHeaderData>();
         let row_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
-            pgrx::heap_tuple_header_get_type_id(header),
-            pgrx::heap_tuple_header_get_typmod(header),
+            pgrx::HeapTupleHeaderGetTypeId!(header).into(),
+            pgrx::HeapTupleHeaderGetTypMod!(header).get(),
         ));
         let conversion =
             pg_sys::convert_tuples_by_name(row_desc.as_ptr(), (*self.slot).tts_tupleDescriptor);

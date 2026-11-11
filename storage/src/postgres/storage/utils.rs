@@ -22,6 +22,7 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::PgItem;
+use pgrx::cmacros::c::Pointer;
 use pgrx::pg_sys::OffsetNumber;
 use pgrx::{PgMemoryContexts, pg_sys};
 use std::fmt::Debug;
@@ -52,7 +53,7 @@ impl BM25Page for pg_sys::Page {
     }
 
     unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem> {
-        let item_id = pg_sys::PageGetItemId(*self, offno);
+        let item_id = pgrx::PageGetItemId!(Pointer::from(*self), offno).get();
 
         // in order for a page to have an item it must have normal line pointers and be non-empty
         // the lp_len() is effectively Postgres' `#define ItemIdHasStorage(itemId)` macro
@@ -60,7 +61,7 @@ impl BM25Page for pg_sys::Page {
             return None;
         }
 
-        let item = pg_sys::PageGetItem(*self, item_id);
+        let item = pgrx::PageGetItem!(Pointer::from(*self), item_id).get();
         let size = (*item_id).lp_len() as pg_sys::Size;
         Some(PgItem(item, size))
     }

@@ -556,12 +556,12 @@ pub fn deserialize_window_agg_placeholders(tlist: *mut pg_sys::List) -> Vec<Wind
     for (idx, te) in target_entries.iter_ptr().enumerate() {
         let te = unsafe { &*te };
         te.expr.visit(|node| unsafe {
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+            if let Some(funcexpr) = nodecast!(FuncExpr, node)
                 && (*funcexpr).funcid == window_agg_procid
             {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 if let Some(json_arg) = args.get_ptr(0)
-                    && let Some(const_node) = nodecast!(Const, T_Const, json_arg)
+                    && let Some(const_node) = nodecast!(Const, json_arg)
                     && !(*const_node).constisnull
                 {
                     let json_varlena = (*const_node).constvalue.cast_mut_ptr::<pg_sys::varlena>();

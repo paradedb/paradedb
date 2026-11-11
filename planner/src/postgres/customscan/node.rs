@@ -27,7 +27,7 @@ use pgrx::{PgList, pg_sys};
 pub trait CustomScanNodeExt: NodeExt {
     fn contains_score(self) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+            unsafe { nodecast!(FuncExpr, node) }
                 .is_some_and(|expr| score_funcoids().contains(&unsafe { (*expr).funcid }))
         })
     }
@@ -38,12 +38,12 @@ pub trait CustomScanNodeExt: NodeExt {
         rti: pg_sys::Index,
     ) -> bool {
         self.any(|node| {
-            if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+            if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) }
                 && score_funcoids.contains(&unsafe { (*funcexpr).funcid })
             {
                 let args = unsafe { PgList::<pg_sys::Node>::from_pg((*funcexpr).args) };
                 assert!(args.len() == 1, "score function must have 1 argument");
-                return unsafe { nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) }
+                return unsafe { nodecast!(Var, args.get_ptr(0).unwrap()) }
                     .is_some_and(|var| unsafe { (*var).varno } == rti as i32);
             }
             false
@@ -55,7 +55,7 @@ pub trait CustomScanNodeExt: NodeExt {
         let snippet_funcoids = snippet_funcoids();
         let snippet_positions_funcoids = snippet_positions_funcoids();
         self.any(|node| {
-            unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }.is_some_and(|expr| {
+            unsafe { nodecast!(FuncExpr, node) }.is_some_and(|expr| {
                 let funcid = unsafe { (*expr).funcid };
                 score_funcoids.contains(&funcid)
                     || snippet_funcoids.contains(&funcid)

@@ -10,6 +10,8 @@ ParadeDB uses a **fragment-based workflow** for release artifacts:
 
 At release time, the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) automatically assembles these fragments into the versioned SQL upgrade script and changelog page.
 
+Changelog sections follow the order in `.changelog_headers.json`: breaking changes, new features, performance improvements, stability improvements, documentation, and other changes. Empty sections are omitted.
+
 ## Enterprise: Community Sync
 
 Commits from `paradedb/paradedb` are automatically synced to `paradedb/paradedb-enterprise` via GitHub Actions.

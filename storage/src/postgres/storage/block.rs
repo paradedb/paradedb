@@ -1032,11 +1032,9 @@ impl MVCCEntry for SegmentMetaEntry {
 }
 
 pub const fn bm25_max_free_space() -> usize {
-    unsafe {
-        (pg_sys::BLCKSZ as usize)
-            - pg_sys::MAXALIGN(size_of::<BM25PageSpecialData>())
-            - pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp))
-    }
+    (pg_sys::BLCKSZ as usize)
+        - pg_sys::maxalign(size_of::<BM25PageSpecialData>())
+        - pg_sys::maxalign(offset_of!(pg_sys::PageHeaderData, pd_linp))
 }
 
 #[inline(always)]
@@ -1166,7 +1164,7 @@ mod vector_alignment_tests {
     // Every storage page preserves the alignment required by vector element decoders.
     #[test]
     fn page_data_and_capacity_preserve_vector_element_alignment() {
-        let data_start = unsafe { pg_sys::MAXALIGN(offset_of!(pg_sys::PageHeaderData, pd_linp)) };
+        let data_start = pg_sys::maxalign(offset_of!(pg_sys::PageHeaderData, pd_linp));
         let alignment = tantivy::vector::ENTRY_ALIGN;
         assert_eq!(data_start % alignment, 0);
         assert_eq!(bm25_max_free_space() % alignment, 0);

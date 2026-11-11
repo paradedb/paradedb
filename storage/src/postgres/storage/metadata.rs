@@ -106,8 +106,8 @@ pub struct MetaPageData {
 
     created_at: pg_sys::TimestampTz,
 
-    /// Nonzero once the promotion sweep (`postgres::promotion`) found this index on a server
-    /// promoted from a standby. Indexes built on this server read zero.
+    /// Nonzero once a standby's WAL replay found this index named by the primary
+    /// (`postgres::promotion`). Indexes built on this server read zero.
     standby_taint: u32,
 }
 
@@ -535,18 +535,23 @@ impl MetaPage {
         self.data.ambulkdelete_epoch
     }
 
+    /// True once a standby's WAL replay set the taint; see `postgres::promotion`.
     pub fn standby_tainted(&self) -> bool {
         self.data.standby_taint != 0
     }
 
-    /// Records that the index arrived through physical replication. Does not go through `open`,
-    /// whose callers refuse a marked index.
-    pub fn mark_standby_tainted(indexrel: &PgSearchRelation) {
-        let mut bman = BufferManager::new(indexrel);
-        let mut buffer = bman.get_buffer_mut(METAPAGE);
-        let mut page = buffer.page_mut();
-        let metadata = page.contents_mut::<MetaPageData>();
-        metadata.standby_taint = 1;
+    /// Sets the taint on a raw metapage during WAL replay, where no relation can be opened.
+    pub unsafe fn taint_page(page: pg_sys::Page) {
+        let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
+            .get()
+            .cast::<MetaPageData>();
+        (*contents).standby_taint = 1;
+        // Keep the field inside pd_lower, as `contents_mut` does: a full-page image written
+        // after promotion omits the hole past pd_lower.
+        let header = page.cast::<pg_sys::PageHeaderData>();
+        (*header).pd_lower = (contents.add(1) as usize - header as usize)
+            .try_into()
+            .expect("pd_lower overflowed");
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

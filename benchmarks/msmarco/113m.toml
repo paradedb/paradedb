@@ -8,14 +8,14 @@ vector_field = "emb"
 s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
 
 [postgres.build]
-shared_buffers = "12GB"
-maintenance_work_mem = "12GB"
+shared_buffers = "24GB"
+maintenance_work_mem = "24GB"
 max_parallel_maintenance_workers = 8
 
 [postgres.search]
-shared_buffers = "12GB"
+shared_buffers = "24GB"
 max_parallel_workers = 8
-max_worker_processes = 32
+max_worker_processes = 16
 
 [index]
 training_sample_ratio = 0.32

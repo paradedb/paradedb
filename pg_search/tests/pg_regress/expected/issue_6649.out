@@ -1,0 +1,157 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan = ON;
+CREATE TABLE issue_6649_internal_names (
+    id SERIAL PRIMARY KEY,
+    agg_0 INTEGER,
+    ctid_0 INTEGER,
+    _ctid_0 INTEGER,
+    __pdb_k0 TEXT,
+    __pdb_m0 INTEGER,
+    __grouping_id INTEGER,
+    category TEXT,
+    amount NUMERIC(10, 2)
+);
+INSERT INTO issue_6649_internal_names
+    (agg_0, ctid_0, _ctid_0, __pdb_k0, __pdb_m0, __grouping_id, category, amount)
+SELECT
+    g % 3,
+    g % 3,
+    g % 4,
+    CASE WHEN g % 3 = 0 THEN 'alpha' WHEN g % 3 = 1 THEN 'beta' ELSE 'gamma' END,
+    g % 2,
+    g % 3,
+    CASE WHEN g % 2 = 0 THEN 'even' ELSE 'odd' END,
+    g * 10.25
+FROM generate_series(1, 6) AS g;
+CREATE INDEX issue_6649_internal_names_idx ON issue_6649_internal_names
+USING paradedb (
+    id,
+    agg_0,
+    ctid_0,
+    _ctid_0,
+    (__pdb_k0::pdb.literal),
+    __pdb_m0,
+    __grouping_id,
+    (category::pdb.literal),
+    amount
+);
+-- Keep the original aggregate-alias collision covered as well.
+SELECT agg_0, SUM(amount)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+ORDER BY agg_0;
+ agg_0 |  sum  
+-------+-------
+     0 | 92.25
+     1 | 51.25
+     2 | 71.75
+(3 rows)
+
+-- A user column named like a synthetic CTID must remain distinct from it.
+SELECT ctid_0, SUM(amount)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY ctid_0
+ORDER BY ctid_0;
+ ctid_0 |  sum  
+--------+-------
+      0 | 92.25
+      1 | 51.25
+      2 | 71.75
+(3 rows)
+
+-- Synthetic CTID aliases must also avoid non-grouped aggregate input fields.
+SELECT agg_0, SUM(_ctid_0)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+ORDER BY agg_0;
+ agg_0 | sum 
+-------+-----
+     0 |   5
+     1 |   1
+     2 |   3
+(3 rows)
+
+-- Join-key CTIDs use the same alias as the projected synthetic source fields.
+-- EXPLAIN covers planning; execution currently exercises a separate pre-filter
+-- limitation for dynamic filters on CTID columns.
+EXPLAIN (COSTS OFF, TIMING OFF, VERBOSE)
+SELECT a.agg_0, SUM(a.amount)
+FROM issue_6649_internal_names AS a
+JOIN issue_6649_internal_names AS b ON a.ctid = b.ctid
+WHERE a.id @@@ paradedb.all()
+GROUP BY a.agg_0
+ORDER BY a.agg_0;
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: a.agg_0, (sum(a.amount))
+   Sort Key: a.agg_0
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: a.agg_0, (sum(a.amount))
+         Backend: DataFusion
+         Indexes: issue_6649_internal_names_idx (a), issue_6649_internal_names_idx (b)
+         Group By: agg_0
+         Aggregates: SUM(amount)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[agg_0@0 as agg_0], aggr=[numeric64_sum(a_0.amount, 2) as _agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(_ctid_1@0, _ctid_0@0)], projection=[agg_0@2, amount@3]
+           :     ProjectionExec: expr=[ctid@0 as _ctid_1]
+           :       CooperativeExec
+           :         PgSearchScan: table=b, segments=1, visibility=eager, query="all"
+           :     ProjectionExec: expr=[ctid@0 as _ctid_0, agg_0@1 as agg_0, amount@2 as amount]
+           :       CooperativeExec
+           :         PgSearchScan: table=a, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":"all"}}
+(18 rows)
+
+-- These group keys overlap with the synthetic columns produced by pdb.agg().
+SELECT __pdb_k0, COUNT(*),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY __pdb_k0
+ORDER BY __pdb_k0;
+ __pdb_k0 | count |                                                                                agg                                                                                 
+----------+-------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ alpha    |     2 | {"buckets": [{"key": "even", "doc_count": 1, "min_agg_0": {"value": 0.0}}, {"key": "odd", "doc_count": 1, "min_agg_0": {"value": 0.0}}], "sum_other_doc_count": 0}
+ beta     |     2 | {"buckets": [{"key": "even", "doc_count": 1, "min_agg_0": {"value": 1.0}}, {"key": "odd", "doc_count": 1, "min_agg_0": {"value": 1.0}}], "sum_other_doc_count": 0}
+ gamma    |     2 | {"buckets": [{"key": "even", "doc_count": 1, "min_agg_0": {"value": 2.0}}, {"key": "odd", "doc_count": 1, "min_agg_0": {"value": 2.0}}], "sum_other_doc_count": 0}
+(3 rows)
+
+SELECT __pdb_m0, COUNT(*),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY __pdb_m0
+ORDER BY __pdb_m0;
+ __pdb_m0 | count |                                                  agg                                                  
+----------+-------+-------------------------------------------------------------------------------------------------------
+        0 |     3 | {"buckets": [{"key": "even", "doc_count": 3, "min_agg_0": {"value": 0.0}}], "sum_other_doc_count": 0}
+        1 |     3 | {"buckets": [{"key": "odd", "doc_count": 3, "min_agg_0": {"value": 0.0}}], "sum_other_doc_count": 0}
+(2 rows)
+
+SELECT __grouping_id, COUNT(*),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY __grouping_id
+ORDER BY __grouping_id;
+ __grouping_id | count |                                                                                agg                                                                                 
+---------------+-------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+             0 |     2 | {"buckets": [{"key": "even", "doc_count": 1, "min_agg_0": {"value": 0.0}}, {"key": "odd", "doc_count": 1, "min_agg_0": {"value": 0.0}}], "sum_other_doc_count": 0}
+             1 |     2 | {"buckets": [{"key": "even", "doc_count": 1, "min_agg_0": {"value": 1.0}}, {"key": "odd", "doc_count": 1, "min_agg_0": {"value": 1.0}}], "sum_other_doc_count": 0}
+             2 |     2 | {"buckets": [{"key": "even", "doc_count": 1, "min_agg_0": {"value": 2.0}}, {"key": "odd", "doc_count": 1, "min_agg_0": {"value": 2.0}}], "sum_other_doc_count": 0}
+(3 rows)
+
+-- HAVING must read the renamed synthetic grouping ID on the scalar-key path.
+SELECT agg_0, COUNT(*),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+HAVING COUNT(*) > 1
+ORDER BY agg_0;
+ERROR:  Cannot execute pdb.agg: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206)
+DROP TABLE issue_6649_internal_names;

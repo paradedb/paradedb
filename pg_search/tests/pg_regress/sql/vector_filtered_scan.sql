@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET paradedb.vector_adaptive_probing = off;
 SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 0.1;
+SET paradedb.vector_cluster_max_probe = 4;
 SET paradedb.vector_stats = on;
 
 -- Integer coordinates in [-50, 50]: every squared L2 distance is an exact float, so the
@@ -67,7 +67,7 @@ CREATE TABLE filtered_scan_items (id integer PRIMARY KEY, category integer, vec 
 CREATE INDEX filtered_scan_items_idx ON filtered_scan_items
 USING paradedb (id, category, vec vector_l2_ops)
 WITH (
-    max_leaf_size = 5,
+    target_leaf_size = 5,
     training_sample_ratio = 1.0,
     target_segment_count = 1,
     mutable_segment_rows = 0,

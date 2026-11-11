@@ -1045,7 +1045,7 @@ RESET paradedb.mpp_min_rows;
 -- probe-side lazy_sort plans under `SortPreservingMergeExec(fetch=K)` +
 -- per-partition `HashJoinExec(fetch=K)`.
 -- =====================================================================
-SET paradedb.vector_cluster_max_probe TO 1.0;
+SET paradedb.vector_cluster_max_probe TO 100000;
 SET paradedb.rank_join_min_rows TO 100;
 -- 14a. Non-co-partitioned (`CollectLeft` + `WorkerPool` probe lazy_sort): fast-field and vector ORDER BY
 SET paradedb.enable_range_partitioned_join TO off;

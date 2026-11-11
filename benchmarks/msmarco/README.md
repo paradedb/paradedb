@@ -22,10 +22,9 @@ benchmark code. Backfills and PR runs do not update the main baseline.
 The pinned pdbench revision includes the configured-neighbor-count recall fix
 needed for top-100. It uses 100 held-out query vectors from the published 1,677
 fixtures and independently sweeps top-10 and top-100 to R90/R95/R99. The current
-main configuration uses fractional `paradedb.vector_cluster_max_probe` values
-from 0.0001 to 1.0, starting at 0.005, with adaptive probing enabled. Experimental
-absolute probe budgets and SOAR replication from #7315 are not part of this
-baseline.
+configuration uses integer `paradedb.vector_cluster_max_probe` work budgets
+from 1 to 100000, starting at 100, with adaptive probing enabled. SOAR replication
+from #7315 is not part of this baseline.
 
 The workflow reuses Cohere's handoff helpers and k6 script. Plan checks require
 cosine TopK execution inside ParadeDB with the correct neighbor count. Each

@@ -70,7 +70,7 @@ set -x
 cargo pgrx stop "${FEATURE}" --package pg_search
 
 # Install pg_search extension, conditionally using --release
-"${SCRIPT_DIR}/dev-install.sh" --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
+cargo pgrx install --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config"
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

@@ -1,0 +1,6 @@
+---
+header: performance
+title: Global vector routing
+---
+
+- `paradedb.vector_cluster_max_probe` now sets an absolute work budget in average-cluster units, accepting whole numbers from `1` through `100000` with a default of `100`. Opening clusters and scoring rows consume the same cost-based budget; selective filters can visit more clusters. Update existing values to the desired absolute budget.

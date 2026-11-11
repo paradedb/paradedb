@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::api::operator::f16_typmod::deserialize_i32_to_f32;
 use crate::query::pdb_query::pdb;
@@ -84,7 +85,7 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for BoostType {
         const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(BoostType);
-        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::ThisExtension;
         const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
             Ok(SqlMappingRef::literal("pdb.boost"));
         const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
@@ -132,8 +133,7 @@ mod typedef {
             CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.boost;
         "#,
-        name = "BoostType_shell",
-        creates = [Type(BoostType)]
+        name = "BoostType_shell"
     );
 
     #[pg_extern(immutable, parallel_safe)]
@@ -191,6 +191,7 @@ mod typedef {
             );
         "#,
         name = "BoostType_final",
+        creates = [Type(BoostType)],
         requires = [
             "BoostType_shell",
             boost_in,

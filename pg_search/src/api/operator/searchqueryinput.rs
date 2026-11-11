@@ -14,8 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 use super::anyelement_query_input_opoid;
-use crate::api::operator::{ReturnedNodePointer, estimate_selectivity, find_var_relation};
+use crate::api::operator::{
+    ReturnedNodePointer, ReturnedNodePointerSupport, estimate_selectivity, find_var_relation,
+};
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
@@ -104,7 +107,7 @@ pub(super) fn query_input_selectivity(
     let args = unsafe { PgList::<pg_sys::Node>::from_pg(args) };
     let Some(var) = args
         .get_ptr(0)
-        .and_then(|lhs| unsafe { nodecast!(Var, T_Var, lhs) })
+        .and_then(|lhs| unsafe { nodecast!(Var, lhs) })
     else {
         return UNKNOWN_SELECTIVITY;
     };

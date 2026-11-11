@@ -1,0 +1,2681 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
+
+use crate::api::version::Version;
+use crate::gucs;
+use crate::index::stats::partition_box;
+use crate::index::synonym_index::RuleCheck;
+use crate::index::writer::index::{DiskSpaceGuard, IndexWriterConfig, SerialIndexWriter};
+use crate::launch_parallel_process;
+use crate::parallel_worker::builder::ParallelProcessLauncher;
+use crate::parallel_worker::mqueue::MessageQueueSender;
+use crate::parallel_worker::{
+    ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
+    WorkerStyle, chunk_range,
+};
+use crate::postgres::build_partitioning::{
+    BuildPartitioning, PartitionRouter, plan_partition_boundaries,
+};
+use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::heap::{ExpressionState, HeapDocFetcher, HeapFetchState, PrefetchWindow};
+use crate::postgres::locks::Spinlock;
+use crate::postgres::ps_status::{
+    COMMITTING, FINALIZING, INDEXING, MERGING, set_ps_display_remove_suffix, set_ps_display_suffix,
+};
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::tuplesort::Int8Sorter;
+use crate::postgres::utils::{
+    collect_composites_for_unpacking, get_field_value, row_to_search_document,
+};
+use crate::schema::{CategorizedFieldData, SearchField};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    PgLogLevel, PgMemoryContexts, PgSqlErrorCode, PgTupleDesc, check_for_interrupts, function_name,
+    pg_guard, pg_sys,
+};
+use std::ffi::CString;
+use std::num::NonZeroUsize;
+use std::os::raw::c_int;
+use std::ptr::{NonNull, addr_of_mut};
+use std::sync::OnceLock;
+use std::time::Instant;
+use tantivy::{SegmentMeta, TantivyDocument};
+
+const TUPLES_DONE_BATCH_SIZE: usize = 5;
+/// General, immutable configuration used for the workers
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+struct WorkerConfig {
+    heaprelid: pg_sys::Oid,
+    indexrelid: pg_sys::Oid,
+    concurrent: u8,
+    need_wal: u8,
+    _pad: [u8; 2],
+}
+
+// SAFETY: WorkerConfig is #[repr(C)] with explicit padding. All fields
+// are integer types (Oid = u32 wrapper, u8). Every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for WorkerConfig {}
+unsafe impl bytemuck::Pod for WorkerConfig {}
+
+impl WorkerConfig {
+    fn new(
+        heaprelid: pg_sys::Oid,
+        indexrelid: pg_sys::Oid,
+        concurrent: bool,
+        need_wal: bool,
+    ) -> Self {
+        Self {
+            heaprelid,
+            indexrelid,
+            concurrent: concurrent as u8,
+            need_wal: need_wal as u8,
+            _pad: [0; 2],
+        }
+    }
+
+    fn concurrent(&self) -> bool {
+        self.concurrent != 0
+    }
+
+    fn need_wal(&self) -> bool {
+        self.need_wal != 0
+    }
+}
+impl ParallelStateType for WorkerConfig {}
+
+/// Type alias that holds a pointer to a [`pg_sys::ParallelTableScanDescData`] which is over-allocated,
+/// so the [`usize`] field tells us how big it really is, in bytes
+type ScanDesc = (usize, *mut pg_sys::ParallelTableScanDescData);
+// ParallelTableScanDescData is a foreign bindgen type that cannot implement
+// Pod. It is accessed through object_raw() instead of the typed object() path.
+
+#[derive(Copy, Clone, Default)]
+#[repr(C)]
+struct WorkerCoordination {
+    mutex: Spinlock,
+    _pad: [u8; 4],
+    nstarted: usize,
+    nparticipants: usize,
+    ntuples_done: usize,
+    nsegments_written: usize,
+    ntuples_staged: usize,
+    /// Participants whose partitioned-build scan is over and whose spill files are closed.
+    nspilled: usize,
+}
+
+// SAFETY: WorkerCoordination is #[repr(C)] with explicit padding. All
+// fields are integer types (Spinlock = i32 wrapper, usize). Every bit
+// pattern is valid.
+unsafe impl bytemuck::Zeroable for WorkerCoordination {}
+unsafe impl bytemuck::Pod for WorkerCoordination {}
+
+impl ParallelStateType for WorkerCoordination {}
+
+// SharedFileSet is a foreign bindgen type that cannot implement Pod.
+// It is accessed through object_raw() instead of the typed object() path.
+
+const _: () = assert!(size_of::<WorkerConfig>() == 12);
+const _: () = assert!(size_of::<WorkerCoordination>() == 56);
+
+impl WorkerCoordination {
+    fn inc_nstarted(&mut self) {
+        let _lock = self.mutex.acquire();
+        self.nstarted += 1;
+    }
+    fn nstarted(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nstarted
+    }
+    fn set_nparticipants(&mut self, nparticipants: usize) {
+        let _lock = self.mutex.acquire();
+        self.nparticipants = nparticipants;
+    }
+    fn nparticipants(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nparticipants
+    }
+    fn add_tuples_done(&mut self, count: usize) {
+        let _lock = self.mutex.acquire();
+        self.ntuples_done += count;
+    }
+    fn tuples_done(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.ntuples_done
+    }
+    fn add_tuples_staged(&mut self, count: usize) -> usize {
+        let _lock = self.mutex.acquire();
+        self.ntuples_staged += count;
+        self.ntuples_staged
+    }
+    fn add_segments_written(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nsegments_written += 1;
+        self.nsegments_written
+    }
+    fn nsegments_written(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nsegments_written
+    }
+    fn add_spilled(&mut self) {
+        let _lock = self.mutex.acquire();
+        self.nspilled += 1;
+    }
+    fn nspilled(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.nspilled
+    }
+}
+
+/// The parallel process for setting up a parallel index build
+struct ParallelBuild {
+    config: WorkerConfig,
+    scandesc: ScanDesc,
+    coordination: WorkerCoordination,
+    /// The leader's global partition boundaries, serialized with `postcard`. Empty when the
+    /// index has no `partition_by`.
+    partitioning: Vec<u8>,
+    /// The fileset holding a partitioned build's per-partition ctid spills. Only reserved here: the
+    /// leader initializes it in place once the DSM is mapped, since its cleanup hooks onto the
+    /// segment. Untouched without `partition_by`.
+    fileset: pg_sys::SharedFileSet,
+}
+
+impl ParallelBuild {
+    fn new(
+        heaprel: &PgSearchRelation,
+        snapshot: pg_sys::Snapshot,
+        config: WorkerConfig,
+        partitioning: Vec<u8>,
+    ) -> Self {
+        let scandesc = unsafe {
+            let size = size_of::<pg_sys::ParallelTableScanDescData>()
+                + pg_sys::table_parallelscan_estimate(heaprel.as_ptr(), snapshot) as usize;
+            let scandesc = pg_sys::palloc0(size).cast();
+            pg_sys::table_parallelscan_initialize(heaprel.as_ptr(), scandesc, snapshot);
+            (size, scandesc)
+        };
+        Self {
+            config,
+            scandesc,
+            coordination: Default::default(),
+            partitioning,
+            fileset: Default::default(),
+        }
+    }
+}
+
+/// Index of the [`ParallelBuild::fileset`] entry in the parallel state.
+const FILESET_STATE_IDX: usize = 4;
+
+impl ParallelProcess for ParallelBuild {
+    fn state_values(&self) -> Vec<&dyn ParallelState> {
+        vec![
+            &self.config,
+            &self.scandesc,
+            &self.coordination,
+            &self.partitioning,
+            &self.fileset,
+        ]
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WorkerResponse {
+    reltuples: f64,
+    nmerges: usize,
+}
+
+fn deserialize_partitioning(bytes: &[u8]) -> Option<BuildPartitioning> {
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(
+        postcard::from_bytes(bytes)
+            .unwrap_or_else(|e| panic!("could not deserialize partition boundaries: {e}")),
+    )
+}
+
+struct BuildWorker<'a> {
+    config: WorkerConfig,
+    table_scan_desc: Option<NonNull<pg_sys::TableScanDescData>>,
+    /// The build's snapshot on the serial path, where no shared scan descriptor carries it.
+    serial_snapshot: Option<pg_sys::Snapshot>,
+    coordination: &'a mut WorkerCoordination,
+    heaprel: PgSearchRelation,
+    indexrel: PgSearchRelation,
+    /// Global partition boundaries computed by the leader; `None` without `partition_by`.
+    partitioning: Option<BuildPartitioning>,
+    /// The spill fileset of a parallel partitioned build, in the DSM. Null on the serial path.
+    fileset: *mut pg_sys::SharedFileSet,
+}
+
+impl ParallelWorker for BuildWorker<'_> {
+    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self
+    where
+        Self: Sized,
+    {
+        let config = state_manager
+            .object::<WorkerConfig>(0)
+            .expect("should be able to get ParallelBuildConfig from state manager")
+            .expect("ParallelBuildConfig should not be NULL");
+        // SAFETY: the leader wrote a valid ParallelTableScanDescData into
+        // this slot via table_parallelscan_initialize before workers launched.
+        let scandesc = unsafe {
+            state_manager
+                .object_raw::<pg_sys::ParallelTableScanDescData>(1)
+                .expect("should be able to get ParallelTableScanDesc")
+                .expect("ParallelTableScanDesc should not be NULL")
+        };
+        let coordination = state_manager
+            .object::<WorkerCoordination>(2)
+            .expect("should be able to get WorkerCoordination")
+            .expect("WorkerCoordination should not be NULL");
+        let partitioning = state_manager
+            .slice::<u8>(3)
+            .expect("should be able to get partitioning bytes")
+            .expect("partitioning bytes should not be NULL");
+        let partitioning = deserialize_partitioning(partitioning);
+        // SAFETY: the leader wrote a valid SharedFileSet into this slot
+        // via SharedFileSetInit before workers launched.
+        let fileset = unsafe {
+            state_manager
+                .object_raw::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
+                .expect("should be able to get the spill fileset")
+                .expect("spill fileset should not be NULL")
+        };
+
+        unsafe {
+            // A worker attaches so that the last process out deletes the spill files. On an
+            // error the leader detaches before its workers have exited, and a worker still
+            // in its scan could recreate a partition file after the leader's cleanup ran. The
+            // participating leader is the fileset's creator and holds the first reference.
+            if partitioning.is_some() && pg_sys::ParallelWorkerNumber >= 0 {
+                pg_sys::SharedFileSetAttach(fileset, state_manager.dsm_segment());
+            }
+
+            let (heap_lock, index_lock) = if !config.concurrent() {
+                (pg_sys::ShareLock, pg_sys::AccessExclusiveLock)
+            } else {
+                (pg_sys::ShareUpdateExclusiveLock, pg_sys::RowExclusiveLock)
+            };
+
+            let heaprel =
+                PgSearchRelation::with_lock(config.heaprelid, heap_lock as pg_sys::LOCKMODE);
+            let mut indexrel =
+                PgSearchRelation::with_lock(config.indexrelid, index_lock as pg_sys::LOCKMODE);
+            let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
+
+            indexrel.set_is_create_index();
+            indexrel.set_need_wal(config.need_wal());
+
+            Self {
+                config: *config,
+                table_scan_desc: NonNull::new(table_scan_desc),
+                serial_snapshot: None,
+                coordination,
+                heaprel,
+                indexrel,
+                partitioning,
+                fileset,
+            }
+        }
+    }
+
+    fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+        // Wait for the leader to publish the active participant count.
+        while self.coordination.nparticipants() == 0 {
+            check_for_interrupts();
+            std::thread::yield_now();
+        }
+
+        // communicate to the group that we've started
+        self.coordination.inc_nstarted();
+
+        let active_workers = self.coordination.nparticipants()
+            - usize::from(unsafe { pg_sys::parallel_leader_participation });
+        let (reltuples, nmerges) = if (worker_number as usize) < active_workers {
+            self.do_build(worker_number, false)?
+        } else {
+            if let Some(scan) = self.table_scan_desc.take() {
+                unsafe { pg_sys::table_endscan(scan.as_ptr()) };
+            }
+            (0.0, 0)
+        };
+        Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
+    }
+}
+
+impl<'a> BuildWorker<'a> {
+    fn new(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+        snapshot: pg_sys::Snapshot,
+        config: WorkerConfig,
+        coordination: &'a mut WorkerCoordination,
+        partitioning: Option<BuildPartitioning>,
+        fileset: *mut pg_sys::SharedFileSet,
+    ) -> Self {
+        Self {
+            config,
+            table_scan_desc: None,
+            serial_snapshot: Some(snapshot),
+            heaprel: Clone::clone(heaprel),
+            indexrel: Clone::clone(indexrel),
+            coordination,
+            partitioning,
+            fileset,
+        }
+    }
+
+    fn do_build(&mut self, worker_number: i32, is_leader: bool) -> anyhow::Result<(f64, usize)> {
+        unsafe {
+            let index_info = self.indexrel.index_info();
+            (*index_info).ii_Concurrent = self.config.concurrent();
+            let nparticipants = self.coordination.nparticipants();
+            let per_worker_memory_budget =
+                gucs::adjust_maintenance_work_mem(nparticipants).get() / nparticipants;
+            let target_segment_count = self.partitioning.as_ref().map_or_else(
+                || plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel),
+                BuildPartitioning::partition_count,
+            );
+            // Workers are numbered from 0 and a participating leader runs as one more, so the
+            // leader takes the last participant slot.
+            let participant = if is_leader {
+                nparticipants - 1
+            } else {
+                worker_number as usize
+            };
+            assert!(target_segment_count.is_multiple_of(nparticipants));
+            let worker_segment_target = target_segment_count / nparticipants;
+
+            pgrx::debug1!(
+                "build_worker {worker_number}: target_segment_count: {target_segment_count}, nparticipants: {nparticipants}, worker_segment_target: {worker_segment_target}"
+            );
+
+            // `None` without `partition_by`: the worker then takes the regular per-row path.
+            let partitioning = self.partitioning.take();
+            if let Some(partitioning) = &partitioning {
+                pgrx::debug1!(
+                    "build_worker {worker_number}: {} partitions over {:?}",
+                    partitioning.partition_count(),
+                    partitioning.dims()
+                );
+            }
+
+            // Only a partitioned drain re-fetches, and only a concurrent one has to land on the
+            // versions its scan chose. The snapshot for that comes off the shared scan
+            // descriptor on the parallel path, and from `build_index` on the serial one. The
+            // scan ends before the drain runs and unregisters what it registered, so this
+            // registration keeps the snapshot alive until the drain is done with it.
+            let build_snapshot = (partitioning.is_some() && self.config.concurrent())
+                .then(|| {
+                    self.table_scan_desc
+                        .map(|scan| (*scan.as_ptr()).rs_snapshot)
+                        .or(self.serial_snapshot)
+                })
+                .flatten()
+                .map(|snapshot| pg_sys::RegisterSnapshot(snapshot));
+
+            let mut build_state = WorkerBuildState::new(
+                &self.heaprel,
+                &self.indexrel,
+                NonZeroUsize::new(per_worker_memory_budget)
+                    .expect("per worker memory budget should be non-zero"),
+                worker_segment_target.max(1),
+                target_segment_count,
+                self.coordination,
+                worker_number,
+                is_leader,
+                partitioning,
+                PartitionSpillFiles::new(self.fileset, participant, nparticipants),
+                build_snapshot,
+            )?;
+
+            set_ps_display_suffix(INDEXING.as_ptr());
+            let scan = Instant::now();
+            let reltuples = pg_sys::table_index_build_scan(
+                self.heaprel.as_ptr(),
+                self.indexrel.as_ptr(),
+                index_info,
+                true,
+                true,
+                Some(build_callback),
+                addr_of_mut!(build_state).cast(),
+                self.table_scan_desc
+                    .as_ref()
+                    .map(|x| x.as_ptr())
+                    .unwrap_or(std::ptr::null_mut()),
+            );
+
+            pgrx::debug1!(
+                "build_worker {worker_number}: scanned {reltuples} tuples in {:.3}s",
+                scan.elapsed().as_secs_f64()
+            );
+
+            let drained = if build_state.partitioning.is_some() {
+                build_state.drain_partitioned()
+            } else {
+                build_state.commit()
+            };
+            if let Some(snapshot) = build_snapshot {
+                pg_sys::UnregisterSnapshot(snapshot);
+            }
+            drained?;
+            Ok((reltuples as f64, build_state.nmerges))
+        }
+    }
+}
+
+/// Pops the snapshot a partitioned drain made active, on every path out of it.
+struct ActiveSnapshotGuard;
+
+crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
+    unsafe {
+        pg_sys::PopActiveSnapshot();
+    }
+});
+
+/// One spill record: a ctid as 8 bytes.
+const CTID_RECORD_LEN: usize = 8;
+
+fn encode_ctid_record(ctid: u64) -> [u8; CTID_RECORD_LEN] {
+    ctid.to_be_bytes()
+}
+
+fn decode_ctid_record(bytes: &[u8]) -> u64 {
+    u64::from_be_bytes(
+        bytes
+            .try_into()
+            .expect("a ctid record should be CTID_RECORD_LEN bytes"),
+    )
+}
+
+/// `open(2)` flag for `BufFileOpenFileSet`, and `whence` for `BufFileSeek`. pgrx binds no
+/// `fcntl.h` constants; both are 0 on every platform Postgres runs on.
+const O_RDONLY: c_int = 0;
+const SEEK_SET: c_int = 0;
+
+/// Where a participant's per-partition ctid spill files live.
+enum SpillFileset {
+    /// A serial build: temporary files this backend rewinds and reads back itself. Each is
+    /// deleted on close, or by the resource owner should the build error out.
+    Local,
+    /// A parallel build: a fileset in the DSM that every participant writes into and the partition
+    /// owners read out of. Its files go away when the leader detaches from the segment, on
+    /// success or on error.
+    Shared(*mut pg_sys::SharedFileSet),
+}
+
+/// The per-partition ctid spill of one build participant. Phase 1 appends each scanned row's ctid to
+/// its partition's file; phase 2 hands a partition's owner every participant's file for that partition.
+///
+/// Every open `BufFile` carries a `BLCKSZ` buffer outside the worker budget, so phase 1 holds
+/// `8KB x partitions` per participant; the bound on `target_segment_count` keeps that small.
+struct PartitionSpillFiles {
+    fileset: SpillFileset,
+    participant: usize,
+    nparticipants: usize,
+    /// This participant's write handle per partition, created on the partition's first row.
+    writers: Vec<Option<*mut pg_sys::BufFile>>,
+    /// Bytes this participant appended per partition. A local temp file has no fileset, and
+    /// `BufFileSize` asserts on one before PG18, so the serial path sizes its files from here.
+    written: Vec<usize>,
+}
+
+impl PartitionSpillFiles {
+    /// `fileset` is the DSM entry of a parallel build, or null for a serial one.
+    fn new(fileset: *mut pg_sys::SharedFileSet, participant: usize, nparticipants: usize) -> Self {
+        let fileset = if fileset.is_null() {
+            SpillFileset::Local
+        } else {
+            SpillFileset::Shared(fileset)
+        };
+        Self {
+            fileset,
+            participant,
+            nparticipants,
+            writers: Vec::new(),
+            written: Vec::new(),
+        }
+    }
+
+    fn with_partitions(mut self, npartitions: usize) -> Self {
+        self.writers = vec![None; npartitions];
+        self.written = vec![0; npartitions];
+        self
+    }
+
+    /// The name of `participant`'s file for `partition` inside the shared fileset.
+    fn file_name(participant: usize, partition: usize) -> CString {
+        CString::new(format!("p{partition}.{participant}"))
+            .expect("spill file name should have no NUL")
+    }
+
+    unsafe fn append(&mut self, partition: usize, ctid: u64) {
+        let writer = match self.writers[partition] {
+            Some(writer) => writer,
+            None => {
+                let writer = match self.fileset {
+                    SpillFileset::Local => pg_sys::BufFileCreateTemp(false),
+                    SpillFileset::Shared(fileset) => pg_sys::BufFileCreateFileSet(
+                        &raw mut (*fileset).fs,
+                        Self::file_name(self.participant, partition).as_ptr(),
+                    ),
+                };
+                self.writers[partition] = Some(writer);
+                writer
+            }
+        };
+        let mut record = encode_ctid_record(ctid);
+        pg_sys::BufFileWrite(writer, record.as_mut_ptr().cast(), CTID_RECORD_LEN);
+        self.written[partition] += CTID_RECORD_LEN;
+    }
+
+    /// End phase 1. Shared files are closed so that peers can open them (the fileset keeps them
+    /// around); local ones stay open for [`Self::gather`] to rewind.
+    unsafe fn finish_writes(&mut self) {
+        if let SpillFileset::Shared(_) = self.fileset {
+            for writer in self.writers.iter_mut() {
+                if let Some(writer) = writer.take() {
+                    pg_sys::BufFileClose(writer);
+                }
+            }
+        }
+    }
+
+    /// Every participant's spill file for `partition`, positioned at its start, with its size in
+    /// bytes.
+    unsafe fn readers(&mut self, partition: usize) -> Vec<(*mut pg_sys::BufFile, usize)> {
+        match self.fileset {
+            SpillFileset::Local => {
+                let Some(file) = self.writers[partition].take() else {
+                    return Vec::new();
+                };
+                if pg_sys::BufFileSeek(file, 0, 0, SEEK_SET) != 0 {
+                    pgrx::error!("could not rewind the spill file of partition {partition}");
+                }
+                vec![(file, self.written[partition])]
+            }
+            SpillFileset::Shared(fileset) => (0..self.nparticipants)
+                .filter_map(|participant| {
+                    let file = pg_sys::BufFileOpenFileSet(
+                        &raw mut (*fileset).fs,
+                        Self::file_name(participant, partition).as_ptr(),
+                        O_RDONLY,
+                        true,
+                    );
+                    (!file.is_null()).then(|| (file, pg_sys::BufFileSize(file).max(0) as usize))
+                })
+                .collect(),
+        }
+    }
+
+    /// Collect `partition`'s ctids from every participant into an `int8` tuplesort on `budget`
+    /// bytes, or `None` when no participant saw a row of the partition. A packed ctid is 48
+    /// bits, so it orders the same as an `int8`.
+    unsafe fn gather(
+        &mut self,
+        partition: usize,
+        budget: usize,
+    ) -> anyhow::Result<Option<Int8Sorter>> {
+        let readers = self.readers(partition);
+        if readers.is_empty() {
+            return Ok(None);
+        }
+        let total_bytes = readers.iter().map(|&(_, bytes)| bytes).sum::<usize>();
+        pgrx::debug1!(
+            "partition {partition}: {} of {} participants spilled rows, {total_bytes} bytes of ctids",
+            readers.len(),
+            self.nparticipants
+        );
+        let mut sorter = Int8Sorter::new(budget);
+        for (file, _) in readers {
+            read_ctid_records(file, |record| sorter.put(decode_ctid_record(record) as i64))?;
+            pg_sys::BufFileClose(file);
+        }
+        sorter.performsort();
+        Ok(Some(sorter))
+    }
+}
+
+/// Stream `file` from its current position to the end, one fixed-length ctid record at a time.
+unsafe fn read_ctid_records(
+    file: *mut pg_sys::BufFile,
+    mut sink: impl FnMut(&[u8]),
+) -> anyhow::Result<()> {
+    let mut buf = [0u8; 1024 * CTID_RECORD_LEN];
+    loop {
+        let nread = pg_sys::BufFileRead(file, buf.as_mut_ptr().cast(), buf.len());
+        if nread == 0 {
+            return Ok(());
+        }
+        if !nread.is_multiple_of(CTID_RECORD_LEN) {
+            anyhow::bail!("partition spill file holds a partial ctid record ({nread} bytes read)");
+        }
+        for record in buf[..nread].as_chunks::<CTID_RECORD_LEN>().0 {
+            sink(record);
+        }
+    }
+}
+
+/// The share of a worker's budget the partitioned drain gives the sort of one partition's ctids. It
+/// never pushes the writer under the floor that `adjust_maintenance_work_mem` promised; at the
+/// floor the ctids just sort on disk.
+fn gather_budget(per_worker_budget: NonZeroUsize) -> usize {
+    let budget = per_worker_budget.get();
+    (budget / 8)
+        .min(budget.saturating_sub(gucs::limits::MEMORY_BUDGET_NUM_BYTES_MIN))
+        .max(1)
+}
+
+/// Phase-1 state for a partitioned build: rows are not indexed during the scan. Each row is
+/// routed to a partition by the leader's shared model and its ctid appended to that
+/// partition's spill file. Phase 2 assigns every partition to one participant, which drains it from all
+/// participants' files, so a partition ends up as one segment however many workers scanned it.
+struct PartitionSpill {
+    router: PartitionRouter,
+    files: PartitionSpillFiles,
+    /// A key's encoding can depend on the version that created the index, so routing has to
+    /// convert values the way the document build does.
+    created_by_version: Option<Version>,
+}
+
+impl PartitionSpill {
+    fn new(
+        model: BuildPartitioning,
+        categorized_fields: &[(SearchField, CategorizedFieldData)],
+        files: PartitionSpillFiles,
+        created_by_version: Option<Version>,
+    ) -> anyhow::Result<Self> {
+        let files = files.with_partitions(model.partition_count());
+        Ok(Self {
+            router: model.resolve(categorized_fields)?,
+            files,
+            created_by_version,
+        })
+    }
+
+    /// Route one scanned row to its partition by projecting it onto the `partition_by` dimensions and
+    /// consulting the partition model. `unpacked_composites` must be built over the full field set so a
+    /// composite `partition_by` field resolves the same way the document build would.
+    unsafe fn route(
+        &self,
+        values: *mut pg_sys::Datum,
+        isnull: *mut bool,
+        ctid: u64,
+        unpacked_composites: &CompositeSlotValues,
+    ) -> anyhow::Result<usize> {
+        unsafe {
+            self.router.route(ctid, self.created_by_version, |field| {
+                get_field_value(
+                    &field.source,
+                    field.attno,
+                    values,
+                    isnull,
+                    unpacked_composites,
+                )
+            })
+        }
+    }
+}
+
+/// Internal state used by each parallel build worker
+struct WorkerBuildState<'a> {
+    writer: Option<SerialIndexWriter>,
+    categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
+    rule_check: Option<RuleCheck>,
+    per_row_context: PgMemoryContexts,
+    indexrel: PgSearchRelation,
+    heaprel: PgSearchRelation,
+    index_created_by_version: Option<Version>,
+    // the following statistics are used to determine when and what to merge:
+    //
+    // 1. how many segments does this worker expect to make, assuming no merges?
+    estimated_nsegments: OnceLock<usize>,
+    //
+    // 2. how many segments is this worker supposed to make? (assigned by the leader)
+    worker_segment_target: usize,
+    //
+    // 2b. how many segments are all workers together supposed to make?
+    target_segment_count: usize,
+    //
+    // 3. how many merges has this worker done so far? (incrementing counter)
+    nmerges: usize,
+    //
+    // 4. how many workers are there in total? (including the leader) - utilizing the `nparticipants` field in WorkerCoordination
+    coordination: &'a mut WorkerCoordination, // passing in `WorkerCoordination` to have a shared view of `ntuples_done`, used for reporting `tuples_done` in progress monitoring view
+    //
+    // 5. unmerged segment metas that this worker has created so far
+    unmerged_metas: Vec<SegmentMeta>,
+    local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
+    is_leader: bool,
+    // Estimated final segment size from staged bytes, reused by partition writers.
+    sampled_segment_bytes: Option<u64>,
+    // For a partitioned build: phase-1 routing and spill state. `None` on the regular path.
+    partitioning: Option<PartitionSpill>,
+    // The budget of the sort that orders one partition's ctids on the partitioned drain.
+    gather_budget: usize,
+    // The writer config, kept to reopen the per-partition writers on the partitioned drain.
+    writer_config: IndexWriterConfig,
+    worker_number: i32,
+    // This worker's slot among the build's participants, and how many there are. A partitioned
+    // drain hands each participant its own share of the partitions.
+    participant: usize,
+    nparticipants: usize,
+    // The scan's snapshot, for a concurrent build. Its partitioned drain re-fetches rows after
+    // the scan, while other transactions keep writing, so the fetch must resolve each HOT
+    // chain to the version the scan saw: the one visible to this snapshot.
+    build_snapshot: Option<pg_sys::Snapshot>,
+}
+
+impl<'a> WorkerBuildState<'a> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+        per_worker_memory_budget: NonZeroUsize,
+        worker_segment_target: usize,
+        target_segment_count: usize,
+        coordination: &'a mut WorkerCoordination,
+        worker_number: i32,
+        is_leader: bool,
+        partitioning: Option<BuildPartitioning>,
+        spill_files: PartitionSpillFiles,
+        build_snapshot: Option<pg_sys::Snapshot>,
+    ) -> anyhow::Result<Self> {
+        // If we're making more than one segment, do an early cutoff based on doc
+        // count in case the memory budget is so high that all the docs fit into one
+        // segment. For a single-segment target, leave it unbounded (memory-driven).
+        //
+        // Partitioned builds cut segments at partition boundaries instead, so their writers stay
+        // memory-driven on their share of the worker budget.
+        let max_docs_per_segment = if partitioning.is_none() && worker_segment_target > 1 {
+            Some(
+                plan::estimate_heap_reltuples(heaprel) as u32
+                    / coordination.nparticipants as u32
+                    / worker_segment_target as u32,
+            )
+        } else {
+            None
+        };
+        // A partitioned drain holds one partition's ctids (in memory, or in a tuplesort that spills
+        // past the same bound) next to the live writer's arena, so the ctids take a slice of the
+        // worker budget and the writer gets the rest: the worker's peak stays at the share of
+        // `maintenance_work_mem` that `adjust_maintenance_work_mem` sized. Phase 1 holds only
+        // the spill files' write buffers.
+        let gather_budget = if partitioning.is_some() {
+            gather_budget(per_worker_memory_budget)
+        } else {
+            0
+        };
+        let per_writer_budget = NonZeroUsize::new(per_worker_memory_budget.get() - gather_budget)
+            .expect("writer budget should be non-zero");
+        let config = IndexWriterConfig {
+            memory_budget: per_writer_budget,
+            max_docs_per_segment,
+        };
+        // Abort the build early if it is projected not to fit on the tablespace volume.
+        let disk_guard = indexrel
+            .is_create_index()
+            .then(|| DiskSpaceGuard::new(indexrel));
+        let mut writer = SerialIndexWriter::for_build(indexrel, config.clone(), worker_number)?
+            .with_disk_guard(disk_guard);
+        writer.set_remaining_segments(target_segment_count);
+        let schema = writer.schema();
+        let categorized_fields = schema.categorized_fields().clone();
+        let rule_check = RuleCheck::for_index(schema, indexrel.options());
+        let created_by_version = indexrel.created_by_version();
+
+        let (participant, nparticipants) = (spill_files.participant, spill_files.nparticipants);
+        let partitioning = partitioning
+            .map(|tree| {
+                PartitionSpill::new(tree, &categorized_fields, spill_files, created_by_version)
+            })
+            .transpose()?;
+
+        Ok(Self {
+            writer: Some(writer),
+            categorized_fields,
+            rule_check,
+            per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
+            indexrel: indexrel.clone(),
+            heaprel: heaprel.clone(),
+            index_created_by_version: created_by_version,
+            worker_segment_target,
+            target_segment_count,
+            coordination,
+            estimated_nsegments: OnceLock::new(),
+            nmerges: Default::default(),
+            unmerged_metas: Default::default(),
+            local_tuple_done_count: 0,
+            is_leader,
+            sampled_segment_bytes: None,
+            partitioning,
+            gather_budget,
+            writer_config: config,
+            worker_number,
+            participant,
+            nparticipants,
+            build_snapshot,
+        })
+    }
+
+    fn on_segment_staged(&mut self, meta: &SegmentMeta) -> anyhow::Result<()> {
+        let staged = self
+            .coordination
+            .add_tuples_staged(meta.num_docs() as usize);
+        let estimated_docs = plan::estimate_heap_reltuples(&self.heaprel) as usize;
+        let writer = self.writer.as_mut().expect("writer should be set");
+        let written = self.coordination.nsegments_written();
+        writer.set_remaining_segments(self.target_segment_count.saturating_sub(written));
+        self.sampled_segment_bytes = writer.update_build_estimate(
+            estimated_docs.saturating_sub(staged),
+            estimated_docs.div_ceil(self.target_segment_count),
+        )?;
+        Ok(())
+    }
+
+    fn on_segment_flushed(&mut self) {
+        let written = self.coordination.add_segments_written();
+        self.writer
+            .as_mut()
+            .expect("writer should be set")
+            .set_remaining_segments(self.target_segment_count.saturating_sub(written));
+    }
+
+    fn commit(&mut self) -> anyhow::Result<()> {
+        unsafe {
+            set_ps_display_suffix(FINALIZING.as_ptr());
+        }
+        let writer = self.writer.as_mut().expect("writer should be set");
+        if let Some(segment_meta) = writer.finalize_nocommit()? {
+            self.on_segment_staged(&segment_meta)?;
+            self.unmerged_metas.push(segment_meta);
+        }
+        self.try_merge(true)?;
+        for meta in std::mem::take(&mut self.unmerged_metas) {
+            self.persist_segments(&[meta])?;
+        }
+        self.writer.take();
+
+        unsafe { set_ps_display_remove_suffix() };
+        Ok(())
+    }
+
+    /// Based on our calculated chunk size, merge down a chunk of segments into a single segment
+    /// if we have created at least that many segments.
+    fn try_merge(&mut self, is_last_merge: bool) -> anyhow::Result<()> {
+        // which segments should me merge together? if there's not enough, return early
+        let segments_to_merge = {
+            if self.unmerged_metas.is_empty() {
+                return Ok(());
+            }
+
+            let chunk_size = if !is_last_merge {
+                // calculate the chunk size for this merge iteration
+                //
+                // chunk_range gives us chunks with the larger ones at the front
+                // we want the larger ones at the back, because the smallest "straggler" segment will be written last
+                //
+                // for instance, imagine we have 3 segments of size [100, 100, 5]
+                // we would want the chunks to be [1,2] (merging together [100, 5]) and not [2,1] (merging together [100, 100])
+                let (_, chunk_size) = chunk_range(
+                    self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
+                    self.worker_segment_target,
+                    // this achieves the effect of reversing the chunks
+                    self.worker_segment_target.saturating_sub(self.nmerges),
+                );
+
+                if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {
+                    pgrx::debug1!(
+                        "try_merge: skipping merge because chunk_size: {chunk_size}, unmerged_metas: {:?}",
+                        self.unmerged_metas.len()
+                    );
+                    return Ok(());
+                }
+
+                if self.nmerges == self.worker_segment_target - 1 {
+                    pgrx::debug1!(
+                        "try_merge: skipping merge because this is not the last merge, and we can only do one more"
+                    );
+                    return Ok(());
+                }
+
+                chunk_size
+            } else {
+                // if it's the last merge, ignore the chunk size and instead solve the following equation for chunk_size:
+                //
+                // worker_segment_target = self.nmerges + unmerged_segments_len - chunk_size + 1
+                //
+                // this guarantees we hit the target segment count exactly, assuming we haven't already exceeded it
+                // convert to i32 because it's possible that chunk_size comes out negative
+                let chunk_size: i32 = self.nmerges as i32 - self.worker_segment_target as i32
+                    + self.unmerged_metas.len() as i32
+                    + 1;
+                if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size as usize {
+                    return Ok(());
+                }
+
+                chunk_size as usize
+            };
+
+            self.unmerged_metas.sort_by_key(|entry| entry.max_doc());
+            self.unmerged_metas.drain(..chunk_size).collect::<Vec<_>>()
+        };
+
+        pgrx::debug1!("try_merge: last merge {is_last_merge}");
+        self.persist_segments(&segments_to_merge)?;
+        Ok(())
+    }
+
+    fn persist_segments(&mut self, segments: &[SegmentMeta]) -> anyhow::Result<()> {
+        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
+        let meta = match self
+            .writer
+            .as_mut()
+            .expect("writer should be set")
+            .persist_build_segments(segments)
+        {
+            Ok(meta) => meta,
+            Err(error) => {
+                check_for_interrupts();
+                return Err(error);
+            }
+        };
+        if meta.is_some() {
+            self.on_segment_flushed();
+            self.nmerges += usize::from(segments.len() > 1);
+        }
+        Ok(())
+    }
+
+    /// Estimates how many segments this worker will make if no merging happens.
+    ///
+    /// This is used to determine how many segments to merge down in chunks.
+    fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
+        *self.estimated_nsegments.get_or_init(|| {
+            let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
+            let reltuples_per_worker = reltuples / self.coordination.nparticipants as f64;
+            let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
+            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nparticipants: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nparticipants);
+            nsegments
+        })
+    }
+
+    /// Phase-1 handling for a partitioned build: route the scanned row to its partition and append
+    /// its ctid to the partition's spill file. Composites are unpacked over the full field set so a
+    /// composite `partition_by` field resolves the same way the document build would.
+    unsafe fn route_and_spill(
+        &mut self,
+        values: *mut pg_sys::Datum,
+        isnull: *mut bool,
+        ctid: u64,
+    ) -> anyhow::Result<()> {
+        let categorized_fields = &self.categorized_fields;
+        let partitioning = self
+            .partitioning
+            .as_mut()
+            .expect("route_and_spill: partitioning should be set");
+        // Routing pallocs per row (composite unpacking, detoast, numeric conversion) and the
+        // callback's context lives for the whole scan, so run it in the per-row context and
+        // reset after, like the document branch. The append stays outside: a partition's spill file
+        // is created on its first row and has to outlive the reset.
+        let pid = self.per_row_context.switch_to(|_| {
+            let unpacked_composites =
+                CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                    categorized_fields.iter().map(|(_, cat)| cat),
+                    values,
+                    isnull,
+                ));
+            partitioning.route(values, isnull, ctid, &unpacked_composites)
+        });
+        self.per_row_context.reset();
+        partitioning.files.append(pid?, ctid);
+        Ok(())
+    }
+
+    /// Bump the worker-local tuple count and periodically fold it into the shared progress
+    /// counter (`pg_stat_progress_create_index.tuples_done`).
+    fn count_tuple_done(&mut self) {
+        self.local_tuple_done_count += 1;
+
+        if self
+            .local_tuple_done_count
+            .is_multiple_of(TUPLES_DONE_BATCH_SIZE)
+        {
+            self.coordination.add_tuples_done(TUPLES_DONE_BATCH_SIZE);
+
+            if self.is_leader {
+                unsafe {
+                    pg_sys::pgstat_progress_update_param(
+                        pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+                        self.coordination.tuples_done() as i64,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Phase 2 of a partitioned build. Every participant appended its rows' ctids to per-partition
+    /// spill files during the scan; once all of them are done, each participant takes its share
+    /// of the partitions and drains them one at a time: a partition's ctids from all participants, sorted,
+    /// so that re-fetching walks the heap in order under a reused buffer pin, with the blocks
+    /// ahead prefetched. Only one writer is alive at a time, and each partition finalizes into its own
+    /// segment, whichever participants scanned its rows.
+    fn drain_partitioned(&mut self) -> anyhow::Result<()> {
+        let PartitionSpill {
+            router, mut files, ..
+        } = self
+            .partitioning
+            .take()
+            .expect("drain_partitioned: partitioning state should be set");
+        let model = router.into_model();
+        unsafe { files.finish_writes() };
+        let barrier = Instant::now();
+        self.wait_for_spills();
+        pgrx::debug1!(
+            "build_worker {}: partitioned drain starting after a {:.3}s wait for the other participants",
+            self.worker_number,
+            barrier.elapsed().as_secs_f64()
+        );
+        let drain = Instant::now();
+
+        let heaprel = self.heaprel.clone();
+        let indexrel = self.indexrel.clone();
+        let heap_fetch_state = HeapFetchState::new(&heaprel);
+        let expression_state = ExpressionState::new(&indexrel);
+        let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
+        let categorized_fields = self.categorized_fields.clone();
+        let mut fetcher = HeapDocFetcher::new(
+            &heap_fetch_state,
+            &expression_state,
+            &heaprel,
+            &heaptupdesc,
+            &categorized_fields,
+            self.index_created_by_version,
+            // A plain build must index every live row, so that the segments can serve future
+            // snapshots: it fetches with maintenance semantics. A concurrent build's scan
+            // indexed the versions visible to its snapshot, and the drain has to re-fetch
+            // those same versions: it fetches under that snapshot, made active below.
+            self.build_snapshot.is_some(),
+        )
+        // The scan callback spilled HOT chain root ctids; index the member of each chain the
+        // inline callback would have delivered for the root.
+        .with_root_ctids();
+        // The drain returns early on an error, so the pop has to ride a guard.
+        let _active_snapshot = self.build_snapshot.map(|snapshot| unsafe {
+            pg_sys::PushActiveSnapshot(snapshot);
+            ActiveSnapshotGuard
+        });
+
+        let prefetch_distance = unsafe { pg_sys::maintenance_io_concurrency }.max(0) as usize;
+        let (first_partition, owned_partitions) = chunk_range(
+            model.partition_count(),
+            self.nparticipants,
+            self.participant,
+        );
+        for partition in first_partition..first_partition + owned_partitions {
+            check_for_interrupts();
+            let Some(mut sorter) = (unsafe { files.gather(partition, self.gather_budget)? }) else {
+                continue;
+            };
+            if self.writer.is_none() {
+                self.open_partition_writer()?;
+            }
+            // Every segment of the partition carries its box, so a reader can prune on it without
+            // opening the segment.
+            self.writer
+                .as_mut()
+                .expect("drain_partitioned: writer should be set")
+                .set_logical_bounds(match &model {
+                    BuildPartitioning::Range(tree) => partition_box(tree, partition),
+                    BuildPartitioning::Vector(_) => None,
+                });
+            self.writer
+                .as_mut()
+                .unwrap()
+                .set_vector_partition(model.vector_partition(partition));
+            let mut partition_metas: Vec<SegmentMeta> = Vec::new();
+            let mut ctids = PrefetchWindow::new(
+                &heaprel,
+                std::iter::from_fn(|| sorter.next_sorted().map(|ctid| ctid as u64)),
+                prefetch_distance,
+            );
+            for ctid in &mut ctids {
+                check_for_interrupts();
+
+                // The doc's palloc traffic (detoast copies, expression evaluation) lands in the
+                // per-row context; the insert runs outside the closure because both the writer
+                // and the context live on `self`, and the doc's values are Rust-owned by then
+                // anyway.
+                let doc = unsafe { self.per_row_context.switch_to(|_| fetcher.fetch_doc(ctid)) };
+                if let Some(doc) = doc {
+                    let segment_meta = self
+                        .writer
+                        .as_mut()
+                        .expect("drain_partitioned: writer should be set")
+                        .insert(doc, ctid, || unsafe {
+                            set_ps_display_suffix(COMMITTING.as_ptr())
+                        })?;
+                    if let Some(segment_meta) = segment_meta {
+                        self.on_segment_staged(&segment_meta)?;
+                        partition_metas.push(segment_meta);
+                        unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
+                    }
+                }
+                unsafe { self.per_row_context.reset() };
+                self.count_tuple_done();
+            }
+            // The sort is done with; release it before the partition's commit and merge stack on
+            // top of the writer.
+            drop(ctids);
+            drop(sorter);
+            self.finish_partition(&mut partition_metas)?;
+            unsafe { set_ps_display_suffix(INDEXING.as_ptr()) };
+        }
+        pgrx::debug1!(
+            "build_worker {}: drained {owned_partitions} partitions in {:.3}s",
+            self.worker_number,
+            drain.elapsed().as_secs_f64()
+        );
+
+        unsafe { set_ps_display_remove_suffix() };
+        Ok(())
+    }
+
+    /// The phase-1 barrier: a partition's spill is complete only once every participant's scan is
+    /// over, so no participant drains before the last one gets there.
+    fn wait_for_spills(&mut self) {
+        let nparticipants = self.nparticipants;
+        self.coordination.add_spilled();
+        while self.coordination.nspilled() < nparticipants {
+            check_for_interrupts();
+            // A short latch wait rather than a sleep: it shows up as a wait event, and a
+            // parallel message (a peer's error) or postmaster death ends it at once.
+            unsafe {
+                pg_sys::WaitLatch(
+                    pg_sys::MyLatch,
+                    (pg_sys::WL_LATCH_SET | pg_sys::WL_TIMEOUT | pg_sys::WL_EXIT_ON_PM_DEATH)
+                        as c_int,
+                    10,
+                    pg_sys::PG_WAIT_EXTENSION,
+                );
+                pg_sys::ResetLatch(pg_sys::MyLatch);
+            }
+        }
+    }
+
+    /// Finalize the current partition: commit the writer's pending segment and, if the partition's rows
+    /// exceeded the writer budget and flushed multiple segments, merge them down to one in a
+    /// single merge, as the regular path does for a worker's last merge. Merges stay scoped to
+    /// a single partition within a single worker; never across workers.
+    fn finish_partition(&mut self, partition_metas: &mut Vec<SegmentMeta>) -> anyhow::Result<()> {
+        let writer = self
+            .writer
+            .as_mut()
+            .expect("finish_partition: writer should be set");
+        if let Some(segment_meta) = writer.finalize_nocommit()? {
+            self.on_segment_staged(&segment_meta)?;
+            partition_metas.push(segment_meta);
+        }
+        self.persist_segments(partition_metas)?;
+        partition_metas.clear();
+        self.writer.take();
+        Ok(())
+    }
+
+    /// Open a fresh writer for the next partition.
+    fn open_partition_writer(&mut self) -> anyhow::Result<()> {
+        let disk_guard = self
+            .indexrel
+            .is_create_index()
+            .then(|| DiskSpaceGuard::new(&self.indexrel));
+        let mut writer = SerialIndexWriter::for_build(
+            &self.indexrel,
+            self.writer_config.clone(),
+            self.worker_number,
+        )?
+        .with_disk_guard(disk_guard);
+        // A fresh guard knows neither the segment size, sampled once per build, nor how many
+        // segments the whole build still has to write; without both it never projects and its
+        // check is a no-op.
+        if let Some(bytes) = self.sampled_segment_bytes {
+            writer.set_segment_byte_size(bytes);
+        }
+        let written = self.coordination.nsegments_written();
+        writer.set_remaining_segments(self.target_segment_count.saturating_sub(written));
+        self.writer = Some(writer);
+        Ok(())
+    }
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn build_callback(
+    _indexrel: pg_sys::Relation,
+    ctid: pg_sys::ItemPointer,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    _tuple_is_alive: bool,
+    state: *mut std::os::raw::c_void,
+) {
+    check_for_interrupts();
+
+    let build_state = &mut *state.cast::<WorkerBuildState>();
+    let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
+
+    // Partitioned build, phase 1: rows are not indexed during the scan. Route the row to its
+    // partition and append its ctid to the partition's spill file; the phase-2 drain re-fetches and
+    // indexes rows partition by partition. tuples_done is reported from that drain, which does this row's
+    // actual indexing work; scan progress is visible through blocks_done.
+    if build_state.partitioning.is_some() {
+        build_state
+            .route_and_spill(values, isnull, ctid_u64)
+            .unwrap_or_else(|e| panic!("could not route row for partitioned build: {e}"));
+        return;
+    }
+
+    let segment_meta = build_state.per_row_context.switch_to(|_| {
+        let mut doc = TantivyDocument::new();
+
+        // Unpack all composites upfront
+        let unpacked_composites =
+            CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                build_state.categorized_fields.iter().map(|(_, cat)| cat),
+                values,
+                isnull,
+            ));
+
+        row_to_search_document(
+            build_state
+                .categorized_fields
+                .iter()
+                .map(|(field, categorized)| {
+                    let (datum, is_null) = get_field_value(
+                        &categorized.source,
+                        categorized.attno,
+                        values,
+                        isnull,
+                        &unpacked_composites,
+                    );
+                    (datum, is_null, field, categorized)
+                }),
+            &mut doc,
+            build_state.index_created_by_version,
+        );
+        if let Some(rule_check) = &mut build_state.rule_check {
+            rule_check.check(&doc);
+        }
+
+        build_state
+            .writer
+            .as_mut()
+            .expect("build_callback: writer should be set")
+            .insert(doc, ctid_u64, || set_ps_display_suffix(COMMITTING.as_ptr()))
+            .unwrap_or_else(|e| panic!("{e}"))
+    });
+    build_state.per_row_context.reset();
+
+    build_state.count_tuple_done();
+
+    if let Some(segment_meta) = segment_meta {
+        build_state
+            .on_segment_staged(&segment_meta)
+            .unwrap_or_else(|e| panic!("{e}"));
+        build_state.unmerged_metas.push(segment_meta);
+        build_state
+            .try_merge(false)
+            .unwrap_or_else(|e| panic!("{e}"));
+        set_ps_display_suffix(INDEXING.as_ptr());
+    }
+}
+
+/// Build an index.  This is the workhorse behind `CREATE INDEX` and `REINDEX`.
+///
+/// If the system allows, it will build the index in parallel.  Otherwise the index is built in
+/// serially in this connected backend.
+pub(super) fn build_index(
+    heaprel: PgSearchRelation,
+    indexrel: PgSearchRelation,
+    concurrent: bool,
+) -> anyhow::Result<f64> {
+    struct SnapshotDropper(pg_sys::Snapshot);
+    crate::impl_safe_drop!(SnapshotDropper, |self| {
+        unsafe {
+            let snapshot = self.0;
+            // if it's an mvcc snapshot we must unregister it
+            if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
+                || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
+            {
+                pg_sys::UnregisterSnapshot(snapshot);
+            }
+        }
+    });
+
+    let snapshot = SnapshotDropper(unsafe {
+        if concurrent {
+            pg_sys::RegisterSnapshot(pg_sys::GetTransactionSnapshot())
+        } else {
+            &raw mut pg_sys::SnapshotAnyData
+        }
+    });
+
+    let config = WorkerConfig::new(
+        heaprel.oid(),
+        indexrel.oid(),
+        concurrent,
+        indexrel.need_wal(),
+    );
+
+    // Boundaries are fixed before any worker starts, so every worker cuts on the same ones.
+    // A concurrent build samples under its registered snapshot, and its drain re-fetches
+    // under the same one, so it partitions like a plain build.
+    // TODO(M3): the target segment count doubles as the partition count for now; rename the
+    // reloption to `partition_count` once partitioned storage lands.
+    let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
+    // An index that declares `partition_by` is always built partitioned, however the target and
+    // the workers come out; the partitioned path handles a single partition too.
+    let partitioning = plan_partition_boundaries(
+        &heaprel,
+        &indexrel,
+        snapshot.0,
+        plan::adjusted_target_segment_count(&heaprel, &indexrel),
+    )?;
+    let target_segment_count = partitioning.as_ref().map_or_else(
+        || plan::adjusted_target_segment_count(&heaprel, &indexrel),
+        BuildPartitioning::partition_count,
+    );
+    if let Some(partitioning) = &partitioning {
+        let description = match partitioning {
+            BuildPartitioning::Range(tree) => tree.bounds_listing().to_string(),
+            BuildPartitioning::Vector(_) => {
+                format!("vector centroids over {:?}", partitioning.dims())
+            }
+        };
+        pgrx::debug1!(
+            "build_index: {} partitions:\n{}",
+            partitioning.partition_count(),
+            description
+        );
+    }
+    let partitioning_bytes = match &partitioning {
+        Some(partitioning) => postcard::to_allocvec(partitioning)?,
+        None => Vec::new(),
+    };
+
+    let process = ParallelBuild::new(&heaprel, snapshot.0, config, partitioning_bytes);
+    let is_partitioned = partitioning.is_some();
+    pgrx::debug1!("build_index: asked for {nworkers} workers");
+
+    // This is updating `tuples_total` in the `pg_stat_progress_create_index` view - `tuples_done` is incremented in `build_callback`
+    unsafe {
+        pg_sys::pgstat_progress_update_param(
+            pg_sys::PROGRESS_CREATEIDX_TUPLES_TOTAL as i32,
+            plan::estimate_heap_reltuples(&heaprel) as i64,
+        );
+    }
+
+    let total_tuples = if let Some(mut process) = launch_parallel_process!(
+        ParallelBuild<BuildWorker>,
+        process,
+        WorkerStyle::Maintenance,
+        nworkers,
+        1024,
+        |launcher: &ParallelProcessLauncher| {
+            if !is_partitioned {
+                return;
+            }
+            // The spill fileset is initialized in the DSM itself: its cleanup is a detach
+            // callback on the segment, keyed on this very address, so a copy would not do.
+            // SAFETY: the leader initialises the SharedFileSet in this slot
+            // before any worker launches.
+            let fileset = unsafe {
+                launcher
+                    .state_manager()
+                    .object_raw::<pg_sys::SharedFileSet>(FILESET_STATE_IDX)
+                    .expect("should be able to get the spill fileset")
+                    .expect("spill fileset should not be NULL")
+            };
+            unsafe { pg_sys::SharedFileSetInit(fileset, launcher.dsm_segment()) };
+        }
+    ) {
+        let nlaunched = process.launched_workers();
+        pgrx::debug1!("build_index: launched {nlaunched} workers (not including leader)");
+        let coordination = process
+            .state_manager_mut()
+            .object::<WorkerCoordination>(2)
+            .expect("process coordination")
+            .expect("process coordination should not be NULL");
+
+        // account for the leader in the coordination
+        let mut nlaunched_plus_leader = nlaunched;
+        let leader_participating = unsafe { pg_sys::parallel_leader_participation };
+        if leader_participating {
+            nlaunched_plus_leader += 1;
+        }
+
+        let participants =
+            plan::balanced_participant_count(target_segment_count, nlaunched_plus_leader);
+        // Workers wait for this count; excess workers exit without scanning.
+        coordination.set_nparticipants(participants);
+        pgrx::debug1!("build_index: has {participants} active participants (including leader)");
+
+        let (mut total_tuples, mut total_merges) = if leader_participating {
+            // if the leader is to participate too, it's nice for it to wait until all the other workers
+            // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
+            // of the workers, which doesn't allow for "evenly" distributing the work
+            while coordination.nstarted() != nlaunched {
+                check_for_interrupts();
+                std::thread::yield_now();
+            }
+
+            // directly instantiate a worker for the leader and have it do its build
+            let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
+            worker.do_build(participants as i32, true)?
+        } else {
+            pgrx::debug1!("build_index: leader is not participating");
+            (0.0, 0)
+        };
+
+        // wait for the workers to finish by collecting all their response messages
+        for (_, message) in process {
+            check_for_interrupts();
+            let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
+            total_tuples += worker_response.reltuples;
+            total_merges += worker_response.nmerges;
+        }
+
+        pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
+        total_tuples
+    } else {
+        pgrx::debug1!("build_index: not doing a parallel build");
+        // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
+        // whole build here in this connected backend
+        let mut coordination: WorkerCoordination = Default::default();
+        coordination.set_nparticipants(1);
+
+        let mut worker = BuildWorker::new(
+            &heaprel,
+            &indexrel,
+            snapshot.0,
+            config,
+            &mut coordination,
+            partitioning,
+            std::ptr::null_mut(),
+        );
+
+        let (total_tuples, total_merges) = worker.do_build(1, true)?;
+        pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
+        total_tuples
+    };
+
+    unsafe { set_ps_display_remove_suffix() };
+    Ok(total_tuples)
+}
+
+pub mod plan {
+    use super::*;
+
+    pub(super) fn balanced_participant_count(target: usize, available: usize) -> usize {
+        (1..=available.min(target))
+            .rev()
+            .find(|participants| target.is_multiple_of(*participants))
+            .expect("at least one participant is available")
+    }
+
+    /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
+    ///
+    /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
+    /// is greater than available parallelism, we use available parallelism.
+    ///
+    /// Choose a participant count that divides the segment target, including the leader
+    /// when it participates, so every participant receives the same quota.
+    pub(super) fn create_index_nworkers(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+    ) -> usize {
+        // We don't want a parallel build to happen if we're creating a single segment
+        let target_segment_count = plan::adjusted_target_segment_count(heaprel, indexrel);
+        if target_segment_count == 1 {
+            return 0;
+        }
+
+        // NB: we _could_ use pg_sys::plan_create_index_workers(), or on v17+ accept IndexIndex::ii_ParallelWorkers,
+        // but doing either of these would prohibit the user from having direct control over the number of
+        // workers used for a given CREATE INDEX/REINDEX statement.  Internal discussions led to that
+        // being more important that us trying to be "smart"
+        let maintenance_workers = unsafe {
+            if !heaprel.rd_options.is_null() {
+                let options = heaprel.rd_options.cast::<pg_sys::StdRdOptions>();
+                if (*options).parallel_workers <= 0 {
+                    pg_sys::max_parallel_maintenance_workers as usize
+                } else {
+                    (*options).parallel_workers as usize
+                }
+            } else {
+                pg_sys::max_parallel_maintenance_workers as usize
+            }
+        };
+
+        // must also be less than max_parallel_workers and max_worker_processes
+        let maintenance_workers = maintenance_workers
+            .min(unsafe { pg_sys::max_parallel_workers as usize })
+            .min(unsafe { pg_sys::max_worker_processes as usize });
+
+        if maintenance_workers < 3 {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+                format!("only {maintenance_workers} parallel workers were available for index build"),
+                function_name!(),
+            )
+            .set_detail("for large tables, increasing the number of workers can reduce the time it takes to build the index")
+            .set_hint("`SET max_parallel_maintenance_workers = <number>`")
+            .report(PgLogLevel::WARNING);
+        }
+
+        if maintenance_workers == 0 {
+            return 0;
+        }
+
+        let leader = usize::from(unsafe { pg_sys::parallel_leader_participation });
+        let participants =
+            balanced_participant_count(target_segment_count, maintenance_workers + leader);
+
+        participants - leader
+    }
+
+    /// If we determine that the table is very small, we should just create a single segment
+    pub fn adjusted_target_segment_count(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+    ) -> usize {
+        // If there are fewer rows than number of CPUs, use 1 worker
+        let reltuples = plan::estimate_heap_reltuples(heaprel);
+        let target_segment_count = indexrel.options().target_segment_count();
+        if reltuples <= target_segment_count as f64 {
+            pgrx::debug1!(
+                "number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment"
+            );
+            return 1;
+        }
+
+        // If the entire heap fits inside the smallest allowed Tantivy segment memory budget of 15MB, use 1 worker.
+        // A partitioned build with a target the user set is honored past that floor: its
+        // partition count comes from the kd-tree, not from the workers, so a small table gets
+        // the partitions it asked for. A plain build cuts on the worker layout instead, and
+        // its count under the floor would depend on the machine.
+        let byte_size = plan::estimate_heap_byte_size(heaprel);
+        let options = indexrel.options();
+        let explicit_partitioned =
+            options.explicit_target_segment_count().is_some() && !options.partition_by().is_empty();
+        if byte_size <= 15 * 1024 * 1024 && !explicit_partitioned {
+            pgrx::debug1!(
+                "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
+            );
+            return 1;
+        }
+
+        target_segment_count
+    }
+
+    // TODO: Convert to use RowEstimate.
+    pub(super) fn estimate_heap_reltuples(heap_relation: &PgSearchRelation) -> f64 {
+        let mut reltuples = unsafe { (*heap_relation.rd_rel).reltuples };
+
+        // if the reltuples estimate is not available, estimate the number of tuples in the heap
+        // by multiplying the number of pages by the max offset number of the first page
+        if reltuples <= 0.0 {
+            let npages = unsafe {
+                pg_sys::RelationGetNumberOfBlocksInFork(
+                    heap_relation.as_ptr(),
+                    heap_relation.fork_number(),
+                )
+            };
+
+            if npages == 0 {
+                // the tuple count actually is 0
+                return 0.0;
+            }
+
+            let bman = BufferManager::new(heap_relation);
+            let buffer = bman.get_buffer(0);
+            let page = buffer.page();
+            let max_offset = page.max_offset_number();
+            reltuples = npages as f32 * max_offset as f32;
+        }
+
+        reltuples as f64
+    }
+
+    pub(super) fn estimate_heap_byte_size(heap_relation: &PgSearchRelation) -> usize {
+        let npages = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(
+                heap_relation.as_ptr(),
+                heap_relation.fork_number(),
+            )
+        };
+
+        npages as usize * pg_sys::BLCKSZ as usize
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::prelude::*;
+
+    fn setup_parallel_build_large_table() {
+        Spi::run(
+            r#"
+            DROP TABLE IF EXISTS parallel_build_large;
+            CREATE TABLE parallel_build_large (
+                id SERIAL PRIMARY KEY,
+                name TEXT
+            );
+            INSERT INTO parallel_build_large (name)
+            SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
+            FROM generate_series(1, 35000);
+            "#,
+        )
+        .expect("failed to setup parallel_build_large table");
+    }
+
+    fn cleanup_parallel_build_large_table() {
+        Spi::run("DROP TABLE IF EXISTS parallel_build_large;")
+            .expect("failed to cleanup parallel_build_large table");
+    }
+
+    #[pg_test]
+    fn test_build_recovers_after_temp_file_limit() {
+        Spi::run(
+            r#"
+            CREATE TABLE build_temp_limit (id bigint, data text);
+            INSERT INTO build_temp_limit SELECT i, 'searchable' FROM generate_series(1, 1000) i;
+            SET LOCAL max_parallel_maintenance_workers = 0;
+            SET LOCAL temp_file_limit = '0';
+            DO $$
+            BEGIN
+                CREATE INDEX build_temp_limit_idx ON build_temp_limit USING paradedb (id, data);
+                RAISE EXCEPTION 'build unexpectedly succeeded';
+            EXCEPTION WHEN configuration_limit_exceeded THEN
+                NULL;
+            END $$;
+            "#,
+        )
+        .unwrap();
+        assert!(
+            Spi::get_one::<bool>("SELECT to_regclass('build_temp_limit_idx') IS NULL")
+                .unwrap()
+                .unwrap()
+        );
+        assert_eq!(Spi::get_one::<i64>("SELECT count(*) FROM pg_ls_tmpdir() WHERE name LIKE 'pgsql_tmp' || pg_backend_pid() || '.%'").unwrap(), Some(0));
+        Spi::run("SET LOCAL temp_file_limit = '-1'; CREATE INDEX build_temp_limit_idx ON build_temp_limit USING paradedb (id, data);").unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT count(*) FROM build_temp_limit WHERE data ||| 'searchable'"
+            )
+            .unwrap(),
+            Some(1000)
+        );
+    }
+
+    #[pg_test]
+    fn test_parallel_build_recovers_after_temp_file_limit() {
+        setup_parallel_build_large_table();
+        Spi::run(
+            r#"
+            SET LOCAL max_parallel_workers = 8;
+            SET LOCAL max_parallel_maintenance_workers = 2;
+            SET LOCAL parallel_leader_participation = off;
+            SET LOCAL maintenance_work_mem = '128MB';
+            CREATE TEMP TABLE build_temp_files_before AS SELECT name FROM pg_ls_tmpdir();
+            SET LOCAL temp_file_limit = '0';
+            DO $$
+            DECLARE failure_context text;
+            BEGIN
+                FOR attempt IN 1..100 LOOP
+                    BEGIN
+                        CREATE INDEX parallel_temp_limit_idx ON parallel_build_large
+                            USING paradedb (id, name) WITH (target_segment_count = 4);
+                        RAISE EXCEPTION 'build unexpectedly succeeded';
+                    EXCEPTION WHEN configuration_limit_exceeded THEN
+                        GET STACKED DIAGNOSTICS failure_context = PG_EXCEPTION_CONTEXT;
+                    END;
+                    EXIT WHEN position('parallel worker' IN failure_context) > 0;
+                    PERFORM pg_sleep(0.1);
+                END LOOP;
+                ASSERT position('parallel worker' IN failure_context) > 0,
+                    'temp_file_limit must fail in a parallel worker';
+                FOR attempt IN 1..100 LOOP
+                    PERFORM pg_stat_clear_snapshot();
+                    EXIT WHEN NOT EXISTS (
+                        SELECT FROM pg_stat_activity WHERE leader_pid = pg_backend_pid()
+                    );
+                    PERFORM pg_sleep(0.01);
+                END LOOP;
+                ASSERT NOT EXISTS (
+                    SELECT FROM pg_stat_activity WHERE leader_pid = pg_backend_pid()
+                ), 'failed build workers must exit';
+            END $$;
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<bool>("SELECT to_regclass('parallel_temp_limit_idx') IS NULL").unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            Spi::get_one::<i64>(
+                r#"
+            SELECT count(*) FROM pg_ls_tmpdir() AS file
+            WHERE file.name NOT IN (SELECT name FROM build_temp_files_before)
+              AND (
+                substring(file.name FROM '^pgsql_tmp([0-9]+)\.')::int = pg_backend_pid()
+                OR NOT EXISTS (
+                    SELECT FROM pg_stat_activity
+                    WHERE pid = substring(file.name FROM '^pgsql_tmp([0-9]+)\.')::int
+                )
+              )
+        "#
+            )
+            .unwrap(),
+            Some(0)
+        );
+        Spi::run(
+            r#"
+            SET LOCAL temp_file_limit = '-1';
+            CREATE INDEX parallel_temp_limit_idx ON parallel_build_large
+                USING paradedb (id, name) WITH (target_segment_count = 4);
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<i64>("SELECT count(*) FROM parallel_build_large WHERE name ||| 'lorem'")
+                .unwrap(),
+            Some(35000)
+        );
+    }
+
+    #[pg_test]
+    fn test_build_worker_count_balances_segment_targets() {
+        use crate::postgres::rel::PgSearchRelation;
+
+        setup_parallel_build_large_table();
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector; ALTER TABLE parallel_build_large ADD COLUMN emb vector(3);").unwrap();
+        for indexed_fields in ["id, name", "id, name, emb vector_cosine_ops"] {
+            Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+            Spi::run(&format!("CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb ({indexed_fields}) WITH (target_segment_count = 8);")).unwrap();
+            let heap_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let index_oid =
+                Spi::get_one::<pg_sys::Oid>("SELECT 'parallel_build_large_idx'::regclass::oid")
+                    .unwrap()
+                    .unwrap();
+            let heaprel = PgSearchRelation::open(heap_oid);
+            Spi::run("SET max_parallel_workers = 8;").unwrap();
+            for (target, available, without_leader, with_leader) in [
+                (1, 8, 0, 0),
+                (7, 4, 1, 0),
+                (7, 8, 7, 6),
+                (8, 0, 0, 0),
+                (8, 1, 1, 1),
+                (8, 2, 2, 1),
+                (8, 4, 4, 3),
+                (8, 6, 4, 3),
+                (8, 7, 4, 7),
+                (8, 8, 8, 7),
+                (12, 4, 4, 3),
+                (12, 5, 4, 5),
+                (12, 8, 6, 5),
+            ] {
+                Spi::run(&format!(
+                    "ALTER INDEX parallel_build_large_idx SET (target_segment_count = {target});
+                     SET max_parallel_maintenance_workers = {available};"
+                ))
+                .unwrap();
+                let indexrel = PgSearchRelation::open(index_oid);
+                for (leader, expected) in [(false, without_leader), (true, with_leader)] {
+                    Spi::run(&format!("SET parallel_leader_participation = {leader};")).unwrap();
+                    assert_eq!(
+                        super::plan::create_index_nworkers(&heaprel, &indexrel),
+                        expected,
+                        "fields={indexed_fields}, target={target}, available={available}, leader={leader}"
+                    );
+                }
+            }
+            drop(heaprel);
+            Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
+        }
+    }
+
+    /// Tests that parallel index building fails with insufficient memory.
+    #[pg_test]
+    #[should_panic(expected = "maintenance_work_mem")]
+    fn test_parallel_build_large_insufficient_memory() {
+        setup_parallel_build_large_table();
+
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET maintenance_work_mem = '1MB';").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 8;").unwrap();
+
+        // This should panic with a "maintenance_work_mem is not high enough" error
+        Spi::run(
+            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = 16);",
+        ).unwrap();
+    }
+
+    /// Tests parallel index building with various configurations.
+    ///
+    /// This test creates 35,000 rows and tests different configuration
+    /// combinations of maintenance_work_mem, workers, leader participation,
+    /// and target segment count.
+    #[pg_test]
+    fn test_parallel_build_large_configurations() {
+        setup_parallel_build_large_table();
+
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+
+        let maintenance_work_mem = ["2GB", "128MB"];
+        let maintenance_workers = [6, 2];
+        let leader_participation = [true, false];
+        let target_segments = [4, 7, 32];
+
+        for mwm in &maintenance_work_mem {
+            for mw in &maintenance_workers {
+                for lp in &leader_participation {
+                    for ts in &target_segments {
+                        // Set configuration
+                        Spi::run(&format!("SET max_parallel_maintenance_workers = {};", mw))
+                            .unwrap();
+                        Spi::run(&format!("SET parallel_leader_participation = {};", lp)).unwrap();
+                        Spi::run(&format!("SET maintenance_work_mem = '{}';", mwm)).unwrap();
+
+                        // Create index
+                        Spi::run(&format!(
+                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING paradedb (id, name) WITH (target_segment_count = {});",
+                            ts
+                        ))
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "CREATE INDEX failed with workers={}, leader={}, mem={}, segments={}: {:?}",
+                                mw, lp, mwm, ts, e
+                            )
+                        });
+
+                        // Verify segment count
+                        let count: i64 = Spi::get_one(
+                            "SELECT COUNT(*)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+                        )
+                        .unwrap()
+                        .unwrap();
+
+                        if *ts == 4 {
+                            assert_eq!(
+                                count, 4,
+                                "Expected 4 segments with workers={}, leader={}, mem={}, segments={}, got {}",
+                                mw, lp, mwm, ts, count
+                            );
+                        } else if *ts == 7 {
+                            assert_eq!(count, 7, "prime target: {count} segments");
+                        } else if *ts == 32 {
+                            // The parallel heap scan hands out blocks on demand, so a participant
+                            // short on CPU scans fewer rows and flushes fewer segments than its
+                            // quota, while its peers merge back down to theirs. Skew only ever
+                            // pulls the total below the target. The floor tolerates about a
+                            // quarter of the rows moving between participants.
+                            let expected = 24..=33;
+                            assert!(
+                                expected.contains(&count),
+                                "Expected {expected:?} segments with workers={mw}, leader={lp}, mem={mwm}, segments={ts}, got {count}"
+                            );
+                        }
+
+                        // Verify total document count
+                        let num_docs: i64 = Spi::get_one(
+                            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+                        )
+                        .unwrap()
+                        .unwrap();
+
+                        assert_eq!(
+                            num_docs, 35000,
+                            "Expected 35000 docs with workers={}, leader={}, mem={}, segments={}, got {}",
+                            mw, lp, mwm, ts, num_docs
+                        );
+
+                        // Drop index for next iteration
+                        Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
+                    }
+                }
+            }
+        }
+
+        cleanup_parallel_build_large_table();
+    }
+
+    #[pg_test]
+    fn test_vector_build_clusters_flat_segments() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET maintenance_work_mem = '128MB';
+            SET max_parallel_workers = 8;
+            SET paradedb.vector_clustering_threshold = 1;
+            CREATE TABLE vector_build (
+                id BIGINT, tenant_id BIGINT, name TEXT, padding TEXT,
+                empty_emb vector(3), emb vector(3)
+            );
+            INSERT INTO vector_build
+            SELECT i, i % 8, CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END,
+                   repeat('unindexed padding ', 60), NULL,
+                   ARRAY[i::real, (i % 11)::real, 1.0]::vector
+            FROM generate_series(1, 20000) i;
+            ANALYZE vector_build;
+            "#,
+        )
+        .unwrap();
+
+        for (partition_by, workers, target, leader) in [
+            (None, 0, 1, true),
+            (None, 0, 4, true),
+            (None, 2, 4, true),
+            (None, 2, 4, false),
+            (None, 8, 8, true),
+            (None, 8, 8, false),
+            (Some("tenant_id"), 0, 4, true),
+            (Some("tenant_id"), 2, 4, false),
+            (Some(""), 8, 8, false),
+        ] {
+            Spi::run(&format!(
+                "SET max_parallel_maintenance_workers = {workers};
+                 SET parallel_leader_participation = {leader};"
+            ))
+            .unwrap();
+            let partition_option = partition_by
+                .map(|field| format!(", partition_by = '{field}'"))
+                .unwrap_or_default();
+            Spi::run(&format!(
+                "CREATE INDEX vector_build_idx ON vector_build USING paradedb
+                 (id, tenant_id, name, emb vector_l2_ops)
+                 WITH (target_segment_count = {target}{partition_option});"
+            ))
+            .unwrap();
+            let segments =
+                Spi::get_one::<i64>("SELECT count(*) FROM paradedb.index_info('vector_build_idx')")
+                    .unwrap()
+                    .unwrap();
+            if partition_by == Some("") && workers > 0 {
+                assert!(
+                    (1..=target).contains(&segments),
+                    "segments={segments}, workers={workers}, leader={leader}"
+                );
+            } else {
+                assert_eq!(
+                    segments, target,
+                    "partition_by={partition_by:?}, workers={workers}, leader={leader}"
+                );
+            }
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('vector_build_idx')"
+                )
+                .unwrap(),
+                Some(20000)
+            );
+            assert_eq!(
+                Spi::get_one::<bool>(&format!(
+                    "SELECT count(*) = {segments} AND bool_and(vector_format = 'ivf')
+                     AND sum(vector_num_vectors) = 20000
+                     FROM paradedb.vector_info('vector_build_idx', 'emb')"
+                ))
+                .unwrap(),
+                Some(true),
+                "partition_by={partition_by:?}, workers={workers}, leader={leader}"
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(id)::bigint FROM vector_build WHERE name ||| 'even'"
+                )
+                .unwrap(),
+                Some(100010000)
+            );
+            Spi::run("DROP INDEX vector_build_idx").unwrap();
+        }
+        for (partition_option, segments) in [("", 1), (", partition_by = 'tenant_id'", 4)] {
+            Spi::run(&format!(
+                "CREATE INDEX vector_build_idx ON vector_build USING paradedb
+                 (id, tenant_id, empty_emb vector_l2_ops)
+                 WITH (target_segment_count = 4{partition_option});"
+            ))
+            .unwrap();
+            assert_eq!(
+                Spi::get_one::<bool>(&format!(
+                    "SELECT count(*) = {segments} AND bool_and(vector_format = 'ivf')
+                     AND sum(vector_num_vectors) = 0
+                     FROM paradedb.vector_info('vector_build_idx', 'empty_emb')"
+                ))
+                .unwrap(),
+                Some(true)
+            );
+            assert_eq!(
+                Spi::get_one::<i64>(
+                    "SELECT sum(num_docs)::bigint FROM paradedb.index_info('vector_build_idx')"
+                )
+                .unwrap(),
+                Some(20000)
+            );
+            Spi::run("DROP INDEX vector_build_idx").unwrap();
+        }
+    }
+
+    #[pg_test]
+    fn test_vector_build_preserves_clustering_threshold() {
+        Spi::run(
+            r#"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            SET paradedb.vector_clustering_threshold = 500;
+            CREATE TABLE small_vector_build (id BIGINT, emb vector(3));
+            INSERT INTO small_vector_build
+            SELECT i, ARRAY[i::real, 1.0, 1.0]::vector FROM generate_series(1, 100) i;
+            CREATE INDEX small_vector_build_idx ON small_vector_build USING paradedb
+                (id, emb vector_l2_ops) WITH (target_segment_count = 1);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<String>(
+                "SELECT vector_format FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
+            )
+            .unwrap()
+            .as_deref(),
+            Some("flat")
+        );
+        Spi::run(
+            "SET paradedb.vector_clustering_threshold = 1; REINDEX INDEX small_vector_build_idx;",
+        )
+        .unwrap();
+        assert_eq!(
+            Spi::get_one::<String>(
+                "SELECT vector_format FROM paradedb.vector_info('small_vector_build_idx', 'emb')"
+            )
+            .unwrap()
+            .as_deref(),
+            Some("ivf")
+        );
+    }
+
+    /// An index with `partition_by` routes each row to a kd-tree partition and builds one segment
+    /// per partition, serial or parallel. `tenant_id` is scattered across the heap so every
+    /// participant's scan slice holds rows of every partition and each partition gathers from all of
+    /// them.
+    #[pg_test]
+    fn test_partitioned_build_segments_and_docs() {
+        // A ~900-byte name over 20k rows gives every partition a real share of the heap while
+        // staying under the TOAST threshold. `tenant_id` is scattered across the heap.
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_build (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            "#,
+        )
+        .unwrap();
+
+        // Serial build: a single worker sees every partition, so it emits exactly one segment per
+        // partition (the kd-tree's partition count).
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 8,
+            "serial partitioned build: one segment per partition"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 20000,
+            "serial partitioned build indexes every row"
+        );
+
+        let matches: i64 =
+            Spi::get_one("SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';")
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            matches, 20000,
+            "search through the serial partitioned index"
+        );
+
+        // Parallel builds: every worker's scan slice spans every partition, but each partition is drained
+        // by one participant, so the segment count stays at the partition count whether the leader
+        // takes a share of the partitions or not.
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 2;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        for leader_participation in ["false", "true"] {
+            Spi::run("DROP INDEX partitioned_build_idx;").unwrap();
+            Spi::run(&format!(
+                "SET parallel_leader_participation = {leader_participation};"
+            ))
+            .unwrap();
+            Spi::run(
+                "CREATE INDEX partitioned_build_idx ON partitioned_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
+            )
+            .unwrap();
+
+            let count: i64 = Spi::get_one(
+                "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                count, 8,
+                "parallel partitioned build (leader participation {leader_participation}): one segment per partition"
+            );
+
+            let num_docs: i64 = Spi::get_one(
+                "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_build_idx');",
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                num_docs, 20000,
+                "parallel partitioned build indexes every row"
+            );
+
+            let matches: i64 = Spi::get_one(
+                "SELECT COUNT(*)::bigint FROM partitioned_build WHERE name ||| 'lorem';",
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                matches, 20000,
+                "search through the parallel partitioned index"
+            );
+        }
+
+        Spi::run("DROP TABLE partitioned_build;").unwrap();
+    }
+
+    /// An index with `partition_by = 'ctid'` routes each row by its ctid and builds one segment
+    /// per partition, serial or parallel.
+    #[pg_test]
+    fn test_partitioned_build_with_ctid() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_ctid_build (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_ctid_build (tenant_id, name)
+            SELECT (i * 7919) % 100, 'row ' || i
+            FROM generate_series(1, 1000) i;
+            "#,
+        )
+        .unwrap();
+
+        // 1-dim partition_by on ctid
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, name) WITH (partition_by = 'ctid', target_segment_count = 4);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 4, "serial partitioned build on ctid: 4 segments");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 1000,
+            "serial partitioned build on ctid indexes every row"
+        );
+
+        // 2-dim partition_by on tenant_id, ctid with parallel workers
+        Spi::run("DROP INDEX partitioned_ctid_build_idx;").unwrap();
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 2;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_ctid_build_idx ON partitioned_ctid_build USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id, ctid', target_segment_count = 4);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 4,
+            "parallel partitioned build on (tenant_id, ctid): 4 segments"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_ctid_build_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, 1000,
+            "parallel partitioned build on (tenant_id, ctid) indexes every row"
+        );
+
+        Spi::run("DROP TABLE partitioned_ctid_build;").unwrap();
+    }
+
+    /// A partition whose rows all sit in one heap block is scanned by a single participant, so every
+    /// other participant has no spill file for it, and its owner (fixed by `chunk_range`, not
+    /// by who scanned it) gathers it from that one file. The rest of the table is scattered
+    /// so the other partitions still gather from everyone.
+    #[pg_test]
+    fn test_partitioned_build_partition_seen_by_one_participant() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_lone_partition (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_lone_partition (tenant_id, name)
+            SELECT (i * 7919) % 7, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            INSERT INTO partitioned_lone_partition (tenant_id, name)
+            SELECT 7, 'lone ' || i FROM generate_series(1, 5) i;
+            "#,
+        )
+        .unwrap();
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 3;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        for leader_participation in ["false", "true"] {
+            Spi::run("DROP INDEX IF EXISTS partitioned_lone_partition_idx;").unwrap();
+            Spi::run(&format!(
+                "SET parallel_leader_participation = {leader_participation};"
+            ))
+            .unwrap();
+            Spi::run(
+                "CREATE INDEX partitioned_lone_partition_idx ON partitioned_lone_partition USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
+            )
+            .unwrap();
+
+            let count: i64 = Spi::get_one(
+                "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_lone_partition_idx');",
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                count, 8,
+                "one segment per partition (leader participation {leader_participation})"
+            );
+
+            let num_docs: i64 = Spi::get_one(
+                "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_lone_partition_idx');",
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(num_docs, 20005, "every row is indexed once");
+
+            let lone: i64 = Spi::get_one(
+                "SELECT COUNT(*)::bigint FROM partitioned_lone_partition WHERE tenant_id = 7 AND name ||| 'lone';",
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(lone, 5, "the lone partition's rows are searchable");
+        }
+
+        Spi::run("DROP TABLE partitioned_lone_partition;").unwrap();
+    }
+
+    /// A row deleted by the building transaction itself is still indexed, as any index build
+    /// does for a pre-existing snapshot that may need it: the drain must not mistake the
+    /// deletion for a HOT chain it has to walk past. The regular path is the reference.
+    #[pg_test]
+    fn test_partitioned_build_indexes_rows_deleted_in_same_transaction() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_deleted (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_deleted (tenant_id, name)
+            SELECT (i * 7919) % 100, 'lorem ipsum ' || i || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            DELETE FROM partitioned_deleted WHERE id % 100 = 0;
+            "#,
+        )
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+
+        let num_docs = |index: &str| -> i64 {
+            Spi::get_one(&format!(
+                "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('{index}');"
+            ))
+            .unwrap()
+            .unwrap()
+        };
+
+        Spi::run(
+            "CREATE INDEX partitioned_deleted_idx ON partitioned_deleted USING paradedb (id, tenant_id, name) WITH (target_segment_count = 8);",
+        )
+        .unwrap();
+        let regular = num_docs("partitioned_deleted_idx");
+        Spi::run("DROP INDEX partitioned_deleted_idx;").unwrap();
+
+        Spi::run(
+            "CREATE INDEX partitioned_deleted_idx ON partitioned_deleted USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 8);",
+        )
+        .unwrap();
+        let partitioned = num_docs("partitioned_deleted_idx");
+
+        assert_eq!(
+            regular, 20000,
+            "the regular build indexes the deleted rows too"
+        );
+        assert_eq!(
+            partitioned, regular,
+            "the partitioned build indexes what the regular one does"
+        );
+
+        let visible: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_deleted WHERE name ||| 'lorem';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            visible, 19800,
+            "the deleted rows stay invisible to this transaction"
+        );
+
+        Spi::run("DROP TABLE partitioned_deleted;").unwrap();
+    }
+
+    /// The partition count is bounded where the target is validated, so a target above the
+    /// reloption's maximum never reaches the build.
+    #[pg_test(error = "value 10000 out of bounds for option \"target_segment_count\"")]
+    fn test_partitioned_build_rejects_a_target_above_the_bound() {
+        Spi::run("CREATE TABLE partitioned_capped (id BIGSERIAL PRIMARY KEY, name TEXT);").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_capped_idx ON partitioned_capped USING paradedb (id, name) WITH (partition_by = 'id', target_segment_count = 10000);",
+        )
+        .unwrap();
+    }
+
+    /// A partition whose ctids outgrow the drain's in-memory share of the worker budget is sorted
+    /// through a spilling tuplesort instead. With `maintenance_work_mem` at the 15MB floor that
+    /// share is under 2MB, so a partition of 300k ctids (2.4MB of records) takes that path; the
+    /// narrow rows still put the heap past the floor that keeps the target at one partition.
+    #[pg_test]
+    fn test_partitioned_build_spills_large_partition_ctids() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_spill (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT);
+            INSERT INTO partitioned_spill (tenant_id)
+            SELECT i % 2 FROM generate_series(1, 600000) i;
+            "#,
+        )
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run("SET maintenance_work_mem = '15MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_spill_idx ON partitioned_spill USING paradedb (id, tenant_id) WITH (partition_by = 'tenant_id', target_segment_count = 2);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_spill_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 2, "one segment per partition");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_spill_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(num_docs, 600000, "every row is indexed once");
+
+        let odd: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_spill WHERE tenant_id = 1 AND id @@@ pdb.all();",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(odd, 300000, "the search sees each partition's rows");
+
+        Spi::run("DROP TABLE partitioned_spill;").unwrap();
+    }
+
+    /// A HOT update superseding a row in the same transaction as CREATE INDEX leaves the chain
+    /// root DELETE_IN_PROGRESS at drain time. The partitioned drain re-fetches by root ctid and
+    /// must walk the chain to the live tail, indexing the value the inline build callback
+    /// delivered, not the superseded version's. The whole test runs in one transaction (pgrx
+    /// wraps each test in one), which is exactly the same-transaction scenario; a low fillfactor
+    /// keeps the update on-page (HOT).
+    #[pg_test]
+    fn test_partitioned_build_indexes_live_hot_member() {
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_hot (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT)
+                WITH (fillfactor = 20);
+            INSERT INTO partitioned_hot (tenant_id, name)
+            SELECT (i * 7919) % 8, 'filler ' || i FROM generate_series(1, 200) i;
+            INSERT INTO partitioned_hot (tenant_id, name) VALUES (3, 'stalemarker');
+            UPDATE partitioned_hot SET name = 'freshmarker' WHERE name = 'stalemarker';
+            CREATE INDEX partitioned_hot_idx ON partitioned_hot USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 2);
+            "#,
+        )
+        .unwrap();
+
+        let fresh: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'freshmarker';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(fresh, 1, "the live row version must be indexed");
+
+        let stale: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM partitioned_hot WHERE name ||| 'stalemarker';",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(stale, 0, "the superseded row version must not be indexed");
+    }
+
+    /// A partition whose rows outgrow the writer budget flushes multiple segments mid-partition;
+    /// finish_partition must merge them back down so the layout stays one segment per partition.
+    #[pg_test]
+    fn test_partitioned_build_merges_overfull_partitions() {
+        // High-entropy text (every md5 distinct) so the writer's arena genuinely outgrows the
+        // small budget within each partition. Values stay under the TOAST threshold so the heap keeps
+        // its bytes in the main fork.
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_overfull (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, name TEXT);
+            INSERT INTO partitioned_overfull (tenant_id, name)
+            SELECT (i * 7919) % 4,
+                   (SELECT string_agg(md5((i * 32 + j)::text), ' ') FROM generate_series(1, 32) j)
+            FROM generate_series(1, 24000) i;
+            "#,
+        )
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run("SET maintenance_work_mem = '16MB';").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_overfull_idx ON partitioned_overfull USING paradedb (id, tenant_id, name) WITH (partition_by = 'tenant_id', target_segment_count = 2);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_overfull_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            count, 2,
+            "overfull partitions must merge down to one segment each"
+        );
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_overfull_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(num_docs, 24000, "merged partitions must keep every row");
+    }
+
+    /// The partitioned build must return the same rows a non-partitioned build would, serial
+    /// and parallel: the other tests check totals, which would not catch a row misrouted or
+    /// dropped inside a partition. `partition_by` spans two fields, one of them text, so the
+    /// multi-dimensional projection and a detoastable dimension go through the routing spill.
+    /// `tenant_id` is scattered across the heap so each worker's slice spans every partition.
+    /// [`test_partitioned_build_partition_seen_by_one_participant`] covers the other extreme.
+    #[pg_test]
+    fn test_partitioned_build_result_parity() {
+        // ~950-byte rows over 20k rows give each of the 8 partitions a real share of the heap
+        // while staying under the TOAST threshold.
+        Spi::run(
+            r#"
+            CREATE TABLE partitioned_parity (id BIGSERIAL PRIMARY KEY, tenant_id BIGINT, message TEXT);
+            INSERT INTO partitioned_parity (tenant_id, message)
+            SELECT (i * 7919) % 16,
+                   'doc ' || i || ' ' || (ARRAY['alpha', 'beta', 'gamma'])[1 + i % 3]
+                       || ' ' || repeat('padding word here ', 50)
+            FROM generate_series(1, 20000) i;
+            "#,
+        )
+        .unwrap();
+
+        let ids_for = |query: &str| -> String {
+            Spi::get_one::<String>(&format!(
+                "SELECT COALESCE(string_agg(id::text, ',' ORDER BY id), '') \
+                 FROM partitioned_parity WHERE partitioned_parity @@@ pdb.parse('{query}');"
+            ))
+            .unwrap()
+            .unwrap()
+        };
+
+        // Ground truth: a non-partitioned index over the same rows.
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_parity_plain ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true')));",
+        )
+        .unwrap();
+        let expected_alpha = ids_for("message:alpha");
+        let expected_beta = ids_for("message:beta");
+        let expected_all = ids_for("message:doc");
+        assert!(
+            !expected_alpha.is_empty(),
+            "baseline should match some rows"
+        );
+        Spi::run("DROP INDEX partitioned_parity_plain;").unwrap();
+
+        let assert_parity = |label: &str| {
+            assert_eq!(
+                ids_for("message:alpha"),
+                expected_alpha,
+                "{label}: alpha rows differ"
+            );
+            assert_eq!(
+                ids_for("message:beta"),
+                expected_beta,
+                "{label}: beta rows differ"
+            );
+            assert_eq!(
+                ids_for("message:doc"),
+                expected_all,
+                "{label}: full set differs"
+            );
+        };
+        let create_partitioned = "CREATE INDEX partitioned_parity_idx ON partitioned_parity USING paradedb (id, tenant_id, (message::pdb.unicode_words('normalizer=raw', 'columnar=true'))) WITH (partition_by = 'tenant_id, message', target_segment_count = 8);";
+
+        // Serial build.
+        Spi::run(create_partitioned).unwrap();
+        assert_parity("serial");
+        Spi::run("DROP INDEX partitioned_parity_idx;").unwrap();
+
+        // Parallel build over the same rows: the result set must not change.
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 4;").unwrap();
+        Spi::run("SET parallel_leader_participation = false;").unwrap();
+        Spi::run("SET maintenance_work_mem = '128MB';").unwrap();
+        Spi::run(create_partitioned).unwrap();
+        assert_parity("parallel");
+
+        Spi::run("DROP TABLE partitioned_parity;").unwrap();
+    }
+
+    #[pg_test]
+    fn test_vector_build_merges_memory_limited_segments() {
+        let nrows = 12000;
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+        Spi::run(&format!(
+            r#"
+            CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb vector(512));
+            INSERT INTO partitioned_passes (tenant_id, emb)
+            SELECT i % 4,
+                   ARRAY(SELECT ((i + j) % 17 + 1)::real FROM generate_series(1, 512) j)::vector
+            FROM generate_series(1, {nrows}) i;
+            "#
+        ))
+        .unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0; SET maintenance_work_mem = '16MB';")
+            .unwrap();
+        Spi::run(
+            "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (partition_by = 'tenant_id', target_segment_count = 1);",
+        )
+        .unwrap();
+
+        let count: i64 = Spi::get_one(
+            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(count, 1, "the partition must merge down to one segment");
+
+        let num_docs: i64 = Spi::get_one(
+            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            num_docs, nrows as i64,
+            "the merged partition must keep every row"
+        );
+        assert_eq!(
+            Spi::get_one::<bool>(
+                "SELECT bool_and(vector_format = 'ivf') FROM paradedb.vector_info('partitioned_passes_idx', 'emb')"
+            )
+            .unwrap(),
+            Some(true)
+        );
+    }
+}

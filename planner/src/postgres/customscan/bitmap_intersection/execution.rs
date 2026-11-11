@@ -1,0 +1,331 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(clippy::missing_safety_doc)]
+
+//! Execution half of [`super`] (see the module docs there): runs the planned
+//! child bitmap scan, owns the resulting TIDBitmap (and its DSA area when
+//! shared), and publishes/attaches the claim table across rescans and
+//! parallel participants.
+
+use crate::query::tid_bitmap_stream::{
+    BitmapCursorSource, SharedBitmapHandle, create_area, free_shared_table, publish_shared_table,
+};
+use pgrx::{PgList, pg_sys};
+use std::ffi::CStr;
+use std::sync::Arc;
+use tantivy::index::SegmentId;
+
+/// Owns the initialized child `BitmapIndexScan`/`BitmapAnd` planned from the
+/// harvested path; builds its TIDBitmap on first execution and hands out the
+/// cursor source the HeapFilter scorers stream from.
+pub struct BitmapExec {
+    child: *mut pg_sys::PlanState,
+    /// The child ran since its last `ExecReScan`, so `rescan` has to run before it
+    /// can build again.
+    consumed: bool,
+    /// The completed TIDBitmap, retained across the scan so cursors can iterate
+    /// it; freed on rescan/shutdown.
+    tbm: *mut pg_sys::TIDBitmap,
+    /// This scan's own DSA area, when a shared build was published.
+    area: *mut pg_sys::dsa_area,
+    owns_area: bool,
+    /// The published claim table, when shared.
+    table: pg_sys::dsa_pointer,
+    source: Option<Arc<BitmapCursorSource>>,
+}
+
+impl BitmapExec {
+    /// Initialize the CustomScan's planned child bitmap scan, if it carries one.
+    pub unsafe fn init(
+        cscan: *mut pg_sys::CustomScan,
+        estate: *mut pg_sys::EState,
+        eflags: i32,
+    ) -> Option<Self> {
+        let custom_plans = unsafe { PgList::<pg_sys::Plan>::from_pg((*cscan).custom_plans) };
+        assert!(
+            custom_plans.len() <= 1,
+            "at most one harvested bitmap child is supported"
+        );
+        let child_plan = custom_plans.get_ptr(0)?;
+        Some(Self {
+            child: unsafe { pg_sys::ExecInitNode(child_plan, estate, eflags) },
+            consumed: false,
+            tbm: std::ptr::null_mut(),
+            area: std::ptr::null_mut(),
+            owns_area: false,
+            table: 0,
+            source: None,
+        })
+    }
+
+    pub fn planstate(&self) -> *mut pg_sys::PlanState {
+        self.child
+    }
+
+    /// Names of the indexes feeding the bitmap, in plan order (a `BitmapAnd`
+    /// child contributes every leaf scan's index).
+    pub fn index_names(&self) -> Vec<String> {
+        unsafe fn collect(plan: *mut pg_sys::Plan, out: &mut Vec<String>) {
+            unsafe {
+                match (*plan).type_ {
+                    pg_sys::NodeTag::T_BitmapIndexScan => {
+                        let name =
+                            pg_sys::get_rel_name((*plan.cast::<pg_sys::BitmapIndexScan>()).indexid);
+                        if !name.is_null() {
+                            out.push(CStr::from_ptr(name).to_string_lossy().into_owned());
+                        }
+                    }
+                    tag @ (pg_sys::NodeTag::T_BitmapAnd | pg_sys::NodeTag::T_BitmapOr) => {
+                        // Both carry their children in `bitmapplans` at the same offset.
+                        let subplans = if tag == pg_sys::NodeTag::T_BitmapAnd {
+                            (*plan.cast::<pg_sys::BitmapAnd>()).bitmapplans
+                        } else {
+                            (*plan.cast::<pg_sys::BitmapOr>()).bitmapplans
+                        };
+                        for sub in PgList::<pg_sys::Plan>::from_pg(subplans).iter_ptr() {
+                            collect(sub, out);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        unsafe {
+            let mut names = Vec::new();
+            collect((*self.child).plan, &mut names);
+            names
+        }
+    }
+
+    /// Cursor counter totals (exact/lossy/recheck pages, rejected docs), once a
+    /// source exists.
+    pub fn cursor_stats(&self) -> Option<(u64, u64, u64, u64)> {
+        self.source.as_ref().map(|source| source.counters())
+    }
+
+    pub unsafe fn shutdown(mut self) {
+        unsafe {
+            self.release_shared();
+            self.free_tbm();
+            if !self.area.is_null() {
+                pg_sys::dsa_detach(self.area);
+                self.area = std::ptr::null_mut();
+            }
+            pg_sys::ExecEndNode(self.child)
+        }
+    }
+
+    /// Prepare for a rescan: params may have changed, so the bitmap must be rebuilt on
+    /// the next execution. Runs after the previous execution's scorers are gone (and,
+    /// for parallel scans, after its workers exited).
+    pub unsafe fn rescan(&mut self) {
+        unsafe {
+            pg_sys::ExecReScan(self.child);
+            self.release_shared();
+            self.free_tbm();
+        }
+        self.consumed = false;
+        self.source = None;
+    }
+
+    unsafe fn free_tbm(&mut self) {
+        if !self.tbm.is_null() {
+            unsafe { pg_sys::tbm_free(self.tbm) };
+            self.tbm = std::ptr::null_mut();
+        }
+    }
+
+    /// Owner only: free the prepared iterator states and the claim table.
+    unsafe fn release_shared(&mut self) {
+        if self.owns_area && self.table != 0 {
+            unsafe { free_shared_table(self.area, self.table) };
+        }
+        self.table = 0;
+    }
+
+    /// Serial path: build privately and hand out private-iterator cursors.
+    pub unsafe fn private_source(&mut self) -> Option<Arc<BitmapCursorSource>> {
+        unsafe {
+            if self.source.is_none() {
+                self.run_child(std::ptr::null_mut());
+                if self.tbm.is_null() {
+                    return None;
+                }
+                self.source = Some(Arc::new(BitmapCursorSource::private(self.tbm)));
+            }
+            self.source.clone()
+        }
+    }
+
+    /// Owner only: build in this scan's own DSA area, publish the claim table with
+    /// one iteration state per participant slot (`slots` of them, the owner being
+    /// slot 0), and return the handle for the other participants.
+    pub unsafe fn shared_source(
+        &mut self,
+        consumers: u32,
+        segments: &[SegmentId],
+        slots: u32,
+    ) -> Option<SharedBitmapHandle> {
+        unsafe {
+            if self.area.is_null() {
+                self.area = create_area();
+                self.owns_area = true;
+            }
+            // A publish feeds a new round of workers, before they launch and before the
+            // owner's own ReScan. Freeing the earlier round's iteration states also frees
+            // the bitmap's shared page table and arrays (they count only iteration states
+            // as references), so a build from that round is rebuilt, for the current params.
+            if self.consumed {
+                self.rescan();
+            }
+            self.run_child(self.area);
+            if self.tbm.is_null() {
+                return None;
+            }
+            self.table = publish_shared_table(self.tbm, self.area, consumers, segments, slots);
+            self.source = Some(Arc::new(BitmapCursorSource::shared(
+                self.area, self.table, 0,
+            )));
+            Some(SharedBitmapHandle {
+                area: pg_sys::dsa_get_handle(self.area),
+                table: self.table,
+            })
+        }
+    }
+
+    /// The current source, once built.
+    pub fn source(&self) -> Option<Arc<BitmapCursorSource>> {
+        self.source.clone()
+    }
+
+    /// Worker: attach the owner's published area and claim table as participant
+    /// `slot`.
+    pub unsafe fn worker_attach_source(
+        &mut self,
+        handle: SharedBitmapHandle,
+        slot: u32,
+    ) -> Arc<BitmapCursorSource> {
+        unsafe {
+            if self.area.is_null() {
+                self.area = pg_sys::dsa_attach(handle.area);
+                self.owns_area = false;
+            }
+            let source = Arc::new(BitmapCursorSource::shared(self.area, handle.table, slot));
+            self.source = Some(source.clone());
+            source
+        }
+    }
+
+    /// Run the planned child once per rescan into a TIDBitmap this node creates
+    /// and owns, so the bitmap lands in `area` (null = private). A `BitmapIndexScan`
+    /// or `BitmapAnd` child is pre-seeded through its first leaf, the parent-node
+    /// contract documented in `MultiExecBitmapIndexScan`; a `BitmapAnd` keeps that
+    /// leaf's bitmap as its accumulator. A `BitmapOr` child is driven here instead,
+    /// because `MultiExecBitmapOr` allocates its own bitmap and overwrites every
+    /// leaf's seed. The child only runs again after `rescan`.
+    unsafe fn run_child(&mut self, area: *mut pg_sys::dsa_area) {
+        self.consumed = true;
+        unsafe {
+            let work_mem_bytes = (*std::ptr::addr_of!(pg_sys::work_mem)) as i64 * 1024;
+            let tbm = pg_sys::tbm_create(work_mem_bytes as _, area);
+            let result = if (*self.child).type_ == pg_sys::NodeTag::T_BitmapOrState {
+                union_into(self.child.cast(), tbm);
+                tbm.cast::<pg_sys::Node>()
+            } else {
+                seed_first_leaf(self.child, tbm);
+                pg_sys::MultiExecProcNode(self.child)
+            };
+            if result.is_null() {
+                pg_sys::tbm_free(tbm);
+                return;
+            }
+            assert_eq!(
+                (*result).type_,
+                pg_sys::NodeTag::T_TIDBitmap,
+                "MultiExecProcNode must return a TIDBitmap"
+            );
+            debug_assert_eq!(
+                result.cast::<pg_sys::TIDBitmap>(),
+                tbm,
+                "child must fill the pre-seeded bitmap"
+            );
+            self.tbm = result.cast();
+        }
+    }
+}
+
+/// `MultiExecBitmapOr` with the caller's bitmap as the accumulator: each
+/// `BitmapIndexScan` leaf ORs straight into `tbm` through its seed, and any other
+/// subplan's bitmap is unioned in and freed, as core does. Instrumented like the
+/// node it stands in for, so EXPLAIN ANALYZE still times the `BitmapOr`.
+unsafe fn union_into(or: *mut pg_sys::BitmapOrState, tbm: *mut pg_sys::TIDBitmap) {
+    unsafe {
+        // An empty union would leave `tbm` matching nothing, which rejects every
+        // row instead of none; core raises on this for the same reason.
+        assert!((*or).nplans > 0, "BitmapOr must have subplans");
+        let instrument = (*or).ps.instrument;
+        if !instrument.is_null() {
+            pg_sys::InstrStartNode(instrument);
+        }
+        for i in 0..(*or).nplans as usize {
+            let subplan = *(*or).bitmapplans.add(i);
+            match (*subplan).type_ {
+                pg_sys::NodeTag::T_BitmapIndexScanState => {
+                    (*subplan.cast::<pg_sys::BitmapIndexScanState>()).biss_result = tbm;
+                    let filled = pg_sys::MultiExecProcNode(subplan);
+                    assert_eq!(
+                        filled.cast::<pg_sys::TIDBitmap>(),
+                        tbm,
+                        "BitmapIndexScan must fill the seeded bitmap"
+                    );
+                }
+                pg_sys::NodeTag::T_BitmapOrState => union_into(subplan.cast(), tbm),
+                _ => {
+                    let sub = pg_sys::MultiExecProcNode(subplan);
+                    assert!(
+                        !sub.is_null() && (*sub).type_ == pg_sys::NodeTag::T_TIDBitmap,
+                        "bitmap subplan must return a TIDBitmap"
+                    );
+                    pg_sys::tbm_union(tbm, sub.cast());
+                    pg_sys::tbm_free(sub.cast());
+                }
+            }
+        }
+        if !instrument.is_null() {
+            pg_sys::InstrStopNode(instrument, 0.0);
+        }
+    }
+}
+
+/// Store `tbm` into the child's first `BitmapIndexScanState` so the child fills a
+/// bitmap this node owns. A `BitmapAnd` retains its first subplan's bitmap as the
+/// intersection accumulator, so recurse to that leaf.
+unsafe fn seed_first_leaf(planstate: *mut pg_sys::PlanState, tbm: *mut pg_sys::TIDBitmap) {
+    unsafe {
+        match (*planstate).type_ {
+            pg_sys::NodeTag::T_BitmapIndexScanState => {
+                (*planstate.cast::<pg_sys::BitmapIndexScanState>()).biss_result = tbm;
+            }
+            pg_sys::NodeTag::T_BitmapAndState => {
+                let and = planstate.cast::<pg_sys::BitmapAndState>();
+                assert!((*and).nplans > 0, "BitmapAnd must have subplans");
+                seed_first_leaf(*(*and).bitmapplans, tbm);
+            }
+            other => panic!("unexpected bitmap child node: {other:?}"),
+        }
+    }
+}

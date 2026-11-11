@@ -1,0 +1,486 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
+
+use pgrx::{FromDatum, IntoDatum, pg_sys};
+use std::ffi::CStr;
+use std::sync::OnceLock;
+
+pub trait OidExt {
+    fn is_paradedb_am(&self) -> bool;
+}
+
+impl OidExt for pg_sys::Oid {
+    fn is_paradedb_am(&self) -> bool {
+        static AM_OIDS: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+        *self != pg_sys::InvalidOid
+            && AM_OIDS
+                .get_or_init(|| unsafe {
+                    [
+                        pg_sys::get_index_am_oid(c"bm25".as_ptr(), true),
+                        pg_sys::get_index_am_oid(c"paradedb".as_ptr(), true),
+                    ]
+                })
+                .contains(self)
+    }
+}
+
+/// Pins a syscache entry for the lifetime of the guard; the pin is
+/// released on drop. While unwinding or exiting the release is left to
+/// the transaction abort (see `impl_safe_drop!`).
+/// Note: holds a raw pointer and is therefore !Send — required, since
+/// the catcache refcount is a plain non-atomic decrement on
+/// backend-private memory.
+struct SysCacheEntry {
+    cache: pg_sys::SysCacheIdentifier::Type,
+    tuple: pg_sys::HeapTuple,
+}
+
+impl SysCacheEntry {
+    unsafe fn search1(cache: pg_sys::SysCacheIdentifier::Type, key: pg_sys::Datum) -> Option<Self> {
+        let tuple = pg_sys::SearchSysCache1(cache as _, key);
+        (!tuple.is_null()).then(|| Self { cache, tuple })
+    }
+
+    /// Note that borrowed values MUST be copied out before the guard drops
+    /// Ex: attr::<&CStr>() hands back a borrow into the pinned tuple, but the lifetime isn't tied to the guard, so Rust's compiler won't catch use after free
+    unsafe fn attr<T: FromDatum>(&self, attno: u32) -> Option<T> {
+        let mut is_null = false;
+        let datum = pg_sys::SysCacheGetAttr(self.cache as _, self.tuple, attno as _, &mut is_null);
+        T::from_datum(datum, is_null)
+    }
+}
+
+crate::impl_safe_drop!(SysCacheEntry, |self| {
+    unsafe {
+        pg_sys::ReleaseSysCache(self.tuple);
+    }
+});
+
+/// Helper function to lookup a namespace's [`pg_sys::Oid`] (SQL schema) by name
+pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
+    unsafe {
+        let namespace_oid = pg_sys::get_namespace_oid(namespace.as_ptr(), true);
+        (namespace_oid != pg_sys::InvalidOid).then_some(namespace_oid)
+    }
+}
+
+pub fn lookup_extension_version(name: &CStr) -> Option<String> {
+    unsafe {
+        let relation =
+            pg_sys::table_open(pg_sys::ExtensionRelationId, pg_sys::AccessShareLock as _);
+        let mut key = pg_sys::ScanKeyData::default();
+        pg_sys::ScanKeyInit(
+            &mut key,
+            pg_sys::Anum_pg_extension_extname as _,
+            pg_sys::BTEqualStrategyNumber as _,
+            pg_sys::F_NAMEEQ.into(),
+            pg_sys::Datum::from(name.as_ptr()),
+        );
+        let scan = pg_sys::systable_beginscan(
+            relation,
+            pg_sys::ExtensionNameIndexId.into(),
+            true,
+            std::ptr::null_mut(),
+            1,
+            &mut key,
+        );
+        let tuple = pg_sys::systable_getnext(scan);
+        let version = if tuple.is_null() {
+            None
+        } else {
+            let mut is_null = false;
+            let datum = pg_sys::heap_getattr(
+                tuple,
+                pg_sys::Anum_pg_extension_extversion as _,
+                (*relation).rd_att,
+                &mut is_null,
+            );
+            String::from_datum(datum, is_null)
+        };
+        pg_sys::systable_endscan(scan);
+        pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
+        version
+    }
+}
+
+pub fn paradedb_index_oids() -> Vec<pg_sys::Oid> {
+    unsafe {
+        let relation = pg_sys::table_open(pg_sys::RelationRelationId, pg_sys::AccessShareLock as _);
+        let scan = pg_sys::systable_beginscan(
+            relation,
+            pg_sys::InvalidOid,
+            false,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+        );
+        let mut indexes = Vec::new();
+        loop {
+            let tuple = pg_sys::systable_getnext(scan);
+            if tuple.is_null() {
+                break;
+            }
+            let class = &*pgrx::GETSTRUCT!(tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_class>();
+            if class.relkind as u8 != pg_sys::RELKIND_INDEX
+                || class.relpersistence as u8 == pg_sys::RELPERSISTENCE_TEMP
+                || !class.relam.is_paradedb_am()
+            {
+                continue;
+            }
+            let Some(entry) = SysCacheEntry::search1(
+                pg_sys::SysCacheIdentifier::INDEXRELID,
+                class.oid.into_datum().unwrap(),
+            ) else {
+                continue;
+            };
+            let index = &*pgrx::GETSTRUCT!(entry.tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_index>();
+            if index.indisvalid && index.indisready {
+                indexes.push(class.oid);
+            }
+        }
+        pg_sys::systable_endscan(scan);
+        pg_sys::table_close(relation, pg_sys::AccessShareLock as _);
+        indexes.sort_unstable_by_key(|oid| oid.to_u32());
+        indexes
+    }
+}
+
+/// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
+pub fn lookup_type_category(typoid: pg_sys::Oid) -> Option<u8> {
+    unsafe {
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::TYPEOID, typoid.into_datum()?)?;
+        let category = entry.attr::<i8>(pg_sys::Anum_pg_type_typcategory)?;
+        Some(category as u8)
+    }
+}
+
+/// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
+pub fn lookup_type_name(typoid: pg_sys::Oid) -> Option<String> {
+    unsafe {
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::TYPEOID, typoid.into_datum()?)?;
+        entry
+            .attr::<&CStr>(pg_sys::Anum_pg_type_typname)
+            .map(|s| s.to_string_lossy().to_string())
+    }
+}
+
+/// Helper function to lookup a type's [`pg_sys::Oid`] by name and namespace
+pub fn lookup_typoid(namespace: &CStr, typename: &CStr) -> Option<pg_sys::Oid> {
+    unsafe {
+        let typoid = pg_sys::GetSysCacheOid(
+            pg_sys::SysCacheIdentifier::TYPENAMENSP as _,
+            pg_sys::Anum_pg_type_oid as _,
+            pg_sys::Datum::from(typename.as_ptr()),
+            lookup_namespace(namespace).into_datum()?,
+            pg_sys::Datum::null(),
+            pg_sys::Datum::null(),
+        );
+        (typoid != pg_sys::InvalidOid).then_some(typoid)
+    }
+}
+
+/// Helper function to lookup a function's name by its OID as a CStr
+pub fn lookup_func_name_cstr<'a>(funcid: pg_sys::Oid) -> Option<&'a std::ffi::CStr> {
+    unsafe {
+        let name_ptr = pg_sys::get_func_name(funcid);
+        if !name_ptr.is_null() {
+            Some(std::ffi::CStr::from_ptr(name_ptr))
+        } else {
+            None
+        }
+    }
+}
+
+/// Helper function to lookup a function's name by its OID
+pub fn lookup_func_name(funcid: pg_sys::Oid) -> Option<String> {
+    lookup_func_name_cstr(funcid).and_then(|cstr| cstr.to_str().ok().map(|s| s.to_string()))
+}
+
+/// Helper function to lookup a namespace's name by its OID
+pub fn lookup_namespace_name(namespace_oid: pg_sys::Oid) -> Option<String> {
+    unsafe {
+        let name_ptr = pg_sys::get_namespace_name(namespace_oid);
+        if !name_ptr.is_null() {
+            std::ffi::CStr::from_ptr(name_ptr)
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+        } else {
+            None
+        }
+    }
+}
+
+/// Helper function to lookup a function's fully qualified name (schema.name) by its OID
+pub fn lookup_fully_qualified_func_name(funcid: pg_sys::Oid) -> Option<String> {
+    let name = lookup_func_name(funcid)?;
+    let namespace_oid = unsafe { pg_sys::get_func_namespace(funcid) };
+    if namespace_oid != pg_sys::InvalidOid
+        && let Some(namespace) = lookup_namespace_name(namespace_oid)
+        && namespace != "pg_catalog"
+    {
+        return Some(format!("{}.{}", namespace, name));
+    }
+    Some(name)
+}
+
+/// The oid of `pdb.synonym_rule`. It is not cached, because the type does not exist until the
+/// extension script creates it.
+pub fn synonym_rule_typoid() -> Option<pg_sys::Oid> {
+    lookup_typoid(c"pdb", c"synonym_rule")
+}
+
+/// Returns `true` if `oid` is the OID of the `citext` type.
+pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
+    static CITEXT_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let cid = *CITEXT_OID
+        .get_or_init(|| lookup_typoid(c"public", c"citext").unwrap_or(pg_sys::Oid::INVALID));
+    cid != pg_sys::Oid::INVALID && oid == cid
+}
+
+pub fn is_pgvector_oid(oid: pg_sys::Oid) -> bool {
+    static VECTOR_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let vid = *VECTOR_OID
+        .get_or_init(|| lookup_typoid(c"public", c"vector").unwrap_or(pg_sys::Oid::INVALID));
+    vid != pg_sys::Oid::INVALID && oid == vid
+}
+
+/// Lookup a `pg_opfamily.opfname` by OID. Returns the opfamily name
+/// (e.g. `"vector_l2_ops"`) or `None` if the cache lookup fails.
+///
+/// We name our opfamilies the same as their opclasses (CREATE OPERATOR
+/// CLASS without an explicit FAMILY clause), and the relation cache
+/// exposes opfamily OIDs per index attribute via `rd_opfamily[]`, so
+/// looking up by opfamily OID is the simplest way to resolve a column's
+/// metric without going through the variable-length `pg_index.indclass`
+/// vector.
+pub fn lookup_opfamily_name(opfamily_oid: pg_sys::Oid) -> Option<String> {
+    if opfamily_oid == pg_sys::InvalidOid {
+        return None;
+    }
+    unsafe {
+        let entry = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPFAMILYOID as _,
+            opfamily_oid.into_datum().unwrap(),
+        );
+        if entry.is_null() {
+            return None;
+        }
+        let mut is_null = false;
+        let name_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::OPFAMILYOID as _,
+            entry,
+            pg_sys::Anum_pg_opfamily_opfname as _,
+            &mut is_null,
+        );
+        let name =
+            <&CStr>::from_datum(name_datum, is_null).map(|s| s.to_string_lossy().into_owned());
+        pg_sys::ReleaseSysCache(entry);
+        name
+    }
+}
+
+/// `pg_class.reltuples` for `relid`, the planner's row count. `None` when the relation
+/// has never been counted (stored as -1) or no longer exists. The syscache answers, so
+/// the relation is not opened or locked.
+pub fn lookup_reltuples(relid: pg_sys::Oid) -> Option<f64> {
+    unsafe {
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::RELOID, relid.into_datum()?)?;
+        let reltuples: f32 = entry.attr(pg_sys::Anum_pg_class_reltuples)?;
+        (reltuples >= 0.0).then_some(reltuples as f64)
+    }
+}
+
+/// Helper function to lookup a function's [`pg_sys::Oid`] by name, argument types, and namespace
+pub fn lookup_procoid(
+    namespace: &CStr,
+    funcname: &CStr,
+    argtypes: &[pg_sys::Oid],
+) -> Option<pg_sys::Oid> {
+    unsafe {
+        let argvec = pg_sys::buildoidvector(argtypes.as_ptr(), argtypes.len() as _);
+        let procoid = pg_sys::GetSysCacheOid(
+            pg_sys::SysCacheIdentifier::PROCNAMEARGSNSP as _,
+            pg_sys::Anum_pg_proc_oid as _,
+            pg_sys::Datum::from(funcname.as_ptr()),
+            pg_sys::Datum::from(argvec),
+            lookup_namespace(namespace).into_datum()?,
+            pg_sys::Datum::null(),
+        );
+        pg_sys::pfree(argvec.cast());
+        (procoid != pg_sys::InvalidOid).then_some(procoid)
+    }
+}
+
+/// Returns `true` if `oid` is the OID of the `ltree` type.
+pub fn is_ltree_oid(oid: pg_sys::Oid) -> bool {
+    static LTREE_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let lid = *LTREE_OID
+        .get_or_init(|| lookup_typoid(c"public", c"ltree").unwrap_or(pg_sys::Oid::INVALID));
+    lid != pg_sys::Oid::INVALID && oid == lid
+}
+
+/// Converts a facet-encoded string (null-byte–separated path as stored by Tantivy's fast-field
+/// reader) back to a dot-separated ltree path string.
+/// Tantivy's stored-fields reader returns `OwnedValue::Facet`, but the fast-field (columnar)
+/// reader returns the raw internal representation as `OwnedValue::Str` with null-byte separators
+/// and a leading null byte (e.g. `\0Top\0Science\0Biology`).
+// This helper handles both cases by
+/// stripping the leading null and replacing interior null bytes with dots.
+pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
+    s.trim_start_matches('\0').replace('\0', ".")
+}
+
+pub enum CollationProvider {
+    #[cfg(any(feature = "pg17", feature = "pg18"))]
+    Builtin,
+    Icu,
+    Libc,
+    Unknown(#[allow(dead_code)] u8),
+}
+
+impl From<u8> for CollationProvider {
+    fn from(c: u8) -> Self {
+        match c {
+            #[cfg(any(feature = "pg17", feature = "pg18"))]
+            pg_sys::COLLPROVIDER_BUILTIN => Self::Builtin,
+            pg_sys::COLLPROVIDER_ICU => Self::Icu,
+            pg_sys::COLLPROVIDER_LIBC => Self::Libc,
+            other => Self::Unknown(other),
+        }
+    }
+}
+
+pub struct CollationLocale {
+    pub provider: CollationProvider,
+    /// libc LC_COLLATE-style locale name. Reliably present only for libc
+    /// providers (collcollate is NULL for ICU/builtin rows in pg_collation).
+    pub name: Option<String>,
+}
+
+/// Helper function to lookup the database's `datcollate` and `datlocprovider` settings from `pg_database`
+pub fn lookup_database_collation_locale() -> Option<CollationLocale> {
+    unsafe {
+        let entry = SysCacheEntry::search1(
+            pg_sys::SysCacheIdentifier::DATABASEOID,
+            pg_sys::MyDatabaseId.into_datum()?,
+        )?;
+
+        let datcollate = entry.attr::<String>(pg_sys::Anum_pg_database_datcollate)?;
+        let datlocprovider = entry.attr::<i8>(pg_sys::Anum_pg_database_datlocprovider)?;
+        Some(CollationLocale {
+            provider: CollationProvider::from(datlocprovider as u8),
+            name: Some(datcollate),
+        })
+    }
+}
+
+/// Helper function to lookup the `collcollate` and `collprovider` fields for a collation object in `pg_collation`
+/// Note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: <https://www.postgresql.org/docs/current/catalog-pg-collation.html>
+pub fn lookup_collation_locale(collation: pg_sys::Oid) -> Option<CollationLocale> {
+    unsafe {
+        let entry =
+            SysCacheEntry::search1(pg_sys::SysCacheIdentifier::COLLOID, collation.into_datum()?)?;
+
+        let collcollate = entry.attr::<String>(pg_sys::Anum_pg_collation_collcollate);
+        let collprovider = entry.attr::<i8>(pg_sys::Anum_pg_collation_collprovider)?;
+        Some(CollationLocale {
+            provider: CollationProvider::from(collprovider as u8),
+            name: collcollate,
+        })
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::{PgTryBuilder, Spi, pg_guard, pg_test};
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn reject_planning(
+        _parse: *mut pg_sys::Query,
+        _query: *const std::ffi::c_char,
+        _options: std::ffi::c_int,
+        _params: pg_sys::ParamListInfo,
+    ) -> *mut pg_sys::PlannedStmt {
+        pgrx::error!("catalog discovery must not invoke planner hooks");
+    }
+
+    #[pg_test]
+    fn sweep_catalog_discovery_bypasses_planner_hooks() {
+        let mut expected = paradedb_index_oids();
+        Spi::run(
+            "CREATE TABLE sweep_catalog (id int, body text);
+             CREATE INDEX sweep_catalog_idx ON sweep_catalog USING paradedb(id, body);
+             CREATE INDEX sweep_catalog_btree ON sweep_catalog(id);
+             CREATE TABLE sweep_catalog_invalid_table (id int, body text);
+             CREATE INDEX sweep_catalog_invalid ON sweep_catalog_invalid_table USING paradedb(id, body);
+             CREATE TABLE sweep_catalog_unready_table (id int, body text);
+             CREATE INDEX sweep_catalog_unready ON sweep_catalog_unready_table USING paradedb(id, body);
+             UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'sweep_catalog_invalid'::regclass;
+             UPDATE pg_index SET indisready = false WHERE indexrelid = 'sweep_catalog_unready'::regclass;
+             CREATE TEMP TABLE sweep_catalog_temp (id int, body text);
+             CREATE INDEX sweep_catalog_temp_idx ON sweep_catalog_temp USING paradedb(id, body);
+             CREATE UNLOGGED TABLE sweep_catalog_unlogged (id int, body text);
+             CREATE INDEX sweep_catalog_unlogged_idx ON sweep_catalog_unlogged USING bm25(id, body);
+             CREATE TABLE sweep_catalog_partitioned (id int, body text) PARTITION BY RANGE(id);
+             CREATE TABLE sweep_catalog_leaf PARTITION OF sweep_catalog_partitioned FOR VALUES FROM (0) TO (10);
+             CREATE INDEX sweep_catalog_parent_idx ON sweep_catalog_partitioned USING paradedb(id, body);",
+        )
+        .unwrap();
+        expected.extend(
+            Spi::get_one::<Vec<pg_sys::Oid>>(
+                "SELECT array_agg(indexrelid) FROM pg_index
+                 WHERE indexrelid IN ('sweep_catalog_idx'::regclass, 'sweep_catalog_unlogged_idx'::regclass)
+                    OR indrelid = 'sweep_catalog_leaf'::regclass",
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        expected.sort_unstable_by_key(|oid| oid.to_u32());
+        // TODO(pgcentralfoundation/pgrx#2483): Unreleased SQL fragments cause cargo-pgrx
+        // to install the extension under an ephemeral default_version rather than CARGO_PKG_VERSION.
+        let expected_version = Spi::get_one::<String>(
+            "SELECT default_version FROM pg_catalog.pg_available_extensions WHERE name = 'pg_search'",
+        )
+        .unwrap()
+        .unwrap();
+        unsafe {
+            let previous_hook = pg_sys::planner_hook;
+            pg_sys::planner_hook = Some(reject_planning);
+            PgTryBuilder::new(|| {
+                assert_eq!(
+                    lookup_extension_version(c"pg_search").as_deref(),
+                    Some(expected_version.as_str())
+                );
+                assert_eq!(lookup_extension_version(c"sweep_missing_extension"), None);
+                assert_eq!(paradedb_index_oids(), expected);
+            })
+            .finally(|| pg_sys::planner_hook = previous_hook)
+            .execute();
+        }
+    }
+}

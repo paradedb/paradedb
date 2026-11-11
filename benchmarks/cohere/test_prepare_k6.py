@@ -1,7 +1,9 @@
 """Regression checks for the pdbench-to-k6 handoff."""
 
 import copy
+import json
 import unittest
+from pathlib import Path
 
 from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
 from verify_plans import verify
@@ -13,7 +15,7 @@ def reports(dataset="cohere"):
         {
             "kind": "search",
             "config": {
-                "dataset": {"name": dataset, "size": "1m"},
+                "dataset": {"name": dataset, "size": "1m", "dims": 1024},
                 "search": {
                     "query": query,
                     "k": neighbors,
@@ -29,12 +31,12 @@ def reports(dataset="cohere"):
                         "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
                         f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
                         "targets": {
-                            "0.9": {"value": "0.001", "recall": 0.96},
-                            "0.95": {"value": "0.001", "recall": 0.96},
+                            "0.9": {"value": "100", "recall": 0.96},
+                            "0.95": {"value": "100", "recall": 0.96},
                         },
                         "points": [
                             {
-                                "value": "0.001",
+                                "value": "100",
                                 "metrics": {
                                     "recall": {"recall": 0.96, "k": neighbors},
                                     "buffers": {
@@ -67,7 +69,7 @@ class OperatingPointsTest(unittest.TestCase):
             self.assertIn("$1::vector(1024)", point["sql"])
             self.assertEqual(point["session"], inputs[0]["config"]["search"]["session"])
             if point["reached"]:
-                self.assertEqual(point["probe"], "0.001")
+                self.assertEqual(point["probe"], "100")
                 self.assertEqual(point["buffers"]["shared_hit_mean"], 1234.5)
             else:
                 self.assertIsNone(point["probe"])
@@ -79,7 +81,7 @@ class OperatingPointsTest(unittest.TestCase):
         """Reject a below-target selection rather than relabeling it."""
         inputs = reports()
         inputs[0]["data"]["variants"][QUERIES[0]]["targets"]["0.99"] = {
-            "value": "0.001",
+            "value": "100",
             "recall": 0.96,
         }
         with self.assertRaisesRegex(ValueError, "invalid selected point"):
@@ -159,11 +161,11 @@ class OperatingPointsTest(unittest.TestCase):
         """Reject fallback scans and filters outside the index."""
         scan = {
             "Custom Plan Provider": "ParadeDB Base Scan",
-            "Tantivy Query": "text:year",
+            "Tantivy Query": {"term": {"field": "text", "value": "year"}},
         }
         plan = [{"Plan": {"Node Type": "Gather", "Plans": [scan]}}]
         verify(plan, filtered=True)
-        scan["Tantivy Query"] = "all"
+        scan["Tantivy Query"] = '"all"'
         with self.assertRaisesRegex(ValueError, "predicate pushed down"):
             verify(plan, filtered=True)
         scan["Filter"] = "text = 'year'"
@@ -171,6 +173,39 @@ class OperatingPointsTest(unittest.TestCase):
             verify(plan, filtered=False)
         with self.assertRaisesRegex(ValueError, "Expected a ParadeDB scan"):
             verify([{"Plan": {"Node Type": "Seq Scan"}}], filtered=False)
+
+    def test_plan_guard_accepts_a_setting_driven_filter_on_a_required_field(self):
+        """Accept the Cohere filtered plan, whose query string comes from a session setting."""
+        fixture = Path(__file__).parent / "fixtures" / "knn_top10_10pct_plan.json"
+        plan = json.loads(fixture.read_text())
+        verify(plan, filtered=True, neighbors=10, fields=["text"])
+        with self.assertRaisesRegex(ValueError, "unresolved expression"):
+            verify(plan, filtered=True, neighbors=10, fields=["title"])
+        scan = plan[0]["Plan"]["Plans"][0]["Plans"][0]
+        expression = json.loads(scan["Tantivy Query"])["postgres_expression"]["expr"]
+        setting_driven = expression["expr_desc"]
+        for desc in (
+            setting_driven.replace("current_setting('cohere.titles_10pct'::text)", "'year'::text"),
+            setting_driven.replace("parse_with_field", "parse"),
+            "upper(" + setting_driven + ")",
+        ):
+            expression["expr_desc"] = desc
+            scan["Tantivy Query"] = json.dumps({"postgres_expression": {"expr": expression}})
+            with self.assertRaisesRegex(ValueError, "unresolved expression"):
+                verify(plan, filtered=True, neighbors=10, fields=["text"])
+        expression["expr_desc"] = setting_driven
+        scan["Tantivy Query"] = json.dumps(
+            {
+                "boolean": {
+                    "must": [
+                        {"postgres_expression": {"expr": expression}},
+                        {"heap_filter": {"field_filters": []}},
+                    ]
+                }
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "heap filtering"):
+            verify(plan, filtered=True, neighbors=10, fields=["text"])
 
 
 if __name__ == "__main__":

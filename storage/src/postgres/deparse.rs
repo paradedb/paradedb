@@ -1,0 +1,333 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(
+    clippy::missing_safety_doc,
+    clippy::not_unsafe_ptr_arg_deref,
+    unsafe_op_in_unsafe_fn
+)]
+
+//! Expression deparsing utilities for converting PostgreSQL expression nodes
+//! into human-readable SQL strings for EXPLAIN output.
+
+use crate::nodecast;
+use crate::postgres::node::NodeExt;
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::var::VarContext;
+
+use pgrx::pg_sys;
+
+/// Context for extracting quals - can be either full planner context or just a query
+pub enum PlannerContext {
+    /// Full planner context with PlannerInfo (supports join qual extraction)
+    Planner(*mut pg_sys::PlannerInfo),
+    /// Query-only context (no join qual extraction, used in planner hook)
+    Query(*mut pg_sys::Query),
+}
+
+impl PlannerContext {
+    /// Errors if `root` is null: consumers dereference the pointer returned by
+    /// [`Self::planner_info`] without re-checking it.
+    pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
+        assert!(
+            !root.is_null(),
+            "PlannerContext::from_planner: PlannerInfo must not be null"
+        );
+        Self::Planner(root)
+    }
+
+    /// Errors if `parse` is null, for the same reason as [`Self::from_planner`].
+    pub fn from_query(parse: *mut pg_sys::Query) -> Self {
+        assert!(
+            !parse.is_null(),
+            "PlannerContext::from_query: Query must not be null"
+        );
+        Self::Query(parse)
+    }
+
+    /// Get the PlannerInfo pointer if available (for join qual extraction).
+    /// Non-null by construction; see [`Self::from_planner`].
+    pub fn planner_info(&self) -> Option<*mut pg_sys::PlannerInfo> {
+        match self {
+            Self::Planner(root) => Some(*root),
+            Self::Query(_) => None,
+        }
+    }
+
+    pub fn query(&self) -> Option<*mut pg_sys::Query> {
+        match self {
+            Self::Planner(_) => None,
+            Self::Query(parse) => Some(*parse),
+        }
+    }
+
+    pub fn var_context(&self) -> VarContext {
+        match self {
+            Self::Planner(root) => VarContext::from_planner(*root),
+            Self::Query(parse) => VarContext::from_query(*parse),
+        }
+    }
+}
+
+/// Helper function to deparse an expression using a relation context.
+/// Returns a human-readable SQL string representation of the expression.
+/// Falls back to nodeToString representation if deparsing fails (e.g., for complex expressions).
+///
+/// The `rel` parameter can be either:
+/// - An index relation (will use its underlying heap relation for context)
+/// - A heap relation directly (will use it directly for context)
+///
+/// This function handles:
+/// - Simple expressions (varno 1): deparse directly
+/// - Single-table expressions with varno != 1: remap varno and deparse
+/// - Expressions with PARAM_EXEC nodes: replace with placeholders and deparse
+/// - Expressions with PARAM_EXTERN: deparse as "$N"
+/// - Multi-table expressions: fall back to nodeToString
+pub fn deparse_expr(
+    planner_context: Option<&PlannerContext>,
+    rel: &PgSearchRelation,
+    expr: *mut pg_sys::Node,
+) -> String {
+    if expr.is_null() {
+        return "<null>".to_string();
+    }
+
+    // For expressions containing PARAM_EXEC nodes (correlated subquery params),
+    // clone and replace them with placeholder constants, then deparse
+    // Note: PARAM_EXTERN (prepared statement params like $1, $2) are safe and will be
+    // deparsed as "$N" by PostgreSQL's deparse_expression
+    let expr_to_deparse = if expr.contains_exec_param() {
+        let cloned = unsafe { pg_sys::copyObjectImpl(expr.cast()) }.cast::<pg_sys::Node>();
+        replace_exec_params_with_placeholders(cloned);
+        cloned
+    } else {
+        expr
+    };
+
+    // Get the heap relation for deparsing context.
+    // If rel.heap_relation() returns Some, rel is an index and we use its heap relation.
+    // If it returns None, rel IS the heap relation, so use it directly.
+    let (heap_name, heap_oid) = if let Some(heaprel) = rel.heap_relation() {
+        (heaprel.name().to_string(), heaprel.oid())
+    } else {
+        (rel.name().to_string(), rel.oid())
+    };
+
+    // Collect all vars, extract varnos and remove duplicate varnos
+    let mut varnos = expr_to_deparse
+        .collect_nodes::<pg_sys::Var>()
+        .into_iter()
+        .map(|var| unsafe { (*var).varno } as pg_sys::Index)
+        .collect::<Vec<pg_sys::Index>>();
+    varnos.sort();
+    varnos.dedup();
+
+    // If expression has no var references (constant expression), use heap relation context
+    if varnos.is_empty() {
+        return unsafe { deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid) };
+    }
+
+    // Get the PlannerInfo to access the rtable
+    let Some(root) = planner_context.and_then(|c| c.planner_info()) else {
+        // No PlannerInfo available - try simple deparse for varno 1
+        if varnos.len() == 1 && varnos[0] == 1 {
+            return unsafe { deparse_with_single_relation(expr_to_deparse, &heap_name, heap_oid) };
+        }
+        return unsafe { node_to_string_without_context(expr_to_deparse) };
+    };
+
+    let parse = unsafe { (*root).parse };
+    if parse.is_null() {
+        return unsafe { node_to_string_without_context(expr_to_deparse) };
+    }
+    let parse = unsafe { &*parse };
+
+    let rtable = parse.rtable;
+    if rtable.is_null() {
+        return unsafe { node_to_string_without_context(expr_to_deparse) };
+    }
+
+    let rtable_list = unsafe { pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable) };
+
+    if varnos.len() == 1 {
+        // Single varno - get RTE and deparse
+        let varno = varnos[0];
+        let rte_idx = (varno - 1) as usize; // varno is 1-based
+
+        let Some(rte) = rtable_list.get_ptr(rte_idx) else {
+            return unsafe { node_to_string_without_context(expr_to_deparse) };
+        };
+        let rte = unsafe { &*rte };
+
+        // Only handle RTE_RELATION
+        if rte.rtekind != pg_sys::RTEKind::RTE_RELATION {
+            return unsafe { node_to_string_without_context(expr_to_deparse) };
+        }
+
+        let relid = rte.relid;
+        let relname = rel.name();
+
+        if varno == 1 {
+            // Already at varno 1, deparse directly
+            return unsafe { deparse_with_single_relation(expr_to_deparse, relname, relid) };
+        }
+
+        // Need to remap varno to 1 for deparsing
+        // Clone the expression and remap varnos (note: may already be cloned for PARAM replacement)
+        let expr_copy =
+            unsafe { pg_sys::copyObjectImpl(expr_to_deparse.cast()) }.cast::<pg_sys::Node>();
+        remap_varnos(expr_copy, varno, 1);
+        return unsafe { deparse_with_single_relation(expr_copy, relname, relid) };
+    }
+
+    // Multi-relation expressions: deparse using PlannerInfo context
+    if let Some(deparsed) = deparse_planner_expr(root, expr_to_deparse) {
+        return deparsed;
+    }
+
+    unsafe { node_to_string_without_context(expr) }
+}
+
+/// Deparse a PostgreSQL expression tree during query planning using `PlannerInfo`.
+///
+/// Constructs a multi-relation deparsing context from the query's range table,
+/// assigning unique aliases via `select_rtable_names_for_explain`.
+pub fn deparse_planner_expr(
+    root: *mut pg_sys::PlannerInfo,
+    expr: *mut pg_sys::Node,
+) -> Option<String> {
+    use std::panic::AssertUnwindSafe;
+    if root.is_null()
+        || expr.is_null()
+        || unsafe { (*root).parse.is_null() }
+        || expr.contains_exec_param()
+    {
+        return None;
+    }
+    let root = unsafe { &*root };
+
+    let rtable = unsafe { (*root.parse).rtable };
+    if rtable.is_null() {
+        return None;
+    }
+
+    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+        let rtable_names =
+            unsafe { pg_sys::select_rtable_names_for_explain(rtable, std::ptr::null_mut()) };
+
+        let mut pstmt: pg_sys::PlannedStmt = unsafe { std::mem::zeroed() };
+        pstmt.type_ = pg_sys::NodeTag::T_PlannedStmt;
+        pstmt.rtable = rtable;
+        pstmt.subplans = if !root.glob.is_null() {
+            unsafe { (*root.glob).subplans }
+        } else {
+            std::ptr::null_mut()
+        };
+        pstmt.appendRelations = root.append_rel_list;
+
+        let dpcontext = unsafe { pg_sys::deparse_context_for_plan_tree(&mut pstmt, rtable_names) };
+        let raw_str = unsafe { pg_sys::deparse_expression(expr.cast(), dpcontext, true, false) };
+        if raw_str.is_null() {
+            None
+        } else {
+            Some(
+                unsafe { std::ffi::CStr::from_ptr(raw_str) }
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        }
+    }))
+    .catch_others(|_| None)
+    .execute()
+}
+
+/// Deparse an expression with a single-relation context
+unsafe fn deparse_with_single_relation(
+    expr: *mut pg_sys::Node,
+    relname: &str,
+    relid: pg_sys::Oid,
+) -> String {
+    let relname_cstr = match std::ffi::CString::new(relname) {
+        Ok(s) => s,
+        Err(_) => return node_to_string_without_context(expr),
+    };
+
+    let context = pg_sys::deparse_context_for(relname_cstr.as_ptr(), relid);
+    let deparsed = pg_sys::deparse_expression(expr.cast(), context, false, true);
+    if deparsed.is_null() {
+        return node_to_string_without_context(expr);
+    }
+
+    std::ffi::CStr::from_ptr(deparsed)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Replace PARAM_EXEC nodes with PARAM_EXTERN in an expression tree.
+/// This allows deparse_expression to render them as `$N` instead of crashing.
+/// The expression should be cloned before calling this function.
+fn replace_exec_params_with_placeholders(node: *mut pg_sys::Node) {
+    node.visit(|node| unsafe {
+        if let Some(param) = nodecast!(Param, node)
+            && (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+        {
+            (*param).paramkind = pg_sys::ParamKind::PARAM_EXTERN;
+            // PARAM_EXEC ids are zero-based; PARAM_EXTERN ids are one-based.
+            (*param).paramid += 1;
+        }
+    });
+}
+
+/// Remap varnos in an expression tree from old_varno to new_varno
+fn remap_varnos(node: *mut pg_sys::Node, old_varno: pg_sys::Index, new_varno: pg_sys::Index) {
+    node.visit(|node| unsafe {
+        if let Some(var) = nodecast!(Var, node) {
+            if (*var).varno as pg_sys::Index == old_varno {
+                (*var).varno = new_varno as _;
+            }
+            if (*var).varnosyn as pg_sys::Index == old_varno {
+                (*var).varnosyn = new_varno as _;
+            }
+        }
+    });
+}
+
+/// Convert a PostgreSQL node to its raw AST string representation using `nodeToString`.
+///
+/// # Usage Warning
+/// This function should **NEVER** be used during planning time (where `PlannerInfo` is
+/// available via [`deparse_planner_expr`]) or explain time (where `ExplainState` is available
+/// via `Explainer::deparse_expr`).
+///
+/// It exists strictly as a fallback for execution-time contexts outside both planning and
+/// explain phases (e.g. execution-time diagnostic logs during DataFusion physical plan
+/// construction in `scan_state.rs`) where no PostgreSQL deparsing context exists.
+pub unsafe fn node_to_string_without_context(expr: *mut pg_sys::Node) -> String {
+    pgrx::node_to_string(expr)
+        .unwrap_or("<unknown>")
+        .to_string()
+}
+
+/// Serialize a non-null node via `nodeToString` into an owned Rust `String`.
+///
+/// Strips any nested `PlaceHolderVar` wrappers before serializing so `stringToNode` can parse
+/// the resulting string on PostgreSQL 15 (which lacks `_readPlaceHolderVar` in `readfuncs.c`).
+pub unsafe fn node_to_string_owned(node: *mut pg_sys::Node) -> String {
+    let stripped = crate::postgres::utils::strip_placeholder_vars_deep(node);
+    pgrx::node_to_string(stripped)
+        .expect("nodeToString failed for non-null node")
+        .to_string()
+}

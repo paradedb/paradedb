@@ -7,18 +7,21 @@ canonical: https://www.paradedb.com/docs/reference/vector/tuning
 Vector search is approximate: it probes a subset of the index's vector clusters rather than scanning every vector. Probing more clusters improves recall (i.e. how often the true nearest neighbors are returned) at the cost of higher latency. One session-level setting controls this tradeoff:
 
 ```sql
-SET paradedb.vector_cluster_max_probe = 0.02;
+SET paradedb.vector_cluster_max_probe = 100;
 ```
 
-<ParamField body="paradedb.vector_cluster_max_probe" default={0.02}>
-  Controls the probe-work budget as a fraction of each segment's capacity.
-  Must be between `0.000001` and `1.0`. The budget is checked between clusters
-  and subject to a minimum probe floor.
+<ParamField body="paradedb.vector_cluster_max_probe" default={100}>
+  Controls the global probe-work budget in average-cluster units. One unit
+  covers opening an average cluster and scoring its rows. Accepts integers
+  between `1` and `100000`. PostgreSQL rounds fractional input to the nearest
+  integer. The budget
+  is shared across segments and checked between clusters.
 
+Selective filters score fewer rows, so the same budget can probe more clusters.
 The router's requested cluster count follows this budget and the filter's
 selectivity. Adaptive probing uses the same router request and work ceiling.
-A value of `1.0` allows probing the full index, but adaptive stopping can
-still end the scan early.
+A budget at least as large as the index's total cluster count allows probing
+all clusters, but adaptive stopping can still end the scan early.
 
 </ParamField>
 
@@ -32,7 +35,7 @@ still end the scan early.
 
 <Note>
   Recall also depends on the index's `training_sample_ratio` and
-  `max_leaf_size`, applied whenever a segment is clustered. See [Index
+  `target_leaf_size`, applied whenever a segment is clustered. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
 

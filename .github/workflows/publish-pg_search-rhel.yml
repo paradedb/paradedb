@@ -219,10 +219,6 @@ jobs:
           echo "Importing Oracle GPG Key..."
           wget https://yum.oracle.com/RPM-GPG-KEY-oracle-ol9 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
 
-          # This package requires epel-release, which is why we install it last. It is required to
-          # configure the build environment for creating the RPM package via rpmbuild
-          sudo dnf install -y rpmdevtools
-
       - name: Checkout Git Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -273,11 +269,6 @@ jobs:
           echo "OS Version: $OS_VERSION"
           echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
 
-          # Retrieve the current date for the changelog
-          CURRENT_DATE=$(LC_TIME=C date +"%a %b %d %Y")
-          echo "Current Date: $CURRENT_DATE"
-          echo "current_date=$CURRENT_DATE" >> $GITHUB_OUTPUT
-
       - name: Install & Configure Supported PostgreSQL Version on RHEL
         run: |
           # Extract RHEL version from the image name
@@ -288,7 +279,7 @@ jobs:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
 
           # Install PostgreSQL:
-          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel openblas-devel
+          sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel openblas-devel pgvector_${{ matrix.pg_version }}
 
       - name: Extract pgrx Version
         id: pgrx
@@ -313,70 +304,13 @@ jobs:
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG_PATH
 
-      - name: Package pg_search Extension with pgrx
-        working-directory: pg_search/
-        run: |
-          PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --pg-config $PG_CONFIG_PATH
-
-      - name: Create .rpm Package
+      - name: Build Native RPM Package
         env:
-          STEP_VERSION_TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          STEP_VERSION_CURRENT_DATE: ${{ steps.version.outputs.current_date }}
-        run: |
-          echo "Configuring RPM build environment..."
-          rpmdev-setuptree
-
-          echo "Creating RPM SPEC file..."
-          spec_file=~/rpmbuild/SPECS/pg_search.spec
-          cat <<EOF > $spec_file
-          Name:           pg_search_${{ matrix.pg_version }}
-          Version:        ${STEP_VERSION_TAG_VERSION}
-          Release:        1%{?dist}
-          Summary:        One Postgres for your application data, full-text search, vector retrieval, and aggregations
-          License:        GNU Affero General Public License v3.0
-          URL:            ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
-
-          BuildRequires:  postgresql${{ matrix.pg_version }}-devel
-          BuildRequires:  openblas-devel
-          Requires:       postgresql${{ matrix.pg_version }}-server
-          Requires:       openblas
-
-          %description
-          pg_search upgrades Postgres with a custom index for fast full-text and
-          vector search, BM25 scoring, filtering, and aggregations. Your application
-          data and search engine live in one database, with no second system to
-          deploy and nothing to sync.
-
-          %install
-          %{__rm} -rf %{buildroot}
-          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
-          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -d %{buildroot}/usr/share/licenses/%{name}/
-          install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
-          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
-          install -m 644 %{_sourcedir}/LICENSE %{buildroot}/usr/share/licenses/%{name}/LICENSE
-
-          %files
-          %license /usr/share/licenses/%{name}/LICENSE
-          /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
-          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
-          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
-
-          %changelog
-          * ${STEP_VERSION_CURRENT_DATE} ParadeDB <support@paradedb.com> - ${STEP_VERSION_TAG_VERSION}
-          - Latest RPM Release
-          * Sat Jun 22 2024 ParadeDB <support@paradedb.com> - 0.7.6
-          - Initial RPM Release
-          EOF
-
-          echo "Copying pg_search binaries to RPM build directory..."
-          cp -r target/release/pg_search-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_search_${{ matrix.pg_version }}
-          cp LICENSE ~/rpmbuild/SOURCES/LICENSE
-
-          echo "Building RPM package..."
-          rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
+          PG_CONFIG: /usr/pgsql-${{ matrix.pg_version }}/bin/pg_config
+          PACKAGE_FORMAT: rpm
+          PACKAGE_PATH: ${{ github.workspace }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          PACKAGE_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: ./scripts/package-linux.sh
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2; Upstream does not publish a moving @v4 tag
@@ -386,8 +320,8 @@ jobs:
       - name: Sign .rpm with Cosign (keyless)
         env:
           COSIGN_YES: "true"
-          RPM: rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
-        run: cosign sign-blob --yes --bundle "$HOME/${RPM}.cosign.bundle" "$HOME/$RPM"
+          RPM: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+        run: cosign sign-blob --yes --bundle "${RPM}.cosign.bundle" "$RPM"
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -409,7 +343,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
+          asset_path: ./pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           overwrite: true
 
@@ -418,7 +352,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
+          asset_path: ./pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
           asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm.cosign.bundle
           overwrite: true
 

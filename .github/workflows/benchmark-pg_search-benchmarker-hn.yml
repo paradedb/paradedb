@@ -17,7 +17,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c"
+        default: "6ad13aed213d86feca4e4596867c930eac8c82a6"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -52,7 +52,7 @@ jobs:
     env:
       HN_SIZE: 28m
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '6ad13aed213d86feca4e4596867c930eac8c82a6' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}
@@ -272,6 +272,16 @@ jobs:
             -c "SELECT json_agg(s) FROM prism_index_settings('hn_items_prism_idx') AS s" \
             > benchmark-artifacts/prism-settings.json
 
+      - name: Restore recall starting values
+        if: matrix.engine == 'pg_vectorsearch'
+        id: recall-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: benchmark-artifacts/search/**/sweep_cache*.json
+          key: pdbench-hints-v1-hn-28m-${{ matrix.engine }}-${{ env.PG_VECTORSEARCH_REF }}-${{ hashFiles('benchmarks/hn/*pgvectorsearch.toml', 'benchmarks/hn/assets/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            pdbench-hints-v1-hn-28m-${{ matrix.engine }}-${{ env.PG_VECTORSEARCH_REF }}-${{ hashFiles('benchmarks/hn/*pgvectorsearch.toml', 'benchmarks/hn/assets/**') }}-
+
       - name: Sweep recall with pdbench
         run: |
           set -euo pipefail
@@ -282,6 +292,13 @@ jobs:
               --set dataset.s3_base_path=benchmark-artifacts/fixtures \
               --query "$query" --no-compare --html
           done
+
+      - name: Save recall starting values
+        if: always() && matrix.engine == 'pg_vectorsearch' && steps.recall-cache.outcome == 'success' && hashFiles('benchmark-artifacts/search/**/sweep_cache*.json') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: benchmark-artifacts/search/**/sweep_cache*.json
+          key: ${{ steps.recall-cache.outputs.cache-primary-key }}
 
       - name: Prepare k6 operating points
         env:
@@ -314,6 +331,10 @@ jobs:
             printf 'Uses the existing heap snapshot and 100 held-out vectors. Eight build/query workers and a 32-process worker pool are available. Build RSS sums sampled processes, including shared mappings. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
+          if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then
+            echo '::error::No operating point passed full 100-vector validation. See operating_points.md for recall and budget outcomes.'
+            exit 1
+          fi
 
       - name: Verify k6 vector query plans
         run: |

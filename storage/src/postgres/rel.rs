@@ -313,6 +313,30 @@ impl PgSearchRelation {
         }
     }
 
+    /// The database the relation lives in, from its file locator.
+    pub fn database_oid(&self) -> pg_sys::Oid {
+        #[cfg(feature = "pg15")]
+        {
+            self.rd_node.dbNode
+        }
+        #[cfg(not(feature = "pg15"))]
+        {
+            self.rd_locator.dbOid
+        }
+    }
+
+    /// The relation's file number. `REINDEX` assigns a new one.
+    pub fn relfilenumber(&self) -> u32 {
+        #[cfg(feature = "pg15")]
+        {
+            self.rd_node.relNode.to_u32()
+        }
+        #[cfg(not(feature = "pg15"))]
+        {
+            self.rd_locator.relNumber.to_u32()
+        }
+    }
+
     pub fn name(&self) -> &str {
         unsafe { name_data_to_str(&(*self.rd_rel).relname) }
     }

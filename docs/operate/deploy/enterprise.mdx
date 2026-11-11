@@ -67,6 +67,7 @@ ParadeDB Enterprise adds commercial licensing, support, and physical replication
   table and index, and a query that uses a ParadeDB index on the standby fails
   with a `feature not supported` error. If a Community standby is promoted, the
   ParadeDB indexes it received through replication refuse queries until
-  `REINDEX` rebuilds them on the new primary.
+  `REINDEX` rebuilds them on the new primary. The standby learns which indexes
+  those are from the WAL written when an index is built or vacuumed.
 </p>
 </Info>

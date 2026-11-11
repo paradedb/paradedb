@@ -20,6 +20,7 @@ use pgrx::*;
 
 use crate::postgres::merge::{MergeStyle, do_merge, garbage_collect_index};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::custom_rmgr;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
@@ -32,5 +33,9 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
         garbage_collect_index(&index, next_xid, next_xid);
     }
     do_merge(&index, MergeStyle::Vacuum).expect("should be able to merge");
+    // Names the index to a standby cloned after the index was built; see `postgres::promotion`.
+    if index.need_wal() {
+        custom_rmgr::emit_init_record(&index);
+    }
     stats
 }

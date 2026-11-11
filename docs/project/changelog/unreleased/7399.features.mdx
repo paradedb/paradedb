@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+A match query can read its synonym rules with a subquery on the rules table, as in `description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)`. The subquery names the table and not the synonym index, and a `WHERE` picks the rules. See [Synonyms](/reference/tokenizers/synonyms).

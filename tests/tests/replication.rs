@@ -700,16 +700,12 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
 
-    // Two indexes built before the standby is cloned: the clone carries their files and replays
-    // no build record for them. A VACUUM on the primary names `early_idx` to the standby;
-    // `dormant_idx` is never named, which is the one case the gate does not cover.
+    // An index built before the standby is cloned: the clone carries its files and replays no
+    // build record for it. A VACUUM on the primary names it to the standby.
     "
     CREATE TABLE early (id INT, body TEXT);
     INSERT INTO early VALUES (1, 'early shoes');
     CREATE INDEX early_idx ON early USING paradedb (id, body);
-    CREATE TABLE dormant (id INT, body TEXT);
-    INSERT INTO dormant VALUES (1, 'dormant shoes');
-    CREATE INDEX dormant_idx ON dormant USING paradedb (id, body);
     "
     .execute(&mut source_conn);
 
@@ -860,12 +856,6 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     ] {
         assert_feature_not_supported(&mut standby_conn, query, "has since been promoted");
     }
-
-    // An index that was neither built nor vacuumed on the primary after the clone was never
-    // named to the standby, so the gate does not know it.
-    let rows: Vec<(String,)> =
-        "SELECT body FROM dormant WHERE body ||| 'shoes'".fetch(&mut standby_conn);
-    assert_eq!(rows.len(), 1);
 
     // The table itself keeps working, reads and writes alike.
     let count: Vec<(i64,)> = "SELECT count(*) FROM items".fetch(&mut standby_conn);

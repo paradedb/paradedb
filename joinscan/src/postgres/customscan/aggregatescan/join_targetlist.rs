@@ -415,27 +415,64 @@ impl JoinAggregateTargetList {
         format!("{}__one_group", self.internal_prefix())
     }
 
+    /// The DataFusion name of a synthetic CTID column for this aggregate plan.
+    pub fn ctid_name(&self, plan_position: usize) -> String {
+        format!("{}ctid_{plan_position}", self.internal_prefix())
+    }
+
+    /// Whether `name` is a synthetic CTID column produced for this plan.
+    pub fn is_ctid_name(&self, name: &str) -> bool {
+        name.strip_prefix(self.internal_prefix().as_str())
+            .is_some_and(|name| has_numeric_suffix(name, "ctid_"))
+    }
+
+    /// The DataFusion name of a `pdb.agg()` terms key for this plan.
+    pub fn pdb_key_name(&self, idx: usize) -> String {
+        format!("{}__pdb_k{idx}", self.internal_prefix())
+    }
+
+    /// The DataFusion name of a `pdb.agg()` metric for this plan.
+    pub fn pdb_metric_name(&self, idx: usize) -> String {
+        format!("{}__pdb_m{idx}", self.internal_prefix())
+    }
+
+    /// The DataFusion name of the grouping-set ID for this plan.
+    pub fn grouping_id_name(&self) -> String {
+        format!("{}__grouping_id", self.internal_prefix())
+    }
+
+    /// Output alias needed when a SQL grouping key has DataFusion's reserved
+    /// grouping-set ID name. The source column keeps its original name in the
+    /// scan; only its aggregate output is renamed.
+    pub fn group_column_output_alias(&self, idx: usize) -> Option<String> {
+        let group = self.group_columns.get(idx)?;
+        if group.row_value
+            || group.field_name != "__grouping_id"
+            || self.pdb_agg_requests().next().is_none()
+        {
+            return None;
+        }
+
+        let transform = match group.transform {
+            GroupingTransform::Identity => 0,
+            GroupingTransform::TimestampToDate => 1,
+        };
+        Some(format!(
+            "{}__group_key_{}_{}",
+            self.internal_prefix(),
+            group.plan_position,
+            transform
+        ))
+    }
+
     /// DataFusion rejects a schema with a qualified and an unqualified column of
     /// the same name, and its optimizer drops the qualifier of an aggregate
-    /// alias. So the names above stay unqualified, and get a longer prefix while
-    /// a GROUP BY column has one of them.
+    /// alias. Keep generated columns unqualified and lengthen their common
+    /// prefix until it does not collide with any SQL grouping key. This covers
+    /// both this module's aliases and the CTID and `pdb.agg()` columns assembled
+    /// by the DataFusion aggregate plan.
     fn internal_prefix(&self) -> String {
-        let is_internal = |name: &str| {
-            name == "__one_group"
-                || ["agg_", "row_", "win_", "precombine_"].iter().any(|kind| {
-                    name.strip_prefix(kind)
-                        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-                })
-        };
-        let mut prefix = String::new();
-        while self.group_columns.iter().any(|gc| {
-            gc.field_name
-                .strip_prefix(prefix.as_str())
-                .is_some_and(is_internal)
-        }) {
-            prefix.push('_');
-        }
-        prefix
+        internal_prefix_for_group_names(self.group_columns.iter().map(|gc| gc.field_name.as_str()))
     }
 
     /// The lowered `pdb.agg()` calls (including `pdb.combine_agg(pdb.agg(...))`), in target-list order.
@@ -460,6 +497,82 @@ impl JoinAggregateTargetList {
     /// Every fast field a `pdb.agg()` spec reads.
     pub fn pdb_agg_field_refs(&self) -> impl Iterator<Item = &PdbAggFieldRef> {
         self.pdb_agg_requests().flat_map(PdbAggRequest::fields)
+    }
+}
+
+fn internal_prefix_for_group_names<'a>(group_names: impl IntoIterator<Item = &'a str>) -> String {
+    let group_names: Vec<&str> = group_names.into_iter().collect();
+    let mut prefix = String::new();
+    while group_names.iter().any(|name| {
+        name.strip_prefix(prefix.as_str())
+            .is_some_and(is_internal_name)
+    }) {
+        prefix.push('_');
+    }
+    prefix
+}
+
+fn is_internal_name(name: &str) -> bool {
+    name == "__one_group"
+        || name == "__grouping_id"
+        || [
+            "agg_",
+            "row_",
+            "win_",
+            "precombine_",
+            "ctid_",
+            "__pdb_k",
+            "__pdb_m",
+        ]
+        .iter()
+        .any(|kind| has_numeric_suffix(name, kind))
+        || name.strip_prefix("__group_key_").is_some_and(|suffix| {
+            let mut parts = suffix.split('_');
+            matches!(
+                (parts.next(), parts.next(), parts.next()),
+                (Some(position), Some(transform), None)
+                    if !position.is_empty()
+                        && position.bytes().all(|b| b.is_ascii_digit())
+                        && !transform.is_empty()
+                        && transform.bytes().all(|b| b.is_ascii_digit())
+            )
+        })
+}
+
+fn has_numeric_suffix(name: &str, kind: &str) -> bool {
+    name.strip_prefix(kind)
+        .is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()))
+}
+
+#[cfg(test)]
+mod internal_name_tests {
+    use super::internal_prefix_for_group_names;
+
+    #[test]
+    fn prefixes_every_datafusion_internal_name_family() {
+        for name in [
+            "agg_0",
+            "row_0",
+            "win_0",
+            "precombine_0",
+            "ctid_0",
+            "__pdb_k0",
+            "__pdb_m0",
+            "__grouping_id",
+            "__one_group",
+        ] {
+            assert_eq!(internal_prefix_for_group_names([name]), "_", "{name}");
+        }
+    }
+
+    #[test]
+    fn keeps_prefix_shortest_and_leaves_unrelated_group_names_alone() {
+        assert_eq!(internal_prefix_for_group_names(["category"]), "");
+        assert_eq!(
+            internal_prefix_for_group_names(["__pdb_k0", "___pdb_m0"]),
+            "__"
+        );
+        assert_eq!(internal_prefix_for_group_names(["___pdb_k0"]), "");
     }
 }
 

@@ -61,13 +61,13 @@ use crate::postgres::customscan::datafusion::translator::{
     ColumnMapper, PredicateTranslator, apply_join_level_filter, apply_relnode_unnest,
     build_join_df_with_filter, make_col, make_source_col, unnest_plan_column,
 };
+use crate::postgres::customscan::joinscan::ScoreColumn;
 use crate::postgres::customscan::joinscan::build::{
     JoinSource, LateralUnnestInfo, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, optimize_logical_plan, register_source_table,
 };
-use crate::postgres::customscan::joinscan::{CtidColumn, ScoreColumn};
 use crate::postgres::customscan::limit_offset::{LimitClauseKind, LimitOffset};
 use crate::postgres::customscan::pg_expr_udf::InputDecode;
 use crate::scan::PgSearchTableProvider;
@@ -138,6 +138,7 @@ pub async fn build_join_aggregate_plan(
         ctx,
         plan,
         plan,
+        targetlist,
         custom_exprs,
         custom_scan_tlist,
         expr_context,
@@ -154,7 +155,7 @@ pub async fn build_join_aggregate_plan(
         .schema()
         .fields()
         .iter()
-        .filter(|field| CtidColumn::try_from(field.name().as_str()).is_ok())
+        .filter(|field| targetlist.is_ctid_name(field.name()))
         .map(|field| col(field.name()).sort(true, false))
         .collect();
 
@@ -201,6 +202,10 @@ pub async fn build_join_aggregate_plan(
                     GroupingTransform::TimestampToDate => {
                         timestamp_to_date_udf().call(vec![column])
                     }
+                };
+                let group_expr = match targetlist.group_column_output_alias(gc_idx) {
+                    Some(alias) => group_expr.alias(alias),
+                    None => group_expr,
                 };
 
                 group_exprs.push(group_expr);
@@ -381,6 +386,7 @@ pub async fn build_join_aggregate_plan(
         Some(pdb_plan) => apply_pdb_aggregate(
             df,
             pdb_plan,
+            targetlist,
             group_exprs,
             agg_exprs,
             &pdb_filters,
@@ -578,6 +584,7 @@ fn build_pdb_aggregate_plan(
     input: LogicalPlan,
     pdb_plan: &PdbAggPlan,
     plan: &RelNode,
+    targetlist: &JoinAggregateTargetList,
     all_group_exprs: &[Expr],
     all_agg_exprs: &[Expr],
     grouping: &[Expr],
@@ -705,16 +712,16 @@ fn build_pdb_aggregate_plan(
             project_exprs.push(Expr::Column(col.clone()));
         }
 
-        // 2. Key expressions (__pdb_k0, __pdb_k1, ...)
+        // 2. Key expressions, with names kept clear of SQL grouping keys.
         for k in 0..num_keys {
             if distinct_positions.contains(&(num_outer + k)) {
-                project_exprs.push(col(format!("__pdb_k{k}")));
+                project_exprs.push(col(targetlist.pdb_key_name(k)));
             } else {
                 let null_expr = Expr::Cast(Cast::new(
                     Box::new(lit(ScalarValue::Null)),
                     pdb_plan.keys[k].field.field_type.arrow_data_type(),
                 ))
-                .alias(format!("__pdb_k{k}"));
+                .alias(targetlist.pdb_key_name(k));
                 project_exprs.push(null_expr);
             }
         }
@@ -723,7 +730,7 @@ fn build_pdb_aggregate_plan(
         if levels_in_group.len() == 1 {
             project_exprs.push(
                 lit(pdb_plan.grouping_id_for_level(levels_in_group[0]))
-                    .alias(Aggregate::INTERNAL_GROUPING_ID),
+                    .alias(targetlist.grouping_id_name()),
             );
         } else {
             let id_u64 = Expr::Cast(Cast::new(
@@ -742,7 +749,7 @@ fn build_pdb_aggregate_plan(
             }
             let grouping_id_expr = case_builder
                 .otherwise(lit(0u64))?
-                .alias(Aggregate::INTERNAL_GROUPING_ID);
+                .alias(targetlist.grouping_id_name());
             project_exprs.push(grouping_id_expr);
         }
 
@@ -801,6 +808,7 @@ fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPla
 fn apply_pdb_aggregate(
     df: DataFrame,
     pdb_plan: &PdbAggPlan,
+    targetlist: &JoinAggregateTargetList,
     group_exprs: Vec<Expr>,
     agg_exprs: Vec<Expr>,
     pdb_filters: &HashMap<usize, Expr>,
@@ -811,13 +819,15 @@ fn apply_pdb_aggregate(
         .keys
         .iter()
         .enumerate()
-        .map(|(i, key)| pdb_key_expr(key, plan).alias(format!("__pdb_k{i}")))
+        .map(|(i, key)| pdb_key_expr(key, plan).alias(targetlist.pdb_key_name(i)))
         .collect();
     let metric_exprs: Vec<Expr> = pdb_plan
         .metrics
         .iter()
         .enumerate()
-        .map(|(j, metric)| pdb_metric_expr(metric, plan, pdb_filters).alias(format!("__pdb_m{j}")))
+        .map(|(j, metric)| {
+            pdb_metric_expr(metric, plan, pdb_filters).alias(targetlist.pdb_metric_name(j))
+        })
         .collect();
 
     let num_std_aggs = agg_exprs.len();
@@ -841,6 +851,7 @@ fn apply_pdb_aggregate(
         input,
         pdb_plan,
         plan,
+        targetlist,
         &all_group_exprs,
         &all_agg_exprs,
         &grouping,
@@ -849,7 +860,7 @@ fn apply_pdb_aggregate(
 
     if let Some(having) = having_expr {
         let guarded = match pdb_plan.grouping_id_col() {
-            Some(_) => col(Aggregate::INTERNAL_GROUPING_ID)
+            Some(_) => col(targetlist.grouping_id_name())
                 .not_eq(lit(pdb_plan.root_grouping_id()))
                 .or(having),
             None => having,
@@ -1067,6 +1078,7 @@ fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
     top_level_plan: &'a RelNode,
+    targetlist: &'a JoinAggregateTargetList,
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
     expr_context: Option<*mut pg_sys::ExprContext>,
@@ -1081,6 +1093,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     source,
                     top_level_plan,
+                    targetlist,
                     plan_position,
                     expr_context,
                     planstate,
@@ -1096,6 +1109,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &join.left,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1107,6 +1121,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &join.right,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1124,6 +1139,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &filter.input,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1177,6 +1193,7 @@ fn build_relnode_df<'a>(
                     ctx,
                     &unnest.input,
                     top_level_plan,
+                    targetlist,
                     custom_exprs,
                     custom_scan_tlist,
                     expr_context,
@@ -1425,6 +1442,7 @@ async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
     plan: &RelNode,
+    targetlist: &JoinAggregateTargetList,
     plan_position: usize,
     expr_context: Option<*mut pg_sys::ExprContext>,
     planstate: Option<*mut pg_sys::PlanState>,
@@ -1507,13 +1525,13 @@ async fn build_source_df(
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Select fields AND ensure CTID is aliased consistently with JoinScan
+    // Give the synthetic CTID a name that cannot collide with a SQL group key.
     let mut exprs = Vec::new();
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
             Some(WhichFastField::Ctid) => {
-                make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
+                make_col(alias.as_str(), name).alias(targetlist.ctid_name(plan_position))
             }
             _ => make_col(alias.as_str(), name),
         };

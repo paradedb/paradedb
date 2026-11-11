@@ -270,6 +270,9 @@ impl TopKSortTarget {
                 if gc.row_value {
                     return Column::new_unqualified(targetlist.row_value_name(*idx));
                 }
+                if let Some(name) = targetlist.group_column_output_alias(*idx) {
+                    return Column::new_unqualified(name);
+                }
                 let source = plan.source_at_plan_position(gc.plan_position);
                 let alias = if let Some(src) = source {
                     RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position)

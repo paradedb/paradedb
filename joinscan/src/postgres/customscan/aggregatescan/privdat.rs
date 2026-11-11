@@ -340,7 +340,7 @@ pub enum PrivateData {
         /// The join tree (Scan/Join/Filter nodes).
         plan: RelNode,
         /// The aggregate target list (GROUP BY columns + aggregate functions).
-        targetlist: JoinAggregateTargetList,
+        targetlist: Box<JoinAggregateTargetList>,
         /// Optional TopK sort+limit pushed down from Postgres.
         topk: Option<DataFusionTopK>,
         /// Number of raw PG Expr pointers stored in custom_private after the

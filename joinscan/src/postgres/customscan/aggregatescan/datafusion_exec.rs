@@ -386,12 +386,14 @@ pub async fn build_join_aggregate_plan(
         Some(pdb_plan) => apply_pdb_aggregate(
             df,
             pdb_plan,
-            targetlist,
             group_exprs,
             agg_exprs,
-            &pdb_filters,
             having_expr,
-            plan,
+            PdbAggregateContext {
+                targetlist,
+                pdb_filters: &pdb_filters,
+                plan,
+            },
         )?,
         None => {
             // Deliberately *not* `DataFrame::aggregate`: that hardcodes
@@ -826,28 +828,33 @@ fn isolate_cloned_sources(plan: LogicalPlan, offset: usize) -> Result<LogicalPla
 ///
 /// `HAVING` only judges the SQL level. A bucket row of a group the clause drops
 /// stays in the output, and the assembler ignores it for lack of a root row.
+struct PdbAggregateContext<'a> {
+    targetlist: &'a JoinAggregateTargetList,
+    pdb_filters: &'a HashMap<usize, Expr>,
+    plan: &'a RelNode,
+}
+
 fn apply_pdb_aggregate(
     df: DataFrame,
     pdb_plan: &PdbAggPlan,
-    targetlist: &JoinAggregateTargetList,
     group_exprs: Vec<Expr>,
     agg_exprs: Vec<Expr>,
-    pdb_filters: &HashMap<usize, Expr>,
     having_expr: Option<Expr>,
-    plan: &RelNode,
+    context: PdbAggregateContext<'_>,
 ) -> Result<DataFrame> {
     let key_exprs: Vec<Expr> = pdb_plan
         .keys
         .iter()
         .enumerate()
-        .map(|(i, key)| pdb_key_expr(key, plan).alias(targetlist.pdb_key_name(i)))
+        .map(|(i, key)| pdb_key_expr(key, context.plan).alias(context.targetlist.pdb_key_name(i)))
         .collect();
     let metric_exprs: Vec<Expr> = pdb_plan
         .metrics
         .iter()
         .enumerate()
         .map(|(j, metric)| {
-            pdb_metric_expr(metric, plan, pdb_filters).alias(targetlist.pdb_metric_name(j))
+            pdb_metric_expr(metric, context.plan, context.pdb_filters)
+                .alias(context.targetlist.pdb_metric_name(j))
         })
         .collect();
 
@@ -871,8 +878,8 @@ fn apply_pdb_aggregate(
     let aggregated = build_pdb_aggregate_plan(
         input,
         pdb_plan,
-        plan,
-        targetlist,
+        context.plan,
+        context.targetlist,
         &all_group_exprs,
         &all_agg_exprs,
         &grouping,
@@ -881,7 +888,7 @@ fn apply_pdb_aggregate(
 
     if let Some(having) = having_expr {
         let guarded = match pdb_plan.grouping_id_col() {
-            Some(_) => col(targetlist.grouping_id_name())
+            Some(_) => col(context.targetlist.grouping_id_name())
                 .not_eq(lit(pdb_plan.root_grouping_id()))
                 .or(having),
             None => having,
@@ -1114,11 +1121,13 @@ fn build_relnode_df<'a>(
                     ctx,
                     source,
                     top_level_plan,
-                    targetlist,
-                    plan_position,
-                    expr_context,
-                    planstate,
-                    mpp_manifests,
+                    SourceBuildContext {
+                        targetlist,
+                        plan_position,
+                        expr_context,
+                        planstate,
+                        mpp_manifests,
+                    },
                 )
                 .await?;
                 let alias =
@@ -1458,17 +1467,28 @@ impl FilterExpr {
     }
 }
 
+struct SourceBuildContext<'a> {
+    targetlist: &'a JoinAggregateTargetList,
+    plan_position: usize,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
+    mpp_manifests: Option<&'a [SearchIndexManifest]>,
+}
+
 /// Build a DataFusion [`DataFrame`] for a single scan source.
 async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
     plan: &RelNode,
-    targetlist: &JoinAggregateTargetList,
-    plan_position: usize,
-    expr_context: Option<*mut pg_sys::ExprContext>,
-    planstate: Option<*mut pg_sys::PlanState>,
-    mpp_manifests: Option<&[SearchIndexManifest]>,
+    build: SourceBuildContext<'_>,
 ) -> Result<DataFrame> {
+    let SourceBuildContext {
+        targetlist,
+        plan_position,
+        expr_context,
+        planstate,
+        mpp_manifests,
+    } = build;
     let scan_info = source.scan_info.clone();
     let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
     let fields: Vec<WhichFastField> = source

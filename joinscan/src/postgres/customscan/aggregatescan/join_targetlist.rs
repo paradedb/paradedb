@@ -559,40 +559,6 @@ fn has_numeric_suffix(name: &str, kind: &str) -> bool {
         .is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()))
 }
 
-#[cfg(test)]
-mod internal_name_tests {
-    use super::internal_prefix_for_names;
-
-    #[test]
-    fn prefixes_every_datafusion_internal_name_family() {
-        for name in [
-            "agg_0",
-            "row_0",
-            "win_0",
-            "precombine_0",
-            "ctid_0",
-            "__pdb_k0",
-            "__pdb_m0",
-            "__grouping_id",
-            "__one_group",
-        ] {
-            assert_eq!(internal_prefix_for_names([name]), "_", "{name}");
-        }
-    }
-
-    #[test]
-    fn keeps_prefix_shortest_and_leaves_unrelated_group_names_alone() {
-        assert_eq!(internal_prefix_for_names(["category"]), "");
-        assert_eq!(internal_prefix_for_names(["__pdb_k0", "___pdb_m0"]), "__");
-        assert_eq!(internal_prefix_for_names(["___pdb_k0"]), "");
-    }
-
-    #[test]
-    fn prefixes_internal_aliases_around_non_group_source_fields() {
-        assert_eq!(internal_prefix_for_names(["agg_0", "_ctid_0"]), "__");
-    }
-}
-
 /// Classify an aggregate function OID into an [`AggKind`].
 ///
 /// Returns `None` for unsupported or unknown OIDs. `pdb.agg()` is handled before

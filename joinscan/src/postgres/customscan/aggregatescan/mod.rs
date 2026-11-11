@@ -951,7 +951,7 @@ impl CustomScan for AggregateScan {
                 };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
-                    targetlist,
+                    targetlist: *targetlist,
                     topk,
                     custom_exprs,
                     custom_scan_tlist,
@@ -2028,7 +2028,7 @@ impl AggregateScan {
         let (targetlist, raw_scan_tlist) = unsafe { extracted_target.into_parts() };
         let mut custom_path = builder.build(PrivateData::DataFusion {
             plan,
-            targetlist,
+            targetlist: Box::new(targetlist),
             topk,
             multi_table_clause_count,
             having_filter,

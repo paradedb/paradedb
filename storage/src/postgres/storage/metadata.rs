@@ -262,14 +262,10 @@ impl MetaPage {
                 }
             }
 
-            let data = *metadata;
-            // The rewrite reaches a standby as a full-page image, which drops the standby's
-            // taint; the record following the write restores it.
-            drop(buffer);
-            if indexrel.need_wal() {
-                crate::postgres::storage::custom_rmgr::emit_init_record(indexrel);
+            Self {
+                data: *metadata,
+                bman,
             }
-            Self { data, bman }
         } else {
             Self {
                 data: metadata,

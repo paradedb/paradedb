@@ -18,8 +18,9 @@
 //! Refuses ParadeDB indexes that reached this server through physical replication. The primary
 //! names an index in the rmgr record it emits when the index is built and at the end of every
 //! VACUUM; a standby replaying the record sets a taint in the index's metapage. VACUUM is the
-//! only normal writer of that page, and its record follows the write, so the taint outlives the
-//! full-page images that replication delivers. `REINDEX` starts from a fresh metapage.
+//! only routine writer of that page, and its record follows the write, so the taint outlives the
+//! full-page images that replication delivers; the one-time metapage upgrade of an index built by
+//! an old release clears it until the next VACUUM. `REINDEX` starts from a fresh metapage.
 //!
 //! A standby promoted by a restart without `standby.signal` replays the primary's WAL once more
 //! as crash recovery, which repeats the full-page images; the marker file written while the

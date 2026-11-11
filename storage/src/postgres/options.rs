@@ -78,6 +78,10 @@ pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
 pub const DEFAULT_TARGET_LEAF_SIZE: i32 = clustering::DEFAULT_TARGET_LEAF_SIZE as i32;
 pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = clustering::DEFAULT_TRAINING_SAMPLE_RATIO;
+/// Default `replication`: every vector of a quantized IVF field in two clusters.
+pub const DEFAULT_REPLICATION: i32 = 2;
+/// Largest `replication` the IVF writer supports.
+pub const MAX_REPLICATION: i32 = 2;
 
 #[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
@@ -237,7 +241,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 19;
+const NUM_REL_OPTS: usize = 20;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -318,6 +322,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "vector_router_quantization".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_BOOL,
             offset: std::mem::offset_of!(BM25IndexOptionsData, vector_router_quantization) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "replication".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, replication) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -454,6 +465,12 @@ impl BM25IndexOptions {
     /// Captured in stored index settings during creation or rebuilding.
     pub fn vector_router_quantization(&self) -> bool {
         self.options_data().vector_router_quantization
+    }
+
+    /// Number of IVF clusters new quantized IVF segments assign each vector to: 1, or 2 with a
+    /// second cluster. Captured in stored index settings during creation or rebuilding.
+    pub fn replication(&self) -> u8 {
+        self.options_data().replication as u8
     }
 
     pub fn target_segment_count(&self) -> usize {
@@ -904,6 +921,7 @@ struct BM25IndexOptionsData {
     training_sample_ratio: f64,
     partition_by_offset: i32,
     vector_router_quantization: bool,
+    replication: i32,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -927,6 +945,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
     vector_router_quantization: true,
+    replication: DEFAULT_REPLICATION,
 };
 
 impl BM25IndexOptionsData {
@@ -1180,6 +1199,18 @@ pub unsafe fn init() {
         "Use one-bit centroid routing with exact reranking when creating or rebuilding the index"
             .as_pg_cstr(),
         true,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "replication".as_pg_cstr(),
+        "Number of IVF clusters each vector is assigned to. 2 adds a second cluster chosen to cover \
+         queries the first misses; roughly doubles the quantized rows and index build time. \
+         Full-precision rows are not duplicated."
+            .as_pg_cstr(),
+        DEFAULT_REPLICATION,
+        1,
+        MAX_REPLICATION,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

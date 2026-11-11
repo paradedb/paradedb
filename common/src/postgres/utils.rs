@@ -30,7 +30,7 @@ use crate::postgres::types::{TantivyValue, TantivyValueError};
 
 use crate::schema::{CategorizedFieldData, SearchFieldType};
 use anyhow::Result;
-use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
+use pgrx::itemptr::item_pointer_get_both;
 use pgrx::*;
 
 use std::collections::BTreeMap;
@@ -45,6 +45,30 @@ unsafe extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
     pub fn IsTransactionState() -> bool;
+}
+
+/// `IsA()` for a node pointer that may be NULL, as the `pgrx::is_a` that pgrx 0.20 removed.
+///
+/// # Safety
+///
+/// `node` must be NULL or point to a live `Node`.
+#[inline]
+pub unsafe fn is_a(node: *mut pg_sys::Node, tag: pg_sys::NodeTag) -> bool {
+    unsafe { <pg_sys::Node as pg_sys::PgNode>::is_a_ptr(node, tag) }
+}
+
+/// Argument `num` of `fcinfo`, or `None` when it is SQL NULL, as the `pg_getarg_datum` that
+/// pgrx 0.20 removed.
+///
+/// # Safety
+///
+/// `fcinfo` must point to a live `FunctionCallInfo` whose arguments are initialized.
+#[inline]
+pub unsafe fn pg_getarg_datum(
+    fcinfo: pg_sys::FunctionCallInfo,
+    num: usize,
+) -> Option<pg_sys::Datum> {
+    unsafe { pgrx::fcinfo::pg_get_nullable_datum(fcinfo, num) }.into()
 }
 
 pub fn vacuum_delay_point() {
@@ -418,6 +442,18 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
+/// Stores `blockno` and `offno` in `tid`, as the `item_pointer_set_all` that pgrx 0.20 removed.
+#[inline(always)]
+pub fn item_pointer_set_all(
+    tid: &mut pg_sys::ItemPointerData,
+    blockno: pg_sys::BlockNumber,
+    offno: pg_sys::OffsetNumber,
+) {
+    tid.ip_blkid.bi_hi = (blockno >> 16) as u16;
+    tid.ip_blkid.bi_lo = blockno as u16;
+    tid.ip_posid = offno;
+}
+
 /// The block number packed into a ctid by [`item_pointer_to_u64`].
 #[inline(always)]
 pub fn u64_ctid_block_number(value: u64) -> pg_sys::BlockNumber {
@@ -609,7 +645,7 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
         return node;
     }
 
-    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+    if let Some(func) = unsafe { nodecast!(FuncExpr, node) } {
         let func = unsafe { &*func };
         if type_is_tokenizer(func.funcresulttype) {
             let args = unsafe { PgList::<pg_sys::Node>::from_pg(func.args) };
@@ -617,13 +653,13 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
                 return strip_tokenizer_cast(arg);
             }
         }
-    } else if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+    } else if let Some(relabel) = unsafe { nodecast!(RelabelType, node) } {
         // RelabelType doesn't change physical datum representation, so it is safe to strip.
         return strip_tokenizer_cast(unsafe { (*relabel).arg }.cast());
-    } else if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
+    } else if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, node) } {
         // CoerceToDomain doesn't change physical datum representation, so it is safe to strip.
         return strip_tokenizer_cast(unsafe { (*coerce).arg }.cast());
-    } else if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+    } else if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
         // CoerceViaIO (e.g. `text::int`) CAN change the underlying physical representation.
         // We must only strip it if it explicitly targets a tokenizer type.
         let coerce = unsafe { &*coerce };
@@ -657,23 +693,23 @@ pub fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::No
             return (node, found_unnest);
         }
 
-        if let Some(relabel) = unsafe { nodecast!(RelabelType, T_RelabelType, node) } {
+        if let Some(relabel) = unsafe { nodecast!(RelabelType, node) } {
             node = unsafe { (*relabel).arg }.cast();
             continue;
         }
-        if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, T_CoerceToDomain, node) } {
+        if let Some(coerce) = unsafe { nodecast!(CoerceToDomain, node) } {
             node = unsafe { (*coerce).arg }.cast();
             continue;
         }
-        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
             node = unsafe { (*coerce).arg }.cast();
             continue;
         }
-        if let Some(phv) = unsafe { nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) } {
+        if let Some(phv) = unsafe { nodecast!(PlaceHolderVar, node) } {
             node = unsafe { (*phv).phexpr }.cast();
             continue;
         }
-        if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) }
+        if let Some(func) = unsafe { nodecast!(FuncExpr, node) }
             && let func = unsafe { &*func }
             && is_unnest_func(func.funcid)
         {
@@ -817,7 +853,7 @@ pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
 
     // Extract precision and scale from typmod
     // See PostgreSQL's make_numeric_typmod() and numeric_typmod_scale()
-    let typmod_val = (typmod - pg_sys::VARHDRSZ as i32) as u32;
+    let typmod_val = (typmod - pg_sys::VARHDRSZ) as u32;
 
     // Precision is in upper 16 bits
     let precision = ((typmod_val >> 16) & 0xFFFF) as u16;
@@ -1212,16 +1248,13 @@ pub unsafe fn strip_placeholder_vars_deep(node: *mut pg_sys::Node) -> *mut pg_sy
         if node.is_null() {
             return std::ptr::null_mut();
         }
-        if let Some(phv) = crate::nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) {
+        if let Some(phv) = crate::nodecast!(PlaceHolderVar, node) {
             return strip_phv_mutator((*phv).phexpr.cast(), context);
         }
 
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            let fnptr = strip_phv_mutator as *const ();
-            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-                std::mem::transmute(fnptr);
-            pg_sys::expression_tree_mutator(node, Some(mutator), context)
+            pg_sys::expression_tree_mutator(node, Some(strip_phv_mutator), context)
         }
 
         #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]

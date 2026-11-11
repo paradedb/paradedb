@@ -897,7 +897,7 @@ impl ParallelScanState {
     /// return the single final result.
     pub fn aggregation_wait(&mut self) -> IntermediateAggregationResults {
         loop {
-            check_for_interrupts!();
+            check_for_interrupts();
 
             // Re-arm the condition variable on every iteration.
             // After ConditionVariableSleep returns (spurious wake, interrupt, or broadcast),
@@ -1004,7 +1004,7 @@ impl ParallelScanState {
     fn wait_for_initialization(&mut self) {
         loop {
             // Check for interrupts to allow query cancellation
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
 
             // Re-arm the condition variable on every iteration.
             // After ConditionVariableSleep returns (spurious wake, interrupt, or broadcast),

@@ -71,7 +71,7 @@ impl XlogStyle {
         unsafe {
             match self {
                 XlogStyle::GenericXlog(GenericXlogState::Modified { pg_page, .. }) => *pg_page,
-                _ => pg_sys::BufferGetPage(buffer),
+                _ => pgrx::BufferGetPage!(buffer).get(),
             }
         }
     }
@@ -79,7 +79,9 @@ impl XlogStyle {
     pub fn get_page_mut(&mut self, buffer: pg_sys::Buffer) -> pg_sys::Page {
         unsafe {
             match self {
-                XlogStyle::Unlogged | XlogStyle::FullPageImage => pg_sys::BufferGetPage(buffer),
+                XlogStyle::Unlogged | XlogStyle::FullPageImage => {
+                    pgrx::BufferGetPage!(buffer).get()
+                }
                 XlogStyle::GenericXlog(GenericXlogState::Uninitialized { rel, flag }) => {
                     let pg_state = pg_sys::GenericXLogStart(rel.as_ptr());
                     let pg_page = pg_sys::GenericXLogRegisterBuffer(pg_state, buffer, *flag as _);

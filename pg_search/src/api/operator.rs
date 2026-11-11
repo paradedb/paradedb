@@ -107,7 +107,7 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
 
     unsafe fn for_support_simplify(arg: *mut pg_sys::Node, rhs_rewrite: SimplifyRhs) -> Self {
         // Other support request types are handled by their corresponding methods.
-        let Some(request) = nodecast!(SupportRequestSimplify, T_SupportRequestSimplify, arg) else {
+        let Some(request) = nodecast!(SupportRequestSimplify, arg) else {
             return Self::unsupported();
         };
 
@@ -125,7 +125,7 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
         let original_lhs = input_args
             .iter_ptr()
             .last()
-            .and_then(|node| nodecast!(RowExpr, T_RowExpr, node))
+            .and_then(|node| nodecast!(RowExpr, node))
             .and_then(|row| record_field(row, c"original_lhs"));
         let lhs = original_lhs.unwrap_or(lhs);
         let Some(base_var) = lhs.find_node::<pg_sys::Var>() else {
@@ -267,7 +267,7 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
 
         // Index tuple descriptors do not preserve the heap column's NOT NULL flag.
         // Use a strict helper only when the chosen anchor is a NOT NULL heap column.
-        let heap_attno = nodecast!(Var, T_Var, lhs).map_or(0, |var| (*var).varattno);
+        let heap_attno = nodecast!(Var, lhs).map_or(0, |var| (*var).varattno);
         let anchor_is_not_null = !derived
             && heap_attno > 0
             && indexrel.heap_relation().is_some_and(|heaprel| {
@@ -465,7 +465,7 @@ unsafe fn resolve_lhs_var_for_group(
         return var;
     }
 
-    let rte = pg_sys::rt_fetch(varno, rtable);
+    let rte = pgrx::rt_fetch!(varno, rtable).get();
     if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
         // PG18 introduces RTE_GROUP for GROUP BY expressions. When a Var references
         // RTE_GROUP, it points to a synthetic range table entry rather than the base
@@ -500,7 +500,7 @@ unsafe fn wrap_with_index(
     rhs: *mut pg_sys::Node,
     inferred_field: Option<FieldName>,
 ) -> Option<*mut pg_sys::Node> {
-    if let Some(rhs_const) = nodecast!(Const, T_Const, rhs) {
+    if let Some(rhs_const) = nodecast!(Const, rhs) {
         // Const nodes are always of type SearchQueryInput, so we can instantiate a new Const version
         let query =
             SearchQueryInput::from_datum((*rhs_const).constvalue, (*rhs_const).constisnull)?;
@@ -524,12 +524,12 @@ unsafe fn wrap_with_index(
     } else {
         // Replace constant index bindings, but preserve user expressions and their effects.
         let mut rhs = rhs;
-        if let Some(function) = nodecast!(FuncExpr, T_FuncExpr, rhs)
+        if let Some(function) = nodecast!(FuncExpr, rhs)
             && (*function).funcid == with_index_procoid()
         {
             let args = PgList::<pg_sys::Node>::from_pg((*function).args);
             if let Some(index) = args.get_ptr(0)
-                && nodecast!(Const, T_Const, index).is_some()
+                && nodecast!(Const, index).is_some()
             {
                 rhs = args
                     .get_ptr(1)
@@ -537,12 +537,12 @@ unsafe fn wrap_with_index(
             }
         }
         if let Some(field) = inferred_field {
-            if nodecast!(Const, T_Const, rhs).is_some() {
+            if nodecast!(Const, rhs).is_some() {
                 return wrap_with_index(indexrel, rhs, Some(field));
             }
-            let function = nodecast!(FuncExpr, T_FuncExpr, rhs)?;
+            let function = nodecast!(FuncExpr, rhs)?;
             let inputs = PgList::<pg_sys::Node>::from_pg((*function).args);
-            let bound_field = nodecast!(Const, T_Const, inputs.get_ptr(0)?)?;
+            let bound_field = nodecast!(Const, inputs.get_ptr(0)?)?;
             if (*bound_field).consttype != crate::api::fieldname_typoid() {
                 return None;
             }
@@ -592,7 +592,7 @@ unsafe fn rewrite_rhs_to_search_query_input(
     let rhs: *mut pg_sys::Node = if get_expr_result_type(rhs) == search_query_input_typoid {
         // the rhs is already of type SearchQueryInput, so we can use it directly
         rhs
-    } else if let Some(const_) = nodecast!(Const, T_Const, rhs) {
+    } else if let Some(const_) = nodecast!(Const, rhs) {
         let rhs_value = match (*const_).consttype {
             // these are used for the @@@, &&&, |||, ###, and === operators
             pg_sys::TEXTOID | pg_sys::VARCHAROID => RHSValue::Text(

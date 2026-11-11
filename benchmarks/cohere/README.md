@@ -1,15 +1,20 @@
 # Cohere vector CI
 
-Cohere keeps the native pgrx cluster, pgBackRest heap snapshots, and index build
-used by the existing CI. `paradedb/pdbench` selects recall operating points;
+Cohere restores its existing pgBackRest heap snapshots into a source-built
+ParadeDB Docker image. `paradedb/pdbench` selects recall operating points;
 `paradedb/benchmarker` measures search latency and throughput.
 
 The workflow runs the 1M and 10M snapshots independently. Each uses the existing
 100 held-out vectors, exact ground-truth fixtures, and unfiltered, approximately
 10% (`year`), and approximately 1% (`battle`) full-text filters. The index retains
 eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
-`text`. The shared cluster setup retains 12 GiB shared buffers and eight parallel
-workers. Both tools use the same database and index throughout a run.
+`text`. Cohere, MS MARCO, HN, Wikipedia, and Stack Exchange share
+`setup-docker-benchmark-cluster` and the same Docker Compose configuration:
+CPUs 0–7, 64 GiB memory, 16 GiB shared memory, 24 GiB shared buffers and maintenance
+memory, a 48 GiB effective cache, and eight parallel workers in a 16-process pool.
+k6 runs on CPUs 8–11. Vector containers share the host PID namespace so pdbench
+can still sample build RSS. Both tools use the same database and index
+throughout a run.
 
 The benchmark index enables `vector_router_quantization = true` in its
 `CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false

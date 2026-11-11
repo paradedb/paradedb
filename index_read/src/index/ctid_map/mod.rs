@@ -102,7 +102,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
         (0..docs)
             .filter_map(move |doc| {
                 if doc.is_multiple_of(8192) {
-                    pgrx::check_for_interrupts!();
+                    pgrx::check_for_interrupts();
                 }
                 let source_doc = if descending { docs - doc - 1 } else { doc };
                 let block = (column.values.get_val(source_doc) >> 16) as BlockNumber;

@@ -1004,7 +1004,7 @@ impl SearchIndexReader {
         .with_budget(budget);
         let candidates = router
             .collect_segments(&segments, |ord| {
-                pgrx::check_for_interrupts!();
+                pgrx::check_for_interrupts();
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(self.searcher.segment_reader(ord).segment_id());
                 }
@@ -1822,7 +1822,7 @@ impl SearchIndexReader {
                 expressions
                     .get_ptr(att_idx)
                     .map(|expr| crate::postgres::utils::strip_tokenizer_cast(expr.cast()))
-                    .and_then(|node| crate::nodecast!(Var, T_Var, node))
+                    .and_then(|node| crate::nodecast!(Var, node))
                     .and_then(|var| crate::api::operator::attname_from_var(&heaprel, var))
                     .is_some_and(|attname| attname.as_ref() == column)
             };
@@ -3321,7 +3321,7 @@ impl SearchIndexReader {
             stats.reset();
         }
         let on_segment = |ord: SegmentOrdinal| {
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
             if let Some(stats) = &self.directory.io_stats {
                 stats.end_segment(self.searcher.segment_reader(ord).segment_id());
             }
@@ -3331,7 +3331,7 @@ impl SearchIndexReader {
         let mut fruits = Vec::new();
         let mut aggregation_fruits = Vec::new();
         for readers in reader_batches {
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
             let mut weight = VectorFilterWeight {
                 base: Arc::clone(&base),
                 visible_docs: Default::default(),

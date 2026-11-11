@@ -241,7 +241,7 @@ impl SearchQueryInput {
                 return;
             };
             let estimated = unsafe { pg_sys::estimate_expression_value(root, expr.node()) };
-            let Some(c) = (unsafe { nodecast!(Const, T_Const, estimated) }) else {
+            let Some(c) = (unsafe { nodecast!(Const, estimated) }) else {
                 all_folded = false;
                 return;
             };

@@ -1449,7 +1449,7 @@ fn resolve_subplan_output_var(
         .find(|te| unsafe { !(*(*te)).resjunk })?;
     let te = unsafe { &*te };
     let expr = strip_wrappers(te.expr.cast());
-    let var = unsafe { nodecast!(Var, T_Var, expr) }?;
+    let var = unsafe { nodecast!(Var, expr) }?;
     let var = unsafe { &*var };
     Some((var.varno as pg_sys::Index, var.varattno))
 }
@@ -1947,7 +1947,7 @@ unsafe fn pathkey_is_outer_only(
     for member in members.iter_ptr() {
         let check_expr = strip_wrappers((*member).em_expr.cast());
 
-        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+        if let Some(var) = nodecast!(Var, check_expr) {
             if output_rtis.contains(&((*var).varno as pg_sys::Index)) {
                 return false;
             }
@@ -2140,7 +2140,7 @@ pub(super) unsafe fn validate_order_by(
             let mut expr = strip_identity_wrappers(strip_wrappers(raw_expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
-            let is_null_test = if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
+            let is_null_test = if let Some(nt) = nodecast!(NullTest, expr) {
                 expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
                 true
             } else {
@@ -2162,7 +2162,7 @@ pub(super) unsafe fn validate_order_by(
                 continue 'pathkey;
             }
 
-            if let Some(var) = nodecast!(Var, T_Var, expr) {
+            if let Some(var) = nodecast!(Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
@@ -2548,12 +2548,12 @@ unsafe extern "C-unwind" fn expr_deps_walker(
     // A window function is an opaque input: the scan's window step
     // computes it, so its argument Vars are NOT expression inputs.
     // Record the node and DO NOT recurse into it.
-    if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, stripped) {
+    if let Some(wf) = nodecast!(WindowFunc, stripped) {
         (*deps).window_funcs.push(wf);
         return false;
     }
 
-    if let Some(var) = nodecast!(Var, T_Var, stripped) {
+    if let Some(var) = nodecast!(Var, stripped) {
         (*deps).vars.push(var);
         return false;
     }
@@ -2598,7 +2598,7 @@ pub(crate) unsafe fn resolve_target_entry_expr(
         .join(", ");
 
     // Case 1: Plain column reference (Var node)
-    if let Some(var) = nodecast!(Var, T_Var, expr) {
+    if let Some(var) = nodecast!(Var, expr) {
         let var = unsafe { &*var };
         let varno = var.varno as pg_sys::Index;
         let is_fast = resolve_fast_field_from_join_sources(&sources, varno, var.varattno).is_some()
@@ -2950,7 +2950,7 @@ fn unwrap_numeric_casts(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
         if node.is_null() {
             return node;
         }
-        if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, node) } {
+        if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, node) } {
             let funcexpr = unsafe { &*funcexpr };
             if funcexpr.funcformat != pg_sys::CoercionForm::COERCE_EXPLICIT_CALL
                 && matches!(
@@ -2967,7 +2967,7 @@ fn unwrap_numeric_casts(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
                 }
             }
         }
-        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, T_CoerceViaIO, node) } {
+        if let Some(coerce) = unsafe { nodecast!(CoerceViaIO, node) } {
             let coerce = unsafe { &*coerce };
             if matches!(
                 coerce.resulttype,
@@ -3012,13 +3012,13 @@ fn collect_score_expr(
         return None;
     }
     let stripped = unwrap_numeric_casts(node);
-    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, T_FuncExpr, stripped) } {
+    if let Some(funcexpr) = unsafe { nodecast!(FuncExpr, stripped) } {
         let funcexpr = unsafe { &*funcexpr };
         if score_funcoids().contains(&funcexpr.funcid) {
             let args = unsafe { PgList::<pg_sys::Node>::from_pg(funcexpr.args) };
             if args.len() == 1
                 && let Some(arg) = args.get_ptr(0)
-                && let Some(var) = unsafe { nodecast!(Var, T_Var, strip_wrappers(arg)) }
+                && let Some(var) = unsafe { nodecast!(Var, strip_wrappers(arg)) }
             {
                 let rti = unsafe { (*var).varno } as pg_sys::Index;
                 if !rtis.contains(&rti) {
@@ -3029,7 +3029,7 @@ fn collect_score_expr(
         }
         return None;
     }
-    if let Some(konst) = unsafe { nodecast!(Const, T_Const, stripped) } {
+    if let Some(konst) = unsafe { nodecast!(Const, stripped) } {
         let c = extract_positive_numeric_const(unsafe { &*konst })?;
         return Some(ScoreOrderExpr::Constant(c));
     }
@@ -3069,13 +3069,13 @@ pub(crate) fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Inde
         return None;
     }
     let stripped_expr = strip_wrappers(expr.cast());
-    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, stripped_expr) } {
+    if let Some(func) = unsafe { nodecast!(FuncExpr, stripped_expr) } {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg((*func).args) };
         if !args.is_empty()
             && let Some(arg) = args.get_ptr(0)
         {
             let stripped_arg = strip_wrappers(arg);
-            if let Some(var) = unsafe { nodecast!(Var, T_Var, stripped_arg) } {
+            if let Some(var) = unsafe { nodecast!(Var, stripped_arg) } {
                 let varno = unsafe { (*var).varno } as pg_sys::Index;
                 if unsafe { is_score_func(stripped_expr.cast(), varno) } {
                     return Some(varno);
@@ -3099,11 +3099,11 @@ fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &SourceContext) -> b
     if expr.is_null() {
         return false;
     }
-    if let Some(func) = unsafe { nodecast!(FuncExpr, T_FuncExpr, expr) } {
+    if let Some(func) = unsafe { nodecast!(FuncExpr, expr) } {
         let args = unsafe { PgList::<pg_sys::Node>::from_pg((*func).args) };
         if !args.is_empty()
             && let Some(arg) = args.get_ptr(0)
-            && let Some(var) = unsafe { nodecast!(Var, T_Var, arg) }
+            && let Some(var) = unsafe { nodecast!(Var, arg) }
         {
             let varno = unsafe { (*var).varno } as pg_sys::Index;
             if source.heap_rti == varno {
@@ -3141,7 +3141,7 @@ impl JoinSortExprKind {
         let check_expr =
             strip_identity_wrappers(check_expr as *mut pg_sys::Node) as *mut pg_sys::Expr;
 
-        if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+        if let Some(nt) = nodecast!(NullTest, check_expr) {
             let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();
             let nulltesttype = if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
                 NullTestKind::IsNull
@@ -3187,7 +3187,7 @@ impl JoinSortExprKind {
             });
         }
 
-        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+        if let Some(var) = nodecast!(Var, check_expr) {
             let varno = (*var).varno as pg_sys::Index;
             let varattno = (*var).varattno;
 
@@ -3465,7 +3465,7 @@ pub(super) unsafe fn extract_orderby(
             // DISTINCT adds non-Var expression pathkeys; skip when deps are fast fields.
             if !pathkey_resolved
                 && has_distinct
-                && nodecast!(Var, T_Var, check_expr).is_none()
+                && nodecast!(Var, check_expr).is_none()
                 && expression_vars_all_fast(check_expr.cast(), &sources)
             {
                 pathkey_resolved = true;

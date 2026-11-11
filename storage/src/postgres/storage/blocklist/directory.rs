@@ -98,7 +98,7 @@ impl Directory {
     ) -> (Self, pg_sys::BlockNumber) {
         let mut overflow = pg_sys::InvalidBlockNumber;
         let node = Node::build(entries, ROOT_CAPACITY, PAGE_CAPACITY, |node| {
-            pgrx::check_for_interrupts!();
+            pgrx::check_for_interrupts();
             let mut buffer = bman.new_buffer();
             let block = buffer.number();
             let mut page = buffer.init_page();

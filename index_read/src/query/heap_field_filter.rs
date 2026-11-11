@@ -253,12 +253,9 @@ impl HeapFieldFilter {
 
             #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
             let new_node = {
-                let fnptr = param_resolver_mutator as *const ();
-                let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-                    std::mem::transmute(fnptr);
                 pg_sys::expression_tree_mutator(
                     expr_node,
-                    Some(mutator),
+                    Some(param_resolver_mutator),
                     expr_context as *mut core::ffi::c_void,
                 )
             };
@@ -317,10 +314,7 @@ unsafe extern "C-unwind" fn param_resolver_mutator(
 
     #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
     {
-        let fnptr = param_resolver_mutator as *const ();
-        let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-            std::mem::transmute(fnptr);
-        pg_sys::expression_tree_mutator(node, Some(mutator), context)
+        pg_sys::expression_tree_mutator(node, Some(param_resolver_mutator), context)
     }
 
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]

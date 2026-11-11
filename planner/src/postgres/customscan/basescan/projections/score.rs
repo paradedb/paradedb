@@ -62,12 +62,12 @@ extension_sql!(
 
 #[allow(clippy::unnecessary_cast)]
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node)
+    if let Some(funcexpr) = nodecast!(FuncExpr, node)
         && score_funcoids().contains(&(*funcexpr).funcid)
     {
         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
         assert!(args.len() == 1, "score function must have 1 argument");
-        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap())
+        if let Some(var) = nodecast!(Var, args.get_ptr(0).unwrap())
             && (*var).varno as i32 == rti as i32
         {
             return true;

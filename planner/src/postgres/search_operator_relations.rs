@@ -139,7 +139,7 @@ unsafe fn applies_to_matching(
         }
         let references_entry = |node: *mut pg_sys::Node| {
             node.any(|node| {
-                nodecast!(Var, T_Var, node).is_some_and(|var| {
+                nodecast!(Var, node).is_some_and(|var| {
                     (*var).varno as pg_sys::Index == rti
                         && (*var).location >= 0
                         && candidates
@@ -244,7 +244,7 @@ unsafe fn query_applies_search_operator(query: *mut pg_sys::Query, depth: usize)
     // `Query` shows up inside an expression.
     let predicates = |node: *mut pg_sys::Node| {
         node.any(|node| {
-            if let Some(subquery) = nodecast!(Query, T_Query, node) {
+            if let Some(subquery) = nodecast!(Query, node) {
                 return query_applies_search_operator(subquery, depth + 1);
             }
             search_predicate_operand(node).is_some()
@@ -252,13 +252,13 @@ unsafe fn query_applies_search_operator(query: *mut pg_sys::Query, depth: usize)
     };
     let target_list = |node: *mut pg_sys::Node| {
         node.any(|node| {
-            if let Some(subquery) = nodecast!(Query, T_Query, node) {
+            if let Some(subquery) = nodecast!(Query, node) {
                 return query_applies_search_operator(subquery, depth + 1);
             }
-            if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
+            if let Some(aggref) = nodecast!(Aggref, node) {
                 return predicates((*aggref).aggfilter.cast());
             }
-            if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+            if let Some(wf) = nodecast!(WindowFunc, node) {
                 return predicates((*wf).aggfilter.cast());
             }
             false
@@ -329,11 +329,11 @@ unsafe fn visit_expr(
     found: &mut Vec<SearchedRelation>,
 ) {
     node.walk(|node| {
-        if let Some(subquery) = nodecast!(Query, T_Query, node) {
+        if let Some(subquery) = nodecast!(Query, node) {
             collect_searched_relations(subquery, depth + 1, found);
             return WalkControl::SkipChildren;
         }
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
+        if let Some(aggref) = nodecast!(Aggref, node) {
             visit_expr(
                 (*aggref).aggdirectargs.cast(),
                 WalkContext::Value,
@@ -360,7 +360,7 @@ unsafe fn visit_expr(
             );
             return WalkControl::SkipChildren;
         }
-        if let Some(wf) = nodecast!(WindowFunc, T_WindowFunc, node) {
+        if let Some(wf) = nodecast!(WindowFunc, node) {
             visit_expr(
                 (*wf).args.cast(),
                 WalkContext::Value,
@@ -388,7 +388,7 @@ unsafe fn visit_expr(
                 }
             }
         }
-        if let Some(var) = nodecast!(Var, T_Var, node)
+        if let Some(var) = nodecast!(Var, node)
             && let Some(rti) = own_var(var, entry_count)
             && (*var).location >= 0
             && !entries[rti].var_locations.contains(&(*var).location)

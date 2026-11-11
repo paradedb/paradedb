@@ -184,7 +184,7 @@ impl PgExprUdf {
             node: *mut pg_sys::Node,
             context: *mut core::ffi::c_void,
         ) -> bool {
-            if let Some(constant) = crate::nodecast!(Const, T_Const, node) {
+            if let Some(constant) = crate::nodecast!(Const, node) {
                 let constant = &mut *constant;
                 let hasher = &mut *context.cast::<rustc_hash::FxHasher>();
                 constant.constisnull.hash(hasher);

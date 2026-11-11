@@ -43,8 +43,7 @@ CREATE ACCESS METHOD bm25 TYPE INDEX HANDLER bm25_handler;
 COMMENT ON ACCESS METHOD bm25 IS 'backwards-compatible alias for the paradedb index access method';
 ")]
 fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRoutine> {
-    let mut amroutine =
-        unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag::T_IndexAmRoutine) };
+    let mut amroutine = unsafe { PgBox::from_pg(pgrx::makeNode!(pg_sys::IndexAmRoutine).get()) };
 
     amroutine.amstrategies = 2;
     amroutine.amsupport = 0;
@@ -79,7 +78,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.amestimateparallelscan = Some(parallel::amestimateparallelscan);
     amroutine.amparallelrescan = Some(parallel::amparallelrescan);
 
-    amroutine.into_pg_boxed()
+    amroutine
 }
 
 #[pg_extern]

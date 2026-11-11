@@ -366,7 +366,7 @@ impl CreateUpperPathsHookArgs {
         }
 
         if (*parse).targetList.any(|node| {
-            crate::nodecast!(Aggref, T_Aggref, node).is_some_and(|aggref| {
+            crate::nodecast!(Aggref, node).is_some_and(|aggref| {
                 PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
                     .iter_ptr()
                     .any(|arg| is_direct_numeric_var((*arg).expr.cast()))
@@ -395,7 +395,7 @@ impl CreateUpperPathsHookArgs {
         }
 
         let is_int8_sum = |node: *mut pg_sys::Node| {
-            crate::nodecast!(Aggref, T_Aggref, node).is_some_and(|aggref| {
+            crate::nodecast!(Aggref, node).is_some_and(|aggref| {
                 (*aggref).aggfnoid.to_u32() == pg_sys::F_SUM_INT8
                     && PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args)
                         .iter_ptr()
@@ -425,7 +425,7 @@ impl CreateUpperPathsHookArgs {
                 continue;
             }
 
-            let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, expr) else {
+            let Some(func_expr) = nodecast!(FuncExpr, expr) else {
                 continue;
             };
 
@@ -453,12 +453,12 @@ pub unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool)
 
     let contains_agg = |node: *mut pg_sys::Node| {
         node.any(|node| {
-            nodecast!(WindowFunc, T_WindowFunc, node)
+            nodecast!(WindowFunc, node)
                 .is_some_and(|expr| paradedb_agg_oids.contains(&(*expr).winfnoid.to_u32()))
-                || nodecast!(Aggref, T_Aggref, node)
+                || nodecast!(Aggref, node)
                     .is_some_and(|expr| paradedb_agg_oids.contains(&(*expr).aggfnoid.to_u32()))
                 || (window_agg_proc_oid != pg_sys::InvalidOid
-                    && nodecast!(FuncExpr, T_FuncExpr, node)
+                    && nodecast!(FuncExpr, node)
                         .is_some_and(|expr| (*expr).funcid == window_agg_proc_oid))
         })
     };

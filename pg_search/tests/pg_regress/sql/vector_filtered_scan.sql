@@ -67,7 +67,7 @@ CREATE TABLE filtered_scan_items (id integer PRIMARY KEY, category integer, vec 
 CREATE INDEX filtered_scan_items_idx ON filtered_scan_items
 USING paradedb (id, category, vec vector_l2_ops)
 WITH (
-    max_leaf_size = 5,
+    target_leaf_size = 5,
     training_sample_ratio = 1.0,
     target_segment_count = 1,
     mutable_segment_rows = 0,

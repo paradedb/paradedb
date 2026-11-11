@@ -76,7 +76,7 @@ pub const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub const DEFAULT_MAX_LEAF_SIZE: i32 = clustering::DEFAULT_MAX_LEAF_SIZE as i32;
+pub const DEFAULT_TARGET_LEAF_SIZE: i32 = clustering::DEFAULT_TARGET_LEAF_SIZE as i32;
 pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = clustering::DEFAULT_TRAINING_SAMPLE_RATIO;
 
 #[pg_guard]
@@ -358,9 +358,9 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "max_leaf_size".as_pg_cstr(),
+            optname: "target_leaf_size".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, max_leaf_size) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, target_leaf_size) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -490,9 +490,9 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the maximum number of training vectors per clustering leaf.
-    pub fn max_leaf_size(&self) -> usize {
-        self.options_data().max_leaf_size()
+    /// Returns the target number of training vectors per clustering leaf.
+    pub fn target_leaf_size(&self) -> usize {
+        self.options_data().target_leaf_size()
     }
 
     /// Returns the fraction of vectors sampled for IVF training.
@@ -900,7 +900,7 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
-    max_leaf_size: i32,
+    target_leaf_size: i32,
     training_sample_ratio: f64,
     partition_by_offset: i32,
     vector_router_quantization: bool,
@@ -923,7 +923,7 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
     sort_by_offset: 0,
     search_tokenizer_offset: 0,
-    max_leaf_size: DEFAULT_MAX_LEAF_SIZE,
+    target_leaf_size: DEFAULT_TARGET_LEAF_SIZE,
     training_sample_ratio: DEFAULT_TRAINING_SAMPLE_RATIO,
     partition_by_offset: 0,
     vector_router_quantization: true,
@@ -966,9 +966,9 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the maximum number of training vectors per clustering leaf.
-    pub fn max_leaf_size(&self) -> usize {
-        self.max_leaf_size as usize
+    /// Returns the target number of training vectors per clustering leaf.
+    pub fn target_leaf_size(&self) -> usize {
+        self.target_leaf_size as usize
     }
 
     /// Returns the fraction of vectors sampled for IVF training.
@@ -1226,9 +1226,9 @@ pub unsafe fn init() {
     );
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
-        "max_leaf_size".as_pg_cstr(),
-        "Maximum training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
-        DEFAULT_MAX_LEAF_SIZE,
+        "target_leaf_size".as_pg_cstr(),
+        "Target training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        DEFAULT_TARGET_LEAF_SIZE,
         1,
         i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,

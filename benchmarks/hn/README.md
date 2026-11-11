@@ -103,7 +103,7 @@ an operating point. Candidate searches have no warmups or EXPLAIN. Selected
 settings receive 10 EXPLAIN diagnostics each, shared across recall targets using
 the same setting; k6 retains its separate warmup and measurement procedure.
 
-Each query shape gets at most 20 pilot/validation evaluations and a 3-hour
+Each query shape gets at most 64 pilot/validation evaluations and a 3-hour
 search/diagnostic budget, with a 5-minute statement timeout. The HN pg_vectorsearch
 job has a 24-hour timeout to accommodate all six shapes and setup. Progress is logged
 per query, completed evaluations are checkpointed in the diagnostics artifact,

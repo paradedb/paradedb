@@ -49,7 +49,7 @@ max_probes = 20
 
 [search.fast]
 pilot_queries = 25
-max_probes = 20
+max_probes = 64
 bracket_ratio = 1.1
 query_timeout_seconds = 300
 budget_seconds = 10800

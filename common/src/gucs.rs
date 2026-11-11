@@ -58,8 +58,8 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Each alternative is one more posting list in the query, so a long rule must not grow a query
-/// without a limit.
+/// Each alternative is one more posting list in the query. A rule usually lists a few words, so
+/// the default stops only an outlier.
 const DEFAULT_SYNONYMS_MAX_ALTERNATIVES: i32 = 32;
 static SYNONYMS_MAX_ALTERNATIVES: GucSetting<i32> =
     GucSetting::<i32>::new(DEFAULT_SYNONYMS_MAX_ALTERNATIVES);

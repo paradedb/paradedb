@@ -47,6 +47,15 @@ SELECT id FROM products
 WHERE description ||| pdb.with_synonyms('running shoes', 'shop_synonyms_idx') ORDER BY id;
 DELETE FROM shop_synonyms WHERE rule = 'running shoes, trainers';
 
+-- A word in two rules gets the alternatives of both. Rules do not chain, so `blue` does not
+-- reach `oak` through `red`.
+INSERT INTO shop_synonyms VALUES ('red, blue'), ('red, oak');
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('red', 'shop_synonyms_idx') ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('blue', 'shop_synonyms_idx') ORDER BY id;
+DELETE FROM shop_synonyms WHERE rule IN ('red, blue', 'red, oak');
+
 -- A group scores as one term, so a row with two of its words scores a little above a row with
 -- one.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products

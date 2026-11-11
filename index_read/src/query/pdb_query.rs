@@ -2341,6 +2341,7 @@ fn expand_match(
         None => query_tokenizer(search_field, schema),
     };
     let rule_tokenizer = rule_tokenizer(&index);
+    // `PartialEq` compares the declared options, so two spellings of one tokenizer differ.
     if query_tokenizer != rule_tokenizer {
         let name_of = |tokenizer: Option<SearchTokenizer>| {
             tokenizer.map_or_else(|| "none".to_string(), |tokenizer| tokenizer.name())

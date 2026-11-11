@@ -32,7 +32,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::search_operator_relations;
-use crate::postgres::utils::pg_search_extension_installed;
+use crate::postgres::utils::{in_hot_standby, pg_search_extension_installed};
 use once_cell::sync::Lazy;
 use pgrx::{PgList, PgMemoryContexts, pg_guard, pg_sys};
 use std::collections::{HashMap, hash_map::Entry};
@@ -137,7 +137,7 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
             return;
         }
 
-        if !pg_search_extension_installed() {
+        if !pg_search_extension_installed() || in_hot_standby() {
             return;
         }
 
@@ -213,7 +213,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
-    if !pg_search_extension_installed() {
+    if !pg_search_extension_installed() || in_hot_standby() {
         return;
     }
 
@@ -840,7 +840,7 @@ pub fn register_subplan_join_pathlist() {
                     return;
                 }
 
-                if !pg_search_extension_installed() {
+                if !pg_search_extension_installed() || in_hot_standby() {
                     return;
                 }
 

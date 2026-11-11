@@ -25,8 +25,8 @@ pub use index_write::postgres::merge;
 pub use index_write::postgres::{build, build_logging, delete, insert, mutable_sweep, vacuum};
 pub use planner::postgres::{
     ParallelScanState, ScanStrategy, access, catalog, composite, cost, datetime, heap, index, node,
-    options, parallel, pdb_owned_value, pgstat, planner_warnings, rel, rel_get_bm25_index,
-    search_operator_relations, storage, types, utils, validate, var,
+    options, parallel, pdb_owned_value, pgstat, planner_warnings, promotion, rel,
+    rel_get_bm25_index, search_operator_relations, storage, types, utils, validate, var,
 };
 
 #[cfg(any(test, feature = "pg_test"))]

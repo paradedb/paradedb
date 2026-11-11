@@ -639,6 +639,23 @@ async fn test_physical_streaming_replication() -> Result<()> {
     Ok(())
 }
 
+/// `query` fails with SQLSTATE 0A000 and a message containing `fragment`.
+fn assert_feature_not_supported(connection: &mut PgConnection, query: &str, fragment: &str) {
+    let err = query
+        .fetch_result::<(String,)>(connection)
+        .expect_err("query on a ParadeDB index must fail");
+    let db_err = match &err {
+        sqlx::Error::Database(db_err) => db_err,
+        other => panic!("expected a database error, got {other:?}"),
+    };
+    assert_eq!(db_err.code().as_deref(), Some("0A000"), "{db_err}");
+    assert!(
+        db_err.message().contains(fragment),
+        "unexpected message: {}",
+        db_err.message()
+    );
+}
+
 #[rstest]
 #[async_std::test]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
@@ -683,6 +700,15 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
 
+    // An index built before the standby is cloned: the clone carries its files and replays no
+    // build record for it. A VACUUM on the primary names it to the standby.
+    "
+    CREATE TABLE early (id INT, body TEXT);
+    INSERT INTO early VALUES (1, 'early shoes');
+    CREATE INDEX early_idx ON early USING paradedb (id, body);
+    "
+    .execute(&mut source_conn);
+
     // Set up the standby using pg_basebackup
     let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
     let target_tempdir_path = target_tempdir.keep();
@@ -701,7 +727,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         --host localhost
         --port $source_port
         --username $source_username
-        -Fp -Xs -P -R
+        -Fp -Xs -P -R --checkpoint=fast
         &> /dev/null
     )
     .expect("Failed to run pg_basebackup for standby setup");
@@ -729,44 +755,131 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     );
     assert_eq!(standby_rows.len(), 4);
 
-    // Now build a bm25 index on the primary. ambuild emits the rmgr 137 marker; when the
-    // standby replays it, rm_redo aborts recovery with our "not supported" error.
+    // Build a ParadeDB index on the primary. ambuild logs the index pages and then emits the
+    // rmgr 137 INIT_INDEX record; replaying that record must not stop recovery (#6007).
     "
     CREATE INDEX items_search_idx ON items
     USING paradedb (id, description, category);
     "
     .execute(&mut source_conn);
 
-    // Wait for the marker to stream to the standby and FATAL its recovery process. Poll the
-    // log instead of sleeping for a fixed duration so the test self-paces.
-    let expected = "replicas are not supported on community and require paradedb enterprise";
-    let log_path = standby_postgres.log_path.clone();
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    let mut tripwire_found = false;
-    while std::time::Instant::now() < deadline {
-        if let Ok(log) = std::fs::read_to_string(&log_path)
-            && log.contains(expected)
-        {
-            tripwire_found = true;
-            break;
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
+    // A partitioned index has no storage of its own; the promotion gate must look at its leaves.
+    "
+    CREATE TABLE events (id INT, body TEXT, region INT) PARTITION BY LIST (region);
+    CREATE TABLE events_1 PARTITION OF events FOR VALUES IN (1);
+    CREATE TABLE events_2 PARTITION OF events FOR VALUES IN (2);
+    INSERT INTO events VALUES (1, 'quarterly shoes sale', 1), (2, 'winter shoes', 2);
+    CREATE INDEX events_idx ON events USING paradedb (id, body);
+    "
+    .execute(&mut source_conn);
+
+    "VACUUM early".execute(&mut source_conn);
+
+    // Replay continues past the records: heap WAL written after them still arrives.
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Green hiking shoes', 'Footwear', NOW())"
+        .execute(&mut source_conn);
+    let standby_rows: Vec<(String,)> = "SELECT description FROM items ORDER BY id".fetch_retry(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| result.len() == 5,
+    );
+    assert_eq!(standby_rows[4].0, "Green hiking shoes");
+
+    // Using the index on the standby fails with a targeted error, and only that statement fails.
+    assert_feature_not_supported(
+        &mut standby_conn,
+        "SELECT description FROM items WHERE description ||| 'shoes'",
+        "Serving reads from a standby requires write-ahead log (WAL) integration",
+    );
+    let standby_rows: Vec<(String,)> =
+        "SELECT description FROM items WHERE category = 'Footwear' ORDER BY id"
+            .fetch(&mut standby_conn);
+    assert_eq!(standby_rows.len(), 3);
+
+    // A refused query on the standby does not disturb replay.
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Bluetooth speaker', 'Electronics', NOW())"
+        .execute(&mut source_conn);
+    let standby_rows: Vec<(String,)> = "SELECT description FROM items ORDER BY id".fetch_retry(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| result.len() == 6,
+    );
+    assert_eq!(standby_rows[5].0, "Bluetooth speaker");
+
+    // The standby logged the records instead of dying on them.
+    let log = std::fs::read_to_string(&standby_postgres.log_path)?;
     assert!(
-        tripwire_found,
-        "expected standby log {log_path:?} to contain tripwire message {expected:?}"
+        log.contains("ParadeDB Community does not serve ParadeDB indexes on a standby"),
+        "standby log {:?} lacks the INIT_INDEX notice",
+        standby_postgres.log_path
     );
 
-    // The FATAL during recovery should also have brought the standby down: reconnects fail.
-    let reconnect = PgConnection::connect(&format!(
-        "postgresql://{}@{}:{}/{}",
-        SUPERUSER, standby_postgres.host, standby_postgres.port, standby_postgres.dbname
-    ))
-    .await;
-    assert!(
-        reconnect.is_err(),
-        "expected reconnect to dead standby to fail, got {reconnect:?}"
+    // Promote. The backend behind `standby_conn` lives through it.
+    let pg_ctl_path = &standby_postgres.pg_ctl_path;
+    let standby_dir = &standby_postgres.tempdir_path;
+    run_cmd!($pg_ctl_path -D $standby_dir promote -w &> /dev/null).expect("Failed to promote");
+    "SELECT pg_is_in_recovery()".fetch_retry::<(bool,)>(
+        &mut standby_conn,
+        RETRIES,
+        RETRY_DELAY,
+        |result| result.first().is_some_and(|(in_recovery,)| !in_recovery),
     );
+
+    // The tainted indexes refuse queries on the promoted server, with a REINDEX hint. The
+    // vacuumed index predates the clone; VACUUM's record is what tainted it.
+    for query in [
+        "SELECT description FROM items WHERE description ||| 'shoes'",
+        "SELECT id FROM items WHERE description @@@ 'shoes'",
+        "SELECT body FROM events WHERE body ||| 'shoes'",
+        "SELECT body FROM events_1 WHERE body ||| 'shoes'",
+        "SELECT body FROM early WHERE body ||| 'shoes'",
+    ] {
+        assert_feature_not_supported(&mut standby_conn, query, "has since been promoted");
+    }
+
+    // The table itself keeps working, reads and writes alike.
+    let count: Vec<(i64,)> = "SELECT count(*) FROM items".fetch(&mut standby_conn);
+    assert_eq!(count[0].0, 6);
+    "INSERT INTO items (description, category, created_at) VALUES
+        ('Promoted insert', 'Misc', NOW())"
+        .execute(&mut standby_conn);
+    let count: Vec<(i64,)> = "SELECT count(*) FROM items".fetch(&mut standby_conn);
+    assert_eq!(count[0].0, 7);
+
+    // REINDEX builds a fresh index on this server, which clears the mark. On a partitioned
+    // index it rebuilds every leaf.
+    "REINDEX INDEX items_search_idx".execute(&mut standby_conn);
+    let rows: Vec<(String,)> =
+        "SELECT description FROM items WHERE description ||| 'shoes' ORDER BY id"
+            .fetch(&mut standby_conn);
+    assert_eq!(rows.len(), 3);
+    "REINDEX INDEX events_idx".execute(&mut standby_conn);
+    let rows: Vec<(String,)> =
+        "SELECT body FROM events WHERE body ||| 'shoes' ORDER BY id".fetch(&mut standby_conn);
+    assert_eq!(rows.len(), 2);
+    "REINDEX INDEX early_idx".execute(&mut standby_conn);
+    let rows: Vec<(String,)> =
+        "SELECT body FROM early WHERE body ||| 'shoes'".fetch(&mut standby_conn);
+    assert_eq!(rows.len(), 1);
+
+    // An index built after promotion is usable at once.
+    "CREATE TABLE after_promotion (id SERIAL PRIMARY KEY, body TEXT)".execute(&mut standby_conn);
+    "INSERT INTO after_promotion (body) VALUES ('built after promotion')"
+        .execute(&mut standby_conn);
+    "CREATE INDEX after_promotion_idx ON after_promotion USING paradedb (id, body)"
+        .execute(&mut standby_conn);
+    let rows: Vec<(String,)> =
+        "SELECT body FROM after_promotion WHERE body ||| 'promotion'".fetch(&mut standby_conn);
+    assert_eq!(rows.len(), 1);
+
+    // The old primary never ran as a standby and is untouched.
+    let rows: Vec<(String,)> =
+        "SELECT description FROM items WHERE description ||| 'shoes'".fetch(&mut source_conn);
+    assert_eq!(rows.len(), 3);
 
     Ok(())
 }

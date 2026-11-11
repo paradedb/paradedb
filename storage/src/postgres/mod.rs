@@ -34,6 +34,7 @@ pub mod deparse;
 pub mod index;
 pub mod options;
 pub mod pgstat;
+pub mod promotion;
 pub mod rel;
 pub use rel::PgSearchRelation;
 pub mod serializable;

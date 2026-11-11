@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- A ParadeDB Community physical standby no longer stops replaying WAL when a ParadeDB index is created on the primary; after the standby is promoted, the ParadeDB indexes it received through replication refuse queries until `REINDEX` rebuilds them (#6007).

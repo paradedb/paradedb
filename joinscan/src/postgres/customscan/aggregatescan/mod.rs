@@ -1605,6 +1605,7 @@ impl AggregateScan {
 
         let Some((_table, index)) = rel_get_bm25_index(heap_relid) else {
             if has_paradedb_agg {
+                crate::postgres::promotion::report_if_blocked(heap_relid);
                 pgrx::error!("Cannot execute pdb.agg: table must have a ParadeDB index");
             }
             return Vec::new();

@@ -21,7 +21,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{FieldSource, pg_search_extension_installed};
+use crate::postgres::utils::{FieldSource, in_hot_standby, pg_search_extension_installed};
 use crate::schema::SearchIndexSchema;
 use pgrx::{PgList, PgMemoryContexts, PgOid, pg_guard, pg_sys};
 use std::ptr::null_mut;
@@ -276,6 +276,12 @@ pub(super) extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i
         // A partitioned index has no physical storage to inspect. PostgreSQL asks each child
         // index separately whether it supports index-only scans.
         if is_partitioned_index(indexrel.oid()) {
+            return false;
+        }
+
+        // Planning any query on the table asks every index this question; on a standby the
+        // schema read would refuse and fail the whole statement.
+        if in_hot_standby() {
             return false;
         }
 

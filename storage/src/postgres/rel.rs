@@ -406,6 +406,15 @@ impl PgSearchRelation {
             .into_iter()
     }
 
+    /// The `indisvalid` `USING paradedb` indexes on this table, each opened with
+    /// `AccessShareLock`.
+    pub fn valid_paradedb_indices(&self) -> impl Iterator<Item = PgSearchRelation> + use<> {
+        self.indices(pg_sys::AccessShareLock as _)
+            .filter(|index| unsafe {
+                pg_sys::get_index_isvalid(index.oid()) && (*index.rd_rel).relam.is_paradedb_am()
+            })
+    }
+
     /// Zero-based heap attributes that a single-column unique index proves unique. The
     /// filter is the one `relation_has_unique_index_for` applies, minus partial indexes,
     /// whose predicate the query would have to imply. A deferrable constraint allows

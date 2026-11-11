@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{pg_guard, pg_sys};
 use std::ffi::CStr;
 
@@ -26,14 +28,87 @@ const RMGR_NAME: &CStr = c"pg_search";
 const XLOG_PG_SEARCH_INIT_INDEX: u8 = 0x10;
 const XLOG_PG_SEARCH_INIT_INDEX_NAME: &CStr = c"INIT_INDEX";
 
+/// The record's payload: where the index's files are, which is what replay can reach without
+/// a catalog.
+#[cfg(feature = "pg15")]
+type IndexLocator = pg_sys::RelFileNode;
+#[cfg(not(feature = "pg15"))]
+type IndexLocator = pg_sys::RelFileLocator;
+
+/// Sets the standby taint in block 0 of the named index, following the shape of
+/// `XLogReadBufferForRedo`: a block that does not exist is skipped without logging an invalid
+/// page, and a page already at or past this record's LSN is left alone. A primary on a release
+/// whose record carried no locator wrote a single zero byte, which is skipped.
+unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
+    let decoded = (*record).record;
+    if ((*decoded).main_data_len as usize) < std::mem::size_of::<IndexLocator>() {
+        return;
+    }
+    let locator = std::ptr::read_unaligned((*decoded).main_data.cast::<IndexLocator>());
+    let buffer = pg_sys::XLogReadBufferExtended(
+        locator,
+        pg_sys::ForkNumber::MAIN_FORKNUM,
+        0,
+        pg_sys::ReadBufferMode::RBM_NORMAL_NO_LOG,
+        pg_sys::InvalidBuffer as pg_sys::Buffer,
+    );
+    if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
+        return;
+    }
+    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+    #[cfg(feature = "pg15")]
+    let page = pgrx::BufferGetPage!(buffer).get();
+    #[cfg(not(feature = "pg15"))]
+    let page = pg_sys::BufferGetPage(buffer);
+    let lsn = (*record).EndRecPtr;
+    if lsn <= page_lsn(page) {
+        pg_sys::UnlockReleaseBuffer(buffer);
+        return;
+    }
+    MetaPage::taint_page(page);
+    set_page_lsn(page, lsn);
+    pg_sys::MarkBufferDirty(buffer);
+    pg_sys::UnlockReleaseBuffer(buffer);
+    pgrx::log!(
+        "a ParadeDB index was built or vacuumed on the primary; ParadeDB Community does not \
+         serve ParadeDB indexes on a standby, and after promotion this one refuses queries \
+         until REINDEX"
+    );
+}
+
+// `BufferGetPage`, `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding;
+// from 16 they are functions.
+#[cfg(feature = "pg15")]
+unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
+    let lsn = (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn;
+    ((lsn.xlogid as u64) << 32) | lsn.xrecoff as u64
+}
+
+#[cfg(feature = "pg15")]
+unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
+    (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn = pg_sys::PageXLogRecPtr {
+        xlogid: (lsn >> 32) as u32,
+        xrecoff: lsn as u32,
+    };
+}
+
+#[cfg(not(feature = "pg15"))]
+unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
+    pg_sys::PageGetLSN(page)
+}
+
+#[cfg(not(feature = "pg15"))]
+unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
+    pg_sys::PageSetLSN(page, lsn)
+}
+
 #[pg_guard]
 unsafe extern "C-unwind" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
     let info = (*(*record).record).header.xl_info & !(pg_sys::XLR_INFO_MASK as u8);
+    // The index pages reached the standby as full-page images before this record. An ERROR in
+    // the startup process is FATAL and stops replay for the whole cluster, so nothing here errors.
     if info == XLOG_PG_SEARCH_INIT_INDEX && pg_sys::StandbyMode {
-        pgrx::error!(
-            "replicas are not supported on community and require paradedb enterprise, \
-             which guarantees physical replication safety on standbys."
-        );
+        taint_replicated_index(record);
     }
 }
 
@@ -65,14 +140,22 @@ unsafe extern "C-unwind" fn rm_mask(
 ) {
 }
 
-pub fn emit_init_record() {
+/// Writes the `INIT_INDEX` record naming `index`. A standby replaying it taints the index's
+/// metapage; see `postgres::promotion`.
+pub fn emit_init_record(index: &PgSearchRelation) {
     // XLogRegisterData's signature varies across Postgres versions
     // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
     // on pg15 vs `uint32` later). `as _` lets each build infer the right types.
-    let mut payload: u8 = 0;
+    #[cfg(feature = "pg15")]
+    let mut locator: IndexLocator = index.rd_node;
+    #[cfg(not(feature = "pg15"))]
+    let mut locator: IndexLocator = index.rd_locator;
     unsafe {
         pg_sys::XLogBeginInsert();
-        pg_sys::XLogRegisterData(&mut payload as *mut u8 as _, std::mem::size_of::<u8>() as _);
+        pg_sys::XLogRegisterData(
+            &mut locator as *mut IndexLocator as _,
+            std::mem::size_of::<IndexLocator>() as _,
+        );
         pg_sys::XLogInsert(RMGR_ID, XLOG_PG_SEARCH_INIT_INDEX);
     }
 }

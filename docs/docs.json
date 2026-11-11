@@ -117,7 +117,8 @@
                         ]
                       },
                       "reference/tokenizers/multiple-per-field",
-                      "reference/tokenizers/search-tokenizer"
+                      "reference/tokenizers/search-tokenizer",
+                      "reference/tokenizers/synonyms"
                     ]
                   },
                   {

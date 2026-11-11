@@ -184,9 +184,37 @@
         ["reference/indexing/indexing-vectors.mdx::fence-017", "582e688c81c32cf2ef26addb3286c298067a04f5e5250d448e6e8bc3b8aecf5f"],
         ["reference/indexing/indexing-vectors.mdx::fence-018", "126340fc1e720d46471e7e7e121434ad4ec13784b130d13ee5b814de15becdee"]
       ]
+    },
+    {
+      "reason": "Loads the reader's own synonym file, which the smoke test doesn't have.",
+      "fences": [
+        ["reference/tokenizers/synonyms.mdx::fence-002", "1ff5d12e241ddd9ca7a92b1f42720315ecd09b53d5afa3d23962c3b6f3a27f74"]
+      ]
     }
   ],
   "sql": {
+    "reference/tokenizers/synonyms.mdx::fence-003": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001"
+      ]
+    },
+    "reference/tokenizers/synonyms.mdx::fence-006": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001",
+        "reference/tokenizers/synonyms.mdx::fence-005"
+      ]
+    },
+    "reference/tokenizers/synonyms.mdx::fence-007": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001",
+        "reference/tokenizers/synonyms.mdx::fence-005"
+      ]
+    },
+    "reference/tokenizers/synonyms.mdx::fence-008": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001"
+      ]
+    },
     "reference/filtering/external-indexes.mdx::fence-008": {
       "setup": [
         "reference/filtering/external-indexes.mdx::fence-001"

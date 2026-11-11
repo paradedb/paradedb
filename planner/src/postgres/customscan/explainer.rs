@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::ffi::CStr;
 use std::ptr::NonNull;
 
 use pgrx::pg_sys;
@@ -66,6 +67,25 @@ impl Explainer {
 
     pub fn add_query(&mut self, query: &SearchQueryInput) {
         self.add_explainable("Tantivy Query", query);
+        self.add_synonym_indexes(query);
+    }
+
+    /// The query text leaves the synonym indexes out, since it prints no oid.
+    fn add_synonym_indexes(&mut self, query: &SearchQueryInput) {
+        let names: Vec<String> = query
+            .synonym_indexes()
+            .into_iter()
+            .map(|index| unsafe {
+                let name = pg_sys::get_rel_name(index);
+                if name.is_null() {
+                    return index.to_u32().to_string();
+                }
+                CStr::from_ptr(name).to_string_lossy().into_owned()
+            })
+            .collect();
+        if !names.is_empty() {
+            self.add_text("Synonyms", names.join(", "));
+        }
     }
 
     /// Add an explainable object to the output
@@ -79,6 +99,7 @@ impl Explainer {
             "Tantivy Query",
             explain::format_for_explain_with_estimates(query_tree),
         );
+        self.add_synonym_indexes(&query_tree.query);
     }
 
     /// Deparse a PostgreSQL expression using PostgreSQL's active EXPLAIN context (`deparse_cxt`).

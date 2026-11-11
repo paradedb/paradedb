@@ -17,14 +17,12 @@
 
 #[pgrx::pg_schema]
 pub mod pdb {
-    use crate::index::mvcc::MvccSatisfies;
-    use crate::index::reader::index::SearchIndexReader;
-    use crate::index::synonym_index::{HeapRuleSource, rule_analyzer};
+    use crate::index::synonym_index::{expand_with_index, rule_analyzer};
     use crate::postgres::access::IndexOid;
     use crate::postgres::index::is_partitioned_index;
     use anyhow::{Result, anyhow};
     use pgrx::prelude::*;
-    use tantivy::synonyms::{SynonymRule, expand};
+    use tantivy::synonyms::SynonymRule;
 
     /// The check of the `pdb.synonym_rule` domain. It raises instead of returning false, so the
     /// error says which rule failed and why.
@@ -79,13 +77,7 @@ pub mod pdb {
             }
         }
 
-        let reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
-        let mut source = unsafe {
-            HeapRuleSource::open(&index, index.heap(), &reader, pg_sys::GetActiveSnapshot())?
-        };
-        let expansions = expand(&tokens, &mut source);
-        source.close();
-        let expansions = expansions?;
+        let expansions = expand_with_index(&index, &tokens)?;
 
         let mut position = 0;
         let rows = expansions

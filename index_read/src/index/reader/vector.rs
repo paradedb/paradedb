@@ -19,8 +19,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use pgrx::pg_sys;
 use tantivy::vector::{
-    AtomicVectorWork, Candidate, ClusterRef, ProbeParams, SharedVectorWork, VectorRoutingStats,
-    VectorSearchBudget,
+    AtomicVectorWork, Candidate, ClusterRef, LocatedPath, ProbeParams, SharedVectorWork,
+    VectorRoutingStats, VectorSearchBudget,
 };
 
 use crate::api::HashMap;
@@ -162,7 +162,7 @@ pub unsafe fn shared_vector_work(
 }
 
 pub(super) fn probe_params() -> ProbeParams {
-    ProbeParams {
+    let params = ProbeParams {
         adaptive_probing: gucs::vector_adaptive_probing(),
         max_probe: gucs::vector_cluster_max_probe(),
         fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
@@ -170,6 +170,19 @@ pub(super) fn probe_params() -> ProbeParams {
         router_min_beam_fraction: gucs::vector_router_min_beam_fraction(),
         router_aps: gucs::vector_router_aps(),
         ..Default::default()
+    };
+    // Router audits route every segment, so both arms rank the same segments.
+    match gucs::vector_router_audit() {
+        gucs::VectorRouterAudit::Off => params,
+        gucs::VectorRouterAudit::Stored => ProbeParams {
+            located: LocatedPath::Off,
+            ..params
+        },
+        gucs::VectorRouterAudit::Flat => ProbeParams {
+            located: LocatedPath::Off,
+            router_flat: true,
+            ..params
+        },
     }
 }
 
@@ -250,5 +263,102 @@ mod work_tests {
         third.charge(12.0);
         assert_eq!(third.charged(), 117.0);
         assert_eq!(shared.charged(), 117.0);
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::prelude::*;
+    use serde_json::Value;
+
+    /// Per-segment vector statistics of every ParadeDB scan in a JSON plan.
+    fn segment_stats(plan: &Value) -> Vec<Value> {
+        let mut nodes = vec![&plan[0]["Plan"]];
+        let mut stats = Vec::new();
+        while let Some(node) = nodes.pop() {
+            if let Some(info) = node["Segment Info"].as_str() {
+                let info: serde_json::Map<String, Value> = serde_json::from_str(info).unwrap();
+                stats.extend(info.into_iter().map(|(_, value)| value));
+            }
+            if let Some(children) = node["Plans"].as_array() {
+                nodes.extend(children);
+            }
+        }
+        stats
+    }
+
+    /// Both audit arms route every segment; the flat arm ranks every centroid exactly and, at a
+    /// budget that opens every cluster, returns the stored arm's rows.
+    #[pg_test]
+    fn router_audit_routes_every_segment_and_flat_ranks_every_centroid() {
+        Spi::run(
+            "SET max_parallel_workers_per_gather = 0;
+             SET paradedb.vector_clustering_threshold = 1;
+             SET paradedb.global_mutable_segment_rows = 0;
+             SET paradedb.vector_stats = on;
+             SET paradedb.vector_adaptive_probing = off;
+             SET paradedb.vector_cluster_max_probe = 100000;
+             CREATE TABLE router_audit (id bigint PRIMARY KEY, body text, embedding vector(3));
+             CREATE INDEX router_audit_idx ON router_audit
+             USING paradedb (id, body, embedding vector_l2_ops)
+             WITH (target_segment_count = 2, background_layer_sizes = '0');
+             INSERT INTO router_audit
+             SELECT g, CASE WHEN g % 4 = 0 THEN 'kept' ELSE 'dropped' END,
+                    ARRAY[cos(g)::real, sin(g)::real, (g % 11)::real]::vector
+             FROM generate_series(1, 400) g;
+             INSERT INTO router_audit
+             SELECT g, CASE WHEN g % 4 = 0 THEN 'kept' ELSE 'dropped' END,
+                    ARRAY[cos(g)::real, sin(g)::real, (g % 11)::real]::vector
+             FROM generate_series(401, 800) g;
+             REINDEX INDEX router_audit_idx;",
+        )
+        .unwrap();
+        let query = "SELECT id FROM router_audit WHERE body ||| 'kept' \
+                     ORDER BY embedding <-> '[0.5, 0.5, 3]' LIMIT 10";
+        let run = |audit: &str| {
+            Spi::run(&format!("SET paradedb.vector_router_audit = {audit}")).unwrap();
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
+                "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) {query}"
+            ))
+            .unwrap()
+            .unwrap()
+            .0;
+            let ids = Spi::get_one::<Vec<i64>>(&format!("SELECT array_agg(id) FROM ({query}) q"))
+                .unwrap()
+                .unwrap();
+            (segment_stats(&plan), ids)
+        };
+
+        let (off, _) = run("off");
+        assert!(off.iter().any(|s| s["access_path"] == "Located"), "{off:?}");
+        let (stored, stored_ids) = run("stored");
+        let (flat, flat_ids) = run("flat");
+        assert!(stored.len() >= 2, "{stored:?}");
+        assert_eq!(flat.len(), stored.len());
+        for (segment, mode) in stored
+            .iter()
+            .map(|s| (s, "hierarchical"))
+            .chain(flat.iter().map(|s| (s, "flat")))
+        {
+            assert_eq!(segment["access_path"], "Routed", "{segment}");
+            assert_eq!(segment["routing_mode"], mode, "{segment}");
+            let opened = segment["postings_row"].as_u64().unwrap()
+                + segment["postings_skipped"].as_u64().unwrap();
+            assert_eq!(
+                opened,
+                segment["segment_clusters"].as_u64().unwrap(),
+                "{segment}"
+            );
+        }
+        for segment in &flat {
+            assert_eq!(segment["routing_kind"], "exact", "{segment}");
+            assert_eq!(
+                segment["routing_exact_scored"], segment["segment_clusters"],
+                "{segment}"
+            );
+        }
+        assert_eq!(stored_ids.len(), 10);
+        assert_eq!(flat_ids, stored_ids);
     }
 }

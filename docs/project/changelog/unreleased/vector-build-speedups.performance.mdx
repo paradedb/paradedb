@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector index builds run faster. Each vector's second (replica) cluster comes from the nearest-centroid pass and the centroids' Gram matrix instead of a second pass over every centroid, and a quantized segment encodes its clusters in parallel. On x86 CPUs with AVX2 and FMA, and with SSE4.1, quantized scoring and query preparation use those instructions instead of math-library calls. Quantized encoding and scoring are unchanged bit for bit; replica clusters can differ where two candidates tie to floating-point rounding.

@@ -122,6 +122,8 @@ jobs:
           sweep_reports_dir: ${{ fromJSON(steps.metadata.outputs.json).sweep_reports_dir || '' }}
           buffer_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).buffer_metrics_file || '' }}
           index_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).index_metrics_file || '' }}
+          router_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).router_metrics_file || '' }}
+          router_detail_metrics_file: ${{ fromJSON(steps.metadata.outputs.json).router_detail_metrics_file || '' }}
           publish_baseline: ${{ fromJSON(steps.metadata.outputs.json).publish_baseline }}
 
       - name: Publish Query Results

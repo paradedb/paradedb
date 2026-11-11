@@ -23,6 +23,7 @@ mod pdb {
     use std::collections::Bound;
 
     use crate::api::HashSet;
+    use crate::postgres::access::IndexOid;
     use crate::postgres::datetime::PostgresDateTime;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
@@ -54,6 +55,7 @@ mod pdb {
             distance: None,
             transposition_cost_one: None,
             prefix: None,
+            synonyms: None,
         }
     }
     #[builder_fn]
@@ -78,6 +80,7 @@ mod pdb {
             distance: None,
             transposition_cost_one: None,
             prefix: None,
+            synonyms: None,
         }
     }
 
@@ -91,6 +94,20 @@ mod pdb {
             transposition_cost_one: None,
             prefix: None,
         }
+    }
+
+    /// Makes `|||` and `&&&` expand the tokens of `query` with the rules of the synonym index
+    /// `index`.
+    #[pg_extern(immutable, parallel_safe, name = "with_synonyms")]
+    pub fn with_synonyms(query: String, index: IndexOid) -> pdb::Query {
+        with_synonyms_query(pdb::Query::unclassified_string(&query), index)
+    }
+
+    /// The same for a text value that already has a cast, such as `'sofa'::pdb.fuzzy(1)`.
+    #[pg_extern(immutable, parallel_safe, name = "with_synonyms")]
+    pub fn with_synonyms_query(mut query: pdb::Query, index: IndexOid) -> pdb::Query {
+        query.apply_synonyms(index.oid());
+        query
     }
 
     #[builder_fn]
@@ -144,6 +161,7 @@ mod pdb {
             transposition_cost_one,
             prefix,
             conjunction_mode,
+            synonyms: None,
         }
     }
 

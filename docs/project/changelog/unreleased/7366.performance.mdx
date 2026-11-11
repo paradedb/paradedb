@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- Top-K joins ordered by combined search scores keep the rank join when a single-table filter is a row-level security policy of any shape, a `@@@` query whose score is constant (`pdb.range`, `pdb.term_set`, `pdb.exists`), or any query at `::pdb.const(0)`. Such filters previously forced a hash join over every permitted row. As for every filter the rank join admits, it scores them `0.0`.

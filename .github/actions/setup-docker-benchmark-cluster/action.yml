@@ -27,6 +27,10 @@ inputs:
     description: "Optional pgBackRest backup label"
     required: false
     default: ""
+  compose_file:
+    description: "Docker Compose file with the paradedb service. Defaults to the shared S3 configuration"
+    required: false
+    default: ""
 
 outputs:
   commit_sha:
@@ -108,16 +112,22 @@ runs:
         PARADEDB_IMAGE: ${{ inputs.image_tag }}
         SNAPSHOT_FORMAT: ${{ inputs.snapshot_format }}
         PARADEDB_DATA_DIR: ${{ runner.temp }}/benchmark-pgdata
+        COMPOSE_FILE_INPUT: ${{ inputs.compose_file }}
+        # Read by the S3 compose file only. A compose_file sets its own resources.
         POSTGRES_CPUSET: "0-7"
         MEMORY: 64g
         EFFECTIVE_CACHE_SIZE: 48GB
       run: |
         set -euo pipefail
         mkdir -p "$RUNNER_TEMP/benchmark-compose" benchmark-artifacts
-        aws s3 cp s3://paradedb-benchmark/benchmarker/wikipedia/docker-compose.yml \
-          "$RUNNER_TEMP/benchmark-compose/docker-compose.yml" --no-sign-request
-
-        export COMPOSE_FILE="$RUNNER_TEMP/benchmark-compose/docker-compose.yml"
+        if [ -n "$COMPOSE_FILE_INPUT" ]; then
+          COMPOSE_FILE="$(realpath "$COMPOSE_FILE_INPUT")"
+        else
+          aws s3 cp s3://paradedb-benchmark/benchmarker/wikipedia/docker-compose.yml \
+            "$RUNNER_TEMP/benchmark-compose/docker-compose.yml" --no-sign-request
+          COMPOSE_FILE="$RUNNER_TEMP/benchmark-compose/docker-compose.yml"
+        fi
+        export COMPOSE_FILE
         if [ "$SNAPSHOT_FORMAT" = pgbackrest ]; then
           # Replace pgrx paths, authentication, and ALTER SYSTEM settings from the snapshot.
           docker run --rm --entrypoint bash \
@@ -129,13 +139,16 @@ runs:
               echo "host all all all trust" >> /restored/pg_hba.conf
             '
 
-          # pdbench samples backend PIDs with the host's ps.
+          # The restored cluster's superuser is the runner's OS user. The check allows 300
+          # seconds whichever compose file is in use, as the S3 file does.
           cat > "$RUNNER_TEMP/benchmark-compose/compose.override.yml" <<YAML
         services:
           paradedb:
-            pid: host
             healthcheck:
               test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $(whoami) -d postgres"]
+              interval: 2s
+              timeout: 5s
+              retries: 150
         YAML
           COMPOSE_FILE+=":$RUNNER_TEMP/benchmark-compose/compose.override.yml"
           db_user="$(whoami)"

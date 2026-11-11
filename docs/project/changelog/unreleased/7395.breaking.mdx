@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- Term sets in a query (`pdb.term_set`, `===` with an array, or `IN (...)` / `= ANY(...)` on an indexed field) are now capped by the new `paradedb.max_term_set_size` setting, which defaults to `262144` terms. Queries over the limit raise an error, and queries over half the limit emit a warning. Very large term sets are better written as a join; if that is not possible, raise `paradedb.max_term_set_size`.

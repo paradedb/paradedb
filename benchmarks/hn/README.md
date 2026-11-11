@@ -60,7 +60,7 @@ strict ID recall can leave targets unreached when multiple vectors tie at the
 top-10 boundary. Those points have no latency or QPS measurement.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, workers, and peak summed RSS. Diagnostics retain manifests, verified
+index size, and peak container memory during the build. Diagnostics retain manifests, verified
 fixtures, configuration, tool revisions, plans, pdbench reports, k6 dashboards,
 and database logs.
 

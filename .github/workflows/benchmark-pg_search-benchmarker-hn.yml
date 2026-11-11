@@ -12,7 +12,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c"
+        default: "d8c42a466e72ff4e39910d3f95a98c50577d0002"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -40,7 +40,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'd8c42a466e72ff4e39910d3f95a98c50577d0002' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       HN_CONFIG: benchmarks/hn/28m.toml
@@ -96,14 +96,7 @@ jobs:
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Set up Docker benchmark cluster
-        uses: ./.github/actions/setup-docker-benchmark-cluster
-        with:
-          ref: ${{ env.BENCHMARK_REF }}
-          dataset: hackernews/vector
-          size: ${{ env.HN_SIZE }}/39152428323-1
-          backup: "20261018-214625F"
-
+      # pdbench comes first: it holds the compose file the cluster starts with.
       - name: Create pdbench checkout token
         id: pdbench_token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -123,6 +116,15 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      - name: Set up Docker benchmark cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          dataset: hackernews/vector
+          size: ${{ env.HN_SIZE }}/39152428323-1
+          backup: "20261018-214625F"
+          compose_file: pdbench/datasets/hn/docker-compose.yml
+
       - name: Install pdbench toolchain
         run: rustup toolchain install 1.97.1 --profile minimal
 
@@ -134,7 +136,10 @@ jobs:
       - name: Build pdbench
         working-directory: pdbench
         run: |
-          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          # rust-cache saves target/duckdb-sources with its files stripped, and libduckdb-sys
+          # cannot unpack over the leftover directories when its build script reruns.
+          rm -rf target/duckdb-sources
+          cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load -p pdbench-report --target-dir target -j 16
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       - name: Set up Benchmarker
@@ -177,21 +182,33 @@ jobs:
                                'paradedb.vector_router_aps')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
-          pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
-            --assets-dir benchmarks/hn/assets --runs-dir benchmark-artifacts/search \
-            --set dataset.s3_base_path=benchmark-artifacts/fixtures \
-            --force-rebuild \
-            | tee benchmark-artifacts/index-build.log
-          profile="$(basename "$HN_CONFIG" .toml)"
-          jq '.data | [
-            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
-            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
-            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
-            {name: (.index.name + " peak summed RSS"), unit: "GiB", value: (.metrics.resources.peak_rss_bytes / 1073741824)}
-          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
-            -c 'VACUUM (ANALYZE) hn_items;' \
-            | tee benchmark-artifacts/index-vacuum.log
+          # The index definition, its options and the Postgres settings it is built under come
+          # from pdbench's load config and dataset files.
+          (
+            cd pdbench
+            pdbench-load finalize configs/load/hn-full-paradedb.yaml \
+              --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load"
+          ) 2>&1 | tee benchmark-artifacts/index-build.log
+          runs=(benchmark-artifacts/load/*/*_load)
+          test "${#runs[@]}" -eq 1
+          # Writes report.html into the run directory, which is uploaded with the diagnostics.
+          pdbench-report html "${runs[0]}"
+          index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
+          # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
+          created="$(jq -r '.created_at' "${runs[0]}/run.json")"
+          finished="$(jq -r '.finished_at' "${runs[0]}/run.json")"
+          build_seconds=$(( $(date -d "$finished" +%s) - $(date -d "$created" +%s) ))
+          size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+            -c "SELECT pg_total_relation_size('${index}'::regclass)")"
+          # Container memory in use, excluding inactive page cache, sampled once a second.
+          peak_bytes="$(jq -n '[inputs | select(.type == "Point" and .metric == "container_memory") | .value] | max' \
+            "${runs[0]}/points.jsonl")"
+          jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \
+            --argjson size_bytes "$size_bytes" --argjson peak_bytes "$peak_bytes" '[
+            {name: ($index + " build time"), unit: "min", value: ($build_seconds / 60)},
+            {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)},
+            {name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
+          ]' > benchmark-artifacts/index-metrics.json
 
       - name: Verify eight-segment index
         run: |
@@ -249,7 +266,7 @@ jobs:
 
           Probe fractions are selected independently for each workload at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 0.005 and searches from 0.0001 to 1.0.
 
-          Eight build/query workers are available with a 16-process worker pool. Build RSS is the sum across sampled processes and includes shared mappings. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
+          Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 
           CONTEXT
             cat benchmark-artifacts/operating_points.md
@@ -271,7 +288,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 16-19 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \

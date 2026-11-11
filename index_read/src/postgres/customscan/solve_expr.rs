@@ -148,6 +148,16 @@ impl SearchQueryInput {
         found
     }
 
+    pub fn has_score_filter(&self) -> bool {
+        let mut found = false;
+        self.visit_ref(&mut |sqi| {
+            if let SearchQueryInput::ScoreFilter { .. } = sqi {
+                found = true;
+            }
+        });
+        found
+    }
+
     pub fn has_postgres_expressions(&self) -> bool {
         let mut found = false;
         self.visit_ref(&mut |sqi| {

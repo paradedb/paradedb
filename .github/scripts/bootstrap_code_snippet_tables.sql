@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS orders CASCADE;
 DROP TABLE IF EXISTS mock_items CASCADE;
 DROP TABLE IF EXISTS array_demo CASCADE;
+DROP TABLE IF EXISTS shop_synonyms, synonyms CASCADE;
 
 CALL paradedb.create_paradedb_test_table(
   schema_name => 'public',

@@ -455,6 +455,7 @@ thread_local! {
     static WARNED_SEQ_SCAN_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_SPILLED_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_STALE_VM_AT: Cell<StatementId> = const { Cell::new(NEVER) };
+    static WARNED_LARGE_TERM_SET_AT: Cell<StatementId> = const { Cell::new(NEVER) };
     static WARNED_RANK_JOIN_AT: Cell<PlanningCycleKey> = const { Cell::new((0, NEVER)) };
 }
 
@@ -547,6 +548,38 @@ pub fn warn_stale_visibility_map(table_name: &str) {
     );
     warn_once_per_statement(&WARNED_STALE_VM_AT, &message);
 }
+
+/// Warn (once per statement, on the leader only) that a term set is more than half of
+/// `paradedb.max_term_set_size`. The query is built more than once per statement (planning,
+/// execution, parallel workers), so this dedups on the statement. Silenced by
+/// `paradedb.planner_warnings = 'off'`, but never escalated to an error: exceeding the hard
+/// limit is what errors.
+pub fn warn_large_term_set(num_terms: usize, max: usize) {
+    if crate::gucs::planner_warnings() == crate::gucs::PlannerWarnings::Off
+        || unsafe { pg_sys::ParallelWorkerNumber } != -1
+    {
+        return;
+    }
+    let stmt_id = current_statement_id();
+    if WARNED_LARGE_TERM_SET_AT.with(|last| last.replace(stmt_id)) == stmt_id {
+        return;
+    }
+    pgrx::pg_sys::panic::ErrorReport::new(
+        pgrx::PgSqlErrorCode::ERRCODE_WARNING,
+        format!(
+            "term set contains {num_terms} terms, which is more than half of \
+             paradedb.max_term_set_size ({max})"
+        ),
+        pgrx::function_name!(),
+    )
+    .set_hint(LARGE_TERM_SET_HINT)
+    .report(pgrx::PgLogLevel::WARNING);
+}
+
+/// Hint shared by the `paradedb.max_term_set_size` warning and error.
+pub const LARGE_TERM_SET_HINT: &str = "Rewrite the query to join against a table of the terms \
+     instead of passing them as a term set. If that is not possible, raise \
+     paradedb.max_term_set_size.";
 
 /// Emits an `EXPLAIN`-only `WARNING` (once per query planning/execution cycle, on the leader
 /// only) for diagnostics explaining why a faster plan variant within a ParadeDB scan was not used.

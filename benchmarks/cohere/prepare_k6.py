@@ -103,8 +103,12 @@ def operating_points(reports, dataset="cohere"):
 
 
 def summary(points):
-    """Render recall and buffer diagnostics for the shared publisher."""
+    """Render recall and buffer diagnostics for the shared publisher, collapsed under a summary
+    line so the PR comment leads with regressions."""
     lines = [
+        # GitHub renders Markdown inside <details> only with a blank line after the summary.
+        "<details><summary>Operating points</summary>",
+        "",
         (
             "| Workload / recall target | k | max_probe | Achieved recall@k "
             "| Shared hits/query | Shared reads/query |"
@@ -134,6 +138,7 @@ def summary(points):
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"
     )
+    lines.append("</details>\n")
     return "\n".join(lines)
 
 

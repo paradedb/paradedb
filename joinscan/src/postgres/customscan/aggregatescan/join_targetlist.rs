@@ -305,6 +305,11 @@ pub struct JoinAggregateTargetList {
     pub aggregates: Vec<JoinAggregateEntry>,
     /// Post-grouping `OVER ()` window aggregates evaluated in Stage 2.
     pub window_aggregates: Vec<WindowAggEntry>,
+    /// Names of source fields projected into DataFusion for this aggregate.
+    /// Used to keep synthetic aliases distinct from aggregate arguments, join
+    /// keys, and filter inputs as well as the SQL grouping columns.
+    #[serde(default)]
+    pub projected_source_names: Vec<String>,
     /// The query has a GROUP BY clause. With no key to group on, it still has
     /// no row when no row matches, unlike an aggregate with no GROUP BY.
     #[serde(default)]
@@ -326,6 +331,11 @@ pub struct ExtractedDataFusionTarget {
 impl ExtractedDataFusionTarget {
     pub fn targetlist(&self) -> &JoinAggregateTargetList {
         &self.runtime
+    }
+
+    /// Record the source fields that the DataFusion scan will project.
+    pub fn set_projected_source_names(&mut self, names: Vec<String>) {
+        self.runtime.projected_source_names = names;
     }
 
     pub fn filter_predicates(&self) -> Vec<(usize, JoinLevelSearchPredicate)> {
@@ -472,7 +482,12 @@ impl JoinAggregateTargetList {
     /// both this module's aliases and the CTID and `pdb.agg()` columns assembled
     /// by the DataFusion aggregate plan.
     fn internal_prefix(&self) -> String {
-        internal_prefix_for_group_names(self.group_columns.iter().map(|gc| gc.field_name.as_str()))
+        internal_prefix_for_names(
+            self.group_columns
+                .iter()
+                .map(|gc| gc.field_name.as_str())
+                .chain(self.projected_source_names.iter().map(String::as_str)),
+        )
     }
 
     /// The lowered `pdb.agg()` calls (including `pdb.combine_agg(pdb.agg(...))`), in target-list order.
@@ -500,10 +515,10 @@ impl JoinAggregateTargetList {
     }
 }
 
-fn internal_prefix_for_group_names<'a>(group_names: impl IntoIterator<Item = &'a str>) -> String {
-    let group_names: Vec<&str> = group_names.into_iter().collect();
+fn internal_prefix_for_names<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let names: Vec<&str> = names.into_iter().collect();
     let mut prefix = String::new();
-    while group_names.iter().any(|name| {
+    while names.iter().any(|name| {
         name.strip_prefix(prefix.as_str())
             .is_some_and(is_internal_name)
     }) {
@@ -546,7 +561,7 @@ fn has_numeric_suffix(name: &str, kind: &str) -> bool {
 
 #[cfg(test)]
 mod internal_name_tests {
-    use super::internal_prefix_for_group_names;
+    use super::internal_prefix_for_names;
 
     #[test]
     fn prefixes_every_datafusion_internal_name_family() {
@@ -561,18 +576,20 @@ mod internal_name_tests {
             "__grouping_id",
             "__one_group",
         ] {
-            assert_eq!(internal_prefix_for_group_names([name]), "_", "{name}");
+            assert_eq!(internal_prefix_for_names([name]), "_", "{name}");
         }
     }
 
     #[test]
     fn keeps_prefix_shortest_and_leaves_unrelated_group_names_alone() {
-        assert_eq!(internal_prefix_for_group_names(["category"]), "");
-        assert_eq!(
-            internal_prefix_for_group_names(["__pdb_k0", "___pdb_m0"]),
-            "__"
-        );
-        assert_eq!(internal_prefix_for_group_names(["___pdb_k0"]), "");
+        assert_eq!(internal_prefix_for_names(["category"]), "");
+        assert_eq!(internal_prefix_for_names(["__pdb_k0", "___pdb_m0"]), "__");
+        assert_eq!(internal_prefix_for_names(["___pdb_k0"]), "");
+    }
+
+    #[test]
+    fn prefixes_internal_aliases_around_non_group_source_fields() {
+        assert_eq!(internal_prefix_for_names(["agg_0", "_ctid_0"]), "__");
     }
 }
 
@@ -912,6 +929,7 @@ pub unsafe fn extract_aggregate_targetlist(
             group_columns,
             aggregates,
             window_aggregates,
+            projected_source_names: Vec::new(),
             has_group_by,
         },
         group_exprs,

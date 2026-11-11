@@ -616,9 +616,30 @@ fn build_pdb_aggregate_plan(
     // so functionally dependent columns are not appended to the group key.
     let options = LogicalPlanBuilderOptions::new().with_add_implicit_group_by_exprs(false);
     if array_keys.is_empty() {
-        return LogicalPlanBuilder::from(input)
+        let aggregated = LogicalPlanBuilder::from(input)
             .with_options(options)
             .aggregate(grouping.to_vec(), all_agg_exprs.to_vec())?
+            .build()?;
+        if pdb_plan.grouping_id_col().is_none() {
+            return Ok(aggregated);
+        }
+
+        let grouping_id_name = targetlist.grouping_id_name();
+        let project_exprs: Vec<Expr> = aggregated
+            .schema()
+            .columns()
+            .into_iter()
+            .map(|column| {
+                let expr = Expr::Column(column.clone());
+                if column.name == Aggregate::INTERNAL_GROUPING_ID {
+                    expr.alias(grouping_id_name.clone())
+                } else {
+                    expr
+                }
+            })
+            .collect();
+        return LogicalPlanBuilder::from(aggregated)
+            .project(project_exprs)?
             .build();
     }
 

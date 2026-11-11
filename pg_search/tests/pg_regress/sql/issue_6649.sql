@@ -5,6 +5,7 @@ CREATE TABLE issue_6649_internal_names (
     id SERIAL PRIMARY KEY,
     agg_0 INTEGER,
     ctid_0 INTEGER,
+    _ctid_0 INTEGER,
     __pdb_k0 TEXT,
     __pdb_m0 INTEGER,
     __grouping_id INTEGER,
@@ -13,10 +14,11 @@ CREATE TABLE issue_6649_internal_names (
 );
 
 INSERT INTO issue_6649_internal_names
-    (agg_0, ctid_0, __pdb_k0, __pdb_m0, __grouping_id, category, amount)
+    (agg_0, ctid_0, _ctid_0, __pdb_k0, __pdb_m0, __grouping_id, category, amount)
 SELECT
     g % 3,
     g % 3,
+    g % 4,
     CASE WHEN g % 3 = 0 THEN 'alpha' WHEN g % 3 = 1 THEN 'beta' ELSE 'gamma' END,
     g % 2,
     g % 3,
@@ -25,7 +27,7 @@ SELECT
 FROM generate_series(1, 6) AS g;
 
 CREATE INDEX issue_6649_internal_names_idx ON issue_6649_internal_names
-USING paradedb (id, agg_0, ctid_0, __pdb_k0, __pdb_m0, __grouping_id, category, amount);
+USING paradedb (id, agg_0, ctid_0, _ctid_0, __pdb_k0, __pdb_m0, __grouping_id, category, amount);
 
 -- Keep the original aggregate-alias collision covered as well.
 SELECT agg_0, SUM(amount)
@@ -40,6 +42,13 @@ FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()
 GROUP BY ctid_0
 ORDER BY ctid_0;
+
+-- Synthetic CTID aliases must also avoid non-grouped aggregate input fields.
+SELECT agg_0, SUM(_ctid_0)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+ORDER BY agg_0;
 
 -- These group keys overlap with the synthetic columns produced by pdb.agg().
 SELECT __pdb_k0, SUM(amount),
@@ -62,5 +71,14 @@ FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()
 GROUP BY __grouping_id
 ORDER BY __grouping_id;
+
+-- HAVING must read the renamed synthetic grouping ID on the scalar-key path.
+SELECT agg_0, SUM(amount),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+HAVING COUNT(*) > 1
+ORDER BY agg_0;
 
 DROP TABLE issue_6649_internal_names;

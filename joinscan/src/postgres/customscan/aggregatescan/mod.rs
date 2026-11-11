@@ -1902,11 +1902,10 @@ impl AggregateScan {
         }
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let extracted_target = unsafe {
+        let mut extracted_target = unsafe {
             extract_aggregate_targetlist(builder.args(), &sources, &plan, shape, pdb_route)
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
-        let targetlist = extracted_target.targetlist();
 
         let mut predicates = plan.search_predicates();
         for p in extracted_target.filter_predicates() {
@@ -1922,9 +1921,28 @@ impl AggregateScan {
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
         unsafe {
-            datafusion_build::populate_required_fields(&mut plan, targetlist, &multi_table_clauses)
+            datafusion_build::populate_required_fields(
+                &mut plan,
+                extracted_target.targetlist(),
+                &multi_table_clauses,
+            )
         }
         .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
+
+        let projected_source_names = plan
+            .sources()
+            .into_iter()
+            .flat_map(|source| source.scan_info.fields.iter())
+            .filter(|field| {
+                !matches!(
+                    &field.field,
+                    crate::index::fast_fields_helper::WhichFastField::Ctid
+                )
+            })
+            .map(|field| field.field.name().to_string())
+            .collect();
+        extracted_target.set_projected_source_names(projected_source_names);
+        let targetlist = extracted_target.targetlist();
 
         // `pdb.agg()` decides the visibility check for the whole query, so every
         // source scans under the one resolved mode.

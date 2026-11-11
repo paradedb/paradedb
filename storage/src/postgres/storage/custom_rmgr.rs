@@ -56,14 +56,14 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
         return;
     }
     pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
-    let page = pg_sys::BufferGetPage(buffer);
+    let page = pgrx::BufferGetPage!(buffer).get();
     let lsn = (*record).EndRecPtr;
-    if lsn <= pg_sys::PageGetLSN(page) {
+    if lsn <= page_lsn(page) {
         pg_sys::UnlockReleaseBuffer(buffer);
         return;
     }
     MetaPage::taint_page(page);
-    pg_sys::PageSetLSN(page, lsn);
+    set_page_lsn(page, lsn);
     pg_sys::MarkBufferDirty(buffer);
     pg_sys::UnlockReleaseBuffer(buffer);
     pgrx::log!(
@@ -71,6 +71,19 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
          serve ParadeDB indexes on a standby, and after promotion this one refuses queries \
          until REINDEX"
     );
+}
+
+/// `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding.
+unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
+    let lsn = (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn;
+    ((lsn.xlogid as u64) << 32) | lsn.xrecoff as u64
+}
+
+unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
+    (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn = pg_sys::PageXLogRecPtr {
+        xlogid: (lsn >> 32) as u32,
+        xrecoff: lsn as u32,
+    };
 }
 
 #[pg_guard]

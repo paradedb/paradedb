@@ -60,8 +60,8 @@ rows="$(jq -nc \
       row: "| `\($current.name)` | \($current | display) | \(if $previous == null then "n/a" else $previous | display end) | \($ratio_text) |"
     }
 ')"
-total="$(jq -s 'length' <<< "$rows")"
-regressions="$(jq -s 'map(select(.regression)) | length' <<< "$rows")"
+total="$(jq -s 'length' <<<"$rows")"
+regressions="$(jq -s 'map(select(.regression)) | length' <<<"$rows")"
 
 # shellcheck disable=SC2016 # The backticks are Markdown code spans.
 printf '### 📊 Benchmarker results (%s): `%s`\n\n' "${DATASET}" "${COMMIT_SHA:0:7}"
@@ -85,7 +85,7 @@ if [ "$regressions" -gt 0 ]; then
   fi
   printf '**⚠️ %s %s above %sx**\n\n' "$regressions" "$noun" "$THRESHOLD"
   table_header
-  jq -r 'select(.regression) | .row' <<< "$rows"
+  jq -r 'select(.regression) | .row' <<<"$rows"
 else
   printf '✅ No regressions above %sx.\n' "$THRESHOLD"
 fi
@@ -97,7 +97,7 @@ printf '\n%s\n\n' "$footnote"
 # All results. GitHub renders Markdown inside <details> only with a blank line after the summary.
 printf '<details><summary>All results (%s rows)</summary>\n\n' "$total"
 table_header
-jq -r '.row' <<< "$rows"
+jq -r '.row' <<<"$rows"
 printf '\n</details>\n\n'
 
 # Reports

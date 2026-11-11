@@ -27,6 +27,7 @@ INSERT INTO products VALUES
 CREATE INDEX products_idx ON products USING bm25 (id, description);
 
 -- The rules table needs no index. The subquery reads the rules, and the match expands with them.
+-- A planner warning says why no index is read.
 EXPLAIN (COSTS OFF)
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
@@ -128,19 +129,52 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE 
 ORDER BY id;
 DELETE FROM products WHERE id = 10;
 
--- A generic plan reads the index too, and expands the parameter at execution.
+-- A prepared statement reads the index when its plan has the text. A generic plan has no text, so
+-- it runs the subquery.
 PREPARE sofa_query(text) AS SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms) ORDER BY id;
+SET plan_cache_mode = force_custom_plan;
+EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
+EXECUTE sofa_query('sofa');
 SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
 EXECUTE sofa_query('sofa');
 RESET plan_cache_mode;
 DEALLOCATE sofa_query;
 
--- A subquery with a filter still reads the rules itself.
+-- A partial synonym index holds the rules of its predicate. A subquery with that predicate reads
+-- it, and a subquery on the whole table does not.
+DROP INDEX shop_synonyms_idx;
+INSERT INTO shop_synonyms VALUES ('sofa, settee', 'outlet');
+CREATE INDEX outlet_synonyms_idx ON shop_synonyms USING paradedb (rule) WHERE shop = 'outlet';
+EXPLAIN (COSTS OFF)
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'outlet');
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'outlet')
+ORDER BY id;
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+DROP INDEX outlet_synonyms_idx;
+DELETE FROM shop_synonyms WHERE shop = 'outlet';
+CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);
+
+-- A synonym index that is not valid is not read.
+UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'shop_synonyms_idx'::regclass;
+EXPLAIN (COSTS OFF)
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+UPDATE pg_index SET indisvalid = true WHERE indexrelid = 'shop_synonyms_idx'::regclass;
+
+-- A subquery with a filter that no index has still reads the rules itself. The warning says why,
+-- and `paradedb.planner_warnings` makes it an error.
 EXPLAIN (COSTS OFF)
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
+SET paradedb.planner_warnings = 'error';
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
+RESET paradedb.planner_warnings;
 
 -- A role under row security reads the rules itself, because the index holds every rule.
 INSERT INTO shop_synonyms VALUES ('sofa, settee', 'outlet');

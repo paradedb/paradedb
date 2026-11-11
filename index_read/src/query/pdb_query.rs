@@ -171,7 +171,7 @@ pub mod pdb {
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
     #[serde(untagged)]
     pub enum SynonymRules {
-        /// The synonym index that `pdb.with_synonyms` names.
+        /// A synonym index that holds the rules that a `pdb.expand` subquery reads.
         Index(pg_sys::Oid),
         /// The rules that a `pdb.expand` subquery read.
         Rules(Vec<String>),
@@ -208,7 +208,7 @@ pub mod pdb {
             fuzzy_data: Option<FuzzyData>,
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
-            /// The rules that `pdb.with_synonyms` or `pdb.expand` gives to the match.
+            /// The rules that a `pdb.expand` subquery gives to the match.
             #[serde(skip_serializing_if = "Option::is_none")]
             synonyms: Option<SynonymRules>,
         },
@@ -412,15 +412,6 @@ impl pdb::Query {
             fuzzy_data: None,
             slop_data: Some(slop),
             synonyms: None,
-        }
-    }
-
-    /// Only a text value can expand, since a rule key matches the tokens of a tokenizer.
-    pub fn apply_synonyms(&mut self, rules: pdb::SynonymRules) {
-        match self {
-            pdb::Query::UnclassifiedString { synonyms, .. } => *synonyms = Some(rules),
-            pdb::Query::ScoreAdjusted { query, .. } => query.apply_synonyms(rules),
-            _ => panic!("`pdb.with_synonyms` takes a text value"),
         }
     }
 
@@ -2378,11 +2369,12 @@ fn expand_match(
     expand_with_index(&index, tokens)
 }
 
-/// The synonym index on column `attno` of `table` that `expand_match` accepts for a query on
-/// `field` of the text index `index`. `attno` counts the columns from zero.
+/// The synonym index on column `attno` (from zero) of `table` that `holds_rules` accepts, and
+/// that `expand_match` accepts for a query on `field` of the text index `index`.
 pub fn synonym_index_of_column(
     table: &PgSearchRelation,
     attno: usize,
+    holds_rules: impl Fn(&PgSearchRelation) -> bool,
     index: &PgSearchRelation,
     field: &FieldName,
 ) -> Option<pg_sys::Oid> {
@@ -2406,7 +2398,9 @@ pub fn synonym_index_of_column(
                     .and_then(|attribute| attribute.source.heap_attno())
                     == Some(attno)
             });
-            reads_column && rule_tokenizer(candidate).as_ref() == Some(&query_tokenizer)
+            reads_column
+                && rule_tokenizer(candidate).as_ref() == Some(&query_tokenizer)
+                && holds_rules(candidate)
         })
         .map(|candidate| candidate.oid())
 }

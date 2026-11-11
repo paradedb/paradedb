@@ -23,9 +23,11 @@ INSERT INTO products VALUES
     (9, 'velvet settee');
 CREATE INDEX products_idx ON products USING bm25 (id, description);
 -- The rules table needs no index. The subquery reads the rules, and the match expands with them.
+-- A planner warning says why no index is read.
 EXPLAIN (COSTS OFF)
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on products
@@ -44,6 +46,7 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE 
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -55,6 +58,7 @@ ORDER BY id;
 SELECT id FROM products
 WHERE description &&& (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -63,6 +67,7 @@ ORDER BY id;
 -- A multi-word alternative is a phrase, and a directed rule drops the typed word.
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sneakers', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   4
@@ -72,6 +77,7 @@ WHERE description ||| (SELECT pdb.expand('sneakers', rule) FROM shop_synonyms) O
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'outlet')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   2
@@ -81,6 +87,7 @@ ORDER BY id;
 
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -94,6 +101,7 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'none')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   2
@@ -105,6 +113,7 @@ WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms WHERE shop
 ORDER BY id;
 SET plan_cache_mode = force_generic_plan;
 EXECUTE no_rules('sofa');
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because the text to expand is not known when the query is planned. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   2
@@ -118,6 +127,7 @@ SET debug_parallel_query = on;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -132,6 +142,7 @@ SET paradedb.synonyms_max_alternatives = 2;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('divan', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -149,6 +160,7 @@ CREATE INDEX en_products_idx ON en_products USING bm25 (
 SELECT id FROM en_products
 WHERE description ||| (SELECT pdb.expand('sofas', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -162,6 +174,7 @@ GRANT SELECT ON products TO synonym_expand_reader;
 SET ROLE synonym_expand_reader;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because the role has no `SELECT` on all of "shop_synonyms". To disable this warning: SET paradedb.planner_warnings = 'off'
 ERROR:  permission denied for table shop_synonyms
 RESET ROLE;
 GRANT SELECT ON shop_synonyms TO synonym_expand_reader;
@@ -170,6 +183,7 @@ CREATE POLICY outlet_rules ON shop_synonyms TO synonym_expand_reader USING (shop
 SET ROLE synonym_expand_reader;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because row security applies to "shop_synonyms". To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   2
@@ -239,6 +253,7 @@ ORDER BY score DESC, id;
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products
 WHERE description ||| (SELECT pdb.expand('couch', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY score DESC, id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id | score  
 ----+--------
   8 | 1.6447
@@ -252,6 +267,7 @@ INSERT INTO products VALUES (10, 'two sofas');
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main')::pdb.fuzzy(1)
 ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -262,13 +278,14 @@ ORDER BY id;
 (5 rows)
 
 DELETE FROM products WHERE id = 10;
--- A generic plan reads the index too, and expands the parameter at execution.
+-- A prepared statement reads the index when its plan has the text. A generic plan has no text, so
+-- it runs the subquery.
 PREPARE sofa_query(text) AS SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms) ORDER BY id;
-SET plan_cache_mode = force_generic_plan;
+SET plan_cache_mode = force_custom_plan;
 EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
-                                                                                                                          QUERY PLAN                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -277,8 +294,37 @@ EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('products_idx'::regclass, paradedb.match_disjunction_search_query_input('description'::paradedb.fieldname, pdb.with_synonyms($1, 'shop_synonyms_idx'::regclass)))"}}}
-(9 rows)
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Synonyms: shop_synonyms_idx
+(10 rows)
+
+EXECUTE sofa_query('sofa');
+ id 
+----
+  1
+  2
+  3
+  8
+(4 rows)
+
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because the text to expand is not known when the query is planned. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: products.id
+   InitPlan 1
+     ->  Aggregate
+           ->  Seq Scan on shop_synonyms
+   ->  Custom Scan (ParadeDB Base Scan) on products
+         Table: products
+         Index: products_idx
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('products_idx'::regclass, paradedb.match_disjunction_search_query_input('description'::paradedb.fieldname, $1))"}}}
+(12 rows)
 
 EXECUTE sofa_query('sofa');
  id 
@@ -291,10 +337,78 @@ EXECUTE sofa_query('sofa');
 
 RESET plan_cache_mode;
 DEALLOCATE sofa_query;
--- A subquery with a filter still reads the rules itself.
+-- A partial synonym index holds the rules of its predicate. A subquery with that predicate reads
+-- it, and a subquery on the whole table does not.
+DROP INDEX shop_synonyms_idx;
+INSERT INTO shop_synonyms VALUES ('sofa, settee', 'outlet');
+CREATE INDEX outlet_synonyms_idx ON shop_synonyms USING paradedb (rule) WHERE shop = 'outlet';
+EXPLAIN (COSTS OFF)
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'outlet');
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on products
+   Table: products
+   Index: products_idx
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+   Synonyms: outlet_synonyms_idx
+(8 rows)
+
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'outlet')
+ORDER BY id;
+ id 
+----
+  2
+  8
+  9
+(3 rows)
+
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
+ id 
+----
+  1
+  2
+  3
+  8
+  9
+(5 rows)
+
+DROP INDEX outlet_synonyms_idx;
+DELETE FROM shop_synonyms WHERE shop = 'outlet';
+CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);
+-- A synonym index that is not valid is not read.
+UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'shop_synonyms_idx'::regclass;
+EXPLAIN (COSTS OFF)
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on products
+   Table: products
+   Index: products_idx
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('products_idx'::regclass, paradedb.match_disjunction_search_query_input('description'::paradedb.fieldname, $1))"}}}
+   InitPlan 1
+     ->  Aggregate
+           ->  Seq Scan on shop_synonyms
+(10 rows)
+
+UPDATE pg_index SET indisvalid = true WHERE indexrelid = 'shop_synonyms_idx'::regclass;
+-- A subquery with a filter that no index has still reads the rules itself. The warning says why,
+-- and `paradedb.planner_warnings` makes it an error.
 EXPLAIN (COSTS OFF)
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on products
@@ -310,11 +424,17 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE 
                  Filter: (shop = 'main'::text)
 (11 rows)
 
+SET paradedb.planner_warnings = 'error';
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
+ERROR:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
+RESET paradedb.planner_warnings;
 -- A role under row security reads the rules itself, because the index holds every rule.
 INSERT INTO shop_synonyms VALUES ('sofa, settee', 'outlet');
 SET ROLE synonym_expand_reader;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because row security applies to "shop_synonyms". To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   2
@@ -332,6 +452,7 @@ DROP ROLE synonym_expand_reader;
 EXPLAIN (COSTS OFF)
 SELECT id FROM en_products
 WHERE description ||| (SELECT pdb.expand('sofas', rule) FROM shop_synonyms);
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                 QUERY PLAN                                                                                                
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on en_products
@@ -348,6 +469,7 @@ WHERE description ||| (SELECT pdb.expand('sofas', rule) FROM shop_synonyms);
 
 SELECT id FROM en_products
 WHERE description ||| (SELECT pdb.expand('sofas', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -397,6 +519,7 @@ SELECT id FROM sofa_products ORDER BY id;
 
 DROP INDEX shop_synonyms_idx;
 SELECT id FROM sofa_products ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -415,6 +538,7 @@ CREATE TABLE text_rules (rule text);
 INSERT INTO text_rules VALUES ('sofa, couch'), (NULL), ('# seats');
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM text_rules) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "text_rules" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   1
@@ -425,6 +549,7 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM text_rules) ORDER BY
 INSERT INTO text_rules VALUES ('sofa => couch => divan');
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM text_rules) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "text_rules" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
 ERROR:  invalid synonym rule 'sofa => couch => divan': a rule can have at most one '=>'
 -- The aggregate takes one query text.
 SELECT pdb.expand(texts.query, rule) FROM shop_synonyms, (VALUES ('a'), ('b')) AS texts(query);

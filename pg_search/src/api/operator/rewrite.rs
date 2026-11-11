@@ -91,12 +91,8 @@ impl SearchOperator {
         };
         if let Some(rules) = synonyms {
             let pdb::Query::Match { synonyms, .. } = &mut query else {
-                let function = match rules {
-                    pdb::SynonymRules::Index(_) => "pdb.with_synonyms",
-                    pdb::SynonymRules::Rules(_) => "pdb.expand",
-                };
                 panic!(
-                    "`{function}` expands the `|||` and `&&&` operators, not `{}`",
+                    "`pdb.expand` expands the `|||` and `&&&` operators, not `{}`",
                     self.name()
                 );
             };

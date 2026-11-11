@@ -154,9 +154,12 @@ pub mod pdb {
                 Some(query) => query,
                 None => unsafe { query_without_rules(fcinfo)? },
             };
-            let mut query = pdb::Query::unclassified_string(&query);
-            query.apply_synonyms(pdb::SynonymRules::Rules(std::mem::take(&mut state.rules)));
-            Some(query)
+            Some(pdb::Query::UnclassifiedString {
+                string: query,
+                fuzzy_data: None,
+                slop_data: None,
+                synonyms: Some(pdb::SynonymRules::Rules(std::mem::take(&mut state.rules))),
+            })
         }
     }
 

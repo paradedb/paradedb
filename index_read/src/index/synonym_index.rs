@@ -35,7 +35,8 @@ use tantivy::synonyms::{CompiledRule, Expansion, KeyDocs, SegmentSynonyms, Synon
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy::{DocId, SegmentOrdinal, SegmentReader};
 
-/// The role that runs the query names the index, so its rights on the rules table are checked.
+/// A query can hold the oid of any index, so the rights of the role on the rules table are
+/// checked here.
 pub fn open_synonym_index(index: pg_sys::Oid) -> anyhow::Result<IndexAccess> {
     let index = IndexOid::from(index).read();
     let name = index.name();

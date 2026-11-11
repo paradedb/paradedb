@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794384378540,
+  "lastUpdate": 1794384404311,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -498654,6 +498654,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13745267008-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794384401534,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.77587546343561,
+            "unit": "median tps",
+            "extra": "avg tps: 57.9083325966862, max tps: 540.6708234211958, count: 58691"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.212307940359345,
+            "unit": "median tps",
+            "extra": "avg tps: 31.37144884017955, max tps: 339.97958402199174, count: 58691"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.07537024887111,
+            "unit": "median tps",
+            "extra": "avg tps: 130.92628961565225, max tps: 1207.3343144936864, count: 58691"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.32891521402465,
+            "unit": "median tps",
+            "extra": "avg tps: 30.52351973267629, max tps: 267.02446086861596, count: 58691"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.78546923009453,
+            "unit": "median tps",
+            "extra": "avg tps: 60.09641240629726, max tps: 539.2132891472379, count: 58691"
+          }
+        ],
+        "publication_id": "13839155720-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -512048,6 +512101,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13745267008-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794384404183,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.8671875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.13960935237089, max partition_index_size:MB: 21.453125, count: 58691"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.86803,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.221982356329903, max cpu: 32.26116, count: 58691"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 46.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.365038466822, max mem: 54.703125, count: 58691"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.933588,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.903604515399, max cpu: 36.764, count: 58691"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 66.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.58086039330988, max mem: 74.046875, count: 58691"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.675215,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.143750081128738, max cpu: 27.573002, count: 58691"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 49.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.9281499186417, max mem: 49.06640625, count: 58691"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.933588,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.898755070054285, max cpu: 32.307693, count: 58691"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 62.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.479196261990765, max mem: 72.984375, count: 58691"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.86803,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.17234457012446, max cpu: 32.18391, count: 58691"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 59.75,
+            "unit": "median mem",
+            "extra": "avg mem: 60.1460685651335, max mem: 67.75, count: 58691"
+          }
+        ],
+        "publication_id": "13839155720-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

@@ -328,14 +328,16 @@ impl Qual {
     }
 }
 
-/// Wraps `qual` in [`Qual::Security`], descending through AND and OR. A heap filter is left
-/// as it is: the heap-filter machinery matches `Qual::HeapExpr` in place, and its indexed part
-/// is already the zero-score `All`. A score condition is left as it is too, since the AND
-/// lowering must see it at the top level.
+/// Wraps `qual` in [`Qual::Security`], descending through AND and OR. The arms of an OR
+/// clause are `RestrictInfo` nodes at the same level, so they arrive already wrapped and are
+/// left as they are. A heap filter is left as it is: the heap-filter machinery matches
+/// `Qual::HeapExpr` in place, and its indexed part is already the zero-score `All`. A score
+/// condition is left as it is too, since the AND lowering must see it at the top level.
 fn mark_security(qual: Qual) -> Qual {
     match qual {
         Qual::And(quals) => Qual::And(quals.into_iter().map(mark_security).collect()),
         Qual::Or(quals) => Qual::Or(quals.into_iter().map(mark_security).collect()),
+        Qual::Security(_) => qual,
         other if other.contains_heap_expr() || other.contains_score_exprs() => other,
         other => Qual::Security(Box::new(other)),
     }
@@ -2398,6 +2400,22 @@ mod tests {
             &marked,
             Qual::And(quals)
                 if matches!(quals[0], Qual::Security(_)) && matches!(quals[1], Qual::HeapExpr { .. })
+        ));
+
+        // The arms of an OR policy are marked when their own `RestrictInfo` is lowered, so the
+        // OR itself marks nothing twice.
+        let arms = Qual::Or(vec![
+            Qual::Security(Box::new(Qual::PushdownVarEqTrue {
+                field: PushdownField::new("foo"),
+            })),
+            Qual::Security(Box::new(Qual::PushdownIsNotNull {
+                field: PushdownField::new("bar"),
+            })),
+        ]);
+        assert!(matches!(
+            mark_security(arms),
+            Qual::Or(quals)
+                if quals.iter().all(|arm| matches!(arm, Qual::Security(inner) if !matches!(**inner, Qual::Security(_))))
         ));
     }
 

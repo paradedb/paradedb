@@ -53,12 +53,14 @@ INSERT INTO rjf_jobs VALUES
 DROP ROLE IF EXISTS rjf_user;
 DROP ROLE IF EXISTS rjf_const_user;
 DROP ROLE IF EXISTS rjf_eq_user;
+DROP ROLE IF EXISTS rjf_or_user;
 DROP ROLE IF EXISTS rjf_range_user;
 CREATE ROLE rjf_user NOLOGIN;
 CREATE ROLE rjf_const_user NOLOGIN;
 CREATE ROLE rjf_eq_user NOLOGIN;
+CREATE ROLE rjf_or_user NOLOGIN;
 CREATE ROLE rjf_range_user NOLOGIN;
-GRANT SELECT ON rjf_jobs, rjf_clients TO rjf_user, rjf_const_user, rjf_eq_user, rjf_range_user;
+GRANT SELECT ON rjf_jobs, rjf_clients TO rjf_user, rjf_const_user, rjf_eq_user, rjf_or_user, rjf_range_user;
 
 ALTER TABLE rjf_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rjf_clients ENABLE ROW LEVEL SECURITY;
@@ -73,6 +75,9 @@ CREATE POLICY rjf_clients_const ON rjf_clients TO rjf_const_user USING (division
 -- Policy with a plain equality: it joins an equivalence class with any user equality on the
 -- same constant.
 CREATE POLICY rjf_jobs_eq ON rjf_jobs TO rjf_eq_user USING (division = 1);
+-- Policy with a SQL OR: each arm reaches the planner as its own RestrictInfo.
+CREATE POLICY rjf_jobs_or ON rjf_jobs TO rjf_or_user USING (division = 1 OR client_id = 3);
+CREATE POLICY rjf_clients_or ON rjf_clients TO rjf_or_user USING (true);
 -- Policy with a `@@@` query: one range for each run of visible division numbers, as an OR in a
 -- query string built at execution.
 CREATE POLICY rjf_jobs_range ON rjf_jobs TO rjf_range_user
@@ -441,7 +446,35 @@ RESET ROLE;
 DROP TABLE rjf_jobs_part;
 
 -- ============================================================
--- Test 14: with MPP enabled but inputs that are not range co-partitioned, a filtered join
+-- Test 14: a policy written as a SQL OR keeps RankJoinExec: each arm is lowered at 0.0 once,
+-- so the OR already scores 0.0 in every plan, and the hash join agrees on rows and scores.
+-- ============================================================
+SET ROLE rjf_or_user;
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
+RESET ROLE;
+
+-- ============================================================
+-- Test 15: with MPP enabled but inputs that are not range co-partitioned, a filtered join
 -- still plans and runs the single-task RankJoinExec (mode=CollectLeft).
 -- ============================================================
 SET paradedb.mpp_min_rows = 0;
@@ -475,7 +508,7 @@ RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
 
 -- ============================================================
--- Test 15: range co-partitioned inputs keep RankJoinExec (mode=Partitioned) under
+-- Test 16: range co-partitioned inputs keep RankJoinExec (mode=Partitioned) under
 -- DistributedExec, with the policy applied on every task's leaf. Extra rows let the join
 -- key split into two partitions; the indexes are rebuilt with partition keys.
 -- ============================================================
@@ -542,4 +575,5 @@ DROP TABLE rjf_clients CASCADE;
 DROP ROLE rjf_user;
 DROP ROLE rjf_const_user;
 DROP ROLE rjf_eq_user;
+DROP ROLE rjf_or_user;
 DROP ROLE rjf_range_user;

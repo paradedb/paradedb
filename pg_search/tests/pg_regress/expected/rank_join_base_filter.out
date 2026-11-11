@@ -265,7 +265,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ 'crossing'
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
-WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                                                explain_redact_oid                                                                                                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -300,8 +300,9 @@ LIMIT 10;
 (5 rows)
 
 -- ============================================================
--- Test 5: an OR of two constant filters is a filter too, so it keeps RankJoinExec, which
--- scores it 0.0 as it does every filter it admits.
+-- Test 5: an OR of two constant filters scores once per matching branch, so job 1, which
+-- matches both, outranks job 8, which matches one. The rank join would score both 0.0 and
+-- swap them, so it declines and the hash join keeps the branch count.
 -- ============================================================
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
@@ -311,8 +312,53 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
-                                                                                                                                                                                             explain_redact_oid                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                                                                                                                    explain_redact_oid                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: j INNER c
+   Join Cond: c.id = j.client_id
+   Join Predicate: (j:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}})
+   Limit: 10
+   Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[j, c]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, client_id@2)], filter=__j_0_tag_0@0 OR __c_1_tag_0@1, projection=[pdb.score(j)@4, ctid_0@5, id@7, pdb.score(c)@0, ctid_1@1, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=j, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"term_set":{"terms":[{"field":"division","value":1}]}},{"term_set":{"terms":[{"field":"client_id","value":1},{"field":"client_id","value":3}]}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division = ANY ('{1}'::int[]) OR j.client_id = ANY ('{1,3}'::int[]))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+ job | client | job_score | client_score 
+-----+--------+-----------+--------------
+   3 |      3 |         2 |    1.2039728
+   1 |      1 | 2.5790849 |            0
+   8 |      3 |         1 |    1.2039728
+   6 |      1 | 2.0338466 |            0
+   5 |      2 | 1.7261543 |            0
+(5 rows)
+
+-- The same OR with each branch at ::pdb.const(0) already scores 0.0 in every plan, so it
+-- keeps RankJoinExec, and the hash join returns the same rows, order and scores.
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+                                                                                                                                                                                                                                explain_redact_oid                                                                                                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: j INNER c
    Join Cond: c.id = j.client_id
@@ -327,13 +373,13 @@ $$);
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"boolean":{"should":[{"term_set":{"terms":[{"field":"division","value":1}]}},{"term_set":{"terms":[{"field":"client_id","value":1},{"field":"client_id","value":3}]}}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"const_score":{"query":{"term":{"field":"division","value":1}},"score":0.0}}}},{"with_index":{"query":{"const_score":{"query":{"term_set":{"field":"client_id","terms":[1,3]}},"score":0.0}}}}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
 FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
 WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
-  AND (j.division = ANY ('{1}'::int[]) OR j.client_id = ANY ('{1,3}'::int[]))
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
  job | client | job_score  | client_score 
@@ -345,6 +391,23 @@ LIMIT 10;
    1 |      1 |   0.579085 |            0
 (5 rows)
 
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+ job | client | job_score  | client_score 
+-----+--------+------------+--------------
+   3 |      3 |          0 |    1.2039728
+   8 |      3 |          0 |    1.2039728
+   6 |      1 |  1.0338466 |            0
+   5 |      2 | 0.72615427 |            0
+   1 |      1 |   0.579085 |            0
+(5 rows)
+
+SET paradedb.enable_rank_join = on;
 -- ============================================================
 -- Test 6: a filter the index cannot answer keeps the hash join.
 -- ============================================================
@@ -426,7 +489,7 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ pdb.term('crossi
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
-WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
                                                                                                                                   explain_redact_oid                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -456,9 +519,9 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra') AND j.body @@@ pdb.term('crossi
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
-WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
-                                                                                                                                                            explain_redact_oid                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                                                                                     explain_redact_oid                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: j INNER c
    Join Cond: c.id = j.client_id
@@ -473,7 +536,7 @@ WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate w
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, dynamic_filters=1, query={"with_index":{"query":{"score_adjusted":{"field":"body","query":{"term":{"value":"crossing"}},"score":{"Const":7.0}}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, dynamic_filters=1, query={"with_index":{"query":{"const_score":{"query":{"term":{"field":"body","value":"crossing"}},"score":7.0}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 -- ============================================================
@@ -592,9 +655,10 @@ SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND divis
 (2 rows)
 
 -- ============================================================
--- Test 12: a @@@ query whose score is constant (pdb.range, pdb.term_set, pdb.exists, or an OR
--- of those) is a filter the user wrote with the search operator. It keeps RankJoinExec like
--- the plain SQL range it is equivalent to.
+-- Test 12: a @@@ query whose score is constant (pdb.range, pdb.term_set, pdb.exists) is a
+-- filter the user wrote with the search operator. It keeps RankJoinExec like the plain SQL
+-- range it is equivalent to. An OR of two such ranges scores per matching branch and declines,
+-- as in Test 5.
 -- ============================================================
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
@@ -636,6 +700,23 @@ LIMIT 10;
    2 |      2 | 0.9873608 |            0
 (3 rows)
 
+-- The hash join adds the range's constant score to every row it keeps, so the rows and their
+-- order are the same and only the job score differs by that constant.
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(2, 3))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+ job | client | job_score | client_score 
+-----+--------+-----------+--------------
+   8 |      3 |         1 |    1.2039728
+   6 |      1 | 2.0338466 |            0
+   2 |      2 | 1.9873607 |            0
+(3 rows)
+
+SET paradedb.enable_rank_join = on;
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
 FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
@@ -644,8 +725,9 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10
 $$);
-                                                                                                                                                                                                                                      explain_redact_oid                                                                                                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  RankJoinExec not used: table "j" combines a cross-table OR predicate with a scored or disjunctive per-table predicate. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                                                                                                                                                              explain_redact_oid                                                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: j INNER c
    Join Cond: c.id = j.client_id
@@ -654,13 +736,13 @@ $$);
    Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   GlobalLimitExec: skip=0, fetch=10
+     :   SortExec: TopK(fetch=10), expr=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[j, c]
-     :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, client_id@2)], filter=__j_0_tag_0@0 OR __c_1_tag_0@1, projection=[pdb.score(j)@4, ctid_0@5, id@7, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=20, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":1},"upper_bound":{"excluded":2}}}}},{"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":2},"upper_bound":{"excluded":3}}}}}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":1},"upper_bound":{"excluded":2}}}}},{"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":2},"upper_bound":{"excluded":3}}}}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
@@ -669,14 +751,14 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
   AND (j.division @@@ pdb.range(int4range(1, 2)) OR j.division @@@ pdb.range(int4range(2, 3)))
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
- job | client | job_score  | client_score 
------+--------+------------+--------------
-   3 |      3 |          0 |    1.2039728
-   8 |      3 |          0 |    1.2039728
-   6 |      1 |  1.0338466 |            0
-   2 |      2 |  0.9873608 |            0
-   5 |      2 | 0.72615427 |            0
-   1 |      1 |   0.579085 |            0
+ job | client | job_score | client_score 
+-----+--------+-----------+--------------
+   3 |      3 |         1 |    1.2039728
+   8 |      3 |         1 |    1.2039728
+   6 |      1 | 2.0338466 |            0
+   2 |      2 | 1.9873607 |            0
+   5 |      2 | 1.7261543 |            0
+   1 |      1 |  1.579085 |            0
 (6 rows)
 
 -- ============================================================

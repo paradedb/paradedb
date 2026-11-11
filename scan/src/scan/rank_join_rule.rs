@@ -293,8 +293,8 @@ pub enum RankJoinDeclineReason {
     LimitExceedsMax { k: usize, max_k: usize },
     /// Cross-table `OR` leaf scan has a non-indexed heap filter alongside its tagged predicates.
     DisjunctiveLeafHasHeapFilter { table: String },
-    /// Cross-table `OR` leaf scan combines its tagged predicates with a scored per-table
-    /// `base_query` that `RankJoinExec` cannot evaluate as a `0.0`-score filter.
+    /// Cross-table `OR` leaf scan combines its tagged predicates with a scored or disjunctive
+    /// per-table `base_query` that `RankJoinExec` cannot evaluate as a `0.0`-score filter.
     DisjunctiveLeafBaseNotPushdownFilter { table: String },
     /// Cross-table search join filter is not a pure `OR` disjunction covering all tagged predicates.
     DisjunctiveFilterNotPureOr,
@@ -346,7 +346,7 @@ impl std::fmt::Display for RankJoinDeclineReason {
             ),
             Self::DisjunctiveLeafBaseNotPushdownFilter { table } => write!(
                 f,
-                "table \"{table}\" combines a cross-table OR predicate with a scored per-table predicate"
+                "table \"{table}\" combines a cross-table OR predicate with a scored or disjunctive per-table predicate"
             ),
             Self::DisjunctiveFilterNotPureOr => write!(
                 f,

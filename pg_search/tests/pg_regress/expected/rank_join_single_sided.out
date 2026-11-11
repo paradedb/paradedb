@@ -553,8 +553,8 @@ WHERE u.bio @@@ 'rust'::pdb.boost(100) AND p.title @@@ 'bm25'
 ORDER BY paradedb.score(u.id) + paradedb.score(p.id) DESC
 LIMIT 5;
 WARNING:  RankJoinExec not used: score contribution ratio (0.010) is below balance threshold (0.20). To disable this warning: SET paradedb.planner_warnings = 'off'
-                                                                                                                QUERY PLAN                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Relation Tree: u INNER p
    Join Cond: u.id = p.user_id
@@ -566,7 +566,7 @@ WARNING:  RankJoinExec not used: score contribution ratio (0.010) is below balan
      :     VisibilityFilterExec: tables=[u, p]
      :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, user_id@2)], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4]
      :         CooperativeExec
-     :           PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"score_adjusted":{"field":"bio","query":{"parse_with_field":{"query_string":"rust","lenient":null,"conjunction_mode":null}},"score":{"Boost":100.0}}}}}
+     :           PgSearchScan: table=u, segments=2, query={"with_index":{"query":{"boost":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}},"factor":100.0}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (14 rows)

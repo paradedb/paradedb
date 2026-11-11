@@ -192,8 +192,9 @@ ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
 
 -- ============================================================
--- Test 5: an OR of two constant filters is a filter too, so it keeps RankJoinExec, which
--- scores it 0.0 as it does every filter it admits.
+-- Test 5: an OR of two constant filters scores once per matching branch, so job 1, which
+-- matches both, outranks job 8, which matches one. The rank join would score both 0.0 and
+-- swap them, so it declines and the hash join keeps the branch count.
 -- ============================================================
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
@@ -210,6 +211,33 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
   AND (j.division = ANY ('{1}'::int[]) OR j.client_id = ANY ('{1,3}'::int[]))
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
+
+-- The same OR with each branch at ::pdb.const(0) already scores 0.0 in every plan, so it
+-- keeps RankJoinExec, and the hash join returns the same rows, order and scores.
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND (j.division @@@ pdb.term(1)::pdb.const(0) OR j.client_id @@@ pdb.term_set(ARRAY[1, 3])::pdb.const(0))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
 
 -- ============================================================
 -- Test 6: a filter the index cannot answer keeps the hash join.
@@ -315,9 +343,10 @@ RESET ROLE;
 SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND division = 1 ORDER BY id;
 
 -- ============================================================
--- Test 12: a @@@ query whose score is constant (pdb.range, pdb.term_set, pdb.exists, or an OR
--- of those) is a filter the user wrote with the search operator. It keeps RankJoinExec like
--- the plain SQL range it is equivalent to.
+-- Test 12: a @@@ query whose score is constant (pdb.range, pdb.term_set, pdb.exists) is a
+-- filter the user wrote with the search operator. It keeps RankJoinExec like the plain SQL
+-- range it is equivalent to. An OR of two such ranges scores per matching branch and declines,
+-- as in Test 5.
 -- ============================================================
 SELECT explain_redact_oid($$
 SELECT j.id, c.id
@@ -334,6 +363,17 @@ WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
   AND j.division @@@ pdb.range(int4range(2, 3))
 ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
 LIMIT 10;
+
+-- The hash join adds the range's constant score to every row it keeps, so the rows and their
+-- order are the same and only the job score differs by that constant.
+SET paradedb.enable_rank_join = off;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(2, 3))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+SET paradedb.enable_rank_join = on;
 
 SELECT explain_redact_oid($$
 SELECT j.id, c.id

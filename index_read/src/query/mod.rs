@@ -367,11 +367,7 @@ impl SearchQueryInput {
                 conjunction_mode: None,
             },
             pdb::Query::ScoreAdjusted { query, score } => {
-                let query = Box::new(Self::from_unfielded(*query));
-                match score.expect("score adjustment value should have been set") {
-                    pdb::ScoreAdjustStyle::Boost(factor) => Self::Boost { query, factor },
-                    pdb::ScoreAdjustStyle::Const(score) => Self::ConstScore { query, score },
-                }
+                Self::score_adjusted(Self::from_unfielded(*query), score)
             }
             _ => {
                 ErrorReport::new(
@@ -383,6 +379,16 @@ impl SearchQueryInput {
                 .report(PgLogLevel::ERROR);
                 unreachable!()
             }
+        }
+    }
+
+    /// `pdb.boost` and `pdb.const` become [`Self::Boost`] and [`Self::ConstScore`] around the
+    /// lowered query, so a score adjustment never sits inside a [`Self::FieldedQuery`].
+    pub fn score_adjusted(query: Self, score: Option<pdb::ScoreAdjustStyle>) -> Self {
+        let query = Box::new(query);
+        match score.expect("score adjustment value should have been set") {
+            pdb::ScoreAdjustStyle::Boost(factor) => Self::Boost { query, factor },
+            pdb::ScoreAdjustStyle::Const(score) => Self::ConstScore { query, score },
         }
     }
 
@@ -414,10 +420,6 @@ impl SearchQueryInput {
             | Self::ConstScore { query, .. }
             | Self::Boost { query, .. } => query.supports_statistics_estimation(),
             Self::FieldedQuery { query, .. } => {
-                let mut query = query;
-                while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
-                    query = inner;
-                }
                 matches!(
                     query,
                     pdb::Query::All
@@ -504,10 +506,12 @@ impl SearchQueryInput {
     /// Whether the rank join can keep this as a `0.0`-score filter: a query that scores every
     /// row it matches the same, so dropping its score reorders nothing. That is a pushed SQL
     /// restriction (`=`, `= ANY`, a range, `IS NOT NULL`, `<>`), an explicit `@@@` of a
-    /// constant-score shape (a range, a term set, `exists`), an AND, OR, or NOT of those, or a
+    /// constant-score shape (a range, a term set, `exists`), an AND or NOT of those, or a
     /// `0.0` constant over anything without a score condition, which is how a row-level
-    /// security policy arrives. A term counts only on a field `term_is_filter` accepts. A
-    /// `PostgresExpression` is accepted for plain `EXPLAIN` (before
+    /// security policy and a `::pdb.const(0)` arrive. An OR is admitted only when every branch
+    /// already scores `0.0`: a row matching two branches of a scored OR outranks a row matching
+    /// one, which the rank join cannot reproduce. A term counts only on a field
+    /// `term_is_filter` accepts. A `PostgresExpression` is accepted for plain `EXPLAIN` (before
     /// `solve_postgres_expressions` resolves it at execution). A text search, a boost, and a
     /// non-zero constant score are refused.
     pub fn is_pushdown_filter(&self, term_is_filter: &dyn Fn(&FieldName) -> bool) -> bool {
@@ -517,11 +521,7 @@ impl SearchQueryInput {
             | SearchQueryInput::Null
             | SearchQueryInput::TermSet { .. }
             | SearchQueryInput::PostgresExpression { .. } => true,
-            // A `0.0` constant is a filter whatever it wraps: a policy is lowered this way, and
-            // the negation of a pushed filter guards NULLs with it.
-            SearchQueryInput::ConstScore { query, score } => {
-                *score == 0.0 && !query.has_score_filter()
-            }
+            SearchQueryInput::ConstScore { .. } => self.is_zero_constant(),
             SearchQueryInput::WithIndex { query, .. } => query.is_pushdown_filter(term_is_filter),
             // An excluded clause adds no score, but deciding what it excludes may need one.
             SearchQueryInput::Boolean {
@@ -529,14 +529,27 @@ impl SearchQueryInput {
                 should,
                 must_not,
                 ..
-            } => must
-                .iter()
-                .chain(should)
-                .chain(must_not)
-                .all(|q| q.is_pushdown_filter(term_is_filter)),
+            } => {
+                must.iter()
+                    .chain(must_not)
+                    .all(|q| q.is_pushdown_filter(term_is_filter))
+                    && should.iter().all(Self::is_zero_constant)
+            }
             SearchQueryInput::FieldedQuery { field, query } => {
                 query.is_pushdown_filter(field, term_is_filter)
             }
+            _ => false,
+        }
+    }
+
+    /// Every row this query matches scores exactly `0.0` in every plan. A policy, a
+    /// `::pdb.const(0)` and the match-all inside a negation arrive this way.
+    fn is_zero_constant(&self) -> bool {
+        match self {
+            SearchQueryInput::ConstScore { query, score } => {
+                *score == 0.0 && !query.has_score_filter()
+            }
+            SearchQueryInput::WithIndex { query, .. } => query.is_zero_constant(),
             _ => false,
         }
     }
@@ -960,40 +973,33 @@ impl SearchQueryInput {
         let mut complete = true;
         self.visit_ref(&mut |query| {
             let query_string = match query {
-                Self::FieldedQuery { field, query } => {
-                    let mut query = query;
-                    while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
-                        query = inner;
-                    }
-                    match query {
-                        pdb::Query::Parse { query_string, .. } => Some(query_string.clone()),
-                        pdb::Query::ParseWithField { query_string, .. } => {
-                            field_names.insert(field.root());
-                            if schema.search_field(field).is_some_and(|field| {
-                                matches!(field.field_entry().field_type(), FieldType::Facet(_))
-                            }) {
-                                None
-                            } else {
-                                Some(format!("{field}:({query_string})"))
-                            }
-                        }
-                        pdb::Query::MoreLikeThis { fields, .. } => {
-                            if let Some(fields) = fields {
-                                field_names.extend(
-                                    fields.iter().map(|field| FieldName::from(field).root()),
-                                );
-                            } else {
-                                complete = false;
-                            }
+                Self::FieldedQuery { field, query } => match query {
+                    pdb::Query::Parse { query_string, .. } => Some(query_string.clone()),
+                    pdb::Query::ParseWithField { query_string, .. } => {
+                        field_names.insert(field.root());
+                        if schema.search_field(field).is_some_and(|field| {
+                            matches!(field.field_entry().field_type(), FieldType::Facet(_))
+                        }) {
                             None
-                        }
-                        pdb::Query::All | pdb::Query::Empty => None,
-                        _ => {
-                            field_names.insert(field.root());
-                            None
+                        } else {
+                            Some(format!("{field}:({query_string})"))
                         }
                     }
-                }
+                    pdb::Query::MoreLikeThis { fields, .. } => {
+                        if let Some(fields) = fields {
+                            field_names
+                                .extend(fields.iter().map(|field| FieldName::from(field).root()));
+                        } else {
+                            complete = false;
+                        }
+                        None
+                    }
+                    pdb::Query::All | pdb::Query::Empty => None,
+                    _ => {
+                        field_names.insert(field.root());
+                        None
+                    }
+                },
                 Self::Parse { query_string, .. } => Some(query_string.clone()),
                 Self::TermSet { terms } => {
                     field_names.extend(terms.iter().map(|term| term.field.root()));
@@ -2355,6 +2361,24 @@ mod tests {
             query: Box::new(score_filter.clone()),
             score: 0.0,
         };
+        let or_of_zero_consts = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![
+                zero_const_over_filter.clone(),
+                SearchQueryInput::WithIndex {
+                    oid: pgrx::pg_sys::Oid::INVALID,
+                    query: Box::new(zero_const_over_text.clone()),
+                },
+            ],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
+        let or_with_one_scored_branch = SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![zero_const_over_filter.clone(), term_set.clone()],
+            must_not: vec![],
+            minimum_should_match: None,
+        };
 
         let pg_expr =
             SearchQueryInput::postgres_expression(std::ptr::null_mut(), "expr".to_string());
@@ -2376,8 +2400,9 @@ mod tests {
         assert!(!term.is_pushdown_filter(&no_filter));
         assert!(and.is_pushdown_filter(&filter));
         assert!(!and.is_pushdown_filter(&no_filter));
-        assert!(or.is_pushdown_filter(&filter));
-        assert!(!or.is_pushdown_filter(&no_filter));
+        assert!(!or.is_pushdown_filter(&filter));
+        assert!(or_of_zero_consts.is_pushdown_filter(&no_filter));
+        assert!(!or_with_one_scored_branch.is_pushdown_filter(&no_filter));
         assert!(!score_filter.is_pushdown_filter(&filter));
         assert!(!not_score_filter.is_pushdown_filter(&filter));
         assert!(not_term.is_pushdown_filter(&filter));
@@ -2385,7 +2410,7 @@ mod tests {
         assert!(explicit_term.is_pushdown_filter(&filter));
         assert!(!explicit_term.is_pushdown_filter(&no_filter));
         assert!(explicit_term_set.is_pushdown_filter(&no_filter));
-        assert!(explicit_or_of_filters.is_pushdown_filter(&no_filter));
+        assert!(!explicit_or_of_filters.is_pushdown_filter(&no_filter));
         assert!(!explicit_text.is_pushdown_filter(&filter));
         assert!(!const_over_filter.is_pushdown_filter(&no_filter));
         assert!(zero_const_over_filter.is_pushdown_filter(&no_filter));

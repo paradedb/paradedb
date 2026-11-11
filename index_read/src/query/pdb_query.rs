@@ -61,7 +61,12 @@ use tokenizers::SearchTokenizer;
 use super::dot_path_to_facet;
 
 pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
-    SearchQueryInput::FieldedQuery { field, query }
+    match query {
+        pdb::Query::ScoreAdjusted { query, score } => {
+            SearchQueryInput::score_adjusted(to_search_query_input(field, *query), score)
+        }
+        query => SearchQueryInput::FieldedQuery { field, query },
+    }
 }
 
 pub fn to_search_query_input_unfielded(query: pdb::Query) -> SearchQueryInput {
@@ -2841,6 +2846,30 @@ mod tests {
             field: crate::api::FieldName::from("field"),
             query,
         }
+    }
+
+    #[pg_test]
+    fn to_search_query_input_hoists_score_adjustment() {
+        use super::pdb::ScoreAdjustStyle;
+        use crate::query::SearchQueryInput;
+
+        let nested = Query::ScoreAdjusted {
+            query: Box::new(Query::ScoreAdjusted {
+                query: Box::new(match_query("x")),
+                score: Some(ScoreAdjustStyle::Boost(2.0)),
+            }),
+            score: Some(ScoreAdjustStyle::Const(0.0)),
+        };
+        assert_eq!(
+            super::to_search_query_input(crate::api::FieldName::from("field"), nested),
+            SearchQueryInput::ConstScore {
+                query: Box::new(SearchQueryInput::Boost {
+                    query: Box::new(fielded(match_query("x"))),
+                    factor: 2.0,
+                }),
+                score: 0.0,
+            }
+        );
     }
 
     #[pg_test]

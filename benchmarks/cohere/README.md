@@ -167,36 +167,40 @@ arm reports.
 `router_quality.py render` writes:
 
 - `router_quality.md`, the PR-comment section under the operating-point table: a
-  verdict line, one table per filter level with Flat (flat arm), Router (stored
-  arm) and Router with adaptive probing on (`stored-adaptive`), and a link to
-  the full report. Each cell shows this commit's value with main's in brackets.
-  Router vs flat is Router / Flat.
+  verdict line, one table per filter level, two footnotes and a link to the full
+  report. Each table starts with two ratios on vectors probed (valid vectors for
+  the filtered levels): Router vs flat, the stored arm over the flat arm, and
+  Adaptive on vs off, `stored-adaptive` over the stored arm. Then come clusters
+  probed and vectors for Flat, Router and Router with adaptive probing on, and
+  routing time for Flat and Router, with the router's share of query time in
+  brackets.
 - `router_quality.html`, the full report: every arm's clusters, vectors probed,
   valid vectors, empty clusters, layer-0 scored, exact rows, routing time,
-  centroids scored and adaptive stops per query and target, plus the checks,
-  tolerated runs, plan shapes and config. CI copies it into the sweep reports
-  directory, so the publisher puts it on gh-pages under
+  centroids scored and adaptive stops per query and target, this commit's values
+  beside main's, the checks, tolerated runs, plan shapes and config. CI copies it
+  into the sweep reports directory, so the publisher puts it on gh-pages under
   `benchmarker-runs/<commit>/cohere-<size>/sweep/router_quality.html`.
 - `router-metrics.json` and `router-detail-metrics.json`, unfiltered values per
   target for the benchmark history. The publisher stores them as two suites:
-  `benchmarker cohere-<size> (router)` holds Router vs flat clusters and
-  adaptive on / off vectors probed and alerts like the other suites (115%,
+  `benchmarker cohere-<size> (router)` holds Router vs flat and Adaptive on vs
+  off, both on vectors probed, and alerts like the other suites (115%,
   commenting only on runs without a PR);
   `benchmarker cohere-<size> (router detail)` holds Flat vectors probed,
-  adaptive-on vectors probed and Router routing time, without alerts. Neither adds rows to the PR comment's results
-  table.
+  adaptive-on vectors probed and Router routing time, without alerts. Neither
+  adds rows to the PR comment's results table.
 - `router_quality.json`, every number above with the commit and config
   fingerprint; the next run on main reads it as the baseline.
 
-Only the Unfiltered table flags. A Router vs flat ratio above 1.05 gets ❌ at r90
-and r95 and ⚠️ at r99; with a main baseline it must also exceed main's ratio by
-more than 0.05, so a router already above 1.05 on main does not flag every run.
-When ratios sit above 1.05 without a flag, the verdict reads "No regression
-against main" and names the worst r90 or r95 ratio next to main's. Against main,
-at r90 and r95, a cell turns bold with ⚠️
-when Flat or adaptive-on vectors probed rose by more than 10%, when adaptive-on
-/ Router vectors probed rose by more than 0.05, or when Router routing time rose
-by more than 25% and 0.1 ms. These are policy thresholds for review, not derived
-bounds. The filtered tables are informational: every segment is forced to route,
-their plans are parallel, and routing time includes row gating. Nothing here
-fails the job.
+Only the Unfiltered table flags, and the only gated ratio is Router vs flat on
+vectors probed: above 1.05 it gets ❌ at r90 and r95 and ⚠️ at r99; with a main
+baseline it must also exceed main's ratio by more than 0.05, so a router already
+above 1.05 on main does not flag every run. When it sits above 1.05 without a
+flag, the verdict reads "No regression against main" and names the worst r90 or
+r95 ratio next to main's. Against main, at r90 and r95, a cell turns bold with
+⚠️ and shows main's value when Flat or adaptive-on vectors probed rose by more
+than 10%, when Adaptive on vs off rose by more than 0.05, or when Router routing
+time rose by more than 25% and 0.1 ms. Main's values appear in the comment only
+in flagged cells. These are policy thresholds for review, not derived bounds.
+The filtered tables are informational: every segment is forced to route, their
+plans are parallel, and routing time includes row gating. Nothing here fails the
+job.

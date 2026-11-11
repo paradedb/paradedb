@@ -766,8 +766,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM products
 WHERE description ||| 'shoes'::pdb.boost(2.0)
 ORDER BY pdb.score(id) DESC;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -775,7 +775,7 @@ ORDER BY pdb.score(id) DESC;
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Boost":2.0}}}}}
+         Tantivy Query: {"with_index":{"query":{"boost":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"factor":2.0}}}}
 (8 rows)
 
 SELECT id, description FROM products

@@ -1072,6 +1072,29 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
+    /// The synonym indexes that the match queries of this tree name.
+    pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
+        let mut indexes = Vec::new();
+        self.visit_ref(&mut |input| {
+            let SearchQueryInput::FieldedQuery { query, .. } = input else {
+                return;
+            };
+            let mut query = query;
+            while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                query = inner;
+            }
+            if let pdb::Query::Match {
+                synonyms: Some(index),
+                ..
+            } = query
+                && !indexes.contains(index)
+            {
+                indexes.push(*index);
+            }
+        });
+        indexes
+    }
+
     pub fn canonical_query_string(&self) -> String {
         let mut cleaned_query = serde_json::to_value(self)
             .unwrap_or_else(|_| serde_json::Value::String("Error serializing query".to_string()));

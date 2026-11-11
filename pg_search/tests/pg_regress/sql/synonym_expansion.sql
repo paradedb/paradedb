@@ -33,6 +33,10 @@ WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id
 SELECT id FROM products
 WHERE description &&& pdb.with_synonyms('red sofa', 'shop_synonyms_idx') ORDER BY id;
 
+-- EXPLAIN names the synonym index on its own line.
+EXPLAIN (COSTS OFF)
+SELECT id FROM products WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx');
+
 -- A multi-word alternative is a phrase, and a directed rule drops the typed word.
 SELECT id FROM products
 WHERE description ||| pdb.with_synonyms('sneakers', 'shop_synonyms_idx') ORDER BY id;

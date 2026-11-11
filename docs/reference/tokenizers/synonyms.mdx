@@ -138,8 +138,8 @@ Each alternative is one more term the query has to look up, so a long rule costs
 
 ## Checking an Expansion
 
-`EXPLAIN` shows the match as you wrote it, with the name of the synonym index. `pdb.synonym_expansion` shows what the
-synonym index turns the text into, with the synonym index's own tokenizer:
+`EXPLAIN` shows the match as you wrote it, and a `Synonyms` line names the synonym index. `pdb.synonym_expansion` shows
+what the synonym index turns the text into, with the synonym index's own tokenizer:
 
 ```sql
 SELECT * FROM pdb.synonym_expansion('shop_synonyms_idx', 'red sofa');

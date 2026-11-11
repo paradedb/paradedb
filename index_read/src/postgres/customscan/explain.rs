@@ -22,9 +22,7 @@
 //! like OIDs and internal pointers.
 
 use crate::query::estimate_tree::QueryWithEstimates;
-use pgrx::pg_sys;
 use serde::Serialize;
-use std::ffi::CStr;
 
 /// Trait for objects that can be formatted for EXPLAIN output
 ///
@@ -53,13 +51,10 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
                 with_index_obj.remove("oid");
             }
 
-            // The oid of a synonym index differs between databases, so print its name.
-            if let Some(synonyms) = obj
-                .get_mut("match")
-                .and_then(|query| query.get_mut("synonyms"))
-                && let Some(oid) = synonyms.as_u64()
-            {
-                *synonyms = relation_name(oid as u32).into();
+            // The oid of a synonym index differs between databases. EXPLAIN names the index on
+            // its own line.
+            if let Some(query) = obj.get_mut("match").and_then(|query| query.as_object_mut()) {
+                query.remove("synonyms");
             }
 
             // Clean up HeapFieldFilter objects: remove raw expr_node (internal node representation)
@@ -94,16 +89,6 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
         // Base cases: primitive values don't need processing
         _ => {}
     }
-}
-
-fn relation_name(oid: u32) -> String {
-    let name = unsafe { pg_sys::get_rel_name(pg_sys::Oid::from(oid)) };
-    if name.is_null() {
-        return oid.to_string();
-    }
-    unsafe { CStr::from_ptr(name) }
-        .to_string_lossy()
-        .into_owned()
 }
 
 /// Format a serializable object for EXPLAIN output

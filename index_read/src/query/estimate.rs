@@ -17,7 +17,7 @@
 
 use std::ops::Bound;
 
-use crate::index::stats::{EmpiricalStats, SegmentStats};
+use crate::index::stats::SegmentStats;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::SearchField;
 use tantivy::SegmentReader;
@@ -98,71 +98,63 @@ impl QueryEstimate for dyn Query {
 
 impl QueryEstimate for RangeQueryWithEstimate {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // Assume values are uniformly distributed between the segment's minimum and maximum.
+        // TODO: Keep more granular statistics to estimate nonuniform distributions.
         let Some(stats) = SegmentStats::of_reader(reader)? else {
             return Ok(None);
         };
-        let Some(stats) = stats.empirical_for(&self.field)? else {
-            return Ok(None);
-        };
-        Ok(
-            uniform_range_fraction(&stats, &self.lower_bound, &self.upper_bound).map(|fraction| {
-                Estimate {
-                    matches: fraction * f64::from(reader.max_doc()),
-                    cost: u64::from(reader.max_doc()),
-                }
-            }),
-        )
+        Ok(stats.empirical_for(&self.field)?.and_then(|stats| {
+            let distance = |value: &PdbOwnedValue| {
+                let distance = match (&stats.min, value) {
+                    (PdbOwnedValue::I64(min), PdbOwnedValue::I64(value)) => {
+                        (i128::from(*value) - i128::from(*min)) as f64
+                    }
+                    (PdbOwnedValue::U64(min), PdbOwnedValue::U64(value)) => {
+                        (i128::from(*value) - i128::from(*min)) as f64
+                    }
+                    (PdbOwnedValue::Date(min), PdbOwnedValue::Date(value)) => {
+                        (i128::from(value.into_inner()) - i128::from(min.into_inner())) as f64
+                    }
+                    (PdbOwnedValue::F64(min), PdbOwnedValue::F64(value)) => value - min,
+                    _ => return None,
+                };
+                distance.is_finite().then_some(distance)
+            };
+            let span = distance(&stats.max)?;
+            let step = if matches!(stats.min, PdbOwnedValue::F64(_)) {
+                0.0
+            } else {
+                1.0
+            };
+            let lower_offset = match &self.lower_bound {
+                Bound::Included(value) => distance(value)?,
+                Bound::Excluded(value) => distance(value)? + step,
+                Bound::Unbounded => 0.0,
+            };
+            let upper_offset = match &self.upper_bound {
+                Bound::Included(value) => distance(value)? + step,
+                Bound::Excluded(value) => distance(value)?,
+                Bound::Unbounded => span + step,
+            };
+            let fraction = if !stats.intersects(&self.lower_bound, &self.upper_bound)
+                || lower_offset > upper_offset
+            {
+                0.0
+            } else if stats.nullable {
+                // Nullability also covers multivalued fields; min/max cannot estimate their document counts.
+                return None;
+            } else if span == 0.0 {
+                1.0
+            } else {
+                ((upper_offset.min(span + step) - lower_offset.max(0.0)) / (span + step))
+                    .clamp(0.0, 1.0)
+            };
+            Some(Estimate {
+                matches: fraction * f64::from(reader.max_doc()),
+                cost: u64::from(reader.max_doc()),
+            })
+        }))
     }
-}
-
-fn uniform_range_fraction(
-    stats: &EmpiricalStats,
-    lower: &Bound<PdbOwnedValue>,
-    upper: &Bound<PdbOwnedValue>,
-) -> Option<f64> {
-    let distance = |value: &PdbOwnedValue| {
-        let distance = match (&stats.min, value) {
-            (PdbOwnedValue::I64(min), PdbOwnedValue::I64(value)) => {
-                (i128::from(*value) - i128::from(*min)) as f64
-            }
-            (PdbOwnedValue::U64(min), PdbOwnedValue::U64(value)) => {
-                (i128::from(*value) - i128::from(*min)) as f64
-            }
-            (PdbOwnedValue::Date(min), PdbOwnedValue::Date(value)) => {
-                (i128::from(value.into_inner()) - i128::from(min.into_inner())) as f64
-            }
-            (PdbOwnedValue::F64(min), PdbOwnedValue::F64(value)) => value - min,
-            _ => return None,
-        };
-        distance.is_finite().then_some(distance)
-    };
-    let span = distance(&stats.max)?;
-    let step = if matches!(stats.min, PdbOwnedValue::F64(_)) {
-        0.0
-    } else {
-        1.0
-    };
-    let lower_offset = match lower {
-        Bound::Included(value) => distance(value)?,
-        Bound::Excluded(value) => distance(value)? + step,
-        Bound::Unbounded => 0.0,
-    };
-    let upper_offset = match upper {
-        Bound::Included(value) => distance(value)? + step,
-        Bound::Excluded(value) => distance(value)?,
-        Bound::Unbounded => span + step,
-    };
-    if !stats.intersects(lower, upper) || lower_offset > upper_offset {
-        return Some(0.0);
-    }
-    // Nullability also covers multivalued fields; min/max cannot estimate their document counts.
-    if stats.nullable {
-        return None;
-    }
-    if span == 0.0 {
-        return Some(1.0);
-    }
-    Some(((upper_offset.min(span + step) - lower_offset.max(0.0)) / (span + step)).clamp(0.0, 1.0))
 }
 
 impl QueryEstimate for AllQuery {
@@ -347,105 +339,9 @@ impl QueryEstimate for EmptyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::datetime::PostgresDateTime;
     use tantivy::query::{QueryClone, RegexQuery};
     use tantivy::schema::{IndexRecordOption, Schema, TEXT};
     use tantivy::{Index, TantivyDocument, Term, doc};
-
-    #[test]
-    fn uniform_range_estimates_numeric_and_timestamp_bounds() {
-        for value in [
-            PdbOwnedValue::I64 as fn(i64) -> PdbOwnedValue,
-            |value| PdbOwnedValue::U64(value as u64),
-            |value| PdbOwnedValue::Date(PostgresDateTime::try_from_raw(value).unwrap()),
-        ] {
-            let stats = EmpiricalStats {
-                min: value(1),
-                max: value(100),
-                nullable: false,
-            };
-            for (lower, upper, expected) in [
-                (Bound::Included(91), Bound::Unbounded, 0.1),
-                (Bound::Excluded(90), Bound::Unbounded, 0.1),
-                (Bound::Unbounded, Bound::Included(10), 0.1),
-                (Bound::Unbounded, Bound::Excluded(11), 0.1),
-                (Bound::Included(100), Bound::Included(100), 0.01),
-                (Bound::Included(20), Bound::Excluded(20), 0.0),
-                (Bound::Included(90), Bound::Included(10), 0.0),
-                (Bound::Excluded(100), Bound::Unbounded, 0.0),
-                (Bound::Unbounded, Bound::Excluded(1), 0.0),
-                (Bound::Unbounded, Bound::Unbounded, 1.0),
-            ] {
-                assert_eq!(
-                    uniform_range_fraction(&stats, &lower.map(value), &upper.map(value)),
-                    Some(expected),
-                );
-            }
-        }
-        let stats = EmpiricalStats {
-            min: PdbOwnedValue::I64(i64::MAX - 99),
-            max: PdbOwnedValue::I64(i64::MAX),
-            nullable: false,
-        };
-        assert_eq!(
-            uniform_range_fraction(
-                &stats,
-                &Bound::Included(PdbOwnedValue::I64(i64::MAX - 9)),
-                &Bound::Unbounded,
-            ),
-            Some(0.1),
-        );
-    }
-
-    #[test]
-    fn uniform_range_estimates_float_constant_and_unknown_fields() {
-        let mut stats = EmpiricalStats {
-            min: PdbOwnedValue::F64(0.0),
-            max: PdbOwnedValue::F64(100.0),
-            nullable: false,
-        };
-        let lower = Bound::Included(PdbOwnedValue::F64(90.0));
-        assert_eq!(
-            uniform_range_fraction(&stats, &lower, &Bound::Unbounded),
-            Some(0.1)
-        );
-        stats.nullable = true;
-        assert_eq!(
-            uniform_range_fraction(&stats, &lower, &Bound::Unbounded),
-            None
-        );
-        stats.nullable = false;
-        stats.min = PdbOwnedValue::F64(f64::NAN);
-        assert_eq!(
-            uniform_range_fraction(&stats, &lower, &Bound::Unbounded),
-            None
-        );
-        stats.min = stats.max.clone();
-        assert_eq!(
-            uniform_range_fraction(&stats, &lower, &Bound::Unbounded),
-            Some(1.0)
-        );
-        for (lower, upper, expected) in [
-            (
-                Bound::Included(stats.min.clone()),
-                Bound::Included(stats.max.clone()),
-                1.0,
-            ),
-            (Bound::Excluded(stats.min.clone()), Bound::Unbounded, 0.0),
-            (Bound::Unbounded, Bound::Excluded(stats.max.clone()), 0.0),
-        ] {
-            assert_eq!(
-                uniform_range_fraction(&stats, &lower, &upper),
-                Some(expected)
-            );
-        }
-        stats.min = PdbOwnedValue::Str("a".into());
-        stats.max = PdbOwnedValue::Str("z".into());
-        assert_eq!(
-            uniform_range_fraction(&stats, &Bound::Unbounded, &Bound::Unbounded),
-            None
-        );
-    }
 
     #[test]
     fn statistics_estimates_preserve_term_document_frequency() {

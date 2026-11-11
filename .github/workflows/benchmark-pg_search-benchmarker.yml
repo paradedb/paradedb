@@ -218,14 +218,9 @@ jobs:
     env:
       DATASET: ${{ matrix.dataset }}
       DATASET_CONFIG_S3: s3://paradedb-benchmark/benchmarker/${{ matrix.dataset }}/
-      BACKREST_REPO_BUCKET: paradedb-benchmark
-      SNAPSHOT_KEY: snapshots/${{ matrix.dataset }}/v1/${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}/zst/heap.tar.zst
       IMAGE_TAG: paradedb-source:ci
 
     steps:
-      - name: Initialize Environment
-        run: echo "VOLUME_ROOT=${RUNNER_TEMP}/volumes" >> "$GITHUB_ENV"
-
       # Remove the label so it can be applied again to start another run.
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request'
@@ -261,14 +256,6 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Build ParadeDB Image
-        id: build_image
-        uses: ./.github/actions/build-paradedb-image
-        with:
-          ref: ${{ steps.determine-ref.outputs.ref }}
-          base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
-          image_tag: ${{ env.IMAGE_TAG }}
-
       - name: Set Up Benchmarker
         uses: ./.github/actions/setup-benchmarker
         with:
@@ -282,35 +269,23 @@ jobs:
           mkdir -p "$dataset_dir"
           # Restore the heap below; do not download the corpus through download.yaml.
           aws s3 sync "${DATASET_CONFIG_S3}" "$dataset_dir" --exclude download.yaml --no-sign-request
-          test -f "${dataset_dir}/docker-compose.yml"
           test -f "${dataset_dir}/k6/search.js"
 
-      - name: Restore ${{ env.DATASET }} Heap Snapshot
-        run: |
-          set -euo pipefail
-          mkdir -p "${VOLUME_ROOT}"
-          s3_src="s3://${BACKREST_REPO_BUCKET}/${SNAPSHOT_KEY}"
-          echo "Downloading heap snapshot from ${s3_src}..."
-          aws s3 cp "${s3_src}" "${RUNNER_TEMP}/heap.tar.zst" --no-sign-request
-
-          target_dir="${VOLUME_ROOT}/bench-datasets-${DATASET}/paradedb"
-          mkdir -p "${target_dir}"
-          echo "Extracting heap to ${target_dir}..."
-          sudo tar -I zstd -xf "${RUNNER_TEMP}/heap.tar.zst" -C "${target_dir}"
-          rm -f "${RUNNER_TEMP}/heap.tar.zst"
+      - name: Set Up Docker Benchmark Cluster
+        id: build_image
+        uses: ./.github/actions/setup-docker-benchmark-cluster
+        with:
+          ref: ${{ steps.determine-ref.outputs.ref }}
+          base_image: ${{ inputs.base_paradedb_image || 'paradedb/paradedb:latest-pg18' }}
+          image_tag: ${{ env.IMAGE_TAG }}
+          dataset: ${{ matrix.dataset }}
+          size: ${{ matrix.dataset == 'stackexchange' && '150m' || '5m' }}
+          snapshot_format: zst
 
       - name: Build ${{ env.DATASET }} Index with ${{ env.IMAGE_TAG }}
         working-directory: benchmarker/datasets/_ci_config
-        env:
-          PARADEDB_IMAGE: ${{ env.IMAGE_TAG }}
-          PARADEDB_DATA_DIR: ${{ env.VOLUME_ROOT }}/bench-datasets-${{ matrix.dataset }}/paradedb
-          PARADEDB_CONTAINER: paradedb
-          POSTGRES_CPUSET: "0-7"
-          MEMORY: 64g
-          EFFECTIVE_CACHE_SIZE: 48GB
         run: |
           set -euo pipefail
-          docker compose up -d --wait --wait-timeout 300 paradedb
           docker compose exec -T paradedb \
             psql -X -U postgres -d benchmark -v ON_ERROR_STOP=1 \
             -c "DROP EXTENSION IF EXISTS pg_search CASCADE; CREATE EXTENSION pg_search CASCADE;"

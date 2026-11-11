@@ -97,7 +97,7 @@ jobs:
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
       - name: Set up Docker benchmark cluster
-        uses: ./.github/actions/setup-vector-benchmark-cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
           ref: ${{ env.BENCHMARK_REF }}
           dataset: hackernews/vector

@@ -16,8 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::postgres::promotion::{self, ReplicatedIndex};
-use crate::postgres::rel::PgSearchRelation;
 use pgrx::{pg_guard, pg_sys};
 use std::ffi::CStr;
 
@@ -28,47 +26,24 @@ const RMGR_NAME: &CStr = c"pg_search";
 const XLOG_PG_SEARCH_INIT_INDEX: u8 = 0x10;
 const XLOG_PG_SEARCH_INIT_INDEX_NAME: &CStr = c"INIT_INDEX";
 
-unsafe fn record_info(record: *mut pg_sys::XLogReaderState) -> u8 {
-    (*(*record).record).header.xl_info & !(pg_sys::XLR_INFO_MASK as u8)
-}
-
-/// The index the record names. Primaries older than 0.26.7 wrote a single zero byte instead.
-unsafe fn payload(record: *mut pg_sys::XLogReaderState) -> Option<ReplicatedIndex> {
-    if ((*(*record).record).main_data_len as usize) < std::mem::size_of::<ReplicatedIndex>() {
-        return None;
-    }
-    Some(std::ptr::read_unaligned(
-        (*(*record).record).main_data.cast::<ReplicatedIndex>(),
-    ))
-}
-
 #[pg_guard]
 unsafe extern "C-unwind" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
+    let info = (*(*record).record).header.xl_info & !(pg_sys::XLR_INFO_MASK as u8);
     // The index pages reached the standby as full-page images before this record. An ERROR in
-    // the startup process is FATAL and stops replay for the whole cluster, so nothing here errors.
-    if record_info(record) == XLOG_PG_SEARCH_INIT_INDEX && pg_sys::StandbyMode {
-        match payload(record) {
-            Some(index) => promotion::record_replicated_index(index),
-            None => pgrx::log!(
-                "a ParadeDB index was created on the primary, which runs a pg_search older than \
-                 0.26.7; ParadeDB Community does not serve ParadeDB indexes on a standby"
-            ),
-        }
+    // the startup process is FATAL and stops replay for the whole cluster, so this only logs.
+    if info == XLOG_PG_SEARCH_INIT_INDEX && pg_sys::StandbyMode {
+        pgrx::log!(
+            "a ParadeDB index was created on the primary; ParadeDB Community does not serve \
+             ParadeDB indexes on a standby, and after promotion they refuse queries until REINDEX"
+        );
     }
 }
 
 #[pg_guard]
-unsafe extern "C-unwind" fn rm_desc(buf: pg_sys::StringInfo, record: *mut pg_sys::XLogReaderState) {
-    if record_info(record) != XLOG_PG_SEARCH_INIT_INDEX {
-        return;
-    }
-    if let Some(index) = payload(record) {
-        let text = format!(
-            "database {} index {} relfilenumber {}\0",
-            index.database, index.index, index.relfilenumber
-        );
-        pg_sys::appendStringInfoString(buf, text.as_ptr().cast());
-    }
+unsafe extern "C-unwind" fn rm_desc(
+    _buf: pg_sys::StringInfo,
+    _record: *mut pg_sys::XLogReaderState,
+) {
 }
 
 #[pg_guard]
@@ -81,11 +56,13 @@ unsafe extern "C-unwind" fn rm_identify(info: u8) -> *const ::core::ffi::c_char 
 
 #[pg_guard]
 unsafe extern "C-unwind" fn rm_startup() {
-    promotion::recovery_starting();
+    crate::postgres::promotion::recovery_starting();
 }
 
 #[pg_guard]
-unsafe extern "C-unwind" fn rm_cleanup() {}
+unsafe extern "C-unwind" fn rm_cleanup() {
+    crate::postgres::promotion::recovery_ending();
+}
 
 #[pg_guard]
 unsafe extern "C-unwind" fn rm_mask(
@@ -94,19 +71,14 @@ unsafe extern "C-unwind" fn rm_mask(
 ) {
 }
 
-/// Writes the `INIT_INDEX` record naming `index`. A standby replaying it lists the index as
-/// replicated; see `postgres::promotion`.
-pub fn emit_init_record(index: &PgSearchRelation) {
+pub fn emit_init_record() {
     // XLogRegisterData's signature varies across Postgres versions
     // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
     // on pg15 vs `uint32` later). `as _` lets each build infer the right types.
-    let mut payload = ReplicatedIndex::of(index);
+    let mut payload: u8 = 0;
     unsafe {
         pg_sys::XLogBeginInsert();
-        pg_sys::XLogRegisterData(
-            &mut payload as *mut ReplicatedIndex as _,
-            std::mem::size_of::<ReplicatedIndex>() as _,
-        );
+        pg_sys::XLogRegisterData(&mut payload as *mut u8 as _, std::mem::size_of::<u8>() as _);
         pg_sys::XLogInsert(RMGR_ID, XLOG_PG_SEARCH_INIT_INDEX);
     }
 }

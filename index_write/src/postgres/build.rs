@@ -108,7 +108,7 @@ pub extern "C-unwind" fn ambuild(
     }
 
     if needs_wal {
-        custom_rmgr::emit_init_record(&index_relation);
+        custom_rmgr::emit_init_record();
     }
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };

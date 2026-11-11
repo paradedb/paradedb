@@ -16,135 +16,95 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Refuses ParadeDB indexes that reached this server through physical replication once the
-//! server has been promoted. The primary names an index in the rmgr record it emits when the
-//! index is built and whenever it is vacuumed. A standby's pages must stay byte copies of the
-//! primary's, so the startup process lists each named index in a file under the data directory
-//! instead of marking the index; the gate reads that list once the server is read-write.
-//! `REINDEX` gives the index a new file number, which the list does not name.
+//! server has been promoted. A standby's pages must stay byte copies of the primary's, so the
+//! startup process records standby mode in a file under the data directory; the sweep in
+//! `index_write` marks every ParadeDB index once the server is read-write and removes the file.
 
-use crate::api::HashSet;
 use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::MetaPage;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
+use std::cell::Cell;
 use std::ffi::{CStr, OsStr};
 use std::fs;
-use std::io::{self, ErrorKind, Write};
+use std::io::{ErrorKind, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
-const REGISTRY_FILE: &str = "pg_search_standby";
+const MARKER_FILE: &str = "pg_search_standby";
 
-/// An index as the `INIT_INDEX` record names it, and as the registry file lists it.
-#[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ReplicatedIndex {
-    pub database: u32,
-    pub index: u32,
-    pub relfilenumber: u32,
-}
-
-impl ReplicatedIndex {
-    pub fn of(index: &PgSearchRelation) -> Self {
-        Self {
-            database: index.database_oid().to_u32(),
-            index: index.oid().to_u32(),
-            relfilenumber: index.relfilenumber(),
-        }
-    }
-
-    fn line(&self) -> String {
-        format!("{} {} {}\n", self.database, self.index, self.relfilenumber)
-    }
-
-    fn parse(line: &str) -> Option<Self> {
-        let mut fields = line.split_whitespace().map(str::parse::<u32>);
-        let entry = Self {
-            database: fields.next()?.ok()?,
-            index: fields.next()?.ok()?,
-            relfilenumber: fields.next()?.ok()?,
-        };
-        fields.next().is_none().then_some(entry)
-    }
-}
-
-pub fn registry_path() -> PathBuf {
+pub fn marker_path() -> PathBuf {
     let data_dir = unsafe { CStr::from_ptr(pg_sys::DataDir) };
-    Path::new(OsStr::from_bytes(data_dir.to_bytes())).join(REGISTRY_FILE)
+    Path::new(OsStr::from_bytes(data_dir.to_bytes())).join(MARKER_FILE)
 }
 
-/// A missing file is an empty registry; an unreadable or malformed one is an error.
-fn read_registry() -> io::Result<HashSet<ReplicatedIndex>> {
-    let text = match fs::read_to_string(registry_path()) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(HashSet::default()),
-        Err(e) => return Err(e),
-    };
-    text.lines()
-        .map(|line| {
-            ReplicatedIndex::parse(line).ok_or_else(|| {
-                io::Error::new(ErrorKind::InvalidData, format!("unexpected line {line:?}"))
-            })
-        })
-        .collect()
+/// A marker that cannot be inspected counts as present, so a damaged file never unblocks a
+/// replicated index.
+pub fn marker_present() -> bool {
+    match fs::metadata(marker_path()) {
+        Ok(_) => true,
+        Err(e) => e.kind() != ErrorKind::NotFound,
+    }
 }
 
-fn write_registry(entries: &HashSet<ReplicatedIndex>) -> io::Result<()> {
-    let path = registry_path();
+fn write_marker() -> std::io::Result<()> {
+    let path = marker_path();
     let tmp = path.with_extension("tmp");
     let mut file = fs::File::create(&tmp)?;
-    let mut lines: Vec<String> = entries.iter().map(ReplicatedIndex::line).collect();
-    lines.sort();
-    file.write_all(lines.concat().as_bytes())?;
+    file.write_all(b"standby\n")?;
     file.sync_all()?;
     fs::rename(&tmp, &path)?;
-    fs::File::open(path.parent().expect("registry lives in the data directory"))?.sync_all()
+    fs::File::open(path.parent().expect("marker lives in the data directory"))?.sync_all()
 }
 
-/// The redo of an `INIT_INDEX` record in the startup process of a standby.
-pub(crate) fn record_replicated_index(index: ReplicatedIndex) {
-    let result = read_registry().and_then(|mut entries| {
-        if !entries.insert(index) {
-            return Ok(false);
-        }
-        write_registry(&entries).map(|()| true)
-    });
-    match result {
+pub fn remove_marker() -> std::io::Result<bool> {
+    match fs::remove_file(marker_path()) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// The rmgr startup callback, in the startup process before redo. Point-in-time and crash
+/// recovery of this server's own data leave `StandbyMode` false and are not restores, so they
+/// neither write nor remove the marker.
+pub(crate) fn recovery_starting() {
+    if unsafe { pg_sys::StandbyMode } {
+        record_standby();
+    } else if restoring_base_backup() {
+        forget_standby();
+    }
+}
+
+/// The rmgr cleanup callback, after the redo loop. On a promoting standby `StandbyMode` is still
+/// set here, so the marker is fresh at promotion even if it was removed while the standby ran.
+pub(crate) fn recovery_ending() {
+    if unsafe { pg_sys::StandbyMode } {
+        record_standby();
+    }
+}
+
+fn record_standby() {
+    if let Err(e) = write_marker() {
+        pgrx::warning!(
+            "pg_search could not record that this server is a standby in {}: {e}",
+            marker_path().display()
+        );
+    }
+}
+
+/// A base backup taken from a standby carries the marker, and restoring it is not a promotion:
+/// the same bytes taken from the primary carry no marker.
+fn forget_standby() {
+    match remove_marker() {
         Ok(true) => pgrx::log!(
-            "ParadeDB index {} in database {} was built or vacuumed on the primary; ParadeDB \
-             Community does not serve ParadeDB indexes on a standby, and after promotion this one \
-             refuses queries until REINDEX",
-            index.index,
-            index.database
+            "pg_search removed the standby marker carried by the base backup; this restore is not a promotion"
         ),
         Ok(false) => {}
         Err(e) => pgrx::warning!(
-            "pg_search could not list ParadeDB index {} of database {} in {}: {e}; after \
-             promotion it will not be refused",
-            index.index,
-            index.database,
-            registry_path().display()
-        ),
-    }
-}
-
-/// The rmgr startup callback, in the startup process before redo. A base backup taken from a
-/// standby carries the registry, and restoring it is not a promotion: the same bytes taken from
-/// the primary carry no registry. Point-in-time and crash recovery of this server's own data are
-/// not restores and keep it.
-pub(crate) fn recovery_starting() {
-    if unsafe { pg_sys::StandbyMode } || !restoring_base_backup() {
-        return;
-    }
-    match fs::remove_file(registry_path()) {
-        Ok(()) => pgrx::log!(
-            "pg_search removed the list of replicated ParadeDB indexes carried by the base backup; this restore is not a promotion"
-        ),
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => pgrx::warning!(
             "pg_search could not remove {}: {e}",
-            registry_path().display()
+            marker_path().display()
         ),
     }
 }
@@ -163,34 +123,39 @@ fn restoring_base_backup() -> bool {
     restoring
 }
 
-/// Loaded once per process, after recovery has ended and the startup process no longer writes
-/// the file. A registry that cannot be read blocks every ParadeDB index with an error naming it.
-fn registered(index: ReplicatedIndex) -> bool {
-    static REGISTRY: OnceLock<HashSet<ReplicatedIndex>> = OnceLock::new();
-    REGISTRY
-        .get_or_init(|| {
-            read_registry().unwrap_or_else(|e| {
-                pgrx::error!(
-                    "pg_search could not read the list of replicated ParadeDB indexes in {}: {e}",
-                    registry_path().display()
-                )
-            })
-        })
-        .contains(&index)
+thread_local! {
+    // Timeline on which this backend last found no marker. An in-place promotion starts a new
+    // timeline, so a backend that lived through one looks again.
+    static CLEAR_ON_TIMELINE: Cell<Option<pg_sys::TimeLineID>> = const { Cell::new(None) };
+}
+
+fn sweep_pending() -> bool {
+    let timeline = unsafe { pg_sys::GetWALInsertionTimeLine() };
+    if CLEAR_ON_TIMELINE.get() == Some(timeline) {
+        return false;
+    }
+    let pending = marker_present();
+    if !pending {
+        CLEAR_ON_TIMELINE.set(Some(timeline));
+    }
+    pending
 }
 
 /// True when `index` must not serve queries: it arrived through physical replication and this
-/// server has since been promoted. Always false while the server is in recovery, where the
-/// standby read gate applies instead.
+/// server has since been promoted, or the promotion sweep has not finished yet. Always false
+/// while the server is in recovery, where the standby read gate applies instead.
 pub fn index_blocked_after_promotion(index: &PgSearchRelation) -> bool {
     if unsafe { pg_sys::RecoveryInProgress() } {
         return false;
     }
-    // A partitioned index has no storage of its own; the records name its leaves.
-    if is_partitioned_index(index.oid()) {
-        return leaf_partition_indexes(index).any(|leaf| registered(ReplicatedIndex::of(&leaf)));
+    if sweep_pending() {
+        return true;
     }
-    registered(ReplicatedIndex::of(index))
+    // A partitioned index has no metapage; the sweep marks its leaves.
+    if is_partitioned_index(index.oid()) {
+        return leaf_partition_indexes(index).any(|leaf| MetaPage::open(&leaf).standby_tainted());
+    }
+    MetaPage::open(index).standby_tainted()
 }
 
 /// For the "table has no ParadeDB index" fallbacks: report a blocked index as the reason instead.

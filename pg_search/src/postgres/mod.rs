@@ -22,7 +22,9 @@ use pgrx::*;
 pub use index_write::postgres::fake_aminsertcleanup;
 #[cfg(any(test, feature = "pg_test"))]
 pub use index_write::postgres::merge;
-pub use index_write::postgres::{build, build_logging, delete, insert, mutable_sweep, vacuum};
+pub use index_write::postgres::{
+    build, build_logging, delete, insert, mutable_sweep, promotion_sweep, vacuum,
+};
 pub use planner::postgres::{
     ParallelScanState, ScanStrategy, access, catalog, composite, cost, datetime, heap, index, node,
     options, parallel, pdb_owned_value, pgstat, planner_warnings, promotion, rel,

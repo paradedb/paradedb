@@ -56,7 +56,10 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
         return;
     }
     pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+    #[cfg(feature = "pg15")]
     let page = pgrx::BufferGetPage!(buffer).get();
+    #[cfg(not(feature = "pg15"))]
+    let page = pg_sys::BufferGetPage(buffer);
     let lsn = (*record).EndRecPtr;
     if lsn <= page_lsn(page) {
         pg_sys::UnlockReleaseBuffer(buffer);
@@ -73,17 +76,30 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     );
 }
 
-/// `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding.
+// `BufferGetPage`, `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding;
+// from 16 they are functions.
+#[cfg(feature = "pg15")]
 unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
     let lsn = (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn;
     ((lsn.xlogid as u64) << 32) | lsn.xrecoff as u64
 }
 
+#[cfg(feature = "pg15")]
 unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
     (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn = pg_sys::PageXLogRecPtr {
         xlogid: (lsn >> 32) as u32,
         xrecoff: lsn as u32,
     };
+}
+
+#[cfg(not(feature = "pg15"))]
+unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
+    pg_sys::PageGetLSN(page)
+}
+
+#[cfg(not(feature = "pg15"))]
+unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
+    pg_sys::PageSetLSN(page, lsn)
 }
 
 #[pg_guard]

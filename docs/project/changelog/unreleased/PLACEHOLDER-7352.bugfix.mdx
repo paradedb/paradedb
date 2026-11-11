@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- `paradedb.term` and `pdb.term` on an `inet` column now match the indexed address. They previously returned no rows or failed with `Tantivy PdbOwnedValue type not supported`.

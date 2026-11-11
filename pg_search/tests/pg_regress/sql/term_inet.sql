@@ -1,0 +1,16 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS inet_docs;
+CREATE TABLE inet_docs (id int PRIMARY KEY, ip inet);
+INSERT INTO inet_docs VALUES
+  (1, '192.168.0.1'),
+  (2, '192.168.0.10'),
+  (3, '2001:db8::1');
+CREATE INDEX inet_docs_idx ON inet_docs USING bm25 (id, ip);
+
+SELECT id FROM inet_docs WHERE ip = '192.168.0.1'::inet ORDER BY id;
+SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', '192.168.0.1'::inet) ORDER BY id;
+SELECT id FROM inet_docs WHERE ip @@@ pdb.term('192.168.0.1'::inet) ORDER BY id;
+SELECT id FROM inet_docs WHERE id @@@ paradedb.term('ip', '2001:db8::1'::inet) ORDER BY id;
+
+DROP TABLE inet_docs;

@@ -24,6 +24,7 @@
 //! The module consolidates all numeric conversion logic to avoid duplication
 //! and provide consistent error handling.
 
+use std::net::IpAddr;
 use std::ops::Bound;
 use std::str::FromStr;
 
@@ -33,6 +34,7 @@ use crate::postgres::types::is_datetime_type;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
 use decimal_bytes::{Decimal, Decimal64NoScale};
+use tantivy::schema::IntoIpv6Addr;
 
 // ============================================================================
 // Numeric64 Scaling (I64 Fixed-Point)
@@ -216,6 +218,34 @@ pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
         return PdbOwnedValue::F64(f);
     }
     value
+}
+
+/// Convert a term value to the `IpAddr` that an `inet` field indexes.
+///
+/// A query is serialized between planning and execution and `IpAddr` does not survive that
+/// round trip: it comes back as a string, or as an array of octets when the serializer is not
+/// human-readable. Both are mapped back here. Anything else is left for the caller to reject.
+pub fn to_ip_addr(value: PdbOwnedValue) -> PdbOwnedValue {
+    let parsed = match &value {
+        PdbOwnedValue::Str(s) => s.parse::<IpAddr>().ok(),
+        PdbOwnedValue::Array(items) => {
+            let octets = items
+                .iter()
+                .map(|item| match item {
+                    PdbOwnedValue::U64(n) => u8::try_from(*n).ok(),
+                    PdbOwnedValue::I64(n) => u8::try_from(*n).ok(),
+                    _ => None,
+                })
+                .collect::<Option<Vec<u8>>>();
+            match octets.as_deref() {
+                Some(&[a, b, c, d]) => Some(IpAddr::from([a, b, c, d])),
+                Some(bytes) => <[u8; 16]>::try_from(bytes).ok().map(IpAddr::from),
+                None => None,
+            }
+        }
+        _ => None,
+    };
+    parsed.map_or(value, |addr| PdbOwnedValue::IpAddr(addr.into_ipv6_addr()))
 }
 
 // ============================================================================
@@ -546,6 +576,7 @@ pub fn convert_value_for_field(
             }
         }
         SearchFieldType::F64(_) => Ok(string_to_f64(value)),
+        SearchFieldType::Inet(_) => Ok(to_ip_addr(value)),
         _ => Ok(value),
     }
 }
@@ -556,6 +587,38 @@ mod tests {
     use Clamped::{Above, Below, Exact};
     use rstest::rstest;
     use std::ops::Bound::{Excluded, Included, Unbounded};
+
+    #[test]
+    fn to_ip_addr_restores_serialized_addresses() {
+        let v4 = PdbOwnedValue::IpAddr("::ffff:192.168.0.1".parse().unwrap());
+        let octets = |bytes: &[u8]| {
+            PdbOwnedValue::Array(
+                bytes
+                    .iter()
+                    .map(|b| PdbOwnedValue::U64(*b as u64))
+                    .collect(),
+            )
+        };
+        assert_eq!(to_ip_addr(PdbOwnedValue::Str("192.168.0.1".into())), v4);
+        assert_eq!(to_ip_addr(octets(&[192, 168, 0, 1])), v4);
+        assert_eq!(
+            to_ip_addr(PdbOwnedValue::Str("2001:db8::1".into())),
+            PdbOwnedValue::IpAddr("2001:db8::1".parse().unwrap())
+        );
+        assert_eq!(
+            to_ip_addr(octets(
+                &"2001:db8::1"
+                    .parse::<std::net::Ipv6Addr>()
+                    .unwrap()
+                    .octets()
+            )),
+            PdbOwnedValue::IpAddr("2001:db8::1".parse().unwrap())
+        );
+        // Not an address: left untouched.
+        let junk = PdbOwnedValue::Str("not an ip".into());
+        assert_eq!(to_ip_addr(junk.clone()), junk);
+        assert_eq!(to_ip_addr(octets(&[1, 2, 3])), octets(&[1, 2, 3]));
+    }
 
     #[test]
     fn test_scale_i64() {

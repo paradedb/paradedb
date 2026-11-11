@@ -677,7 +677,9 @@ class RenderTest(unittest.TestCase):
         text = files["router_quality.md"]
         self.assertTrue(text.startswith("\n#### Router quality · Cohere 1m\n\n**✅ "))
         self.assertVerdict(files, "✅ Router matches flat ordering (worst 1.00x at r90) · no main baseline yet")
-        self.assertIn(f"**\n\n{HEADER}| Unfiltered r90 |", text)
+        # The heading and verdict stay visible; the table, footnote and link are collapsed.
+        summary = "<details><summary>Router quality table</summary>"
+        self.assertIn(f"**\n\n{summary}\n\n{HEADER}| Unfiltered r90 |", text)
         rows = table(text)
         self.assertEqual(list(rows), ROW_ORDER)
         self.assertEqual(
@@ -692,7 +694,9 @@ class RenderTest(unittest.TestCase):
             )
         self.assertNotIn("(main", text)
         self.assertNotIn("×", text)
-        self.assertTrue(text.endswith(f" |\n\n{rq.FOOTNOTE}\n[Full report]({self.URL})\n"))
+        link = f"[Full report]({self.URL})"
+        self.assertTrue(text.endswith(f" |\n\n{rq.FOOTNOTE}\n{link}\n\n</details>\n"))
+        self.assertEqual((text.count("<details>"), text.count("</details>")), (1, 1))
         for phrase in (
             "Each Ratio is Router divided by Flat for the two columns before it.",
             "Adaptive on vs off is the router's vectors probed with adaptive probing on, divided by off.",

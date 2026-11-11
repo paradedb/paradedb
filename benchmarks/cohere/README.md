@@ -194,7 +194,8 @@ arm reports.
 `router_quality.py render` writes:
 
 - `router_quality.md`, the PR-comment section under the operating-point table: a
-  verdict line, one table, one footnote paragraph and a link to the full report.
+  verdict line, then one table, one footnote paragraph and a link to the full
+  report, collapsed under "Router quality table".
   The table has a row per filter level and target (Unfiltered, Filter 10%, Filter
   1%, each at r90, r95, r99) and these columns: Flat and Router clusters probed
   and their Ratio (Router / Flat); Flat and Router vectors and their Ratio, where

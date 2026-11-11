@@ -807,6 +807,7 @@ GETTERS = {column: getter for column, _, getter, *_ in COLUMNS}
 FORMATTERS = {column: formatter for column, _, _, formatter, _ in COLUMNS}
 # The Router / Flat columns, with the work each one counts.
 RATIOS = (("ratio:clusters", "clusters"), ("ratio:vectors", "vectors"))
+TABLE_SUMMARY = "Router quality table"
 FOOTNOTE = (
     "Each Ratio is Router divided by Flat for the two columns before it. Flat and Router use fixed "
     "probes (adaptive off). Adaptive on vs off is the router's vectors probed with adaptive probing "
@@ -965,8 +966,8 @@ def table_cell(value_, render_value, suffix, flag, is_ratio):
 
 
 def markdown(report):
-    """The PR comment section: verdict, one row per filter level and target, footnote and report
-    link."""
+    """The PR comment section: heading and verdict, then one row per filter level and target, the
+    footnote and the report link, collapsed under a summary line."""
     size = report["dataset"].get("size", "")
     flagged = {(f["column"], f["target"]): f for f in report["flags"]}
     lines = [
@@ -974,6 +975,9 @@ def markdown(report):
         f"#### Router quality · Cohere {size}",
         "",
         f"**{report['verdict_line']}**",
+        "",
+        # GitHub renders Markdown inside <details> only with a blank line after the summary.
+        f"<details><summary>{TABLE_SUMMARY}</summary>",
         "",
         "| | " + " | ".join(HEADERS.values()) + " |",
         "|---|" + "---:|" * len(COLUMNS),
@@ -994,6 +998,7 @@ def markdown(report):
     lines += ["", FOOTNOTE]
     if report.get("report_url"):
         lines.append(f"[Full report]({report['report_url']})")
+    lines += ["", "</details>"]
     return "\n".join(lines) + "\n"
 
 

@@ -139,7 +139,7 @@ jobs:
           # rust-cache saves target/duckdb-sources with its files stripped, and libduckdb-sys
           # cannot unpack over the leftover directories when its build script reruns.
           rm -rf target/duckdb-sources
-          cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load --target-dir target -j 16
+          cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load -p pdbench-report --target-dir target -j 16
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       - name: Set up Benchmarker
@@ -191,6 +191,8 @@ jobs:
           ) 2>&1 | tee benchmark-artifacts/index-build.log
           runs=(benchmark-artifacts/load/*/*_load)
           test "${#runs[@]}" -eq 1
+          # Writes report.html into the run directory, which is uploaded with the diagnostics.
+          pdbench-report html "${runs[0]}"
           index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
           # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
           created="$(jq -r '.created_at' "${runs[0]}/run.json")"

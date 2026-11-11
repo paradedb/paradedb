@@ -127,7 +127,7 @@ baseline; subsequent PR runs compare with main and do not update its baseline.
 
 Diagnostics upload after plan verification, before the longer k6 pass, so recall
 sweeps can be reviewed while latency measurements continue.
-Artifacts retain index-build logs, the pdbench-load run, pdbench search reports (including
+Artifacts retain index-build logs, the pdbench-load run and its `report.html`, pdbench search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in
 on PRs; the small handoff tests can be run with:

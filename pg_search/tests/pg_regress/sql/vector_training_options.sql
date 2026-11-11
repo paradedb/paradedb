@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- is no longer an exhaustive scan, and this test only needs the index to be
 -- searchable after REINDEX (training options themselves are what we assert).
 SET paradedb.vector_clustering_threshold = 1000;
-SET paradedb.vector_cluster_max_probe = 1.0;
+SET paradedb.vector_cluster_max_probe = 100000;
 
 CREATE TABLE training_ratio_options (id integer PRIMARY KEY, vec vector(3));
 INSERT INTO training_ratio_options
@@ -19,8 +19,8 @@ WITH (target_segment_count = 1, mutable_segment_rows = 0,
       quantization = '0');
 
 -- Sampling and leaf size are independent settings.
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 20, training_sample_ratio = 0.25);
-SELECT reloptions @> ARRAY['max_leaf_size=20', 'training_sample_ratio=0.25']
+ALTER INDEX training_ratio_idx SET (target_leaf_size = 20, training_sample_ratio = 0.25);
+SELECT reloptions @> ARRAY['target_leaf_size=20', 'training_sample_ratio=0.25']
     AS stores_training_options
 FROM pg_class WHERE oid = 'training_ratio_idx'::regclass;
 REINDEX INDEX training_ratio_idx;
@@ -40,15 +40,15 @@ ALTER INDEX training_ratio_idx SET (training_sample_ratio = -0.1);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 1.01);
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 'NaN');
 ALTER INDEX training_ratio_idx SET (training_sample_ratio = 'Infinity');
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 1);
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 2147483647);
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 0);
-ALTER INDEX training_ratio_idx SET (max_leaf_size = -1);
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 'invalid');
-ALTER INDEX training_ratio_idx SET (max_leaf_size = 2147483648);
+ALTER INDEX training_ratio_idx SET (target_leaf_size = 1);
+ALTER INDEX training_ratio_idx SET (target_leaf_size = 2147483647);
+ALTER INDEX training_ratio_idx SET (target_leaf_size = 0);
+ALTER INDEX training_ratio_idx SET (target_leaf_size = -1);
+ALTER INDEX training_ratio_idx SET (target_leaf_size = 'invalid');
+ALTER INDEX training_ratio_idx SET (target_leaf_size = 2147483648);
 ALTER INDEX training_ratio_idx SET (centroid_ratio = 0.01);
 ALTER INDEX training_ratio_idx SET (training_samples_per_centroid = 32);
-SELECT reloptions @> ARRAY['training_sample_ratio=1.0', 'max_leaf_size=2147483647']
+SELECT reloptions @> ARRAY['training_sample_ratio=1.0', 'target_leaf_size=2147483647']
     AS invalid_updates_preserve_options
 FROM pg_class WHERE oid = 'training_ratio_idx'::regclass;
 

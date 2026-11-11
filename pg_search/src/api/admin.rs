@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::api::{CTID_FIELD_NAME, FieldName, HashMap, HashSet};
 use crate::index::directory::utils::load_index_settings;
@@ -818,7 +819,7 @@ fn verify_heap_references(
 
             // Check for interrupts periodically (every 10k docs)
             if total_checked.is_multiple_of(10_000) {
-                pgrx::check_for_interrupts!();
+                pgrx::check_for_interrupts();
             }
         }
 

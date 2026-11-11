@@ -16,7 +16,7 @@ For persistent configuration, use normal Postgres mechanisms such as `ALTER DATA
 
 ```sql
 ALTER DATABASE app SET paradedb.max_topk_chunk_size = 200000;
-ALTER ROLE app_user SET paradedb.vector_cluster_max_probe = 0.05;
+ALTER ROLE app_user SET paradedb.vector_cluster_max_probe = 500;
 ```
 
 <Warning>
@@ -77,7 +77,7 @@ These settings affect vector queries over `pgvector`'s `vector` type. See [Index
 | Setting                                 | Default         | Context | Description                                                                                                  |
 | --------------------------------------- | --------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `paradedb.vector_adaptive_probing`      | `on`            | user    | Stops cluster probing when competitive-candidate admission decays, within the same routing and work budgets. |
-| `paradedb.vector_cluster_max_probe`     | `0.02`          | user    | Probe-work budget as a fraction of each segment's capacity; also controls the router request.                |
+| `paradedb.vector_cluster_max_probe`     | `100`           | user    | Global probe-work budget in whole average-cluster units (`1`–`100000`); also controls the router request.    |
 | `paradedb.vector_clustering_threshold`  | `500`           | user    | Segment document-count threshold at which merged vector storage switches from flat to IVF.                   |
 | `paradedb.vector_fixed_probe_cost_rows` | Tantivy default | user    | Fixed per-probe cost used by the IVF probe-budget model; mainly for testing and calibration.                 |
 | `paradedb.vector_stats`                 | `off`           | user    | Shows per-segment vector scan statistics in `EXPLAIN (ANALYZE, VERBOSE)`; for diagnostics.                   |
@@ -139,9 +139,10 @@ Set these options in the index's `WITH` clause. The linked guides explain when c
 | `target_segment_count`       | Automatic                 | Target number of segments during `CREATE INDEX` or `REINDEX`. Overridden by a non-zero `paradedb.global_target_segment_count`. | [Read Throughput](/operate/performance-tuning/reads#adjusting-target-segment-count) |
 | `search_tokenizer`           | Indexed field's tokenizer | Default search-time tokenizer for text and JSON fields.                                                                        | [Search Tokenizer](/reference/tokenizers/search-tokenizer)                          |
 | `training_sample_ratio`      | `0.32`                    | Fraction of vectors sampled whenever a segment is clustered. Accepts `0.000001` through `1.0`.                                 | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
-| `max_leaf_size`              | `200`                     | Maximum sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                          | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `target_leaf_size`           | `200`                     | Target sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                           | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `quantization`               | `[1,1]`                   | Quantization layer widths shared by all vector fields. Set to `0` to disable quantization.                                     | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `vector_router_quantization` | `true`                    | Route through one-bit centroid codes with an exact rerank of the shortlisted centroids; `false` keeps full-precision routing.  | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
+| `replication`                | `2`                       | Number of IVF clusters each vector is assigned to; `2` adds a second cluster chosen to cover queries the first misses.         | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 
 ## Per-Index Write Options
 

@@ -23,7 +23,7 @@ use crate::postgres::access::IndexOid;
 #[cfg(feature = "pg_test")]
 use crate::postgres::catalog::OidExt;
 use crate::postgres::catalog::is_pgvector_oid;
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(feature = "pg_test")]
 use crate::postgres::rel::PgSearchRelation;
 use crate::vector::PgVector;
 use anyhow::{Context, Result, ensure};
@@ -791,7 +791,8 @@ fn decode_queries_capped(
         "queries must have type vector[]"
     );
 
-    let array = pgrx::AnyArray::into::<pgrx::Array<pg_sys::Datum>>(queries)
+    let array = queries
+        .value::<pgrx::Array<pg_sys::Datum>>()?
         .context("could not decode queries vector[]")?;
     let mut decoded = Vec::new();
     let mut input_count = 0usize;
@@ -1205,98 +1206,10 @@ mod unit_tests {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
-pub(crate) mod test_support {
-    use super::*;
-    use crate::postgres::storage::buffer::BufferManager;
-    use crate::postgres::storage::metadata::MetaPage;
-    pub(crate) fn vector_metadata_fixture() -> PgSearchRelation {
-        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;
-            SET paradedb.vector_clustering_threshold = 64;
-            CREATE TABLE metadata_vectors(id int PRIMARY KEY, vec vector(1024));
-            INSERT INTO metadata_vectors SELECT g, ARRAY(SELECT ((g+i)%17+1)::real
-                FROM generate_series(1,1024) i)::vector FROM generate_series(1,2048) g;
-            CREATE INDEX metadata_vectors_idx ON metadata_vectors USING paradedb(id, vec vector_l2_ops)
-                WITH (quantization='[1,4]', target_segment_count=1);").unwrap();
-        PgSearchRelation::open(
-            Spi::get_one::<pg_sys::Oid>("SELECT 'metadata_vectors_idx'::regclass::oid")
-                .unwrap()
-                .unwrap(),
-        )
-    }
-
-    pub(crate) fn set_single_layer_target(indexrel: &PgSearchRelation) {
-        let mut settings: serde_json::Value = serde_json::from_slice(&unsafe {
-            MetaPage::open(indexrel).settings_bytes().read_all()
-        })
-        .unwrap();
-        settings["vector_quantization"][0]["layers"]
-            .as_array_mut()
-            .unwrap()
-            .truncate(1);
-        settings["vector_quantization"][0]["grids"]
-            .as_array_mut()
-            .unwrap()
-            .retain(|grid| grid["bits"] == 1);
-        MetaPage::replace_settings_for_test(indexrel, &serde_json::to_vec(&settings).unwrap());
-    }
-
-    pub(crate) fn vector_query() -> String {
-        let query = vec!["1"; 1024].join(",");
-        format!(
-            "SELECT id FROM metadata_vectors WHERE id @@@ pdb.all() ORDER BY vec <-> '[{query}]'::vector LIMIT 5"
-        )
-    }
-
-    pub(crate) fn expect_reindex(sql: &str) {
-        Spi::run(&format!(
-            r#"DO $body$
-            DECLARE message text; hint text;
-            BEGIN
-                BEGIN
-                    EXECUTE {query};
-                    RAISE EXCEPTION 'expected vector format failure';
-                EXCEPTION WHEN feature_not_supported THEN
-                    GET STACKED DIAGNOSTICS message = MESSAGE_TEXT, hint = PG_EXCEPTION_HINT;
-                    ASSERT position('metadata_vectors_idx' in message) > 0, message;
-                    ASSERT hint = 'Rebuild index "metadata_vectors_idx" with REINDEX.', hint;
-                END;
-            END $body$;"#,
-            query = quote_literal(sql)
-        ))
-        .unwrap();
-    }
-
-    pub(crate) fn quote_literal(value: &str) -> String {
-        format!("'{}'", value.replace("'", "''"))
-    }
-
-    pub(crate) fn replace_vector_version(indexrel: &PgSearchRelation, version: u32) {
-        use crate::postgres::storage::block::{LinkedListData, SegmentMetaEntryContent};
-        let entries = unsafe { MetaPage::open(indexrel).segment_metas().list(None) };
-        let file = entries
-            .iter()
-            .filter(|entry| !entry.is_deleted())
-            .find_map(|entry| match entry.content {
-                SegmentMetaEntryContent::Immutable(content) => content.vec,
-                _ => None,
-            })
-            .expect("fixture has a vector file");
-        let mut bman = BufferManager::new(indexrel);
-        let block = bman
-            .get_buffer(file.starting_block)
-            .page()
-            .contents::<LinkedListData>()
-            .start_blockno;
-        let mut buffer = bman.get_buffer_mut(block);
-        *buffer.page_mut().contents_mut::<u32>() = version.to_le();
-    }
-}
-
-#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::test_support::*;
     use super::*;
+    use crate::api::vector_test_support::*;
     #[pg_test]
     fn vector_header_validation_is_cached() {
         let index = vector_metadata_fixture();

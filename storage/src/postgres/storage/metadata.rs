@@ -1,0 +1,691 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
+
+use crate::api::version::{Version, parse_version_component};
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::{
+    SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
+};
+use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer, init_new_buffer};
+use crate::postgres::storage::fsm::FreeSpaceManager;
+use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
+use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_sys,
+};
+use tantivy::IndexSettings;
+use tantivy::schema::Schema;
+
+pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<Schema>> {
+    let metapage = MetaPage::open(indexrel);
+    let schema_bytes = unsafe { metapage.schema_bytes().read_all() };
+    if schema_bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&schema_bytes)?)
+}
+
+pub fn load_index_settings(indexrel: &PgSearchRelation) -> tantivy::Result<Option<IndexSettings>> {
+    let metapage = MetaPage::open(indexrel);
+    let settings_bytes = unsafe { metapage.settings_bytes().read_all() };
+    if settings_bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&settings_bytes)?)
+}
+
+/// The metadata stored on the `Metadata` page
+#[derive(Debug, Copy, Clone)]
+#[repr(C, packed)]
+pub struct MetaPageData {
+    /// This space was once used but no longer is.  As such, it needs to remain dead forever
+    #[allow(dead_code)]
+    _dead_space_1: [u32; 2],
+
+    /// Contains the [`pg_sys::BlockNumber`] of the active merge list
+    active_vacuum_list: pg_sys::BlockNumber,
+
+    /// A block for which is pin is held during `ambulkdelete()`
+    ambulkdelete_sentinel: pg_sys::BlockNumber,
+
+    #[allow(dead_code)]
+    #[doc(hidden)]
+    _dead_space_2: [u32; 2],
+
+    /// This used to be the header block for a [`LinkedItemsList<SegmentMergeEntry>]`
+    #[allow(dead_code)]
+    #[doc(hidden)]
+    _dead_space_3: pg_sys::BlockNumber,
+
+    /// Merge lock block number
+    merge_lock: pg_sys::BlockNumber,
+
+    // these blocks used to be global constants but no longer are
+    cleanup_lock: pg_sys::BlockNumber,
+    schema_start: pg_sys::BlockNumber,
+    settings_start: pg_sys::BlockNumber,
+    segment_metas_start: pg_sys::BlockNumber,
+
+    /// The block where our old v1 FSM starts
+    v1_fsm: pg_sys::BlockNumber,
+
+    /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
+    segment_meta_garbage: pg_sys::BlockNumber,
+    ambulkdelete_epoch: u32,
+
+    /// The block where our current, v2, FSM starts
+    v2_fsm: pg_sys::BlockNumber,
+
+    /// This used to be for detecting concurrent background merges,
+    /// now we use advisory locks
+    _dead_space_4: [pg_sys::BlockNumber; 2],
+
+    /// pg_search version that created this index.
+    /// PageInit zeroes the page at creation, so bytes past the fields that exist at creation time
+    /// are zero forever. So we can reliably say:
+    /// All zeros = created before stamping was added.
+    created_by_version_major: u16,
+    created_by_version_minor: u16,
+    created_by_version_patch: u16,
+
+    created_at: pg_sys::TimestampTz,
+
+    /// Nonzero once the promotion sweep (`postgres::promotion`) found this index on a server
+    /// promoted from a standby. Indexes built on this server read zero.
+    standby_taint: u32,
+}
+
+/// Provides read access to the metadata page
+/// Because the metadata page does not change after it's initialized in MetaPage::open(),
+// (with the exception of the `ambulkdelete_epoch` field, see comment below)
+/// we do not need to hold a share lock for the lifetime of this struct.
+pub struct MetaPage {
+    data: MetaPageData,
+    bman: BufferManager,
+}
+
+const METAPAGE: pg_sys::BlockNumber = 0;
+
+pub struct CleanupAdmission {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+struct LockReleaseOnMainThread {
+    tag: pg_sys::LOCKTAG,
+    mode: pg_sys::LOCKMODE,
+}
+
+crate::impl_safe_drop!(LockReleaseOnMainThread, |self| {
+    if unsafe { crate::postgres::utils::IsTransactionState() } {
+        unsafe { pg_sys::LockRelease(&self.tag, self.mode, false) };
+    }
+});
+
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because this only forwards the lock tag
+// and mode to `drop_on_main_thread`, where `LockReleaseOnMainThread` uses `impl_safe_drop!`.
+impl Drop for CleanupAdmission {
+    fn drop(&mut self) {
+        crate::postgres::customscan::mpp::drop_on_main_thread(LockReleaseOnMainThread {
+            tag: self.tag,
+            mode: self.mode,
+        });
+    }
+}
+
+impl MetaPage {
+    pub unsafe fn init(indexrel: &PgSearchRelation) {
+        let mut buffer = init_new_buffer(indexrel);
+        assert_eq!(
+            buffer.number(),
+            0,
+            "the MetaPage must be initialized to block 0"
+        );
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+
+        unsafe {
+            metadata.active_vacuum_list = init_new_buffer(indexrel).number();
+            metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
+            metadata.merge_lock = init_new_buffer(indexrel).number();
+            metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
+            metadata.segment_meta_garbage =
+                LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+
+            metadata.cleanup_lock = init_new_buffer(indexrel).number();
+            metadata.schema_start = LinkedBytesList::create_without_fsm(indexrel);
+            metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
+            metadata.segment_metas_start =
+                LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+
+            metadata.created_by_version_major =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_MAJOR")) };
+            metadata.created_by_version_minor =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_MINOR")) };
+            metadata.created_by_version_patch =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
+
+            metadata.created_at = pg_sys::GetCurrentTimestamp();
+        }
+    }
+
+    pub fn open(indexrel: &PgSearchRelation) -> Self {
+        if crate::postgres::utils::in_hot_standby() {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
+                function_name!(),
+            )
+            .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.")
+            .report(PgLogLevel::ERROR);
+        }
+
+        let mut bman = BufferManager::new(indexrel);
+        let buffer = bman.get_buffer(METAPAGE);
+        let page = buffer.page();
+        let metadata = page.contents::<MetaPageData>();
+
+        // Skip create_index_list because it doesn't need to be initialized yet
+        //
+        // also skip:
+        //      - cleanup_lock
+        //      - schema_start
+        //      - settings_start
+        //      - segment_metas_start
+        //
+        // These will have either been initialized in `MetaPage::init()` or known to be
+        // our old hardcoded values
+        let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
+            || !block_number_is_valid(metadata.ambulkdelete_sentinel)
+            || !block_number_is_valid(metadata.merge_lock)
+            || !block_number_is_valid(metadata.v2_fsm)
+            || !block_number_is_valid(metadata.segment_meta_garbage);
+
+        drop(buffer);
+
+        // If any of the fields are not initialized, we need to initialize them
+        // We swap our share lock for an exclusive lock
+        if may_need_init {
+            let mut buffer = bman.get_buffer_mut(METAPAGE);
+            let mut page = buffer.page_mut();
+            let metadata = page.contents_mut::<MetaPageData>();
+
+            unsafe {
+                if !block_number_is_valid(metadata.active_vacuum_list) {
+                    metadata.active_vacuum_list = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
+                    metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.merge_lock) {
+                    metadata.merge_lock = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.v2_fsm) {
+                    metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
+
+                    if block_number_is_valid(metadata.v1_fsm) {
+                        // convert the v1_fsm to v2
+                        let v1_fsm =
+                            crate::postgres::storage::fsm::v1::V1FSM::open(metadata.v1_fsm);
+                        let v2_fsm =
+                            crate::postgres::storage::fsm::v2::V2FSM::open(metadata.v2_fsm);
+
+                        crate::postgres::storage::fsm::convert_v1_to_v2(&mut bman, v1_fsm, v2_fsm);
+
+                        // the v1_fsm is no longer valid
+                        metadata.v1_fsm = pg_sys::InvalidBlockNumber;
+                    }
+                }
+
+                if !block_number_is_valid(metadata.segment_meta_garbage) {
+                    metadata.segment_meta_garbage =
+                        LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+                }
+            }
+
+            Self {
+                data: *metadata,
+                bman,
+            }
+        } else {
+            Self {
+                data: metadata,
+                bman,
+            }
+        }
+    }
+
+    /// Acquires the merge lock.
+    pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
+    }
+
+    /// `acquire_merge_lock` for VACUUM: waits for admitted mergers to drop their merge-page pins first.
+    ///
+    /// Keep `ambulkdelete` the only production caller. `LockBufferForCleanup` raises an ERROR when
+    /// a second backend waits on the same buffer, and VACUUM's self-conflicting table lock is what
+    /// keeps the waiter unique.
+    pub unsafe fn acquire_merge_lock_for_cleanup(&self) -> MergeLock {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        MergeLock::acquire_for_cleanup(self.bman.buffer_access().rel(), self.data.merge_lock)
+    }
+
+    /// Retains both VACUUM barriers before a merger can load segment metadata.
+    pub fn pin_merge(&self) -> MergePins {
+        assert!(block_number_is_valid(self.data.merge_lock));
+        // A merger waiting for admission must not hold pins that VACUUM needs.
+        let cleanup_admission = self.cleanup_lock_for_reader();
+        MergePins {
+            _merge_barrier: self.bman.pinned_buffer(self.data.merge_lock),
+            _cleanup_admission: cleanup_admission,
+        }
+    }
+
+    /// Returns `None` if VACUUM blocks merge admission, so the sweep can try other indexes.
+    pub fn try_pin_merge(&self) -> Option<MergePins> {
+        unsafe {
+            let relation = self.bman.buffer_access().rel().as_ptr();
+            let blockno = self.cleanup_lock_blockno();
+            let mode = pg_sys::ShareLock as pg_sys::LOCKMODE;
+            if !pg_sys::ConditionalLockPage(relation, blockno, mode) {
+                return None;
+            }
+            let pins = self.pin_merge();
+            pg_sys::UnlockPage(relation, blockno, mode);
+            Some(pins)
+        }
+    }
+
+    pub fn vacuum_list(&self) -> VacuumList {
+        assert!(block_number_is_valid(self.data.active_vacuum_list));
+        VacuumList::open(
+            self.bman.buffer_access().rel(),
+            self.data.active_vacuum_list,
+            self.data.ambulkdelete_sentinel,
+        )
+    }
+
+    pub fn pin_ambulkdelete_sentinel(&mut self) -> VacuumSentinel {
+        assert!(block_number_is_valid(self.data.ambulkdelete_sentinel));
+        let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
+        VacuumSentinel(sentinel)
+    }
+
+    pub fn fsm(&self) -> pg_sys::BlockNumber {
+        assert!(block_number_is_valid(self.data.v2_fsm));
+        self.data.v2_fsm
+    }
+
+    /// The pg_search version that created this index. Returns `None` for indices created
+    /// before version stamping was added (the on-disk fields read as zero).
+    #[allow(dead_code)]
+    pub fn created_by_version(&self) -> Option<Version> {
+        let major = self.data.created_by_version_major;
+        let minor = self.data.created_by_version_minor;
+        let patch = self.data.created_by_version_patch;
+
+        if major == 0 && minor == 0 && patch == 0 {
+            None
+        } else {
+            Some(Version {
+                major,
+                minor,
+                patch,
+            })
+        }
+    }
+
+    /// The wall-clock time this index was built, as a `TimestampTz`. Returns `None` for indices
+    /// created before build-time stamping was added (the on-disk field reads as zero).
+    pub fn created_at(&self) -> Option<pg_sys::TimestampTz> {
+        let created_at = self.data.created_at;
+        if created_at == 0 {
+            None
+        } else {
+            Some(created_at)
+        }
+    }
+
+    ///
+    /// A `LinkedItemList<SegmentMetaEntry>` containing segments which are no longer visible from the
+    /// live `segment_metas()` list, and which will be recyclable when no transactions might still
+    /// be reading them on physical replicas.
+    ///
+    /// Deferring recycling avoids readers needing to hold a lock all the way from when
+    /// `segment_metas()` is first opened for reading until when they finish consuming the files
+    /// for the segments it references.
+    ///
+    pub fn segment_metas_garbage(&self) -> Option<LinkedItemList<SegmentMetaEntry>> {
+        if !block_number_is_valid(self.data.segment_meta_garbage) {
+            return None;
+        }
+
+        Some(LinkedItemList::<SegmentMetaEntry>::open(
+            self.bman.buffer_access().rel(),
+            self.data.segment_meta_garbage,
+        ))
+    }
+}
+
+/// Barriers a merger holds until publication. VACUUM waits on the merge-page pin before
+/// selecting segments and on cleanup admission before deactivating its exclusion list.
+pub struct MergePins {
+    _merge_barrier: PinnedBuffer,
+    _cleanup_admission: CleanupAdmission,
+}
+
+// legacy hardcoded page support for various index objects
+impl MetaPage {
+    const LEGACY_CLEANUP_LOCK: pg_sys::BlockNumber = 1;
+    const LEGACY_SCHEMA_START: pg_sys::BlockNumber = 2;
+    const LEGACY_SETTINGS_START: pg_sys::BlockNumber = 4;
+    const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
+
+    fn cleanup_admission(&self, mode: pg_sys::LOCKMODE) -> CleanupAdmission {
+        let blockno = self.cleanup_lock_blockno();
+        let lock_id = unsafe {
+            (*self.bman.buffer_access().rel().as_ptr())
+                .rd_lockInfo
+                .lockRelId
+        };
+        let tag = pg_sys::LOCKTAG {
+            locktag_field1: lock_id.dbId.into(),
+            locktag_field2: lock_id.relId.into(),
+            locktag_field3: blockno,
+            locktag_field4: 0,
+            locktag_type: pg_sys::LockTagType::LOCKTAG_PAGE as u8,
+            locktag_lockmethodid: pg_sys::DEFAULT_LOCKMETHOD as u8,
+        };
+        unsafe { pg_sys::LockAcquire(&tag, mode, false, false) };
+        CleanupAdmission { tag, mode }
+    }
+
+    pub fn cleanup_lock_for_reader(&self) -> CleanupAdmission {
+        self.cleanup_admission(pg_sys::ShareLock as pg_sys::LOCKMODE)
+    }
+
+    fn cleanup_lock_blockno(&self) -> pg_sys::BlockNumber {
+        if self.data.cleanup_lock == 0 {
+            Self::LEGACY_CLEANUP_LOCK
+        } else {
+            self.data.cleanup_lock
+        }
+    }
+
+    pub fn cleanup_lock_for_vacuum(&self) -> CleanupAdmission {
+        self.cleanup_admission(pg_sys::ExclusiveLock as pg_sys::LOCKMODE)
+    }
+
+    pub fn schema_bytes(&self) -> LinkedBytesList {
+        let blockno = if self.data.schema_start == 0 {
+            Self::LEGACY_SCHEMA_START
+        } else {
+            self.data.schema_start
+        };
+        LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    /// Replaces persisted settings bytes for storage contract tests.
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn replace_settings_for_test(indexrel: &PgSearchRelation, bytes: &[u8]) {
+        let header = unsafe { LinkedBytesList::create_without_fsm(indexrel) };
+        let mut writer = LinkedBytesList::open(indexrel, header).writer();
+        unsafe {
+            writer.write(bytes).unwrap();
+        }
+        writer.finalize_and_write().unwrap();
+        let mut bman = BufferManager::new(indexrel);
+        let mut buffer = bman.get_buffer_mut(METAPAGE);
+        buffer
+            .page_mut()
+            .contents_mut::<MetaPageData>()
+            .settings_start = header;
+    }
+
+    pub fn settings_bytes(&self) -> LinkedBytesList {
+        let blockno = if self.data.settings_start == 0 {
+            Self::LEGACY_SETTINGS_START
+        } else {
+            self.data.settings_start
+        };
+        LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    pub fn settings(&self) -> tantivy::Result<IndexSettings> {
+        let bytes = unsafe { self.settings_bytes().read_all() };
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {
+        let blockno = if self.data.segment_metas_start == 0 {
+            Self::LEGACY_SEGMENT_METAS_START
+        } else {
+            self.data.segment_metas_start
+        };
+        LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    pub unsafe fn freeze_mutable_segments(&self) -> Vec<SegmentMetaEntry> {
+        self.freeze_mutable_segments_matching(|_| true)
+    }
+
+    pub unsafe fn freeze_mutable_segments_matching(
+        &self,
+        eligible: impl Fn(&SegmentMetaEntry) -> bool,
+    ) -> Vec<SegmentMetaEntry> {
+        let eligible = |entry: &SegmentMetaEntry| {
+            entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId && eligible(entry)
+        };
+        let mut metas = self.segment_metas();
+        if !metas.list(None).iter().any(&eligible) {
+            return Vec::new();
+        }
+
+        let mut frozen = metas.atomically();
+        let mut entries = frozen
+            .list(None)
+            .into_iter()
+            .filter(&eligible)
+            .collect::<Vec<_>>();
+        for entry in &mut entries {
+            frozen
+                .update_item(
+                    |candidate| candidate.segment_id() == entry.segment_id(),
+                    |candidate| {
+                        let SegmentMetaEntryContent::Mutable(content) = &mut candidate.content
+                        else {
+                            unreachable!();
+                        };
+                        content.frozen = true;
+                    },
+                )
+                .expect("mutable segment should exist while freezing");
+            let SegmentMetaEntryContent::Mutable(content) = &mut entry.content else {
+                unreachable!();
+            };
+            content.frozen = true;
+        }
+        frozen.commit();
+        entries
+    }
+
+    // Note that this value is read when not under a share lock, so there's no guarantee that it hasn't
+    // been updated and this value is stale
+    pub fn ambulkdelete_epoch(&self) -> u32 {
+        self.data.ambulkdelete_epoch
+    }
+
+    pub fn standby_tainted(&self) -> bool {
+        self.data.standby_taint != 0
+    }
+
+    /// Records that the index arrived through physical replication. Does not go through `open`,
+    /// whose callers refuse a marked index.
+    pub fn mark_standby_tainted(indexrel: &PgSearchRelation) {
+        let mut bman = BufferManager::new(indexrel);
+        let mut buffer = bman.get_buffer_mut(METAPAGE);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        metadata.standby_taint = 1;
+    }
+
+    pub fn increment_ambulkdelete_epoch(&mut self) {
+        let mut buffer = self.bman.get_buffer_mut(METAPAGE);
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        metadata.ambulkdelete_epoch = metadata.ambulkdelete_epoch.wrapping_add(1);
+    }
+}
+
+#[allow(unused_variables)]
+pub unsafe fn reset_bgworker_state(index: PgRelation) {
+    pgrx::warning!("reset_bgworker_state has been deprecated");
+}
+
+#[allow(unused_variables)]
+pub unsafe fn bgmerger_state(
+    index: PgRelation,
+) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
+    pgrx::warning!("bgmerger_state has been deprecated");
+    TableIterator::new(std::iter::empty())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::datum::TimestampWithTimeZone;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn merger_barriers_preserve_admission_without_content_locks() {
+        Spi::run(
+            "CREATE TABLE merger_barriers (id bigint, body text); \
+             CREATE INDEX merger_barriers_idx ON merger_barriers USING paradedb (id, body);",
+        )
+        .unwrap();
+        let index_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'merger_barriers_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+        let mut metadata = MetaPage::open(&indexrel);
+        let pins = metadata.pin_merge();
+        let admission_held = "SELECT EXISTS (SELECT FROM pg_locks \
+            WHERE pid = pg_backend_pid() AND locktype = 'page' \
+            AND relation = 'merger_barriers_idx'::regclass AND mode = 'ShareLock' AND granted)";
+        assert_eq!(Spi::get_one::<bool>(admission_held).unwrap(), Some(true));
+
+        unsafe {
+            let holdoff = pg_sys::InterruptHoldoffCount;
+            assert_eq!(holdoff, 0);
+            let buffer = pins._merge_barrier.pg_buffer();
+            assert!(pg_sys::ConditionalLockBuffer(buffer));
+            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
+            drop(metadata.acquire_merge_lock());
+            let holdoff = pg_sys::InterruptHoldoffCount;
+            assert_eq!(holdoff, 0);
+        }
+        drop(pins);
+        assert_eq!(Spi::get_one::<bool>(admission_held).unwrap(), Some(false));
+
+        let merge_lock = unsafe { metadata.acquire_merge_lock_for_cleanup() };
+        assert!(unsafe { merge_lock.merge_list().list().is_empty() });
+        let sentinel = metadata.pin_ambulkdelete_sentinel();
+        drop(merge_lock);
+        drop(metadata.cleanup_lock_for_vacuum());
+        drop(sentinel);
+        assert_eq!(unsafe { pg_sys::InterruptHoldoffCount }, 0);
+    }
+
+    #[pg_test]
+    fn created_by_version_is_stamped_at_index_build() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data);").unwrap();
+
+        let index_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let stamped = MetaPage::open(&indexrel)
+            .created_by_version()
+            .expect("freshly built index should be version-stamped");
+
+        let expected = Version::new(
+            env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
+            env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
+            env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
+        );
+        assert_eq!(stamped, expected);
+
+        // The UDF should surface the same version.
+        let via_udf: String = Spi::get_one("SELECT paradedb.index_created_by('t_idx')")
+            .expect("spi should succeed")
+            .unwrap();
+        assert_eq!(via_udf, stamped.to_string());
+    }
+
+    #[pg_test]
+    fn created_at_is_stamped_at_index_build() {
+        // `GetCurrentTimestamp()` is wall-clock time, so bound the build with `clock_timestamp()`
+        // (which advances within the transaction) rather than the fixed `now()`.
+        let before: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
+            .expect("spi should succeed")
+            .unwrap();
+
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING paradedb (id, data);").unwrap();
+
+        let after: TimestampWithTimeZone = Spi::get_one("SELECT clock_timestamp()")
+            .expect("spi should succeed")
+            .unwrap();
+
+        let index_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let created_at = TimestampWithTimeZone::try_from(
+            MetaPage::open(&indexrel)
+                .created_at()
+                .expect("freshly built index should be timestamp-stamped"),
+        )
+        .unwrap();
+
+        assert!(
+            created_at >= before && created_at <= after,
+            "created_at {created_at:?} should fall within [{before:?}, {after:?}]"
+        );
+
+        // The UDF should surface the same instant.
+        let via_udf: TimestampWithTimeZone =
+            Spi::get_one("SELECT paradedb.index_created_at('t_idx')")
+                .expect("spi should succeed")
+                .unwrap();
+        assert_eq!(via_udf, created_at);
+    }
+}

@@ -19,10 +19,9 @@
 
 mod args;
 mod inline;
-mod keyset;
 
+pub(crate) use index_read::postgres::sequentialscan::keyset::KeySet;
 pub(crate) use inline::MaybeInlineRow;
-pub(crate) use keyset::KeySet;
 
 use self::args::{FakeAnyElement, FakeCtid, FakeRecord, FakeRow, FakeSearchQueryInput};
 use self::inline::RowMatcher;
@@ -37,14 +36,15 @@ use crate::postgres::pgstat::count_index_scan;
 use crate::postgres::planner_warnings::{warn_filter_spilled, warn_sequential_scan};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::Ctid;
+use crate::postgres::utils::{Ctid, pg_getarg_datum};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchemaQueryExt;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::htup::heap_getattr_raw;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     Array, FromDatum, PgLogLevel, PgMemoryContexts, PgSqlErrorCode, PgTupleDesc, default,
-    function_name, pg_extern, pg_func_extra, pg_getarg_datum, pg_getarg_datum_raw, pg_sys,
+    fcinfo::pg_get_nullable_datum, function_name, pg_extern, pg_func_extra, pg_sys,
 };
 use std::num::NonZeroUsize;
 
@@ -96,7 +96,7 @@ pub fn search_with_query_input(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> Option<bool> {
     if unsafe {
-        pgrx::is_a(
+        crate::postgres::utils::is_a(
             (*(*fcinfo).flinfo).fn_expr,
             pg_sys::NodeTag::T_ScalarArrayOpExpr,
         )
@@ -167,7 +167,7 @@ pub fn search_with_query_input_ctid_or_row(
     let ctid = unsafe { Ctid::from_fcinfo(fcinfo, 2) }?;
     fallback_row?;
     let rows = unsafe {
-        pg_sys::pg_detoast_datum(pg_getarg_datum_raw(fcinfo, 3).cast_mut_ptr())
+        pg_sys::pg_detoast_datum(pg_get_nullable_datum(fcinfo, 3).value.cast_mut_ptr())
             .cast::<pg_sys::ArrayType>()
     };
     // Check the empty-array marker without unpacking or materializing a heap row.
@@ -513,8 +513,8 @@ unsafe fn record_tableoid(
                 let (attno, _) =
                     PgHeapTuple::from_composite_datum(record).get_attribute_by_name("tableoid")?;
                 let record_desc = PgTupleDesc::from_pg(pg_sys::lookup_rowtype_tupdesc(
-                    pgrx::heap_tuple_header_get_type_id(header),
-                    pgrx::heap_tuple_header_get_typmod(header),
+                    pgrx::HeapTupleHeaderGetTypeId!(header).into(),
+                    pgrx::HeapTupleHeaderGetTypMod!(header).get(),
                 ));
                 let tupdesc = PgMemoryContexts::For((*(*fcinfo).flinfo).fn_mcxt)
                     .switch_to(|_| pg_sys::CreateTupleDescCopy(record_desc.as_ptr()));
@@ -522,7 +522,7 @@ unsafe fn record_tableoid(
             })
             .as_ref()?;
         let mut tuple: pg_sys::HeapTupleData = std::mem::zeroed();
-        tuple.t_len = pgrx::heap_tuple_header_get_datum_length(header) as u32;
+        tuple.t_len = pgrx::HeapTupleHeaderGetDatumLength!(header).get();
         tuple.t_data = header;
         let datum = heap_getattr_raw(&mut tuple, field.attno, field.tupdesc)?;
         pg_sys::Oid::from_datum(datum, false)

@@ -1,0 +1,202 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
+use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::{CustomScanBuildError, CustomScanClause};
+use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
+use crate::postgres::customscan::qual_inspect::QualExtractState;
+use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan};
+use crate::postgres::node::NodeExt;
+use crate::postgres::utils::strip_unnest_and_relabel;
+use crate::postgres::var::{VarContext, find_one_resolved_var_and_fieldname};
+use pgrx::PgList;
+use pgrx::pg_sys;
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum TargetListEntry {
+    // the grouping columns are not guaranteed to the in the same order in the GROUP BY vs target list,
+    // so we store the index of the grouping column in the GROUP BY list
+    GroupingColumn(usize),
+    Aggregate(AggregateType),
+}
+
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TargetList {
+    entries: Vec<TargetListEntry>,
+    groupby: GroupByClause,
+    uses_our_operator: bool,
+}
+
+impl TargetList {
+    /// Create a new TargetList with a single aggregate
+    pub fn new(aggregate: AggregateType) -> Self {
+        TargetList {
+            entries: vec![TargetListEntry::Aggregate(aggregate)],
+            groupby: Default::default(),
+            uses_our_operator: false,
+        }
+    }
+
+    pub fn aggregates(&self) -> impl Iterator<Item = &AggregateType> {
+        self.entries.iter().filter_map(|entry| match entry {
+            TargetListEntry::Aggregate(aggregate) => Some(aggregate),
+            TargetListEntry::GroupingColumn(_) => None,
+        })
+    }
+
+    pub fn aggregates_mut(&mut self) -> impl Iterator<Item = &mut AggregateType> {
+        self.entries.iter_mut().filter_map(|entry| match entry {
+            TargetListEntry::Aggregate(aggregate) => Some(aggregate),
+            TargetListEntry::GroupingColumn(_) => None,
+        })
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = &TargetListEntry> {
+        self.entries.iter()
+    }
+
+    pub fn groupby(&self) -> &GroupByClause {
+        &self.groupby
+    }
+
+    pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
+        self.groupby.grouping_columns()
+    }
+
+    pub fn uses_our_operator(&self) -> bool {
+        self.uses_our_operator
+    }
+
+    /// Get the result type OID for the first aggregate
+    pub fn singleton_result_type_oid(&self) -> pg_sys::Oid {
+        let agg_count = self.aggregates().count();
+        if agg_count > 1 {
+            panic!(
+                "first_result_type_oid should only be called on a TargetList with a single aggregate"
+            );
+        }
+        self.aggregates()
+            .next()
+            .map(|agg| agg.result_type_oid())
+            .unwrap_or(pg_sys::INT8OID)
+    }
+}
+
+impl CustomScanClause for TargetList {
+    type Args = CreateUpperPathsHookArgs;
+
+    fn add_to_custom_path<CS: CustomScan<Args = Self::Args>>(
+        &self,
+        builder: CustomPathBuilder<CS>,
+    ) -> CustomPathBuilder<CS> {
+        self.groupby.add_to_custom_path(builder)
+    }
+
+    fn from_pg(args: &Self::Args, context: &SourceContext) -> Result<Self, CustomScanBuildError> {
+        let target_list =
+            unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
+        if target_list.is_empty() {
+            return Err("Target list is empty".into());
+        }
+
+        let groupby_clause = GroupByClause::from_pg(args, context)?;
+        let grouping_columns = groupby_clause.grouping_columns();
+        let mut entries = Vec::new();
+        let mut uses_our_operator = false;
+
+        for expr in target_list.iter_ptr() {
+            let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
+
+            let (actual_expr, is_unnest) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
+            let access = if is_unnest {
+                Access::List
+            } else {
+                Access::Scalar
+            };
+
+            let (resolved, maybe_field_name) = unsafe {
+                find_one_resolved_var_and_fieldname(var_context, context, actual_expr, access)
+            };
+            let maybe_field_name = resolved
+                .map(|r| r.field.name())
+                .or_else(|| maybe_field_name.map(|f| f.into_inner()));
+
+            // Try to extract field name from the expression (handles both Var and JSON operators)
+            if let Some(field_name) = maybe_field_name {
+                // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
+                // Find which grouping column this is
+                let mut found = false;
+                for (i, gc) in grouping_columns.iter().enumerate() {
+                    // For JSON projections, the field_name will be like "metadata_json.value"
+                    // and gc.field_name should match
+                    if gc.field_name == field_name {
+                        entries.push(TargetListEntry::GroupingColumn(i));
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(format!("Field '{}' is not a grouping column", field_name).into());
+                }
+            } else if let Some(aggref) = expr.find_single_node::<pg_sys::Aggref>() {
+                // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
+                // TODO: Support DISTINCT
+                if unsafe { !(*aggref).aggdistinct.is_null() } {
+                    return Err("DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
+                }
+
+                let mut qual_state = QualExtractState::default();
+                let mut aggregate =
+                    unsafe { AggregateType::try_from(aggref, args.root, &mut qual_state, context) }
+                        .map_err(|error| error.to_string())?;
+                uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
+                aggregate.mark_group_key(&grouping_columns);
+
+                // If we identified a pdb.agg() custom aggregate, we MUST handle it
+                // via AggregateScan regardless of which operator is in the WHERE clause.
+                // The placeholder pdb.agg() state function will error if PostgreSQL's
+                // standard aggregate machinery tries to process it.
+                if matches!(aggregate, AggregateType::Custom { .. }) {
+                    uses_our_operator = true;
+                }
+
+                if let Some(field_name) = aggregate.field_name() {
+                    if let Some(hf) = context.resolve_heap_field(ResTarget::Field(&field_name)) {
+                        if !hf.field.is_fast() {
+                            return Err(format!("Field '{}' is not fast", field_name).into());
+                        }
+                    } else {
+                        return Err(format!("Field '{}' not found in schema", field_name).into());
+                    }
+                }
+
+                entries.push(TargetListEntry::Aggregate(aggregate));
+            } else {
+                return Err("Expression is neither a grouping column nor a single Aggref".into());
+            }
+        }
+
+        Ok(TargetList {
+            entries,
+            groupby: groupby_clause,
+            uses_our_operator,
+        })
+    }
+}

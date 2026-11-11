@@ -56,7 +56,7 @@ jobs:
     env:
       COHERE_SIZE: ${{ matrix.size }}
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e1bd111cb1c2aa64303493c60f067b22a43f039d' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'ac64c0a34a1558ca72e07a342b51b52076befa50' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
 
@@ -193,6 +193,14 @@ jobs:
             -f benchmarks/datasets/cohere/after_create_index.sql \
             -c 'VACUUM FULL ANALYZE;' -c 'VACUUM ANALYZE;' \
             | tee benchmark-artifacts/index-vacuum.log
+
+      - name: Verify default boundary replication
+        run: |
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_agg(v) FROM paradedb.vector_info('cohere_wiki_bm25_idx', 'emb') AS v" \
+            > benchmark-artifacts/vector-info.json
+          jq -e 'length > 0 and all(.[]; .vector_format == "ivf" and .quantized and .vector_total_rows == 2 * .vector_num_vectors)' \
+            benchmark-artifacts/vector-info.json
 
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14

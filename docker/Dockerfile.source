@@ -15,7 +15,7 @@ USER 0
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-server-dev-18 build-essential ca-certificates curl git \
-    pkg-config libssl-dev libicu-dev clang lld binutils libopenblas-dev && \
+    pkg-config libssl-dev libicu-dev clang llvm libclang-dev lld binutils libopenblas-dev && \
     rm -rf /var/lib/apt/lists/*
 
 ENV CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
@@ -49,7 +49,7 @@ case "$DST" in
         ;;
     *) echo "Invalid DST value: $DST" >&2; exit 1 ;;
 esac
-cargo pgrx package "${args[@]}"
+cargo pgrx package --no-assemble-unreleased --no-distrib-packages "${args[@]}"
 mkdir -p /artifacts/usr/lib/postgresql/18/lib /artifacts/usr/share/postgresql/18/extension
 find /package -type f -name 'pg_search*.so' -exec cp {} /artifacts/usr/lib/postgresql/18/lib/ \;
 find /package -type f -name 'pg_search*.control' -exec cp {} /artifacts/usr/share/postgresql/18/extension/ \;

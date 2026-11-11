@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::api::operator::boost::{BoostType, query_to_boost};
 use crate::api::operator::const_score::{ConstType, query_to_const};
@@ -77,7 +78,7 @@ mod sql_datum_support {
 
     unsafe impl SqlTranslatable for SlopType {
         const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(SlopType);
-        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::ThisExtension;
         const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
             Ok(SqlMappingRef::literal("pdb.slop"));
         const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
@@ -122,8 +123,7 @@ mod typedef {
             CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.slop;
         "#,
-        name = "SlopType_shell",
-        creates = [Type(SlopType)]
+        name = "SlopType_shell"
     );
 
     #[pg_extern(immutable, parallel_safe)]
@@ -172,6 +172,7 @@ mod typedef {
             );
         "#,
         name = "SlopType_final",
+        creates = [Type(SlopType)],
         requires = [
             "SlopType_shell",
             slop_in,

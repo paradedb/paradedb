@@ -4,6 +4,12 @@ This README covers development of the `pg_search` extension. For installation, d
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
+## Crate Layout
+
+`pg_search` is split into multiple internal workspace crates (plus the top-level `pg_search` `cdylib` crate) to enable parallel compilation across subsystems. Each crate's `Cargo.toml` has comments on its `[dependencies]` section explaining the crate's role and which dependencies are discouraged (and why).
+
+SQL-generating `pgrx` items (`#[pg_extern]`, `#[pg_operator]`, `#[pg_aggregate]`, `#[pg_cast]`, `#[derive(PostgresEnum)]`, `extension_sql!`) normally live in `pg_search` so the `cdylib` exports their C symbols and `.pgrxsc` / `__DATA,__pgrxsc` linker section entries. When a `#[derive(PostgresType)]` or `#[pg_extern]` must live in a sub-crate (for example due to Rust's orphan rules), its generated symbols must be referenced in `_SUBCRATE_PGRX_ANCHORS` in `pg_search/src/lib.rs` so the linker retains the object file from the `rlib` archive.
+
 ## Prerequisites
 
 ### Rust
@@ -28,7 +34,7 @@ sudo pacman -S extra/clang extra/lld
 Then install `cargo-pgrx` and let it bootstrap a managed PostgreSQL installation under `~/.pgrx/`:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.19.3
+cargo install --locked cargo-pgrx --version 0.20.0-beta.1
 # On macOS, if `cargo pgrx init` fails with ICU-related errors, run
 # `brew install icu4c`
 # and then run
@@ -93,10 +99,10 @@ After making changes to the extension code:
 
 ## Testing
 
-Unit tests live in `pg_search/src` and run with:
+Unit tests live across `pg_search` and its internal workspace crates and run with:
 
 ```bash
-cargo test -p pg_search -- a_specific_method_to_run
+cargo test -p <crate> -- a_specific_method_to_run
 ```
 
 There are two kinds of unit tests in `pg_search`:

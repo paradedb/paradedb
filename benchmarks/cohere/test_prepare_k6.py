@@ -5,6 +5,7 @@ import json
 import unittest
 from pathlib import Path
 
+import tomllib
 from prepare_k6 import (
     DIMENSIONS,
     NPROBE,
@@ -179,18 +180,27 @@ class OperatingPointsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid selected point"):
                 operating_points(inputs, "msmarco")
 
-    def test_hn_fractional_paradedb_sweep_keeps_configured_bounds(self):
-        """HN's fractional max_probe remains valid when adding integer PRISM probes."""
-        inputs = reports("hn")
-        for report in inputs:
-            report["config"]["search"]["sweep"].update(min=0.0001, max=1)
-            for result in report["data"]["variants"].values():
-                for selected in result["targets"].values():
-                    selected["value"] = "0.005"
-                result["points"][0]["value"] = "0.005"
-        points = operating_points(inputs, "hn")
-        self.assertEqual(points[0]["probe"], "0.005")
-        self.assertEqual(points[0]["filter_fields"], ["time"])
+    def test_hn_paradedb_sweep_keeps_configured_bounds(self):
+        """Use valid integer work budgets through the HN recall-to-k6 handoff."""
+        profile = Path(__file__).resolve().parents[1] / "hn" / "28m.toml"
+        sweep = tomllib.loads(profile.read_text())["search"]["sweep"]
+        self.assertTrue(sweep["integer"])
+        self.assertLessEqual(1, sweep["min"])
+        self.assertLessEqual(sweep["min"], sweep["start"])
+        self.assertLessEqual(sweep["start"], sweep["max"])
+        self.assertLessEqual(sweep["max"], 100_000)
+        for value in (sweep["min"], sweep["start"], sweep["max"]):
+            self.assertTrue(float(value).is_integer())
+            inputs = reports("hn")
+            for report in inputs:
+                report["config"]["search"]["sweep"] = sweep
+                for result in report["data"]["variants"].values():
+                    for selected in result["targets"].values():
+                        selected["value"] = str(value)
+                    result["points"][0]["value"] = str(value)
+            points = operating_points(inputs, "hn")
+            self.assertEqual(points[0]["probe"], str(value))
+            self.assertEqual(points[0]["filter_fields"], ["time"])
 
     def test_refuses_below_target_point_even_when_pdbench_labels_it_selected(self):
         """Reject a below-target selection rather than relabeling it."""

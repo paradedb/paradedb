@@ -2,4 +2,4 @@
 header: performance
 ---
 
-Vector index builds encode quantized rows faster: sign and grid codes are computed without per-coordinate branches, sign codes are packed eight at a time, the rotation flips signs while it gathers and copies each vector at most once, x86 CPUs gather with AVX2 or AVX-512 instructions, and x86 CPUs with AVX2 but not AVX-512 use an AVX2 Hadamard kernel instead of the portable one. Vector queries also prepare their quantized query faster. Encoded rows and search results are unchanged.
+Faster vector index builds and query preparation with quantization (the default), using branch-free encoding everywhere and SIMD kernels on x86. Encoded rows and search results are unchanged.

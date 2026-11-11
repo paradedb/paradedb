@@ -10,7 +10,7 @@ name: Benchmark pg_search (Benchmarker)
 
 on:
   schedule:
-    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
+    - cron: "30 11 * * *" # Daily at 11:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
     types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:

@@ -2,7 +2,7 @@ name: Benchmark pg_search (Benchmarker HN vector)
 
 on:
   schedule:
-    - cron: "30 7 * * *" # Daily, alongside Cohere and MS MARCO.
+    - cron: "30 15 * * *" # Daily at 15:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
     types: [labeled]
   workflow_dispatch:

@@ -922,7 +922,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "basescan"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "arrow-array 59.3.2",
  "datafusion",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "arrow-array 59.3.2",
@@ -2778,7 +2778,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "dst"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "antithesis-instrumentation",
  "antithesis_sdk",
@@ -4014,7 +4014,7 @@ checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 
 [[package]]
 name = "index_read"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "arrow-array 59.3.2",
@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "index_write"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4239,7 +4239,7 @@ dependencies = [
 
 [[package]]
 name = "joinscan"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "arrow-array 59.3.2",
@@ -4679,7 +4679,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5339,7 +5339,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "antithesis-instrumentation",
  "anyhow",
@@ -5601,7 +5601,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "planner"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -6675,7 +6675,7 @@ dependencies = [
 
 [[package]]
 name = "scan"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "arrow-array 59.3.2",
  "arrow-buffer 59.3.2",
@@ -6709,7 +6709,7 @@ dependencies = [
 
 [[package]]
 name = "schemabot"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "pg_query",
  "serde_json",
@@ -7204,7 +7204,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -7231,7 +7231,7 @@ dependencies = [
 
 [[package]]
 name = "stressgres"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -7631,7 +7631,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -7785,7 +7785,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.26.0"
+version = "0.27.0-rc.0"
 dependencies = [
  "anyhow",
  "emojis",

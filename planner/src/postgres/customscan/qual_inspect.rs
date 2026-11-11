@@ -948,12 +948,16 @@ unsafe fn parent_clause(
     unsafe { PgList::<pg_sys::RestrictInfo>::from_pg((*parent).baserestrictinfo) }
         .iter_ptr()
         .find(|&parent_ri| unsafe {
+            let clause = (*parent_ri).clause.cast();
+            #[cfg(feature = "pg15")]
             let translated = pg_sys::adjust_appendrel_attrs_multilevel(
                 root,
-                (*parent_ri).clause.cast(),
-                child,
-                parent,
+                clause,
+                (*child).relids,
+                (*parent).relids,
             );
+            #[cfg(not(feature = "pg15"))]
+            let translated = pg_sys::adjust_appendrel_attrs_multilevel(root, clause, child, parent);
             pg_sys::equal(translated.cast(), ri.clause.cast())
         })
 }

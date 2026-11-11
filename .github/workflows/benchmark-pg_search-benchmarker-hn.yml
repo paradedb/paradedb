@@ -40,7 +40,6 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      pg_version: "18"
       PDBENCH_REF: ${{ inputs.pdbench_ref || 'e9b0c2a6b5d579413c8c193caa0b2b6015dd0b6c' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
@@ -61,13 +60,12 @@ jobs:
           ref: ${{ env.BENCHMARK_REF }}
           persist-credentials: false
 
-      - name: Record benchmark commit and connection
+      - name: Record benchmark commit
         id: commit_info
         run: |
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           tantivy="$(awk '/^name = "tantivy"$/ { found = 1 } found && /^source = / { sub(/.*#/, ""); gsub(/"/, ""); print; exit }' Cargo.lock)"
           echo "tantivy_sha=$tantivy" >> "$GITHUB_OUTPUT"
-          echo "PARADEDB_URL=postgresql://$(whoami)@localhost:28818/postgres" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark workflow for backfills
         if: inputs.commit != ''
@@ -83,6 +81,7 @@ jobs:
           rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
+          cp benchmark-workflow/docker/Dockerfile.source docker/Dockerfile.source
 
       - name: Record benchmark configuration
         run: |
@@ -97,10 +96,13 @@ jobs:
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Set up benchmark cluster
-        uses: ./.github/actions/setup-benchmark-cluster
+      - name: Set up Docker benchmark cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
-          pg_version: ${{ env.pg_version }}
+          ref: ${{ env.BENCHMARK_REF }}
+          dataset: hackernews/vector
+          size: ${{ env.HN_SIZE }}/39152428323-1
+          backup: "20261018-214625F"
 
       - name: Create pdbench checkout token
         id: pdbench_token
@@ -151,34 +153,6 @@ jobs:
           python3 -m venv .hn-fixtures
           .hn-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
           .hn-fixtures/bin/python benchmarks/hn/prepare.py --output benchmark-artifacts/fixtures
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
-        with:
-          role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
-          role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
-          role-duration-seconds: 21600
-          allowed-account-ids: "858265286872" # ParadeDB CI AWS Account
-          unset-current-credentials: true
-          aws-region: us-east-1
-
-      - name: Restore HN vector heap snapshot
-        env:
-          PGBACKREST_SET: "20261018-214625F"
-        run: |
-          set -euo pipefail
-          mkdir -p benchmark-artifacts
-          (cd pg_search && cargo pgrx stop pg18)
-          (cd benchmarks && cargo run --release -- restore-heap \
-            --dataset hackernews/vector --size "$HN_SIZE/39152428323-1" \
-            --pgdata /home/runner/.pgrx/data-18 --stanza bench \
-            --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
-            --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
-            --repo-s3-key-type shared)
-          (cd pg_search && cargo pgrx start pg18)
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET max_worker_processes = 32;"
-          (cd pg_search && cargo pgrx stop pg18 && cargo pgrx start pg18)
 
       - name: Verify restored heap and import ground truth
         run: |
@@ -275,7 +249,7 @@ jobs:
 
           Probe fractions are selected independently for each workload at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 0.005 and searches from 0.0001 to 1.0.
 
-          Eight build/query workers are available with a 32-process worker pool. Build RSS is the sum across sampled processes and includes shared mappings. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
+          Eight build/query workers are available with a 16-process worker pool. Build RSS is the sum across sampled processes and includes shared mappings. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 
           CONTEXT
             cat benchmark-artifacts/operating_points.md
@@ -297,7 +271,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \
@@ -327,7 +301,7 @@ jobs:
         if: always()
         run: |
           mkdir -p benchmark-artifacts
-          if [[ -f ~/.pgrx/18.log ]]; then cp ~/.pgrx/18.log benchmark-artifacts/postgres.log; fi
+          docker logs paradedb > benchmark-artifacts/postgres.log 2>&1 || true
 
       - name: Upload index, recall, and buffer diagnostics
         if: always()
@@ -342,12 +316,11 @@ jobs:
 
       - name: Database logs
         if: failure() || cancelled()
-        run: tail -200 ~/.pgrx/18.log
+        run: docker logs --tail 200 paradedb
 
       - name: Stop database
         if: always()
-        working-directory: pg_search
-        run: cargo pgrx stop pg18
+        run: docker stop --time 600 paradedb
 
   publish-results:
     name: Publish Benchmark Results

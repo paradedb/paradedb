@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794394699188,
+  "lastUpdate": 1794399469770,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -82345,6 +82345,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13849496228-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "781cb511f88c91cb29181c56b2acc841b2cb123f",
+          "message": "fix: restore IVF split logic while keeping target_leaf_size (#7377)\n\n## What\n\nSoft-revert geometric clustering while keeping the `target_leaf_size`\nname and default of 200. ParadeDB's source integration, option names,\nand SQL regression fixtures remain identical to the PR base. Update the\ndependency pins and correct two descriptions of the training-leaf cap;\nretain the original option-rename changelog entry.\n\n## Dependencies and scope\n\n- [superkmeans-rs\n#45](https://github.com/paradedb/superkmeans-rs/pull/45),\n`6b0d0bc08e2071220b99222db0c79ad49305f8dc`: restore `ceil(n_sub /\ntarget_leaf_size)` recursive splitting and enforce the training-leaf cap\nwhile preserving the API name.\n- [Tantivy #399](https://github.com/paradedb/tantivy/pull/399),\n`98b3d5c1570c912f51f40530ba1645f1695b458b` (merged): use that\nimplementation for IVF and stacked routing; preserve\n`with_target_leaf_size` and `DEFAULT_TARGET_LEAF_SIZE`.\n- Preserve donor revival, convergence guards, statistics, and later\ndependency changes. Sampling remains 0.32. Explicit `k` sizing is\nseparate. Both dependency PRs are merged; the direct superkmeans pin\nmatches the revision used by the merged Tantivy commit.\n\nUpdated against current ParadeDB main, which already includes\ndocument-order vector storage and SOAR support. The merged Tantivy pin\nalso includes [rotation kernel optimizations\n#400](https://github.com/paradedb/tantivy/pull/400) and [synonym\nexpansion queries #380](https://github.com/paradedb/tantivy/pull/380),\nmerged after the prior dependency pin. The historical benchmark below\ndoes not isolate geometric splitting from all intervening dependency\nchanges.\n\n## Cohere results\n\n[Run\n42953591743](https://github.com/paradedb/paradedb/actions/runs/42953591743)\ncompleted for 1M and 10M, benchmarking merge commit\n`96873e91303709aa0625356ccce22df9c17eb979` for the prior PR head\n`03142081a723221f50c629ec06e450d610fe966a`. It used the restored split\nlogic with the old API spelling. A subsequent follow-up restored the\n`target_leaf_size` spelling, and the current Tantivy pin includes the\nadditional merged changes listed above. These are prior-head\nmeasurements, not a benchmark of the current head.\n\nAll values below are **p50 latency in milliseconds**, at the stated\n**recall target**. The old baseline is\n[42861348530](https://github.com/paradedb/paradedb/actions/runs/42861348530);\nthe main control is\n[42925695336](https://github.com/paradedb/paradedb/actions/runs/42925695336).\n\n| Query | Recall target | Old baseline | Main control | Logic revert |\n|---|---:|---:|---:|---:|\n| Unfiltered | 90% | 4.272 | 4.325 | 4.066 |\n| Unfiltered | 95% | 6.732 | 7.931 | 6.381 |\n| Unfiltered | 99% | 18.223 | 30.473 | 21.316 |\n| 10% filter | 90% | 10.596 | 10.918 | 10.165 |\n| 10% filter | 95% | 13.400 | 13.764 | 12.512 |\n| 10% filter | 99% | 27.366 | 37.700 | 22.033 |\n| 1% filter | 90% | 11.100 | 11.108 | 11.167 |\n| 1% filter | 95% | 14.258 | 13.213 | 14.900 |\n| 1% filter | 99% | 29.522 | 29.695 | 35.616 |\n\n10M unfiltered at 99% recall improves 30.0% versus main, recovering\nabout 75% of the latency increase over the old baseline; it remains\n17.0% slower than that baseline. The 10% filtered 99%-recall case\nimproves 41.6% versus main. The 1% filtered 99%-recall case is 19.9%\nslower than main, so recovery is partial. Mean cluster size is 417.1\nvectors, compared with 549.0 on main and 404.3 on the old baseline.\n\nAt 1M, all six filtered p50 rows improve 1.5\u20138.1% versus the old\nbaseline; unfiltered 90%/95% rows are about 2.3% slower and the 99% row\nis 20.1% slower (10.362 vs 8.630 ms). Configuration fingerprints and\nfull search configurations match the old baseline for both sizes; all 18\ncaptured plans pass the filter-pushdown and vector-TopK checks. Tool\nrevisions match the previous baseline: pdbench\n`ac64c0a34a1558ca72e07a342b51b52076befa50`, benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\n## Validation\n\n- Superkmeans: 105 tests passed; two existing heavy tests ignored.\nAccelerate all-target compilation, formatting, and documentation passed.\n- Tantivy: 317 vector tests passed; two existing tests ignored. Local\nClippy passed.\n- ParadeDB: locked workspace check, workspace all-target Clippy with\nwarnings denied, documentation build, formatting, and all applicable\ncommit hooks passed. Source integration and SQL fixtures match the PR\nbase exactly.\n- Local SQL runtime tests remain unavailable because installed\ncargo-pgrx 0.19.0 differs from the workspace's 0.20.0-beta.1. Existing\nPR CI runs runtime SQL tests and refreshes the Nix dependency hash.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T08:03:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/781cb511f88c91cb29181c56b2acc841b2cb123f"
+        },
+        "date": 1794399466944,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 10.962,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 15.649,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 17.229,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 29.937,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 37.603,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 42.888,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 79.054,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 816.854,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 922.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 5.89,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 6.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 11.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 15.814,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 16.444,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 21.848,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 139.065,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 171.92,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13854470854-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -82529,6 +82642,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13849496228-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "781cb511f88c91cb29181c56b2acc841b2cb123f",
+          "message": "fix: restore IVF split logic while keeping target_leaf_size (#7377)\n\n## What\n\nSoft-revert geometric clustering while keeping the `target_leaf_size`\nname and default of 200. ParadeDB's source integration, option names,\nand SQL regression fixtures remain identical to the PR base. Update the\ndependency pins and correct two descriptions of the training-leaf cap;\nretain the original option-rename changelog entry.\n\n## Dependencies and scope\n\n- [superkmeans-rs\n#45](https://github.com/paradedb/superkmeans-rs/pull/45),\n`6b0d0bc08e2071220b99222db0c79ad49305f8dc`: restore `ceil(n_sub /\ntarget_leaf_size)` recursive splitting and enforce the training-leaf cap\nwhile preserving the API name.\n- [Tantivy #399](https://github.com/paradedb/tantivy/pull/399),\n`98b3d5c1570c912f51f40530ba1645f1695b458b` (merged): use that\nimplementation for IVF and stacked routing; preserve\n`with_target_leaf_size` and `DEFAULT_TARGET_LEAF_SIZE`.\n- Preserve donor revival, convergence guards, statistics, and later\ndependency changes. Sampling remains 0.32. Explicit `k` sizing is\nseparate. Both dependency PRs are merged; the direct superkmeans pin\nmatches the revision used by the merged Tantivy commit.\n\nUpdated against current ParadeDB main, which already includes\ndocument-order vector storage and SOAR support. The merged Tantivy pin\nalso includes [rotation kernel optimizations\n#400](https://github.com/paradedb/tantivy/pull/400) and [synonym\nexpansion queries #380](https://github.com/paradedb/tantivy/pull/380),\nmerged after the prior dependency pin. The historical benchmark below\ndoes not isolate geometric splitting from all intervening dependency\nchanges.\n\n## Cohere results\n\n[Run\n42953591743](https://github.com/paradedb/paradedb/actions/runs/42953591743)\ncompleted for 1M and 10M, benchmarking merge commit\n`96873e91303709aa0625356ccce22df9c17eb979` for the prior PR head\n`03142081a723221f50c629ec06e450d610fe966a`. It used the restored split\nlogic with the old API spelling. A subsequent follow-up restored the\n`target_leaf_size` spelling, and the current Tantivy pin includes the\nadditional merged changes listed above. These are prior-head\nmeasurements, not a benchmark of the current head.\n\nAll values below are **p50 latency in milliseconds**, at the stated\n**recall target**. The old baseline is\n[42861348530](https://github.com/paradedb/paradedb/actions/runs/42861348530);\nthe main control is\n[42925695336](https://github.com/paradedb/paradedb/actions/runs/42925695336).\n\n| Query | Recall target | Old baseline | Main control | Logic revert |\n|---|---:|---:|---:|---:|\n| Unfiltered | 90% | 4.272 | 4.325 | 4.066 |\n| Unfiltered | 95% | 6.732 | 7.931 | 6.381 |\n| Unfiltered | 99% | 18.223 | 30.473 | 21.316 |\n| 10% filter | 90% | 10.596 | 10.918 | 10.165 |\n| 10% filter | 95% | 13.400 | 13.764 | 12.512 |\n| 10% filter | 99% | 27.366 | 37.700 | 22.033 |\n| 1% filter | 90% | 11.100 | 11.108 | 11.167 |\n| 1% filter | 95% | 14.258 | 13.213 | 14.900 |\n| 1% filter | 99% | 29.522 | 29.695 | 35.616 |\n\n10M unfiltered at 99% recall improves 30.0% versus main, recovering\nabout 75% of the latency increase over the old baseline; it remains\n17.0% slower than that baseline. The 10% filtered 99%-recall case\nimproves 41.6% versus main. The 1% filtered 99%-recall case is 19.9%\nslower than main, so recovery is partial. Mean cluster size is 417.1\nvectors, compared with 549.0 on main and 404.3 on the old baseline.\n\nAt 1M, all six filtered p50 rows improve 1.5\u20138.1% versus the old\nbaseline; unfiltered 90%/95% rows are about 2.3% slower and the 99% row\nis 20.1% slower (10.362 vs 8.630 ms). Configuration fingerprints and\nfull search configurations match the old baseline for both sizes; all 18\ncaptured plans pass the filter-pushdown and vector-TopK checks. Tool\nrevisions match the previous baseline: pdbench\n`ac64c0a34a1558ca72e07a342b51b52076befa50`, benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\n## Validation\n\n- Superkmeans: 105 tests passed; two existing heavy tests ignored.\nAccelerate all-target compilation, formatting, and documentation passed.\n- Tantivy: 317 vector tests passed; two existing tests ignored. Local\nClippy passed.\n- ParadeDB: locked workspace check, workspace all-target Clippy with\nwarnings denied, documentation build, formatting, and all applicable\ncommit hooks passed. Source integration and SQL fixtures match the PR\nbase exactly.\n- Local SQL runtime tests remain unavailable because installed\ncargo-pgrx 0.19.0 differs from the workspace's 0.20.0-beta.1. Existing\nPR CI runs runtime SQL tests and refreshes the Nix dependency hash.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T08:03:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/781cb511f88c91cb29181c56b2acc841b2cb123f"
+        },
+        "date": 1794399468103,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 89.42725210422965,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 39.35108385166997,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 5.640700572368578,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 194.48352949703167,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 94.44774717946402,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 26.713531421074663,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13854470854-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -82713,6 +82879,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13849496228-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "781cb511f88c91cb29181c56b2acc841b2cb123f",
+          "message": "fix: restore IVF split logic while keeping target_leaf_size (#7377)\n\n## What\n\nSoft-revert geometric clustering while keeping the `target_leaf_size`\nname and default of 200. ParadeDB's source integration, option names,\nand SQL regression fixtures remain identical to the PR base. Update the\ndependency pins and correct two descriptions of the training-leaf cap;\nretain the original option-rename changelog entry.\n\n## Dependencies and scope\n\n- [superkmeans-rs\n#45](https://github.com/paradedb/superkmeans-rs/pull/45),\n`6b0d0bc08e2071220b99222db0c79ad49305f8dc`: restore `ceil(n_sub /\ntarget_leaf_size)` recursive splitting and enforce the training-leaf cap\nwhile preserving the API name.\n- [Tantivy #399](https://github.com/paradedb/tantivy/pull/399),\n`98b3d5c1570c912f51f40530ba1645f1695b458b` (merged): use that\nimplementation for IVF and stacked routing; preserve\n`with_target_leaf_size` and `DEFAULT_TARGET_LEAF_SIZE`.\n- Preserve donor revival, convergence guards, statistics, and later\ndependency changes. Sampling remains 0.32. Explicit `k` sizing is\nseparate. Both dependency PRs are merged; the direct superkmeans pin\nmatches the revision used by the merged Tantivy commit.\n\nUpdated against current ParadeDB main, which already includes\ndocument-order vector storage and SOAR support. The merged Tantivy pin\nalso includes [rotation kernel optimizations\n#400](https://github.com/paradedb/tantivy/pull/400) and [synonym\nexpansion queries #380](https://github.com/paradedb/tantivy/pull/380),\nmerged after the prior dependency pin. The historical benchmark below\ndoes not isolate geometric splitting from all intervening dependency\nchanges.\n\n## Cohere results\n\n[Run\n42953591743](https://github.com/paradedb/paradedb/actions/runs/42953591743)\ncompleted for 1M and 10M, benchmarking merge commit\n`96873e91303709aa0625356ccce22df9c17eb979` for the prior PR head\n`03142081a723221f50c629ec06e450d610fe966a`. It used the restored split\nlogic with the old API spelling. A subsequent follow-up restored the\n`target_leaf_size` spelling, and the current Tantivy pin includes the\nadditional merged changes listed above. These are prior-head\nmeasurements, not a benchmark of the current head.\n\nAll values below are **p50 latency in milliseconds**, at the stated\n**recall target**. The old baseline is\n[42861348530](https://github.com/paradedb/paradedb/actions/runs/42861348530);\nthe main control is\n[42925695336](https://github.com/paradedb/paradedb/actions/runs/42925695336).\n\n| Query | Recall target | Old baseline | Main control | Logic revert |\n|---|---:|---:|---:|---:|\n| Unfiltered | 90% | 4.272 | 4.325 | 4.066 |\n| Unfiltered | 95% | 6.732 | 7.931 | 6.381 |\n| Unfiltered | 99% | 18.223 | 30.473 | 21.316 |\n| 10% filter | 90% | 10.596 | 10.918 | 10.165 |\n| 10% filter | 95% | 13.400 | 13.764 | 12.512 |\n| 10% filter | 99% | 27.366 | 37.700 | 22.033 |\n| 1% filter | 90% | 11.100 | 11.108 | 11.167 |\n| 1% filter | 95% | 14.258 | 13.213 | 14.900 |\n| 1% filter | 99% | 29.522 | 29.695 | 35.616 |\n\n10M unfiltered at 99% recall improves 30.0% versus main, recovering\nabout 75% of the latency increase over the old baseline; it remains\n17.0% slower than that baseline. The 10% filtered 99%-recall case\nimproves 41.6% versus main. The 1% filtered 99%-recall case is 19.9%\nslower than main, so recovery is partial. Mean cluster size is 417.1\nvectors, compared with 549.0 on main and 404.3 on the old baseline.\n\nAt 1M, all six filtered p50 rows improve 1.5\u20138.1% versus the old\nbaseline; unfiltered 90%/95% rows are about 2.3% slower and the 99% row\nis 20.1% slower (10.362 vs 8.630 ms). Configuration fingerprints and\nfull search configurations match the old baseline for both sizes; all 18\ncaptured plans pass the filter-pushdown and vector-TopK checks. Tool\nrevisions match the previous baseline: pdbench\n`ac64c0a34a1558ca72e07a342b51b52076befa50`, benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\n## Validation\n\n- Superkmeans: 105 tests passed; two existing heavy tests ignored.\nAccelerate all-target compilation, formatting, and documentation passed.\n- Tantivy: 317 vector tests passed; two existing tests ignored. Local\nClippy passed.\n- ParadeDB: locked workspace check, workspace all-target Clippy with\nwarnings denied, documentation build, formatting, and all applicable\ncommit hooks passed. Source integration and SQL fixtures match the PR\nbase exactly.\n- Local SQL runtime tests remain unavailable because installed\ncargo-pgrx 0.19.0 differs from the workspace's 0.20.0-beta.1. Existing\nPR CI runs runtime SQL tests and refreshes the Nix dependency hash.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T08:03:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/781cb511f88c91cb29181c56b2acc841b2cb123f"
+        },
+        "date": 1794399468964,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2643.06,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 6669.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 48430.74,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1088.37,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2717.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 12920.13,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13854470854-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -82887,6 +83106,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13849496228-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "781cb511f88c91cb29181c56b2acc841b2cb123f",
+          "message": "fix: restore IVF split logic while keeping target_leaf_size (#7377)\n\n## What\n\nSoft-revert geometric clustering while keeping the `target_leaf_size`\nname and default of 200. ParadeDB's source integration, option names,\nand SQL regression fixtures remain identical to the PR base. Update the\ndependency pins and correct two descriptions of the training-leaf cap;\nretain the original option-rename changelog entry.\n\n## Dependencies and scope\n\n- [superkmeans-rs\n#45](https://github.com/paradedb/superkmeans-rs/pull/45),\n`6b0d0bc08e2071220b99222db0c79ad49305f8dc`: restore `ceil(n_sub /\ntarget_leaf_size)` recursive splitting and enforce the training-leaf cap\nwhile preserving the API name.\n- [Tantivy #399](https://github.com/paradedb/tantivy/pull/399),\n`98b3d5c1570c912f51f40530ba1645f1695b458b` (merged): use that\nimplementation for IVF and stacked routing; preserve\n`with_target_leaf_size` and `DEFAULT_TARGET_LEAF_SIZE`.\n- Preserve donor revival, convergence guards, statistics, and later\ndependency changes. Sampling remains 0.32. Explicit `k` sizing is\nseparate. Both dependency PRs are merged; the direct superkmeans pin\nmatches the revision used by the merged Tantivy commit.\n\nUpdated against current ParadeDB main, which already includes\ndocument-order vector storage and SOAR support. The merged Tantivy pin\nalso includes [rotation kernel optimizations\n#400](https://github.com/paradedb/tantivy/pull/400) and [synonym\nexpansion queries #380](https://github.com/paradedb/tantivy/pull/380),\nmerged after the prior dependency pin. The historical benchmark below\ndoes not isolate geometric splitting from all intervening dependency\nchanges.\n\n## Cohere results\n\n[Run\n42953591743](https://github.com/paradedb/paradedb/actions/runs/42953591743)\ncompleted for 1M and 10M, benchmarking merge commit\n`96873e91303709aa0625356ccce22df9c17eb979` for the prior PR head\n`03142081a723221f50c629ec06e450d610fe966a`. It used the restored split\nlogic with the old API spelling. A subsequent follow-up restored the\n`target_leaf_size` spelling, and the current Tantivy pin includes the\nadditional merged changes listed above. These are prior-head\nmeasurements, not a benchmark of the current head.\n\nAll values below are **p50 latency in milliseconds**, at the stated\n**recall target**. The old baseline is\n[42861348530](https://github.com/paradedb/paradedb/actions/runs/42861348530);\nthe main control is\n[42925695336](https://github.com/paradedb/paradedb/actions/runs/42925695336).\n\n| Query | Recall target | Old baseline | Main control | Logic revert |\n|---|---:|---:|---:|---:|\n| Unfiltered | 90% | 4.272 | 4.325 | 4.066 |\n| Unfiltered | 95% | 6.732 | 7.931 | 6.381 |\n| Unfiltered | 99% | 18.223 | 30.473 | 21.316 |\n| 10% filter | 90% | 10.596 | 10.918 | 10.165 |\n| 10% filter | 95% | 13.400 | 13.764 | 12.512 |\n| 10% filter | 99% | 27.366 | 37.700 | 22.033 |\n| 1% filter | 90% | 11.100 | 11.108 | 11.167 |\n| 1% filter | 95% | 14.258 | 13.213 | 14.900 |\n| 1% filter | 99% | 29.522 | 29.695 | 35.616 |\n\n10M unfiltered at 99% recall improves 30.0% versus main, recovering\nabout 75% of the latency increase over the old baseline; it remains\n17.0% slower than that baseline. The 10% filtered 99%-recall case\nimproves 41.6% versus main. The 1% filtered 99%-recall case is 19.9%\nslower than main, so recovery is partial. Mean cluster size is 417.1\nvectors, compared with 549.0 on main and 404.3 on the old baseline.\n\nAt 1M, all six filtered p50 rows improve 1.5\u20138.1% versus the old\nbaseline; unfiltered 90%/95% rows are about 2.3% slower and the 99% row\nis 20.1% slower (10.362 vs 8.630 ms). Configuration fingerprints and\nfull search configurations match the old baseline for both sizes; all 18\ncaptured plans pass the filter-pushdown and vector-TopK checks. Tool\nrevisions match the previous baseline: pdbench\n`ac64c0a34a1558ca72e07a342b51b52076befa50`, benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\n## Validation\n\n- Superkmeans: 105 tests passed; two existing heavy tests ignored.\nAccelerate all-target compilation, formatting, and documentation passed.\n- Tantivy: 317 vector tests passed; two existing tests ignored. Local\nClippy passed.\n- ParadeDB: locked workspace check, workspace all-target Clippy with\nwarnings denied, documentation build, formatting, and all applicable\ncommit hooks passed. Source integration and SQL fixtures match the PR\nbase exactly.\n- Local SQL runtime tests remain unavailable because installed\ncargo-pgrx 0.19.0 differs from the workspace's 0.20.0-beta.1. Existing\nPR CI runs runtime SQL tests and refreshes the Nix dependency hash.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T08:03:48Z",
+          "url": "https://github.com/paradedb/paradedb/commit/781cb511f88c91cb29181c56b2acc841b2cb123f"
+        },
+        "date": 1794399469759,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 174.6475730122,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 508984.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx parallel workers",
+            "value": 7,
+            "unit": "workers"
+          },
+          {
+            "name": "msmarco_bm25_idx peak summed RSS",
+            "value": 101.6032829284668,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13854470854-index"
       }
     ]
   }

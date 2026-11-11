@@ -343,31 +343,27 @@ class MeasureTest(unittest.TestCase):
             rq.measure(self.runs, ["[1]"], run=self.fake_run)
 
 
-def table(text, level="Unfiltered"):
-    """A level's rows, keyed by '<group>/<row>'."""
-    lines = text.split(f"| {level} |")[1].split("\n\n")[0].splitlines()[2:]
-    rows, group = {}, None
-    for line in lines:
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if cells[1:] == ["", "", ""]:
-            group = cells[0].strip("*")
-            continue
-        rows[f"{group}/{cells[0]}"] = cells[1:]
-    return rows
-
-
-UNFILTERED_ROWS = [
-    "Ratios, vectors probed/Router vs flat",
-    "Ratios, vectors probed/Adaptive on vs off",
-    "Clusters probed/Flat",
-    "Clusters probed/Router",
-    "Clusters probed/Router, adaptive on",
-    "Vectors probed/Flat",
-    "Vectors probed/Router",
-    "Vectors probed/Router, adaptive on",
-    "Routing time, ms/Flat",
-    "Routing time, ms/Router",
+HEADER = (
+    "| | Flat clusters | Router clusters | Ratio | Flat vectors | Router vectors | Ratio "
+    "| Adaptive on vs off | Routing ms |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+)
+ROW_ORDER = [
+    f"{level} {target}"
+    for level in ("Unfiltered", "Filter 10%", "Filter 1%")
+    for target in ("r90", "r95", "r99")
 ]
+U = "knn_top10_unfiltered"
+
+
+def table(text):
+    """The comment's one table as {row label: {column id: cell}}, in row order."""
+    tables = text.count("|---|")
+    assert tables == 1, f"expected one table, found {tables}"
+    rows = {}
+    for line in text.split(HEADER)[1].split("\n\n")[0].splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        rows[cells[0]] = dict(zip([column[0] for column in rq.COLUMNS], cells[1:], strict=True))
+    return rows
 
 
 class RenderTest(unittest.TestCase):
@@ -393,226 +389,256 @@ class RenderTest(unittest.TestCase):
         report, _ = self.render(measurements(cells))
         return report | {"commit": "b" * 40}
 
-    def test_layout_groups_rows_share_footnotes_and_link(self):
+    def assertVerdict(self, files, line):
+        self.assertIn(f"\n**{line}**\n", files["router_quality.md"])
+
+    def test_one_table_in_row_order_with_footnote_and_link(self):
         report, files = self.render(measurements())
         text = files["router_quality.md"]
         self.assertTrue(text.startswith("\n#### Router quality · Cohere 1m\n\n**✅ "))
-        self.assertIn(
-            "**✅ Router matches flat ordering (worst 1.00× at r90) · no main baseline yet**", text
-        )
-        self.assertNotIn("<details>", text)
+        self.assertVerdict(files, "✅ Router matches flat ordering (worst 1.00x at r90) · no main baseline yet")
+        self.assertIn(f"**\n\n{HEADER}| Unfiltered r90 |", text)
         rows = table(text)
-        self.assertEqual(list(rows), UNFILTERED_ROWS)
-        self.assertEqual(rows["Ratios, vectors probed/Router vs flat"], ["**1.00×**"] * 3)
-        self.assertEqual(rows["Clusters probed/Router, adaptive on"], ["100"] * 3)
-        self.assertEqual(rows["Vectors probed/Flat"], ["40.0k"] * 3)
-        self.assertEqual(rows["Routing time, ms/Flat"], ["0.8"] * 3)
-        self.assertEqual(rows["Routing time, ms/Router"], ["0.8 (10%)"] * 3)
-        for level in ("Filter 10%", "Filter 1%"):
-            self.assertIn(f"| {level} | r90 | r95 | r99 |\n|---|---:|---:|---:|\n", text)
-            filtered = table(text, level)
-            self.assertEqual(
-                list(filtered), [row.replace("Vectors probed", "Valid vectors").replace(
-                    "vectors probed", "valid vectors") for row in UNFILTERED_ROWS]
-            )
-            self.assertEqual(filtered["Valid vectors/Router"], ["30.0k"] * 3)
-        self.assertNotIn("(main", text)
-        self.assertTrue(
-            text.endswith(f"{rq.FIXED_NOTE}\n{rq.FILTERED_NOTE}\n[Full report]({self.URL})\n")
-        )
-        self.assertIn("router's share of query time in brackets", rq.FIXED_NOTE)
-        self.assertEqual(report["flags"], [])
-
-    def test_a_clean_baseline_adds_no_brackets_and_names_main(self):
-        _, files = self.render(measurements(), self.baseline())
-        text = files["router_quality.md"]
-        self.assertIn(
-            f"**✅ Router matches flat ordering (worst 1.00× at r90) · no regression against main "
-            f"{'b' * 7}**",
-            text,
-        )
-        self.assertIn("| Unfiltered | r90 | r95 | r99 |", text)
-        self.assertNotIn("(main", text)
-        self.assertEqual(table(text)["Clusters probed/Flat"], ["100"] * 3)
-
-    def test_only_router_vs_flat_on_vectors_gates(self):
-        cells = {("knn_top10_unfiltered", 0.95, "stored"): arm_cell(clusters=150.0)}
-        report, files = self.render(measurements(cells))
-        self.assertEqual(report["flags"], [])
-        self.assertEqual(table(files["router_quality.md"])["Clusters probed/Router"][1], "150")
-        cells = {
-            ("knn_top10_unfiltered", 0.9, "stored"): arm_cell(vectors_probed=43_200.0),
-            ("knn_top10_unfiltered", 0.99, "stored"): arm_cell(vectors_probed=48_000.0),
-        }
-        report, files = self.render(measurements(cells))
-        rows = table(files["router_quality.md"])
+        self.assertEqual(list(rows), ROW_ORDER)
         self.assertEqual(
-            rows["Ratios, vectors probed/Router vs flat"],
-            ["**1.08×** ❌", "**1.00×**", "**1.20×** ⚠️"],
+            list(rows["Unfiltered r90"].values()),
+            ["100", "100", "1.00x", "40.0k", "40.0k", "1.00x", "1.00x", "0.8 (10%)"],
         )
-        self.assertEqual(report["verdict"], "❌")
-        self.assertIn(
-            "**❌ Router needs 1.08× flat's vectors at r90 · no main baseline yet.**",
-            files["router_quality.md"],
-        )
-        cells = {("knn_top10_unfiltered", 0.99, "stored"): arm_cell(vectors_probed=44_000.0)}
-        report, files = self.render(measurements(cells))
-        self.assertIn(
-            "**⚠️ Router needs 1.10× flat's vectors at r99 · no main baseline yet.**",
-            files["router_quality.md"],
-        )
+        # Filtered rows count filter-valid vectors.
+        for level in ("Filter 10%", "Filter 1%"):
+            self.assertEqual(
+                list(rows[f"{level} r95"].values()),
+                ["100", "100", "1.00x", "30.0k", "30.0k", "1.00x", "1.00x", "0.8 (10%)"],
+            )
+        self.assertNotIn("(main", text)
+        self.assertNotIn("×", text)
+        self.assertTrue(text.endswith(f" |\n\n{rq.FOOTNOTE}\n[Full report]({self.URL})\n"))
+        for phrase in (
+            "Each Ratio is Router divided by Flat for the two columns before it.",
+            "Adaptive on vs off is the router's vectors probed with adaptive probing on, divided by off.",
+            "Vectors in filtered rows count only vectors that pass the filter.",
+            "with its share of query time in brackets.",
+            "❌ marks an unfiltered ratio above 1.05x; filtered rows are informational.",
+        ):
+            self.assertIn(phrase, rq.FOOTNOTE)
+        self.assertEqual(report["flags"], [])
 
-    def test_with_a_baseline_router_vs_flat_flags_only_past_main_by_more_than_005(self):
-        high = {("knn_top10_unfiltered", 0.95, "stored"): arm_cell(vectors_probed=45_200.0)}
+    def test_routing_cell_and_adaptive_column_and_what_stays_out(self):
+        cells = {
+            (U, 0.9, "stored"): arm_cell(routing_ms=12.4, routing_share=0.25),
+            (U, 0.9, "flat"): arm_cell(routing_ms=7.7),
+            (U, 0.95, "stored-adaptive"): arm_cell(vectors_probed=36_000.0, clusters=77.0),
+            ("knn_top10_1pct", 0.99, "stored-adaptive"): arm_cell(valid_vectors=33_000.0),
+        }
+        _, files = self.render(measurements(cells))
+        rows = table(files["router_quality.md"])
+        self.assertEqual(rows["Unfiltered r90"]["router:routing"], "12 (25%)")
+        self.assertEqual(rows["Unfiltered r95"]["router:routing"], "0.8 (10%)")
+        self.assertEqual(rows["Unfiltered r95"]["ratio:adaptive"], "0.90x")
+        self.assertEqual(rows["Unfiltered r95"]["router:clusters"], "100")
+        self.assertEqual(rows["Filter 1% r99"]["ratio:adaptive"], "1.10x")
+        # Flat routing time and adaptive-on absolute numbers are in the full report only.
+        self.assertNotIn("7.7", files["router_quality.md"])
+        self.assertNotIn("| 77 |", files["router_quality.md"])
+        self.assertNotIn("36.0k", files["router_quality.md"])
+        self.assertIn("<td>7.7</td>", files["router_quality.html"])
+
+    def test_either_ratio_flags_and_the_verdict_names_clusters_when_it_flags(self):
+        cells = {(U, 0.95, "stored"): arm_cell(clusters=108.0, vectors_probed=43_200.0)}
+        report, files = self.render(measurements(cells))
+        row = table(files["router_quality.md"])["Unfiltered r95"]
+        self.assertEqual(row["ratio:clusters"], "**1.08x** ❌")
+        self.assertEqual(row["ratio:vectors"], "**1.08x** ❌")
+        self.assertEqual(row["router:clusters"], "108")
+        self.assertEqual(report["verdict"], "❌")
+        self.assertVerdict(files, "❌ Router needs 1.08x flat's clusters at r95 · no main baseline yet.")
+        # A worse vectors ratio elsewhere still names the flagged clusters ratio.
+        cells = {
+            (U, 0.9, "stored"): arm_cell(vectors_probed=44_000.0),
+            (U, 0.95, "stored"): arm_cell(clusters=106.0),
+        }
+        _, files = self.render(measurements(cells))
+        rows = table(files["router_quality.md"])
+        self.assertEqual(rows["Unfiltered r90"]["ratio:vectors"], "**1.10x** ❌")
+        self.assertEqual(rows["Unfiltered r90"]["ratio:clusters"], "1.00x")
+        self.assertVerdict(files, "❌ Router needs 1.06x flat's clusters at r95 · no main baseline yet.")
+        cells = {(U, 0.9, "stored"): arm_cell(vectors_probed=44_000.0)}
+        _, files = self.render(measurements(cells))
+        self.assertVerdict(files, "❌ Router needs 1.10x flat's vectors at r90 · no main baseline yet.")
+        cells = {(U, 0.99, "stored"): arm_cell(clusters=110.0)}
+        report, files = self.render(measurements(cells))
+        self.assertEqual(table(files["router_quality.md"])["Unfiltered r99"]["ratio:clusters"], "**1.10x** ⚠️")
+        self.assertEqual(report["verdict"], "⚠️")
+        self.assertVerdict(files, "⚠️ Router needs 1.10x flat's clusters at r99 · no main baseline yet.")
+
+    def test_with_a_baseline_a_ratio_flags_only_past_main_by_more_than_005(self):
+        high = {(U, 0.95, "stored"): arm_cell(clusters=113.0)}
         base = self.baseline(high)
         report, files = self.render(measurements(high), base)
         self.assertEqual(report["flags"], [])
-        self.assertIn(
-            f"**✅ No regression against main {'b' * 7}. Router is at 1.13× flat at r95 "
-            "(main 1.13×).**",
-            files["router_quality.md"],
+        self.assertEqual(table(files["router_quality.md"])["Unfiltered r95"]["ratio:clusters"], "1.13x")
+        self.assertVerdict(
+            files, f"✅ No regression against main {'b' * 7}. Router is at 1.13x flat at r95 (main 1.13x)."
         )
-        self.assertEqual(
-            table(files["router_quality.md"])["Ratios, vectors probed/Router vs flat"][1], "**1.13×**"
-        )
-        worse = {("knn_top10_unfiltered", 0.95, "stored"): arm_cell(vectors_probed=48_000.0)}
+        worse = {(U, 0.95, "stored"): arm_cell(clusters=120.0)}
         report, files = self.render(measurements(worse), base)
         self.assertEqual(
-            table(files["router_quality.md"])["Ratios, vectors probed/Router vs flat"][1],
-            "**1.20×** ❌ (main 1.13×)",
+            table(files["router_quality.md"])["Unfiltered r95"]["ratio:clusters"], "**1.20x** ❌ (main 1.13x)"
         )
-        self.assertIn(
-            "**❌ Router needs 1.20× flat's vectors at r95.**", files["router_quality.md"]
-        )
-        missed = self.baseline({("knn_top10_unfiltered", 0.9, "stored"): arm_cell(reached=False)})
-        cells = {("knn_top10_unfiltered", 0.9, "stored"): arm_cell(vectors_probed=44_000.0)}
-        report, files = self.render(measurements(cells), missed)
-        self.assertEqual(
-            table(files["router_quality.md"])["Ratios, vectors probed/Router vs flat"][0],
-            "**1.10×** ❌",
+        self.assertVerdict(files, "❌ Router needs 1.20x flat's clusters at r95.")
+        # A cell main did not reach keeps the absolute rule.
+        missed = self.baseline({(U, 0.9, "stored"): arm_cell(reached=False)})
+        cells = {(U, 0.9, "stored"): arm_cell(vectors_probed=44_000.0)}
+        _, files = self.render(measurements(cells), missed)
+        self.assertEqual(table(files["router_quality.md"])["Unfiltered r90"]["ratio:vectors"], "**1.10x** ❌")
+        # At r99 too, a ratio within 0.05 of main's stays unflagged.
+        base = self.baseline({(U, 0.99, "stored"): arm_cell(vectors_probed=44_800.0)})
+        cells = {(U, 0.99, "stored"): arm_cell(vectors_probed=46_000.0)}
+        report, files = self.render(measurements(cells), base)
+        self.assertEqual(report["flags"], [])
+        self.assertVerdict(
+            files, f"✅ No regression against main {'b' * 7}. Router is at 1.15x flat at r99 (main 1.12x)."
         )
 
-    def test_flat_vectors_against_main_flag_inline(self):
-        base = self.baseline()
-        cells = {("knn_top10_unfiltered", 0.9, "flat"): arm_cell(vectors_probed=44_400.0)}
-        report, files = self.render(measurements(cells), base)
-        rows = table(files["router_quality.md"])
-        self.assertEqual(rows["Vectors probed/Flat"][0], "**44.4k** ⚠️ (main 40.0k)")
-        self.assertEqual(rows["Ratios, vectors probed/Router vs flat"][0], "**0.90×**")
-        self.assertIn(
-            "**⚠️ Flat vectors probed at r90 up 11% against main (40.0k → 44.4k). "
-            "Look at: clustering.**",
-            files["router_quality.md"],
+    def test_a_clean_baseline_adds_no_brackets_and_names_main(self):
+        _, files = self.render(measurements(), self.baseline())
+        self.assertVerdict(
+            files, f"✅ Router matches flat ordering (worst 1.00x at r90) · no regression against main {'b' * 7}"
         )
+        self.assertNotIn("(main", files["router_quality.md"])
 
-    def test_adaptive_against_main_flags_vectors_and_ratio(self):
+    def test_flat_columns_against_main_flag_inline(self):
         base = self.baseline()
-        cells = {
-            ("knn_top10_unfiltered", 0.95, "stored-adaptive"): arm_cell(vectors_probed=44_400.0)
-        }
+        cells = {(U, 0.9, "flat"): arm_cell(clusters=115.0, vectors_probed=44_400.0)}
         report, files = self.render(measurements(cells), base)
-        rows = table(files["router_quality.md"])
-        self.assertEqual(rows["Vectors probed/Router, adaptive on"][1], "**44.4k** ⚠️ (main 40.0k)")
-        self.assertEqual(
-            rows["Ratios, vectors probed/Adaptive on vs off"][1], "**1.11×** ⚠️ (main 1.00×)"
+        row = table(files["router_quality.md"])["Unfiltered r90"]
+        self.assertEqual(row["flat:clusters"], "**115** ⚠️ (main 100)")
+        self.assertEqual(row["flat:vectors"], "**44.4k** ⚠️ (main 40.0k)")
+        self.assertEqual(row["ratio:clusters"], "0.87x")
+        self.assertVerdict(
+            files, "⚠️ Flat clusters at r90 up 15% against main (100 → 115). Look at: clustering."
         )
-        self.assertIn("Look at: adaptive stopping.**", files["router_quality.md"])
-        cells = {
-            ("knn_top10_unfiltered", 0.9, "stored-adaptive"): arm_cell(vectors_probed=42_400.0)
-        }
-        report, files = self.render(measurements(cells), base)
-        rows = table(files["router_quality.md"])
-        self.assertEqual(rows["Vectors probed/Router, adaptive on"][0], "42.4k")
-        self.assertEqual(
-            rows["Ratios, vectors probed/Adaptive on vs off"][0], "**1.06×** ⚠️ (main 1.00×)"
-        )
-        self.assertIn(
-            "**⚠️ Adaptive on vs off at r90 up 6% against main (1.00× → 1.06×). "
-            "Look at: adaptive stopping.**",
-            files["router_quality.md"],
-        )
-        cells = {
-            ("knn_top10_unfiltered", 0.9, "stored-adaptive"): arm_cell(vectors_probed=41_600.0)
-        }
+        cells = {(U, 0.95, "flat"): arm_cell(vectors_probed=43_900.0)}
         report, _ = self.render(measurements(cells), base)
         self.assertEqual(report["flags"], [])
 
-    def test_routing_time_flags_only_past_both_thresholds(self):
+    def test_adaptive_column_flags_a_rise_past_005(self):
         base = self.baseline()
-        cells = {("knn_top10_unfiltered", 0.9, "stored"): arm_cell(routing_ms=1.2)}
+        cells = {(U, 0.95, "stored-adaptive"): arm_cell(vectors_probed=42_400.0, clusters=200.0)}
         report, files = self.render(measurements(cells), base)
-        rows = table(files["router_quality.md"])
-        self.assertEqual(rows["Routing time, ms/Router"][0], "**1.2** (10%) ⚠️ (main 0.8)")
-        self.assertIn(
-            "**⚠️ Router routing time at r90 up 50% against main (0.8 → 1.2). "
-            "Look at: router speed.**",
-            files["router_quality.md"],
+        self.assertEqual(
+            table(files["router_quality.md"])["Unfiltered r95"]["ratio:adaptive"], "**1.06x** ⚠️ (main 1.00x)"
+        )
+        self.assertEqual([f["column"] for f in report["flags"]], ["ratio:adaptive"])
+        self.assertVerdict(
+            files,
+            "⚠️ Adaptive on vs off at r95 up 6% against main (1.00x → 1.06x). Look at: adaptive stopping.",
+        )
+        cells = {(U, 0.9, "stored-adaptive"): arm_cell(vectors_probed=41_600.0)}
+        report, _ = self.render(measurements(cells), base)
+        self.assertEqual(report["flags"], [])
+
+    def test_routing_ms_flags_only_past_both_thresholds(self):
+        base = self.baseline()
+        cells = {(U, 0.9, "stored"): arm_cell(routing_ms=1.2)}
+        _, files = self.render(measurements(cells), base)
+        self.assertEqual(
+            table(files["router_quality.md"])["Unfiltered r90"]["router:routing"], "**1.2** (10%) ⚠️ (main 0.8)"
+        )
+        self.assertVerdict(
+            files, "⚠️ Routing ms at r90 up 50% against main (0.8 → 1.2). Look at: router speed."
         )
         # Up 19% (below 25%); up 80% but only 0.08 ms (below 0.1 ms).
         for before, after in ((0.8, 0.95), (0.1, 0.18)):
-            base = self.baseline(
-                {("knn_top10_unfiltered", 0.9, "stored"): arm_cell(routing_ms=before)}
-            )
-            cells = {("knn_top10_unfiltered", 0.9, "stored"): arm_cell(routing_ms=after)}
+            base = self.baseline({(U, 0.9, "stored"): arm_cell(routing_ms=before)})
+            cells = {(U, 0.9, "stored"): arm_cell(routing_ms=after)}
             report, _ = self.render(measurements(cells), base)
             self.assertEqual(report["flags"], [], (before, after))
+
+    def test_where_to_look_lists_every_flagged_area(self):
+        base = self.baseline()
+        cells = {
+            (U, 0.9, "flat"): arm_cell(clusters=120.0),
+            (U, 0.95, "stored"): arm_cell(routing_ms=1.2),
+            (U, 0.99, "stored"): arm_cell(clusters=115.0),
+        }
+        report, files = self.render(measurements(cells), base)
+        self.assertEqual(
+            sorted((f["column"], f["target"]) for f in report["flags"]),
+            [("flat:clusters", 0.9), ("ratio:clusters", 0.99), ("router:routing", 0.95)],
+        )
+        self.assertVerdict(
+            files,
+            "⚠️ Routing ms at r95 up 50% against main (0.8 → 1.2). "
+            "Look at: router, clustering, router speed.",
+        )
 
     def test_r99_changes_against_main_do_not_flag(self):
         base = self.baseline()
         cells = {
-            ("knn_top10_unfiltered", 0.99, "flat"): arm_cell(vectors_probed=60_000.0),
-            ("knn_top10_unfiltered", 0.99, "stored"): arm_cell(
-                vectors_probed=60_000.0, routing_ms=5.0
-            ),
-            ("knn_top10_unfiltered", 0.99, "stored-adaptive"): arm_cell(vectors_probed=80_000.0),
+            (U, 0.99, "flat"): arm_cell(clusters=150.0, vectors_probed=60_000.0),
+            (U, 0.99, "stored"): arm_cell(clusters=150.0, vectors_probed=60_000.0, routing_ms=5.0),
+            (U, 0.99, "stored-adaptive"): arm_cell(vectors_probed=80_000.0),
         }
         report, _ = self.render(measurements(cells), base)
         self.assertEqual(report["flags"], [])
         self.assertEqual(report["verdict"], "✅")
 
-    def test_filtered_tables_never_flag(self):
+    def test_filtered_rows_never_flag(self):
         base = self.baseline()
         cells = {
-            ("knn_top10_10pct", 0.9, "stored"): arm_cell(valid_vectors=90_000.0),
-            ("knn_top10_10pct", 0.9, "flat"): arm_cell(routing_ms=9.0),
+            ("knn_top10_10pct", 0.9, "stored"): arm_cell(clusters=300.0, valid_vectors=90_000.0),
+            ("knn_top10_10pct", 0.9, "flat"): arm_cell(routing_ms=9.0, clusters=200.0),
+            ("knn_top10_1pct", 0.95, "stored"): arm_cell(routing_ms=4.0),
             ("knn_top10_1pct", 0.95, "stored-adaptive"): arm_cell(valid_vectors=60_000.0),
         }
         report, files = self.render(measurements(cells), base)
         self.assertEqual(report["flags"], [])
         self.assertEqual(report["verdict"], "✅")
+        rows = table(files["router_quality.md"])
         self.assertEqual(
-            table(files["router_quality.md"], "Filter 10%")["Ratios, valid vectors/Router vs flat"][0],
-            "**3.00×**",
+            [rows["Filter 10% r90"][c] for c in ("ratio:clusters", "ratio:vectors", "flat:clusters")],
+            ["1.50x", "3.00x", "200"],
         )
-        self.assertNotIn("❌", files["router_quality.md"])
-        self.assertNotIn("⚠️", files["router_quality.md"])
+        self.assertEqual(rows["Filter 1% r95"]["ratio:adaptive"], "2.00x")
+        self.assertEqual(rows["Filter 1% r95"]["router:routing"], "4.0 (10%)")
+        for row in rows.values():
+            self.assertFalse(any("❌" in c or "⚠️" in c or "**" in c for c in row.values()), row)
 
-    def test_not_reached_prints_and_leaves_ratios_empty(self):
-        cells = {("knn_top10_unfiltered", 0.99, "stored"): arm_cell(reached=False)}
+    def test_not_reached_prints_in_that_arms_cells_and_leaves_ratios_empty(self):
+        cells = {
+            (U, 0.9, "stored-adaptive"): arm_cell(reached=False),
+            (U, 0.95, "flat"): arm_cell(reached=False),
+            (U, 0.99, "stored"): arm_cell(reached=False),
+        }
         _, files = self.render(measurements(cells))
         rows = table(files["router_quality.md"])
-        self.assertEqual(rows["Clusters probed/Router"][2], "not reached")
-        self.assertEqual(rows["Routing time, ms/Router"][2], "not reached")
-        self.assertEqual(rows["Ratios, vectors probed/Router vs flat"][2], "")
-        self.assertEqual(rows["Ratios, vectors probed/Adaptive on vs off"][2], "")
+        self.assertEqual(
+            list(rows["Unfiltered r90"].values()),
+            ["100", "100", "1.00x", "40.0k", "40.0k", "1.00x", "", "0.8 (10%)"],
+        )
+        self.assertEqual(
+            list(rows["Unfiltered r95"].values()),
+            ["not reached", "100", "", "not reached", "40.0k", "", "1.00x", "0.8 (10%)"],
+        )
+        self.assertEqual(
+            list(rows["Unfiltered r99"].values()),
+            ["100", "not reached", "", "40.0k", "not reached", "", "", "not reached"],
+        )
 
     def test_a_baseline_with_another_configuration_is_not_compared(self):
         base = self.baseline() | {"fingerprint": "other"}
         report, files = self.render(measurements(), base)
-        self.assertIn(
-            "**✅ Router matches flat ordering (worst 1.00× at r90) · main baseline configuration "
-            "differs**",
-            files["router_quality.md"],
+        self.assertVerdict(
+            files, "✅ Router matches flat ordering (worst 1.00x at r90) · main baseline configuration differs"
         )
         self.assertIsNone(report["baseline_commit"])
         self.assertIn("main baseline configuration differs", files["router_quality.html"])
 
     def test_history_metrics_are_fifteen_unfiltered_values_in_two_suites(self):
         cells = {
-            ("knn_top10_unfiltered", 0.9, "stored"): arm_cell(
-                vectors_probed=48_000.0, routing_ms=0.5
-            ),
-            ("knn_top10_unfiltered", 0.9, "stored-adaptive"): arm_cell(vectors_probed=36_000.0),
+            (U, 0.9, "stored"): arm_cell(clusters=120.0, vectors_probed=48_000.0, routing_ms=0.5),
+            (U, 0.9, "stored-adaptive"): arm_cell(vectors_probed=36_000.0),
         }
         _, files = self.render(measurements(cells))
         ratios = json.loads(files["router-metrics.json"])
@@ -621,20 +647,20 @@ class RenderTest(unittest.TestCase):
         self.assertEqual({m["unit"] for m in ratios}, {"ratio"})
         self.assertEqual({m["unit"] for m in details}, {"vectors/query", "ms"})
         values = {m["name"]: m["value"] for m in ratios + details}
-        tag = "knn_top10_unfiltered@r90"
-        self.assertEqual(values[f"{tag} router vs flat, vectors probed"], 1.2)
+        tag = f"{U}@r90"
+        self.assertEqual(values[f"{tag} router vs flat, clusters"], 1.2)
         self.assertEqual(values[f"{tag} adaptive on vs off, vectors probed"], 0.75)
         self.assertEqual(values[f"{tag} flat vectors probed"], 40_000.0)
         self.assertEqual(values[f"{tag} router vectors probed, adaptive on"], 36_000.0)
         self.assertEqual(values[f"{tag} router routing time"], 0.5)
-        self.assertNotIn(f"{tag} router vs flat, clusters", values)
-        cells = {("knn_top10_unfiltered", 0.99, "flat"): arm_cell(reached=False)}
+        self.assertNotIn(f"{tag} router vs flat, vectors probed", values)
+        cells = {(U, 0.99, "flat"): arm_cell(reached=False)}
         _, files = self.render(measurements(cells))
         self.assertEqual(len(json.loads(files["router-metrics.json"])), 2 + 2 + 1)
         self.assertEqual(len(json.loads(files["router-detail-metrics.json"])), 3 + 3 + 2)
 
     def test_full_report_holds_main_side_by_side_and_what_left_the_comment(self):
-        measured = measurements({("knn_top10_unfiltered", 0.9, "flat"): arm_cell(clusters=90.0)})
+        measured = measurements({(U, 0.9, "flat"): arm_cell(clusters=90.0)})
         measured["tolerated"] = [
             {"arm": "flat", "query": "knn_top10_10pct", "report": "router/flat/r_search.json"}
         ]
@@ -651,6 +677,10 @@ class RenderTest(unittest.TestCase):
             "Against main",
             f"Main <code>{'b' * 40}</code>",
             "<td>Flat clusters</td><td>90</td><td>100</td><td>-10.0%</td>",
+            "<td>Clusters ratio</td><td>1.11x</td><td>1.00x</td><td>+11.1%</td>",
+            "<td>Vectors ratio</td>",
+            "<td>Router, adaptive on vectors</td>",
+            "<td>Flat routing ms</td>",
             "Checks",
             "Plan shapes",
             "router/flat/r_search.json",

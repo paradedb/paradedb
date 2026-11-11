@@ -167,13 +167,16 @@ arm reports.
 `router_quality.py render` writes:
 
 - `router_quality.md`, the PR-comment section under the operating-point table: a
-  verdict line, one table per filter level, two footnotes and a link to the full
-  report. Each table starts with two ratios on vectors probed (valid vectors for
-  the filtered levels): Router vs flat, the stored arm over the flat arm, and
-  Adaptive on vs off, `stored-adaptive` over the stored arm. Then come clusters
-  probed and vectors for Flat, Router and Router with adaptive probing on, and
-  routing time for Flat and Router, with the router's share of query time in
-  brackets.
+  verdict line, one table, one footnote paragraph and a link to the full report.
+  The table has a row per filter level and target (Unfiltered, Filter 10%, Filter
+  1%, each at r90, r95, r99) and these columns: Flat and Router clusters probed
+  and their Ratio (Router / Flat); Flat and Router vectors and their Ratio, where
+  vectors are vectors probed on unfiltered rows and filter-valid vectors on
+  filtered rows; Adaptive on vs off, `stored-adaptive` over the stored arm on the
+  row's vectors; and Routing ms, the stored arm's routing time with its share of
+  query time in brackets. Flat is the flat arm and Router the stored arm, both
+  with adaptive probing off. A target an arm did not reach prints `not reached`
+  in that arm's cells and leaves the ratios that depend on it empty.
 - `router_quality.html`, the full report: every arm's clusters, vectors probed,
   valid vectors, empty clusters, layer-0 scored, exact rows, routing time,
   centroids scored and adaptive stops per query and target, this commit's values
@@ -182,25 +185,29 @@ arm reports.
   `benchmarker-runs/<commit>/cohere-<size>/sweep/router_quality.html`.
 - `router-metrics.json` and `router-detail-metrics.json`, unfiltered values per
   target for the benchmark history. The publisher stores them as two suites:
-  `benchmarker cohere-<size> (router)` holds Router vs flat and Adaptive on vs
-  off, both on vectors probed, and alerts like the other suites (115%,
-  commenting only on runs without a PR);
+  `benchmarker cohere-<size> (router)` holds the clusters Ratio and Adaptive on
+  vs off on vectors probed, and alerts like the other suites (115%, commenting
+  only on runs without a PR);
   `benchmarker cohere-<size> (router detail)` holds Flat vectors probed,
   adaptive-on vectors probed and Router routing time, without alerts. Neither
   adds rows to the PR comment's results table.
 - `router_quality.json`, every number above with the commit and config
   fingerprint; the next run on main reads it as the baseline.
 
-Only the Unfiltered table flags, and the only gated ratio is Router vs flat on
-vectors probed: above 1.05 it gets ❌ at r90 and r95 and ⚠️ at r99; with a main
-baseline it must also exceed main's ratio by more than 0.05, so a router already
-above 1.05 on main does not flag every run. When it sits above 1.05 without a
-flag, the verdict reads "No regression against main" and names the worst r90 or
-r95 ratio next to main's. Against main, at r90 and r95, a cell turns bold with
-⚠️ and shows main's value when Flat or adaptive-on vectors probed rose by more
-than 10%, when Adaptive on vs off rose by more than 0.05, or when Router routing
-time rose by more than 25% and 0.1 ms. Main's values appear in the comment only
-in flagged cells. These are policy thresholds for review, not derived bounds.
-The filtered tables are informational: every segment is forced to route, their
-plans are parallel, and routing time includes row gating. Nothing here fails the
-job.
+Only Unfiltered rows flag. Either Ratio above 1.05 turns bold with ❌ at r90
+and r95 and ⚠️ at r99; with a main baseline it must also exceed main's ratio by
+more than 0.05, so a router already above 1.05 on main does not flag every run.
+Against main, at r90 and r95, a cell turns bold with ⚠️ and shows main's value
+when Flat clusters or Flat vectors rose by more than 10%, when Adaptive on vs off
+rose by more than 0.05, or when Routing ms rose by more than 25% and 0.1 ms.
+Main's values appear in the comment only in flagged cells. These are policy
+thresholds for review, not derived bounds.
+
+The verdict names the worst flag: a ❌ Ratio as the factor Router needs over flat
+(clusters when the clusters Ratio flags, otherwise vectors); otherwise the
+against-main cell with the largest relative rise, followed by where to look
+(router for a Ratio, clustering for Flat, adaptive stopping for Adaptive on vs
+off, router speed for Routing ms). With nothing flagged it gives the worst Ratio,
+or, when a Ratio sits above 1.05 within 0.05 of main's, that Ratio beside main's.
+Filtered rows are informational: every segment is forced to route, their plans
+are parallel, and routing time includes row gating. Nothing here fails the job.

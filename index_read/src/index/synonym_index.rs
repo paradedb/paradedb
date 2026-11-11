@@ -37,7 +37,7 @@ use tantivy::{DocId, SegmentOrdinal, SegmentReader};
 pub fn open_synonym_index(index: pg_sys::Oid) -> anyhow::Result<IndexAccess> {
     let index = IndexOid::from(index).read();
     let name = index.name();
-    if unsafe { (*index.rd_rel).relkind } as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
+    if unsafe { pg_sys::get_rel_relkind(index.oid()) } as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
         return Err(anyhow!(
             "synonym index \"{name}\" cannot be a partitioned index"
         ));

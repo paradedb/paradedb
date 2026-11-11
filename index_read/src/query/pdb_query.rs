@@ -3020,6 +3020,7 @@ mod tests {
             transposition_cost_one: None,
             prefix: None,
             conjunction_mode: None,
+            synonyms: None,
         }
     }
 

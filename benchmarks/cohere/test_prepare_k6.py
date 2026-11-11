@@ -202,6 +202,22 @@ class OperatingPointsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid selected point"):
                 operating_points(inputs, "msmarco")
 
+    def test_only_hn_prism_allows_short_results_after_recall_validation(self):
+        """Keep the result-count exception scoped to HN's post-filtered PRISM scan."""
+        for dataset in SUITES:
+            for engine in ("pg_search", "pg_vectorsearch"):
+                with self.subTest(dataset=dataset, engine=engine):
+                    points = operating_points(reports(dataset, engine), dataset)
+                    relaxed = dataset == "hn" and engine == "pg_vectorsearch"
+                    self.assertTrue(
+                        all(
+                            p["require_full_neighbors"] == (not relaxed) for p in points
+                        )
+                    )
+                    self.assertEqual(
+                        "reports short result counts" in summary(points), relaxed
+                    )
+
     def test_hn_paradedb_sweep_keeps_configured_bounds(self):
         """Use valid integer work budgets through the HN recall-to-k6 handoff."""
         profile = Path(__file__).resolve().parents[1] / "hn" / "28m.toml"

@@ -43,11 +43,14 @@ const scenarios = {
     tags: { warmup: "true" },
   },
 };
-export const collectMetrics = backends.addMetricsCollector(
+const requiredChecks =
+  point.require_full_neighbors === false
+    ? "checks{check:query succeeds}"
+    : "checks";
+export const options = {
   scenarios,
-  `${warmup + duration}s`,
-);
-export const options = { scenarios, thresholds: { checks: ["rate==1"] } };
+  thresholds: { [requiredChecks]: ["rate==1"] },
+};
 
 export function search() {
   const vector = vectors[exec.scenario.iterationInTest % vectors.length];

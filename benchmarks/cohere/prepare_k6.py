@@ -113,6 +113,10 @@ def operating_points(reports, dataset="cohere"):
                         "name": f"{query}@r{round(target * 100)}",
                         "query": query,
                         "neighbors": neighbors,
+                        "require_full_neighbors": not (
+                            dataset == "hn"
+                            and config.get("engine") == "pg_vectorsearch"
+                        ),
                         "dimensions": DIMENSIONS[dataset],
                         "filter_fields": HN_FILTER_FIELDS[query]
                         if dataset == "hn"
@@ -197,7 +201,11 @@ def summary(points):
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"
     )
-    lines.append("</details>\n")
+    if any(point.get("require_full_neighbors") is False for point in points):
+        lines.append(
+            "HN pg_vectorsearch reports short result counts without failing k6. "
+            "Query errors still fail the run; the 100-vector recall gate remains strict.\n"
+        )
     return "\n".join(lines)
 
 

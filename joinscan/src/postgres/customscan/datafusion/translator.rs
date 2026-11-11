@@ -1120,6 +1120,7 @@ mod tests {
                     crate::postgres::customscan::joinscan::build::JoinSource {
                         plan_position: 1,
                         root_id: None,
+                        ctid_column_name: None,
                         scan_info: crate::scan::info::ScanInfo::new(
                             1,
                             pgrx::pg_sys::InvalidOid,
@@ -1132,6 +1133,7 @@ mod tests {
                     crate::postgres::customscan::joinscan::build::JoinSource {
                         plan_position: 2,
                         root_id: None,
+                        ctid_column_name: None,
                         scan_info: crate::scan::info::ScanInfo::new(
                             2,
                             pgrx::pg_sys::InvalidOid,

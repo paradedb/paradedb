@@ -478,7 +478,8 @@ pub struct JoinSource {
     /// This is the DataFusion-facing identity for a join source. It is assigned
     /// once when the JoinScan plan is built and then used anywhere a source
     /// must stay distinguishable inside the plan:
-    /// - synthetic ctid columns are named `ctid_<plan_position>`
+    /// - synthetic CTID columns default to `ctid_<plan_position>`; AggregateScan
+    ///   may set a collision-free output alias
     /// - deferred-visibility state is tracked per source
     /// - canonical segment IDs are keyed by it
     ///
@@ -490,6 +491,11 @@ pub struct JoinSource {
     pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,
+    /// Optional DataFusion output name for this source's synthetic CTID.
+    /// AggregateScan sets it when its generated-name prefix differs from the
+    /// default; JoinScan keeps the standard `ctid_<plan_position>` name.
+    #[serde(default)]
+    pub ctid_column_name: Option<String>,
     pub scan_info: ScanInfo,
 }
 
@@ -559,6 +565,19 @@ impl JoinSource {
     /// Resolve an attribute number to its DataFusion column name.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
         if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            return Some(
+                self.ctid_column_name
+                    .clone()
+                    .unwrap_or_else(|| CtidColumn::new(self.plan_position).to_string()),
+            );
+        }
+        self.provider_column_name(attno)
+    }
+
+    /// Resolve the source-provider field name before any DataFrame projection
+    /// renames its synthetic CTID.
+    pub fn provider_column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
             return Some(CtidColumn::new(self.plan_position).to_string());
         }
         self.scan_info
@@ -608,6 +627,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
         Ok(JoinSource {
             plan_position: 0,
             root_id: Some(candidate.root_id),
+            ctid_column_name: None,
             scan_info: ScanInfo {
                 heap_rti: candidate.heap_rti,
                 heaprelid: candidate.heaprelid.ok_or_else(|| {
@@ -1874,6 +1894,7 @@ impl Default for RelNode {
         RelNode::Scan(Box::new(JoinSource {
             plan_position: 0,
             root_id: None,
+            ctid_column_name: None,
             scan_info: ScanInfo::new(
                 0,
                 pgrx::pg_sys::InvalidOid,
@@ -2449,6 +2470,7 @@ mod tests {
         RelNode::Scan(Box::new(JoinSource {
             plan_position: rti as usize,
             root_id: None,
+            ctid_column_name: None,
             scan_info: ScanInfo::new(
                 rti,
                 pg_sys::InvalidOid,
@@ -2456,6 +2478,33 @@ mod tests {
                 crate::scan::ScanMode::all(),
             ),
         }))
+    }
+
+    #[test]
+    fn ctid_output_alias_does_not_change_provider_field_name() {
+        let mut source = JoinSource {
+            plan_position: 7,
+            root_id: None,
+            ctid_column_name: None,
+            scan_info: ScanInfo::new(
+                7,
+                pg_sys::InvalidOid,
+                pg_sys::InvalidOid,
+                crate::scan::ScanMode::all(),
+            ),
+        };
+        let ctid_attno = pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber;
+
+        assert_eq!(
+            source.column_name(ctid_attno),
+            Some(CtidColumn::new(7).to_string())
+        );
+        source.ctid_column_name = Some("_ctid_7".to_string());
+        assert_eq!(source.column_name(ctid_attno), Some("_ctid_7".to_string()));
+        assert_eq!(
+            source.provider_column_name(ctid_attno),
+            Some(CtidColumn::new(7).to_string())
+        );
     }
 
     /// An equi-key `outer.attno1 == inner.attno2` (distinct attnos so the

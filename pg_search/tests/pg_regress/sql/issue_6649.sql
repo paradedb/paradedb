@@ -50,6 +50,14 @@ WHERE id @@@ paradedb.all()
 GROUP BY agg_0
 ORDER BY agg_0;
 
+-- Join-key CTIDs use the same alias as the projected synthetic source fields.
+SELECT a.agg_0, SUM(a.amount)
+FROM issue_6649_internal_names AS a
+JOIN issue_6649_internal_names AS b ON a.ctid = b.ctid
+WHERE a.id @@@ paradedb.all()
+GROUP BY a.agg_0
+ORDER BY a.agg_0;
+
 -- These group keys overlap with the synthetic columns produced by pdb.agg().
 SELECT __pdb_k0, SUM(amount),
        pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}}}'::jsonb)

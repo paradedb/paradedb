@@ -1943,6 +1943,9 @@ impl AggregateScan {
             .collect();
         extracted_target.set_projected_source_names(projected_source_names);
         let targetlist = extracted_target.targetlist();
+        for source in plan.sources_mut() {
+            source.ctid_column_name = Some(targetlist.ctid_name(source.plan_position));
+        }
 
         // `pdb.agg()` decides the visibility check for the whole query, so every
         // source scans under the one resolved mode.

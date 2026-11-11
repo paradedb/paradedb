@@ -1521,19 +1521,19 @@ async fn build_source_df(
     let mut required_early: crate::api::HashSet<String> = Default::default();
     for jk in plan.join_keys() {
         if source.contains_rti(jk.outer_rti)
-            && let Some(col) = source.column_name(jk.outer_attno)
+            && let Some(col) = source.provider_column_name(jk.outer_attno)
         {
             required_early.insert(col);
         }
         if source.contains_rti(jk.inner_rti)
-            && let Some(col) = source.column_name(jk.inner_attno)
+            && let Some(col) = source.provider_column_name(jk.inner_attno)
         {
             required_early.insert(col);
         }
     }
     for (rti, attno) in plan.filter_input_vars() {
         if source.contains_rti(rti)
-            && let Some(col) = source.column_name(attno)
+            && let Some(col) = source.provider_column_name(attno)
         {
             required_early.insert(col);
         }
@@ -1546,13 +1546,17 @@ async fn build_source_df(
 
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
-    // Give the synthetic CTID a name that cannot collide with a SQL group key.
+    // Use the name also stored on `JoinSource`, so joins and translated
+    // predicates resolve this projected CTID consistently.
+    let ctid_output_name = source
+        .column_name(pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber)
+        .unwrap_or_else(|| targetlist.ctid_name(plan_position));
     let mut exprs = Vec::new();
     for df_field in df.schema().fields().iter() {
         let name = df_field.name();
         let expr = match fields.iter().find(|w| w.name() == *name) {
             Some(WhichFastField::Ctid) => {
-                make_col(alias.as_str(), name).alias(targetlist.ctid_name(plan_position))
+                make_col(alias.as_str(), name).alias(ctid_output_name.clone())
             }
             _ => make_col(alias.as_str(), name),
         };

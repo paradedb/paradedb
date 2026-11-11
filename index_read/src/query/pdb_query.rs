@@ -2393,7 +2393,8 @@ pub fn synonym_index_of_column(
         .indices(pg_sys::AccessShareLock as _)
         .filter(|candidate| unsafe {
             (*candidate.rd_rel).relam.is_paradedb_am()
-                && (*candidate.rd_rel).relkind as u8 != pg_sys::RELKIND_PARTITIONED_INDEX
+                && pg_sys::get_rel_relkind(candidate.oid()) as u8
+                    != pg_sys::RELKIND_PARTITIONED_INDEX
                 && pg_sys::get_index_isvalid(candidate.oid())
         })
         .find(|candidate| {

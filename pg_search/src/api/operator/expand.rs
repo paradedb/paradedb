@@ -138,7 +138,7 @@ unsafe fn whole_table_expand(
         PgList::<pg_sys::RangeTblEntry>::from_pg(query.rtable).get_ptr(rtindex as usize - 1)?;
     // Row security adds its quals here, and the index would read rows that they hide.
     if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION
-        || (*rte).relkind as u8 != pg_sys::RELKIND_RELATION
+        || pg_sys::get_rel_relkind((*rte).relid) as u8 != pg_sys::RELKIND_RELATION
         || !(*rte).tablesample.is_null()
         || !(*rte).securityQuals.is_null()
     {

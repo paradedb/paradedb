@@ -946,6 +946,7 @@ fn term_set(
     index_created_by_version: Option<Version>,
     terms: Vec<PdbOwnedValue>,
 ) -> anyhow::Result<TermSetQuery> {
+    crate::query::check_term_set_size(terms.len());
     let search_field = schema
         .search_field(&field)
         .expect("field should exist in schema");

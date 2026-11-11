@@ -23,6 +23,7 @@ use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::catalog::synonym_rule_typoid;
 use crate::postgres::options::{BM25IndexOptions, IndexType};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use pgrx::{PgList, pg_sys};
@@ -132,6 +133,14 @@ pub fn register_rule_tokenizer(options: &BM25IndexOptions, manager: &TokenizerMa
             SynonymRuleTokenizer::new(analyzer),
         );
     }
+}
+
+/// A key matches only the tokens of the tokenizer that analyzed it, so a query compares its
+/// tokenizer with this one.
+pub fn rule_tokenizer(index: &PgSearchRelation) -> Option<SearchTokenizer> {
+    let options = index.options();
+    let field = options.synonym_rule_field()?;
+    options.field_config_or_default(&field).tokenizer().cloned()
 }
 
 /// Raises an ERROR when `rule` is not a Solr rule, or when the analyzer drops a word of one of

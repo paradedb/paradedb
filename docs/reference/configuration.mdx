@@ -46,6 +46,15 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 | `paradedb.planner_warnings`                         | `warning`     | user    | Controls warnings when an optimized scan cannot be used, and `EXPLAIN` warnings explaining why a faster plan variant within a scan was not used. Accepts `off`, `warning`, or `error`. |
 | `paradedb.spill_to_disk`                            | `off`         | user    | Allows eligible join and aggregate queries to spill to disk when they exceed `work_mem`.                                                                                               |
 
+## Synonyms
+
+These settings affect match queries that use `pdb.with_synonyms`. See [Synonyms](/reference/tokenizers/synonyms).
+
+| Setting                               | Default | Context | Description                                                                                       |
+| ------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `paradedb.synonyms_max_alternatives`  | `32`    | user    | Most alternatives one run of query words expands to. The typed words stay when a rule lists them. |
+| `paradedb.synonyms_max_rules_per_key` | `1024`  | user    | Most rules one synonym word reads in a segment. A word in more rules reads only the first ones.   |
+
 ## Top K
 
 These settings affect queries that combine a ParadeDB predicate with `ORDER BY ... LIMIT`. See [Top K](/reference/full-text/top-k).

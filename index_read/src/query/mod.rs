@@ -361,6 +361,7 @@ impl SearchQueryInput {
                 string,
                 fuzzy_data: None,
                 slop_data: None,
+                synonyms: None,
             } => Self::Parse {
                 query_string: string,
                 lenient: None,
@@ -1069,6 +1070,29 @@ impl SearchQueryInput {
     /// Read-only query-tree traversal sharing [`Self::visit`]'s recursive enum walk.
     pub fn visit_ref(&self, visitor: &mut impl FnMut(&SearchQueryInput)) {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
+    }
+
+    /// The synonym indexes that the match queries of this tree name.
+    pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
+        let mut indexes = Vec::new();
+        self.visit_ref(&mut |input| {
+            let SearchQueryInput::FieldedQuery { query, .. } = input else {
+                return;
+            };
+            let mut query = query;
+            while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                query = inner;
+            }
+            if let pdb::Query::Match {
+                synonyms: Some(index),
+                ..
+            } = query
+                && !indexes.contains(index)
+            {
+                indexes.push(*index);
+            }
+        });
+        indexes
     }
 
     pub fn canonical_query_string(&self) -> String {
@@ -2430,6 +2454,7 @@ mod tests {
                 transposition_cost_one: None,
                 prefix: None,
                 conjunction_mode: None,
+                synonyms: None,
             },
         }
     }

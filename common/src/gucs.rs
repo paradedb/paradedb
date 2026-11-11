@@ -58,6 +58,15 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Each alternative is one more posting list in the query. A rule usually lists a few words, so
+/// the default stops only an outlier.
+const DEFAULT_SYNONYMS_MAX_ALTERNATIVES: i32 = 32;
+static SYNONYMS_MAX_ALTERNATIVES: GucSetting<i32> =
+    GucSetting::<i32>::new(DEFAULT_SYNONYMS_MAX_ALTERNATIVES);
+
+static SYNONYMS_MAX_RULES_PER_KEY: GucSetting<i32> =
+    GucSetting::<i32>::new(tantivy::synonyms::DEFAULT_MAX_RULES_PER_KEY as i32);
+
 static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
@@ -451,6 +460,28 @@ pub fn init() {
         c"Enable ParadeDB's custom scan",
         c"Enable ParadeDB's custom scan, which replaces table scans with ParadeDB index scans in cases where beneficial",
         &ENABLE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.synonyms_max_alternatives",
+        c"The most alternatives that one run of query tokens expands to",
+        c"Alternatives past this count are dropped. The tokens of the query stay when a rule lists them.",
+        &SYNONYMS_MAX_ALTERNATIVES,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.synonyms_max_rules_per_key",
+        c"The most rules that one synonym key reads in a segment",
+        c"A key in more rules reads only the first ones in document order.",
+        &SYNONYMS_MAX_RULES_PER_KEY,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1128,6 +1159,14 @@ pub fn init() {
 /// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.
 pub fn spill_to_disk() -> bool {
     SPILL_TO_DISK.get()
+}
+
+pub fn synonyms_max_alternatives() -> usize {
+    SYNONYMS_MAX_ALTERNATIVES.get() as usize
+}
+
+pub fn synonyms_max_rules_per_key() -> usize {
+    SYNONYMS_MAX_RULES_PER_KEY.get() as usize
 }
 
 pub fn enable_custom_scan() -> bool {

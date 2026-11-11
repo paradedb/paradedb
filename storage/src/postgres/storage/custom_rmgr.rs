@@ -37,8 +37,8 @@ type IndexLocator = pg_sys::RelFileLocator;
 
 /// Sets the standby taint in block 0 of the named index, following the shape of
 /// `XLogReadBufferForRedo`: a block that does not exist is skipped without logging an invalid
-/// page, and a page already at or past this record's LSN is left alone. Releases before 0.26.7
-/// wrote a one-byte record, which is skipped.
+/// page, and a page already at or past this record's LSN is left alone. A primary on a release
+/// whose record carried no locator wrote a single zero byte, which is skipped.
 unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     let decoded = (*record).record;
     if ((*decoded).main_data_len as usize) < std::mem::size_of::<IndexLocator>() {

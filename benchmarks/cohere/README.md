@@ -102,10 +102,11 @@ retaining more members cannot recover members in unopened lists.
    CI verifies the parameterized plans and filter pushdown before measuring.
 5. Results and recall context enter the shared publication queue. The
    Wikipedia/StackExchange publisher posts p50/p95/p99, QPS, index build time,
-   and index size with baseline comparisons and dashboard links. Recall,
-   max_probe, and mean whole-query shared buffer hits/reads appear above those
-   results. Buffer diagnostics come from pdbench's separate EXPLAIN pass over all
-   100 vectors.
+   and index size with baseline comparisons and dashboard links. The comment
+   shows the rows above 1.15x and collapses the operating points (recall,
+   max_probe, and mean whole-query shared buffer hits/reads), the full results
+   table, and the report links. Buffer diagnostics come from pdbench's separate
+   EXPLAIN pass over all 100 vectors.
 
 The workflow runs on main and via `benchmarks`, `benchmark-cohere-pg_search`, or
 `benchmark-benchmarker-cohere`. Manual runs can select a size, pg_search commit,

@@ -51,5 +51,5 @@ max_probes = 20
 pilot_queries = 25
 max_probes = 20
 bracket_ratio = 1.1
-query_timeout_seconds = 60
-budget_seconds = 900
+query_timeout_seconds = 300
+budget_seconds = 10800

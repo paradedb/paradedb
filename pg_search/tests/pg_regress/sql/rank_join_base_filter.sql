@@ -568,6 +568,122 @@ RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
 
 -- ============================================================
+-- Test 17: range base filters use inverted-index dictionary statistics rather than Tantivy's
+-- 10% fast-field heuristic, declining RankJoinExec below rank_join_min_rows (including after
+-- InitPlan solving in pdb.parse range policies) while keeping RankJoinExec on broad ranges and
+-- returning identical rows/scores across multi-segment indexes.
+-- ============================================================
+SET max_parallel_workers_per_gather = 0;
+INSERT INTO rjf_jobs VALUES
+    (400, 99, 100, 'zebra rare', 'a'),
+    (401, 99, 105, 'noise', 'a');
+
+-- Under rank_join_min_rows = 10, division 99 has 2 jobs (< 10, whereas 10% of 131 = 13 >= 10),
+-- so pdb.range, split SQL range bounds, and InitPlan pdb.parse range policies all decline
+-- RankJoinExec; division 1 has 65 jobs (>= 10, with 65 clients >= 10) and keeps RankJoinExec.
+SET paradedb.rank_join_min_rows = 10;
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(99, 100))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division >= 99 AND j.division < 100
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(1, 2))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SET rjf.division_ranges = '{[99,100)}';
+SET ROLE rjf_range_user;
+SELECT bool_or(line LIKE '%RankJoinExec%') AS uses_rank_join
+FROM explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$, 'ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF') AS line;
+
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+-- Forcing RankJoinExec (rank_join_min_rows = 0) across segments where 3 of 4 segments have
+-- zero matching base docs returns the exact same rows and scores.
+RESET ROLE;
+SET paradedb.rank_join_min_rows = 0;
+SET ROLE rjf_range_user;
+SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10;
+
+RESET ROLE;
+SET paradedb.rank_join_min_rows = 10;
+SET rjf.division_ranges = '{[1,2)}';
+SET ROLE rjf_range_user;
+SELECT bool_or(line LIKE '%RankJoinExec%') AS uses_rank_join
+FROM explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$, 'ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF') AS line;
+
+RESET ROLE;
+RESET rjf.division_ranges;
+
+-- Under rank_join_min_rows = 1, division 99 has 2 jobs (>= 1), but selectivity 2/130 = 0.0154
+-- is below rank_join_unscored_selectivity_threshold (0.025), so Gate 3 declines RankJoinExec;
+-- lowering rank_join_unscored_selectivity_threshold to 0.01 admits RankJoinExec and scales only
+-- the unfiltered partner leaf's lazy_sort window (c: 1300, j: 20).
+SET paradedb.rank_join_min_rows = 1;
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(99, 100))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+SET paradedb.rank_join_unscored_selectivity_threshold = 0.01;
+
+SELECT explain_redact_oid($$
+SELECT j.id, c.id
+FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
+WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
+  AND j.division @@@ pdb.range(int4range(99, 100))
+ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
+LIMIT 10
+$$);
+
+RESET paradedb.rank_join_unscored_selectivity_threshold;
+SET paradedb.rank_join_min_rows = 0;
+
+-- ============================================================
 -- Cleanup
 -- ============================================================
 DROP TABLE rjf_jobs CASCADE;

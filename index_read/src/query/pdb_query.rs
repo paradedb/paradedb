@@ -27,7 +27,7 @@ use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::is_datetime_type;
-use crate::query::estimate::RangeQueryWithEstimate;
+use crate::query::estimate::MAX_ESTIMATED_TERM_SET_LEN;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
     clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
@@ -943,6 +943,84 @@ impl pdb::Query {
             _ => None,
         }
     }
+
+    pub fn supports_statistics_estimation(&self, field: &FieldName) -> bool {
+        match self {
+            pdb::Query::All
+            | pdb::Query::Empty
+            | pdb::Query::Term { .. }
+            | pdb::Query::FastFieldRangeWeight { .. }
+            | pdb::Query::Match {
+                distance: None | Some(0),
+                ..
+            }
+            | pdb::Query::MatchArray {
+                distance: None | Some(0),
+                ..
+            }
+            | pdb::Query::Phrase { .. }
+            | pdb::Query::PhraseArray { .. }
+            | pdb::Query::TokenizedPhrase { .. } => true,
+            pdb::Query::Range { .. } | pdb::Query::StoredRange { .. } => field.path().is_none(),
+            pdb::Query::TermSet { terms } => terms.len() <= MAX_ESTIMATED_TERM_SET_LEN,
+            pdb::Query::Parse {
+                query_string,
+                lenient,
+                ..
+            } => {
+                parsed_query_supports_statistics_estimation(query_string, lenient.unwrap_or(false))
+            }
+            pdb::Query::ScoreAdjusted { query, .. } => query.supports_statistics_estimation(field),
+            _ => false,
+        }
+    }
+}
+
+/// Returns `true` when a `pdb.parse(...)` query string consists exclusively of field-qualified
+/// range and small term-set clauses (plus optional match-all `*` clauses), so plan-time estimation
+/// can consult the inverted-index term dictionary instead of `RangeDocSet::size_hint()` (`10%`).
+///
+/// TODO(<https://github.com/paradedb/paradedb/issues/7374>): Remove once `Parse` and
+/// `ParseWithField` lower into `SearchQueryInput` AST nodes at plan time.
+pub(crate) fn parsed_query_supports_statistics_estimation(
+    query_string: &str,
+    lenient: bool,
+) -> bool {
+    let ast = if lenient {
+        query_grammar::parse_query_lenient(query_string).0
+    } else {
+        match query_grammar::parse_query(query_string) {
+            Ok(ast) => ast,
+            Err(_) => return false,
+        }
+    };
+    let mut has_range_or_set = false;
+    let mut stack = vec![&ast];
+    while let Some(node) = stack.pop() {
+        match node {
+            UserInputAst::Clause(children) => {
+                stack.extend(children.iter().map(|(_, child)| child));
+            }
+            UserInputAst::Boost(inner, _) => stack.push(inner.as_ref()),
+            UserInputAst::Leaf(leaf) => match leaf.as_ref() {
+                UserInputLeaf::Range {
+                    field: Some(field_name),
+                    ..
+                } if !field_name.contains('.') => {
+                    has_range_or_set = true;
+                }
+                UserInputLeaf::Set {
+                    field: Some(_),
+                    elements,
+                } if elements.len() <= MAX_ESTIMATED_TERM_SET_LEN => {
+                    has_range_or_set = true;
+                }
+                UserInputLeaf::All => {}
+                _ => return false,
+            },
+        }
+    }
+    has_range_or_set
 }
 
 impl InOutFuncs for pdb::Query {
@@ -1776,8 +1854,7 @@ fn range_query_from_bounds(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQueryWithEstimate> {
-    let bounds = (lower_bound.clone(), upper_bound.clone());
+) -> anyhow::Result<RangeQuery> {
     let field_type = search_field.field_entry().field_type();
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1815,12 +1892,7 @@ fn range_query_from_bounds(
         Bound::Unbounded => Bound::Unbounded,
     };
 
-    Ok(RangeQueryWithEstimate {
-        query: RangeQuery::new(lower_bound, upper_bound),
-        field: search_field.clone(),
-        lower_bound: bounds.0,
-        upper_bound: bounds.1,
-    })
+    Ok(RangeQuery::new(lower_bound, upper_bound))
 }
 
 /// Creates a range query for the given field and bounds.
@@ -1845,7 +1917,7 @@ fn range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQueryWithEstimate> {
+) -> anyhow::Result<RangeQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1874,7 +1946,7 @@ fn stored_range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQueryWithEstimate> {
+) -> anyhow::Result<RangeQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -3011,71 +3083,8 @@ fn phrase_to_pg_micros_string(
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::pdb::FuzzyData;
-    use super::{PhraseRewrite, rewrite_phrase};
-    use crate::api::version::{NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION, Version};
-    use crate::schema::SearchFieldType;
+    use super::pdb::{FuzzyData, Query};
     use pgrx::prelude::*;
-
-    #[pg_test]
-    fn numeric_phrase_rewrite_uses_physical_representation() {
-        let numeric64 = SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2);
-        assert_eq!(
-            rewrite_phrase("1.23", "price", numeric64, None, false).unwrap(),
-            PhraseRewrite::Replace("123".to_string())
-        );
-        // Off-grid and out-of-range literals cannot equal a value of the field.
-        for phrase in ["1.001", "1e100", "-1e100"] {
-            assert_eq!(
-                rewrite_phrase(phrase, "price", numeric64, None, false).unwrap(),
-                PhraseRewrite::NoMatch
-            );
-        }
-        let numeric_bytes = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None);
-        // PostgreSQL rejects these, so they must not be rounded or read as zero.
-        for field_type in [numeric64, numeric_bytes] {
-            for phrase in ["1.2x", "1..2", "", ".", "+"] {
-                assert_eq!(
-                    rewrite_phrase(phrase, "price", field_type, None, false)
-                        .unwrap_err()
-                        .to_string(),
-                    format!("invalid NUMERIC value '{phrase}' for field 'price'")
-                );
-            }
-        }
-
-        assert_eq!(
-            rewrite_phrase(
-                "-100",
-                "price",
-                numeric_bytes,
-                Some(Version::new(0, 25, 4)),
-                false
-            )
-            .unwrap(),
-            PhraseRewrite::Replace("AL/87w==".to_string())
-        );
-        assert_eq!(
-            rewrite_phrase(
-                "-100",
-                "price",
-                numeric_bytes,
-                Some(NUMERIC_BYTES_SORTABLE_NEGATIVES_VERSION),
-                false
-            )
-            .unwrap(),
-            PhraseRewrite::Replace("AL/8if8=".to_string())
-        );
-        // Even Base64-compatible input must be discarded when it is not a NUMERIC literal.
-        for field_type in [numeric64, numeric_bytes] {
-            for phrase in ["not-a-number", "null", "abcd", "gA=="] {
-                assert_eq!(
-                    rewrite_phrase(phrase, "price", field_type, None, true).unwrap(),
-                    PhraseRewrite::Discard
-                );
-            }
-        }
-    }
 
     #[pg_test]
     fn fuzzy_data_roundtrip() {
@@ -3091,55 +3100,6 @@ mod tests {
             let from_typmod: FuzzyData = typmod_repr.into();
             assert_eq!(original, from_typmod);
         })
-    }
-
-    use super::pdb::Query;
-    use std::collections::Bound;
-
-    fn match_query(value: &str) -> Query {
-        Query::Match {
-            value: value.to_string(),
-            tokenizer: None,
-            distance: None,
-            transposition_cost_one: None,
-            prefix: None,
-            conjunction_mode: None,
-            synonyms: None,
-        }
-    }
-
-    // Wrap a bare pdb::Query into a SearchQueryInput so the single `is_topk_prunable`
-    // impl (on SearchQueryInput) can evaluate it. The field name is irrelevant to
-    // prunability.
-    fn fielded(query: Query) -> crate::query::SearchQueryInput {
-        crate::query::SearchQueryInput::FieldedQuery {
-            field: crate::api::FieldName::from("field"),
-            query,
-        }
-    }
-
-    #[pg_test]
-    fn to_search_query_input_hoists_score_adjustment() {
-        use super::pdb::ScoreAdjustStyle;
-        use crate::query::SearchQueryInput;
-
-        let nested = Query::ScoreAdjusted {
-            query: Box::new(Query::ScoreAdjusted {
-                query: Box::new(match_query("x")),
-                score: Some(ScoreAdjustStyle::Boost(2.0)),
-            }),
-            score: Some(ScoreAdjustStyle::Const(0.0)),
-        };
-        assert_eq!(
-            super::to_search_query_input(crate::api::FieldName::from("field"), nested),
-            SearchQueryInput::ConstScore {
-                query: Box::new(SearchQueryInput::Boost {
-                    query: Box::new(fielded(match_query("x"))),
-                    factor: 2.0,
-                }),
-                score: 0.0,
-            }
-        );
     }
 
     #[pg_test]
@@ -3197,7 +3157,15 @@ mod tests {
             Query::Term {
                 value: PdbOwnedValue::Str("database".into()),
             },
-            match_query("database"),
+            Query::Match {
+                value: "database".into(),
+                tokenizer: None,
+                distance: None,
+                transposition_cost_one: None,
+                prefix: None,
+                conjunction_mode: None,
+                synonyms: None,
+            },
             Query::MatchArray {
                 tokens: vec!["database".into()],
                 distance: None,
@@ -3228,95 +3196,5 @@ mod tests {
             assert_eq!(searcher.search(&query, &top_docs).unwrap(), expected);
         }
         assert!(searcher.search(&with_positions, &top_docs).is_err());
-    }
-
-    #[pg_test]
-    fn topk_prunable_only_for_single_posting_list() {
-        // A 1-token match is a single posting list: Block-WAND prunes it. (Score-ASC /
-        // field-sort gating is the caller's responsibility, not this method's.)
-        assert!(fielded(match_query("help")).is_topk_prunable());
-
-        // Multi-term unions are not prunable (Tantivy's cost() weights them).
-        assert!(!fielded(match_query("a b c d e")).is_topk_prunable());
-
-        // Non-trivial docsets never prune.
-        let range = Query::Range {
-            lower_bound: Bound::Unbounded,
-            upper_bound: Bound::Unbounded,
-        };
-        let regex = Query::Regex {
-            pattern: "he.*".into(),
-        };
-        let phrase = Query::Phrase {
-            phrases: vec!["help".into(), "common".into()],
-            slop: None,
-        };
-        assert!(!fielded(range).is_topk_prunable());
-        assert!(!fielded(regex).is_topk_prunable());
-        assert!(!fielded(phrase).is_topk_prunable());
-
-        // A single-token Match with a modifier that expands it past one posting list is
-        // NOT prunable: fuzzy (`distance`), `prefix`, or a custom `tokenizer` whose split
-        // a whitespace count can't predict.
-        let with = |f: fn(&mut Query)| {
-            let mut q = match_query("help");
-            f(&mut q);
-            q
-        };
-        let fuzzy = with(|q| {
-            if let Query::Match { distance, .. } = q {
-                *distance = Some(1)
-            }
-        });
-        let prefix = with(|q| {
-            if let Query::Match { prefix, .. } = q {
-                *prefix = Some(true)
-            }
-        });
-        let custom_tok = with(|q| {
-            if let Query::Match { tokenizer, .. } = q {
-                *tokenizer = Some(serde_json::Value::Null)
-            }
-        });
-        assert!(!fielded(fuzzy).is_topk_prunable());
-        assert!(!fielded(prefix).is_topk_prunable());
-        assert!(!fielded(custom_tok).is_topk_prunable());
-
-        // All / Exists have no Block-WAND-pruning weight (AllWeight / ExistsWeight use
-        // Tantivy's default full scan), so they route to the cost model, never serial.
-        assert!(!fielded(Query::All).is_topk_prunable());
-        assert!(!fielded(Query::Exists).is_topk_prunable());
-
-        // Parse strings: a plain token prunes; a parser metacharacter (wildcard/regex)
-        // does not -- it can expand past a single posting list.
-        let parse = |s: &str| Query::Parse {
-            query_string: s.to_string(),
-            lenient: None,
-            conjunction_mode: None,
-        };
-        assert!(fielded(parse("alpha")).is_topk_prunable());
-        assert!(fielded(parse("alpha_2")).is_topk_prunable());
-        assert!(!fielded(parse("alpha*")).is_topk_prunable());
-        assert!(!fielded(parse("/al.*/")).is_topk_prunable());
-        assert!(!fielded(parse("-foo")).is_topk_prunable()); // negation, not a single posting list
-        assert!(!fielded(parse("foo:bar")).is_topk_prunable()); // field qualifier
-        assert!(!fielded(parse("(foo)")).is_topk_prunable()); // grouping
-    }
-
-    #[pg_test]
-    fn topk_prunable_searchqueryinput_top_level_variants() {
-        use crate::query::SearchQueryInput;
-        // Top-level (non-fielded) variants have no reliably-pruning weight.
-        assert!(!SearchQueryInput::All.is_topk_prunable());
-        assert!(!SearchQueryInput::TermSet { terms: vec![] }.is_topk_prunable());
-        // A top-level plain parser term prunes; a metacharacter / operator does not.
-        let parse = |s: &str| SearchQueryInput::Parse {
-            query_string: s.to_string(),
-            lenient: None,
-            conjunction_mode: None,
-        };
-        assert!(parse("alpha").is_topk_prunable());
-        assert!(!parse("alpha*").is_topk_prunable());
-        assert!(!parse("-foo").is_topk_prunable());
     }
 }

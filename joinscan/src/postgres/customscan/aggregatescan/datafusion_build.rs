@@ -649,8 +649,6 @@ unsafe fn build_scan_node(
         }
     }
 
-    candidate.estimate_rows();
-
     let join_source = JoinSource::try_from(candidate).map_err(|e| e.to_string())?;
     let current_node = RelNode::Scan(Box::new(join_source));
 

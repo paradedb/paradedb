@@ -64,6 +64,10 @@ impl LazyWeight {
         )
     }
 
+    pub(super) fn query(&self) -> &dyn Query {
+        self.query.as_ref()
+    }
+
     pub(super) fn get(&self) -> &dyn Weight {
         self.weight
             .get_or_init(|| {

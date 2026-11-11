@@ -424,17 +424,15 @@ fn term_matches_all(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> boo
     })
 }
 
-/// Tantivy's scorer and pruning_scorer disagree on the minimum for a single positive clause.
-/// Negative minima are cast to usize during query compilation. Neither case provides a safe
-/// exclusion or match-all guarantee, including when nested under NOT.
+/// Negative minima are cast to usize during query compilation, so keep them conservative,
+/// including when nested under NOT.
 fn required_should_matches(
     must: usize,
     should: usize,
-    must_not: usize,
     minimum_should_match: Option<i64>,
 ) -> Option<usize> {
     let minimum = minimum_should_match.unwrap_or(0);
-    if minimum < 0 || (must + should == 1 && must_not == 0 && minimum as usize > should) {
+    if minimum < 0 {
         return None;
     }
     Some((minimum as usize).max(usize::from(must == 0 && should > 0)))
@@ -452,12 +450,8 @@ fn boolean_can_match(
     if must.len() == 0 && should.len() == 0 {
         return false;
     }
-    let Some(required) = required_should_matches(
-        must.len(),
-        should.len(),
-        must_not.len(),
-        minimum_should_match,
-    ) else {
+    let Some(required) = required_should_matches(must.len(), should.len(), minimum_should_match)
+    else {
         return true;
     };
     must.all(|possible| possible)
@@ -475,12 +469,8 @@ fn boolean_matches_all(
     if must.len() == 0 && should.len() == 0 {
         return false;
     }
-    let Some(required) = required_should_matches(
-        must.len(),
-        should.len(),
-        must_not.len(),
-        minimum_should_match,
-    ) else {
+    let Some(required) = required_should_matches(must.len(), should.len(), minimum_should_match)
+    else {
         return false;
     };
     must.all(|guaranteed| guaranteed)
@@ -660,8 +650,8 @@ mod unit_tests {
         vec![], vec![ALWAYS, ALWAYS], vec![], Some(2), ALWAYS
     )]
     #[case::explicit_zero_still_unions_should(vec![], vec![NEVER], vec![], Some(0), NEVER)]
-    #[case::single_should_oversized_minimum(vec![], vec![ALWAYS], vec![], Some(2), MAYBE)]
-    #[case::single_must_positive_minimum(vec![ALWAYS], vec![], vec![], Some(1), MAYBE)]
+    #[case::single_should_oversized_minimum(vec![], vec![ALWAYS], vec![], Some(2), NEVER)]
+    #[case::single_must_positive_minimum(vec![ALWAYS], vec![], vec![], Some(1), NEVER)]
     fn boolean_truth_cases(
         #[case] must: Vec<Proof>,
         #[case] should: Vec<Proof>,

@@ -78,8 +78,8 @@ JoinScan does not use DataFusion's standard in-process multithreading. Since Pos
 
 Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. It assigns logical tasks across PostgreSQL parallel workers based on segment count:
 
-1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected range split points, the scan instead declares `Partitioning::Range` with the split points, which lets DataFusion treat the two sides of a join as co-partitioned.
-2. **Task Estimation**: During MPP planning, [`pg_search_scan_desired_task_count`](../../../scan/execution_plan.rs) (`on_desired_task_count_event`) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
+1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../../../../scan/src/scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected range split points, the scan instead declares `Partitioning::Range` with the split points, which lets DataFusion treat the two sides of a join as co-partitioned.
+2. **Task Estimation**: During MPP planning, [`pg_search_scan_desired_task_count`](../../../../../scan/src/scan/execution_plan.rs) (`on_desired_task_count_event`) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
 3. **Execution Routing**: For a viable MPP launch, tasks are assigned round-robin across the workers PostgreSQL attached, and each worker uses `ParallelScanState` to lazily claim segments. A one-task plan does not launch MPP workers and runs serially.
 
 ## Key Files
@@ -96,51 +96,53 @@ Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizin
 | [`translator.rs`](../datafusion/translator.rs)             | Postgres ↔ DataFusion expression mapping                                              |
 | [`explain.rs`](../datafusion/explain.rs)                   | EXPLAIN output formatting                                                             |
 
-Execution-layer files under [`pg_search/src/scan/`](../../../scan/):
+Execution-layer files under [`scan/src/scan/`](../../../../../scan/src/scan/):
 
-| File                                                                                 | Purpose                                                                                             |
-| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| [`rank_join_exec.rs`][rank-join-exec]                                                | [`RankJoinExec`][rank-join-exec] — pull-based `SA + RA` symmetric hash rank join                    |
-| [`rank_join_rule.rs`][rank-join-rule]                                                | [`RankJoinRule`][rank-join-rule] — rewrites top-K scored and vector-ordered `HashJoinExec` subtrees |
-| [`segmented_topk_exec.rs`][topk-exec]                                                | [`SegmentedTopKExec`][topk-exec] — per-segment buffers, global threshold publishing                 |
-| [`segmented_topk_rule.rs`][topk-rule]                                                | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                              |
-| [`visibility_ctid_resolver_rule.rs`](../../../scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `VisibilityFilterExec` for ctid resolution                            |
-| [`tantivy_fetch_exec.rs`][fetch-exec]                                                | Columnar field fetch: doc address → term ordinal                                                    |
-| [`tantivy_decode_exec.rs`][decode-exec]                                              | Dictionary decode: term ordinal → string/bytes                                                      |
-| [`filter_passthrough_exec.rs`][filter-passthrough]                                   | Transparent wrapper enabling filter pushdown through blocking nodes                                 |
-| [`batch_scanner.rs`](../../../scan/batch_scanner.rs)                                 | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                         |
-| [`execution_plan.rs`](../../../scan/execution_plan.rs)                               | [`PgSearchScanPlan`][scan-plan] — lazy `SA + RA` top-K scan and dynamic filter integration          |
-| [`pre_filter.rs`](../../../scan/pre_filter.rs)                                       | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                        |
-| [`deferred_encode.rs`](../../../scan/deferred_encode.rs)                             | Packed deferred column construction and unpacking                                                   |
+| File                                                                                                | Purpose                                                                                                 |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [`rank_join_exec.rs`][rank-join-exec]                                                               | [`RankJoinExec`][rank-join-exec]: pull-based `SA + RA` symmetric hash rank join                         |
+| [`rank_join_rule.rs`][rank-join-rule]                                                               | [`RankJoinRule`][rank-join-rule]: rewrites top-K scored and vector-ordered `HashJoinExec` subtrees      |
+| [`lazy_sort.rs`](../../../../../scan/src/scan/lazy_sort.rs)                                         | Chunked expanding-window `SA` top-K stream and on-demand `RA` point lookups                             |
+| [`segmented_topk_exec.rs`][topk-exec]                                                               | [`SegmentedTopKExec`][topk-exec]: per-segment buffers, global threshold publishing                      |
+| [`segmented_topk_rule.rs`][topk-rule]                                                               | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                                  |
+| [`visibility_ctid_resolver_rule.rs`](../../../../../scan/src/scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `VisibilityFilterExec` for ctid resolution                                |
+| [`tantivy_fetch_exec.rs`][fetch-exec]                                                               | Columnar field fetch: doc address → term ordinal                                                        |
+| [`tantivy_decode_exec.rs`][decode-exec]                                                             | Dictionary decode: term ordinal → string/bytes                                                          |
+| [`filter_passthrough_exec.rs`][filter-passthrough]                                                  | Transparent wrapper enabling filter pushdown through blocking nodes                                     |
+| [`batch_scanner.rs`](../../../../../scan/src/scan/batch_scanner.rs)                                 | [`Scanner::next()`][scanner-next]: batch iteration, pre-filter, visibility                              |
+| [`execution_plan.rs`](../../../../../scan/src/scan/execution_plan.rs)                               | [`PgSearchScanPlan`][scan-plan]: scan execution plan and dynamic filter integration                     |
+| [`pre_filter.rs`](../../../../../scan/src/scan/pre_filter.rs)                                       | [`try_rewrite_binary`][rewrite-binary], `try_rewrite_hash_lookup`, [`collect_filters`][collect-filters] |
+| [`deferred_encode.rs`](../../../../../scan/src/scan/deferred_encode.rs)                             | Packed deferred column construction and unpacking                                                       |
 
 ## GUCs
 
-| GUC                                                 | Default | Effect                                                                                                                |
-| --------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_join_custom_scan`                  | `on`    | Master switch                                                                                                         |
-| `paradedb.enable_range_partitioned_join`            | `true`  | Range co-partitioned joins                                                                                            |
-| `paradedb.enable_rank_join`                         | `true`  | `RankJoinExec` (`SA + RA` Rank Join) injection for top-K scored and vector-ordered joins                              |
-| `paradedb.rank_join_min_rows`                       | `10000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`                     |
-| `paradedb.rank_join_unscored_selectivity_threshold` | `0.08`  | Minimum estimated selectivity on unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0` |
-| `paradedb.enable_segmented_topk`                    | `true`  | `SegmentedTopKExec` injection                                                                                         |
-| `paradedb.defer_column_fetch`                       | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`)                   |
-| `paradedb.defer_string_decode`                      | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)                        |
+| GUC                                                      | Default | Effect                                                                                                                     |
+| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_join_custom_scan`                       | `on`    | Master switch                                                                                                              |
+| `paradedb.enable_range_partitioned_join`                 | `true`  | Range co-partitioned joins                                                                                                 |
+| `paradedb.enable_rank_join`                              | `true`  | `RankJoinExec` (`SA + RA` Rank Join) and lazy probe-side top-K injection for scored, field-ordered, and vector joins       |
+| `paradedb.rank_join_min_rows`                            | `10000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`                          |
+| `paradedb.rank_join_unscored_selectivity_threshold`      | `0.025` | Minimum estimated selectivity on unscored (`RA`) or disjunctive `base_query` join inputs when `rank_join_min_rows > 0`     |
+| `paradedb.hash_join_inlist_pushdown_max_distinct_values` | `20000` | Maximum distinct keys in an `InList` pushed to `TermSetQuery` (`lazy_sort` probe scans default to `500000` unless lowered) |
+| `paradedb.enable_segmented_topk`                         | `true`  | `SegmentedTopKExec` injection                                                                                              |
+| `paradedb.defer_column_fetch`                            | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`)                        |
+| `paradedb.defer_string_decode`                           | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)                             |
 
 [activation]: mod.rs
 [relnode]: build.rs
 [joincsc]: build.rs
 [optimizer-rules]: scan_state.rs
-[rank-join-exec]: ../../../scan/rank_join_exec.rs
-[rank-join-rule]: ../../../scan/rank_join_rule.rs
-[topk-exec]: ../../../scan/segmented_topk_exec.rs
-[topk-rule]: ../../../scan/segmented_topk_rule.rs
-[wrap-blocking]: ../../../scan/segmented_topk_rule.rs
-[filter-passthrough]: ../../../scan/filter_passthrough_exec.rs
-[fetch-exec]: ../../../scan/tantivy_fetch_exec.rs
-[decode-exec]: ../../../scan/tantivy_decode_exec.rs
-[scan-plan]: ../../../scan/execution_plan.rs
-[scanner-next]: ../../../scan/batch_scanner.rs
-[rewrite-binary]: ../../../scan/pre_filter.rs
-[collect-filters]: ../../../scan/pre_filter.rs
-[defer-decision]: ../../../scan/table_provider.rs
-[try-pushdown]: ../../../scan/pre_filter.rs
+[rank-join-exec]: ../../../../../scan/src/scan/rank_join_exec.rs
+[rank-join-rule]: ../../../../../scan/src/scan/rank_join_rule.rs
+[topk-exec]: ../../../../../scan/src/scan/segmented_topk_exec.rs
+[topk-rule]: ../../../../../scan/src/scan/segmented_topk_rule.rs
+[wrap-blocking]: ../../../../../scan/src/scan/segmented_topk_rule.rs
+[filter-passthrough]: ../../../../../scan/src/scan/filter_passthrough_exec.rs
+[fetch-exec]: ../../../../../scan/src/scan/tantivy_fetch_exec.rs
+[decode-exec]: ../../../../../scan/src/scan/tantivy_decode_exec.rs
+[scan-plan]: ../../../../../scan/src/scan/execution_plan.rs
+[scanner-next]: ../../../../../scan/src/scan/batch_scanner.rs
+[rewrite-binary]: ../../../../../scan/src/scan/pre_filter.rs
+[collect-filters]: ../../../../../scan/src/scan/pre_filter.rs
+[defer-decision]: ../../../../../scan/src/scan/table_provider.rs
+[try-pushdown]: ../../../../../scan/src/scan/pre_filter.rs

@@ -278,151 +278,48 @@ DROP TABLE vsp_tie;
 -- ============================================================
 -- Join / semi-join with vector ORDER BY
 -- ============================================================
--- Parent table (`200` rows across `2` persisted segments, `uuid` PK) holds
--- scalar/JSONB filters; child table (`986` rows in `1` IVF segment, `uuid` PK
--- and `uuid` FK) holds chunks and embeddings linked by `parent_id`:
---   - Segment 0 of `vsp_parents` (`150` rows, `ord = 51..200`, the largest
---     segment): `1` `'delta'` row (keeps Segment 0 unpruned), `20` correlated
---     `'gamma' + 'north'` rows (`10%` of `200`), and `129` `'noise'` rows.
---   - Segment 1 of `vsp_parents` (`50` rows, `ord = 1..50`): canonical rows
---     `1..4` (`'alpha'` / `'beta'`), `35` `'delta'` rows (`36 / 200 = 18%`
---     overall, skewed toward the smaller segment), and `11` `'noise'` rows.
---   - In `vsp_children`, the `700` `'noise'` chunks (`[0.99, 0.01, 0]`) sit
---     closer to `[1, 0, 0]` than `'alpha'` parents `2` and `4`, `'gamma'`,
---     and `'delta'`, so any unpushed probe scan must walk past `'noise'` rows.
-SET client_min_messages = WARNING;
-SET max_parallel_workers_per_gather = 0;
-SET paradedb.vector_clustering_threshold = 64;
-SET paradedb.vector_cluster_max_probe = 100000;
-
+-- Parent table holds scalar/JSONB filters; child table holds chunks and
+-- embeddings linked by parent_id. Both IN (semi-join) and JOIN shapes should
+-- rank matching child rows by vector distance.
 -- Omit PRIMARY KEY on `vsp_parents.id` so PG 18.7+ keeps the `IN (SELECT ...)`
 -- tests below as true Semi joins alongside the explicit `JOIN` Inner-join tests.
 CREATE TABLE vsp_parents (
-    id       uuid NOT NULL,
-    ord      int NOT NULL,
+    id       int NOT NULL,
     category text NOT NULL,
-    region   text NOT NULL,
     metadata jsonb NOT NULL
-) WITH (autovacuum_enabled = false);
+);
 
 CREATE TABLE vsp_children (
-    id         uuid PRIMARY KEY,
-    seq        int NOT NULL,
-    parent_id  uuid NOT NULL,
-    parent_ord int NOT NULL,
-    vec        vector(3) NOT NULL
-) WITH (autovacuum_enabled = false);
+    id        int PRIMARY KEY,
+    parent_id int NOT NULL,
+    vec       vector(3) NOT NULL
+);
+
+INSERT INTO vsp_parents VALUES
+    (1, 'alpha', '{"score": 10}'),
+    (2, 'alpha', '{"score": 20}'),
+    (3, 'beta',  '{"score": 20}'),
+    (4, 'alpha', '{"score": 30}');
+
+INSERT INTO vsp_children VALUES
+    (10, 1, '[1,   0,   0]'),
+    (11, 1, '[0,   1,   0]'),
+    (20, 2, '[0.9, 0.1, 0]'),
+    (21, 2, '[0,   0,   1]'),
+    (30, 3, '[1,   0,   0]'),
+    (40, 4, '[0.8, 0.2, 0]');
 
 CREATE INDEX vsp_parents_idx ON vsp_parents
-    USING paradedb (id, ord, (category::pdb.literal), (region::pdb.literal), (metadata::pdb.literal))
-    WITH (
-        target_segment_count = 8,
-        mutable_segment_rows = 0,
-        background_layer_sizes = '0'
-    );
+    USING paradedb (id, (category::pdb.literal), (metadata::pdb.literal));
 
-INSERT INTO vsp_parents
-SELECT md5('vsp_parent_' || i)::uuid,
-       i,
-       CASE
-           WHEN i = 51 THEN 'delta'
-           WHEN i BETWEEN 52 AND 71 THEN 'gamma'
-           ELSE 'noise'
-       END,
-       CASE
-           WHEN i BETWEEN 52 AND 71 THEN 'north'
-           ELSE 'south'
-       END,
-       CASE
-           WHEN i = 51 THEN '{"score": 40}'::jsonb
-           WHEN i BETWEEN 52 AND 71 THEN '{"score": 50}'::jsonb
-           ELSE '{"score": 0}'::jsonb
-       END
-FROM generate_series(51, 200) i;
-
-INSERT INTO vsp_parents
-SELECT CASE
-           WHEN i <= 3 THEN ('00000000-0000-0000-0000-' || lpad(i::text, 12, '0'))::uuid
-           WHEN i = 4  THEN 'ffffffff-ffff-ffff-ffff-000000000004'::uuid
-           ELSE             md5('vsp_parent_' || i)::uuid
-       END,
-       i,
-       CASE
-           WHEN i IN (1, 2, 4) THEN 'alpha'
-           WHEN i = 3 THEN 'beta'
-           WHEN i BETWEEN 5 AND 39 THEN 'delta'
-           ELSE 'noise'
-       END,
-       CASE
-           WHEN i IN (1, 2) THEN 'north'
-           WHEN i BETWEEN 5 AND 39 THEN 'west'
-           ELSE 'south'
-       END,
-       CASE
-           WHEN i = 1 THEN '{"score": 10}'::jsonb
-           WHEN i IN (2, 3) THEN '{"score": 20}'::jsonb
-           WHEN i = 4 THEN '{"score": 30}'::jsonb
-           WHEN i BETWEEN 5 AND 39 THEN '{"score": 40}'::jsonb
-           ELSE '{"score": 0}'::jsonb
-       END
-FROM generate_series(1, 50) i;
-
-INSERT INTO vsp_children
-SELECT ('00000000-0000-0000-0000-' || lpad(v.seq::text, 12, '0'))::uuid,
-       v.seq,
-       v.p_id,
-       v.p_ord,
-       v.vec::vector
-FROM (
-    SELECT c.seq, p.id AS p_id, p.ord AS p_ord, c.vec
-    FROM (
-        VALUES
-            (10, 1, '[1,   0,   0]'),
-            (11, 1, '[0,   1,   0]'),
-            (20, 2, '[0.9, 0.1, 0]'),
-            (21, 2, '[0,   0,   1]'),
-            (30, 3, '[1,   0,   0]'),
-            (40, 4, '[0.8, 0.2, 0]')
-    ) AS c(seq, p_ord, vec)
-    JOIN vsp_parents p ON p.ord = c.p_ord
-    UNION ALL
-    SELECT 1000 + (p.ord - 5) * 5 + c_idx,
-           p.id,
-           p.ord,
-           CASE p.category
-               WHEN 'noise' THEN '[0.99, 0.01, ' || (((p.ord * 5 + c_idx) % 50) * 0.001)::text || ']'
-               WHEN 'gamma' THEN '[0.7,  0.3,  0]'
-               ELSE              '[0.6,  0.4,  0]'
-           END
-    FROM vsp_parents p
-    CROSS JOIN generate_series(0, 4) c_idx
-    WHERE p.ord >= 5
-) AS v(seq, p_id, p_ord, vec);
-
--- Build `vsp_children_idx` after populating `vsp_children` so `persist_build_segments`
--- clusters the `986 >= 64` rows into a single IVF segment (`quantization = '0'` avoids
--- random rotation seeds on `vector(3)` while exercising IVF cluster routing).
 CREATE INDEX vsp_children_idx ON vsp_children
-    USING paradedb (id, seq, parent_id, parent_ord, vec vector_cosine_ops)
-    WITH (
-        quantization = '0',
-        target_segment_count = 1,
-        mutable_segment_rows = 0,
-        background_layer_sizes = '0',
-        target_leaf_size = 20,
-        training_sample_ratio = 1.0
-    );
+    USING paradedb (id, parent_id, vec vector_cosine_ops);
 
 ANALYZE vsp_parents, vsp_children;
 
-SELECT
-    (SELECT count(*) FROM paradedb.index_info('vsp_parents_idx')) AS parent_segments,
-    (SELECT count(*) FROM paradedb.index_info('vsp_children_idx')) AS child_segments,
-    (SELECT bool_and(vector_format = 'ivf') FROM paradedb.vector_info('vsp_children_idx', 'vec')) AS child_is_ivf;
-
 -- Semi-join (`IN (SELECT ...)`) under HashJoinExec (Regime 2)
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
+SELECT c.id, c.parent_id
 FROM vsp_children c
 WHERE c.id @@@ pdb.all()
   AND c.parent_id IN (
@@ -434,7 +331,7 @@ WHERE c.id @@@ pdb.all()
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 
-SELECT c.seq, c.parent_id
+SELECT c.id, c.parent_id
 FROM vsp_children c
 WHERE c.id @@@ pdb.all()
   AND c.parent_id IN (
@@ -446,7 +343,522 @@ WHERE c.id @@@ pdb.all()
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 
--- Outer `GROUP BY parent_id ORDER BY min(dist)` over top-K semi-join subquery
+-- Semi-join (`EXISTS`) and duplicate build-key deduplication
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND EXISTS (
+    SELECT 1 FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+      AND p.id = c.parent_id
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c1.id, c1.parent_id
+FROM vsp_children c1
+WHERE c1.id @@@ pdb.all()
+  AND c1.parent_id IN (
+    SELECT c2.parent_id FROM vsp_children c2
+    WHERE c2.id @@@ pdb.all()
+      AND c2.parent_id IN (1, 2)
+  )
+ORDER BY c1.vec <=> '[1,0,0]'::vector, c1.id
+LIMIT 3;
+
+SET paradedb.rank_join_min_rows = 0;
+
+SELECT c1.id, c1.parent_id
+FROM vsp_children c1
+WHERE c1.id @@@ pdb.all()
+  AND c1.parent_id IN (
+    SELECT c2.parent_id FROM vsp_children c2
+    WHERE c2.id @@@ pdb.all()
+      AND c2.parent_id IN (1, 2)
+  )
+ORDER BY c1.vec <=> '[1,0,0]'::vector, c1.id
+LIMIT 3;
+
+RESET paradedb.rank_join_min_rows;
+
+-- Inner join (`JOIN`) under HashJoinExec (Regime 2), projecting distance and tie-breaker `DESC`
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id, p.category, round((c.vec <=> '[1,0,0]'::vector)::numeric, 4) AS dist
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
+LIMIT 2;
+
+SELECT c.id, c.parent_id, p.category, round((c.vec <=> '[1,0,0]'::vector)::numeric, 4) AS dist
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
+LIMIT 2;
+
+-- OFFSET and prepared / runtime-expression query vectors in joins
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2 OFFSET 1;
+
+PREPARE vsp_join_prep(vector) AS
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> $1, c.id
+LIMIT 2;
+
+EXECUTE vsp_join_prep('[1,0,0]'::vector);
+DEALLOCATE vsp_join_prep;
+
+SELECT set_config('vsp.join_qvec', '[1,0,0]', false);
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> current_setting('vsp.join_qvec')::vector, c.id
+LIMIT 2;
+
+-- Regime 1 (`RankJoinExec`) for Semi-join and Inner join, plus selectivity threshold GUC
+SET paradedb.rank_join_min_rows = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- Threshold GUC (`paradedb.rank_join_unscored_selectivity_threshold`) switches between
+-- `RankJoinExec` and `HashJoinExec` when `rank_join_min_rows > 0`
+SET paradedb.rank_join_min_rows = 1;
+SET paradedb.rank_join_unscored_selectivity_threshold = 0.0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = 'beta'
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SET paradedb.rank_join_unscored_selectivity_threshold = 0.99;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = 'beta'
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+RESET paradedb.rank_join_min_rows;
+RESET paradedb.rank_join_unscored_selectivity_threshold;
+
+-- Cross-table OR filter (`ScanMode::Tagged`) + residual filter with vector ORDER BY
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SET paradedb.rank_join_min_rows = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+RESET paradedb.rank_join_min_rows;
+
+-- ============================================================
+-- LazySort edge cases in vector-ordered joins
+-- ============================================================
+
+-- Edge Case 1: High-density build key set where `InListPushdown` declines
+SET paradedb.term_set_bitset_max_density_multi = 0.0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+RESET paradedb.term_set_bitset_max_density_multi;
+
+-- Edge Case 2: Build distinct-key count exceeding `hash_join_inlist_pushdown_max_distinct_values`
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+
+-- Edge Case 3: Sparse join where total matching rows < K (exhausts LazySort cleanly)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{beta}')
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 10;
+
+-- Edge Case 4: Anti-correlated parent filter with tiny initial window forcing multiple
+-- LazySort window expansions (both HashJoinExec with InList disabled and RankJoinExec)
+SET paradedb.limit_fetch_multiplier = 1;
+SET paradedb.topk_retry_scale_factor = 2;
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+
+SET paradedb.rank_join_min_rows = 0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+
+RESET paradedb.limit_fetch_multiplier;
+RESET paradedb.topk_retry_scale_factor;
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.rank_join_min_rows;
+
+-- Edge Case 5: Residual non-equi join filter (`c.id > p.id * 10`) and MVCC dead-tuple filtering
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id AND c.id > p.id * 10
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+BEGIN;
+DELETE FROM vsp_children WHERE id = 20;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+ROLLBACK;
+
+-- ============================================================
+-- Planner decline warnings for unsupported vector join shapes
+-- ============================================================
+SET paradedb.ForceCustomScan = false;
+
+-- 1. Wrong distance metric (<-> L2 on cosine index)
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <-> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- 2. Descending vector distance
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector DESC, c.id
+LIMIT 2;
+
+-- 3. Vector distance not in primary ORDER BY position
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.id, c.vec <=> '[1,0,0]'::vector
+LIMIT 2;
+
+-- 4. Missing LIMIT on vector-ordered join
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id;
+
+-- 5. DISTINCT with vector ORDER BY
+SELECT DISTINCT c.id, c.vec <=> '[1,0,0]'::vector
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- 6. Cross-table tie-breaker (tie-breaker on p instead of c)
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, p.category
+LIMIT 2;
+
+-- 7. Tie-breaker using pdb.score(c.id)
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, pdb.score(c.id) DESC
+LIMIT 2;
+
+-- 8. Conflicting pdb.score(c.id) projection on the vector-ordered table
+SELECT c.id, pdb.score(c.id)
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- 9. Non-preserved join spine (LEFT JOIN where vector table is on the nullable right side)
+SELECT p.id, c.id
+FROM vsp_parents p
+LEFT JOIN vsp_children c ON p.id = c.parent_id AND c.id @@@ pdb.all()
+WHERE p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+RESET paradedb.ForceCustomScan;
+
+-- Edge Case 6: IVF segment (>= 200 rows) where matching child rows (22) exceed initial
+-- LazySort window under HashJoinExec (exercises InList pushdown on IVF and verifies whether
+-- HashJoinExec stops after the first LazySort window satisfies LIMIT K rather than pulling
+-- additional expanding windows to fill an 8192-row batch).
+INSERT INTO vsp_children
+SELECT 100 + i, 1, '[1, 0, 0]'::vector
+FROM generate_series(1, 250) i;
+
+INSERT INTO vsp_children
+SELECT 400 + i, 4, '[0.5, 0.866, 0]'::vector
+FROM generate_series(1, 20) i;
+
+REINDEX INDEX vsp_children_idx;
+ANALYZE vsp_children;
+
+-- 6a. Semi-join (`IN (SELECT ...)`) with 22 matching child rows and LIMIT 2
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- 6b. Inner join (`JOIN`) with 22 matching child rows and LIMIT 2
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+
+-- Edge Case 7: Outer GROUP BY over top-K semi-join, RankJoinExec streaming under tight
+-- work_mem, correlated multi-clause BooleanQuery discounting, and multi-segment TermSetQuery
+-- parent selectivity estimation.
 SELECT sub.parent_id, round(min(sub.dist)::numeric, 4) AS min_dist
 FROM (
     SELECT c.parent_id, c.vec <=> '[1,0,0]'::vector AS dist
@@ -465,433 +877,11 @@ GROUP BY sub.parent_id
 ORDER BY min_dist, sub.parent_id
 LIMIT 2;
 
--- Semi-join (`EXISTS`) and duplicate build-key deduplication
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND EXISTS (
-    SELECT 1 FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{alpha}')
-      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-      AND p.id = c.parent_id
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c1.seq, c1.parent_id
-FROM vsp_children c1
-WHERE c1.id @@@ pdb.all()
-  AND c1.parent_id IN (
-    SELECT c2.parent_id FROM vsp_children c2
-    WHERE c2.id @@@ pdb.all()
-      AND c2.parent_id IN (
-        '00000000-0000-0000-0000-000000000001'::uuid,
-        '00000000-0000-0000-0000-000000000002'::uuid
-      )
-  )
-ORDER BY c1.vec <=> '[1,0,0]'::vector, c1.id
-LIMIT 3;
-
 SET paradedb.rank_join_min_rows = 0;
-
-SELECT c1.seq, c1.parent_id
-FROM vsp_children c1
-WHERE c1.id @@@ pdb.all()
-  AND c1.parent_id IN (
-    SELECT c2.parent_id FROM vsp_children c2
-    WHERE c2.id @@@ pdb.all()
-      AND c2.parent_id IN (
-        '00000000-0000-0000-0000-000000000001'::uuid,
-        '00000000-0000-0000-0000-000000000002'::uuid
-      )
-  )
-ORDER BY c1.vec <=> '[1,0,0]'::vector, c1.id
-LIMIT 3;
-
-RESET paradedb.rank_join_min_rows;
-
--- Inner join (`JOIN`) under HashJoinExec (Regime 2), projecting distance and tie-breaker `DESC`
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id, p.category, round((c.vec <=> '[1,0,0]'::vector)::numeric, 4) AS dist
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
-LIMIT 2;
-
-SELECT c.seq, c.parent_id, p.category, round((c.vec <=> '[1,0,0]'::vector)::numeric, 4) AS dist
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
-LIMIT 2;
-
--- OFFSET and prepared / runtime-expression query vectors in joins
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2 OFFSET 1;
-
-PREPARE vsp_join_prep(vector) AS
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> $1, c.id
-LIMIT 2;
-
-EXECUTE vsp_join_prep('[1,0,0]'::vector);
-DEALLOCATE vsp_join_prep;
-
-SELECT set_config('vsp.join_qvec', '[1,0,0]', false);
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> current_setting('vsp.join_qvec')::vector, c.id
-LIMIT 2;
-
--- Regime 1 (`RankJoinExec`) for Semi-join and Inner join, plus selectivity threshold GUC
-SET paradedb.rank_join_min_rows = 0;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{alpha}')
-      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{alpha}')
-      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- Threshold GUC (`paradedb.rank_join_unscored_selectivity_threshold`) switches between
--- `RankJoinExec` and `HashJoinExec` when `rank_join_min_rows > 0`, and parent selectivity
--- underestimation (multi-clause independence and largest-segment skew) pushes queries whose
--- actual selectivity exceeds `0.08` into `HashJoinExec`.
-SET paradedb.rank_join_min_rows = 1;
-SET paradedb.rank_join_unscored_selectivity_threshold = 0.0;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = 'beta'
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SET paradedb.rank_join_unscored_selectivity_threshold = 0.99;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = 'beta'
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-RESET paradedb.rank_join_unscored_selectivity_threshold;
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 10;
-
--- Correlated multi-clause TermQuery filter on parent (`20 / 200 = 10% > 0.08`, discounted by
--- `BooleanQuery::estimate_docs` to `11 / 200 = 5.5% < 0.08` -> declines `RankJoinExec` into
--- unpushed `HashJoinExec`)
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = 'gamma'
-  AND p.region = 'north'
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = 'gamma'
-  AND p.region = 'north'
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- Multi-segment skew on parent (`36 / 200 = 18% > 0.08`, but largest Segment 0 has only
--- `1 / 150` `'delta'` rows -> `estimate_docs` estimates `1` row and declines `RankJoinExec`
--- into unpushed `HashJoinExec`)
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.category === 'delta'
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.category === 'delta'
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
-RESET paradedb.rank_join_min_rows;
-
--- Cross-table OR filter (`ScanMode::Tagged`) + residual filter with vector ORDER BY
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id, p.category
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE (c.seq @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
-  AND c.seq + p.ord > 0
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id, p.category
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE (c.seq @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
-  AND c.seq + p.ord > 0
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SET paradedb.rank_join_min_rows = 0;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id, p.category
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE (c.seq @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
-  AND c.seq + p.ord > 0
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id, p.category
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE (c.seq @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
-  AND c.seq + p.ord > 0
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-RESET paradedb.rank_join_min_rows;
-
--- ============================================================
--- LazySort edge cases in vector-ordered joins
--- ============================================================
-
--- Edge Case 1: High-density build key set where `term_set_bitset_max_density_multi = 0.0`
--- dispatches linear TermSet on numeric join keys (`p.ord = c.parent_ord`) and automaton on
--- string-backed `uuid` keys (`p.id = c.parent_id`).
-SET paradedb.term_set_bitset_max_density_multi = 0.0;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_ord
-FROM vsp_children c
-JOIN vsp_parents p ON p.ord = c.parent_ord
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_ord
-FROM vsp_children c
-JOIN vsp_parents p ON p.ord = c.parent_ord
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-RESET paradedb.term_set_bitset_max_density_multi;
-
--- Edge Case 2: Build distinct-key count exceeding `hash_join_inlist_pushdown_max_distinct_values`
--- on `uuid` (`Utf8View`) keys (`IN` and `JOIN`): `InList` pushdown does not fire, `lazy_sort`
--- ignores build selectivity (`initial_window = 2 * K`), `build_filters` drops `Utf8View`
--- `HashTableLookupExpr` (leaving only coarse string min/max bounds), and expanding IVF searches
--- walk past all `'noise'` rows.
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{alpha}')
-      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{alpha}')
-      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
-
--- Edge Case 3: Sparse join where total matching rows < K (exhausts LazySort cleanly)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{beta}')
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 10;
-
--- Edge Case 4: Anti-correlated parent filter with tiny initial window forcing multiple
--- LazySort window expansions (both HashJoinExec with InList disabled and RankJoinExec),
--- plus RankJoinExec single-batch `lazy_sort` + `Utf8View` memory reservation under tight `work_mem`.
-SET paradedb.limit_fetch_multiplier = 1;
-SET paradedb.topk_retry_scale_factor = 2;
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 1;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 1;
-
-SET paradedb.rank_join_min_rows = 0;
-
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 1;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 1;
-
-RESET paradedb.limit_fetch_multiplier;
 SET hash_mem_multiplier = 1.0;
 SET work_mem = '64kB';
 
-SELECT c.seq, c.parent_id
+SELECT c.id, c.parent_id
 FROM vsp_children c
 JOIN vsp_parents p ON p.id = c.parent_id
 WHERE c.id @@@ pdb.all()
@@ -903,183 +893,80 @@ LIMIT 2;
 
 RESET work_mem;
 RESET hash_mem_multiplier;
-RESET paradedb.topk_retry_scale_factor;
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
 RESET paradedb.rank_join_min_rows;
 
--- Edge Case 5: Residual non-equi join filter (`c.seq > p.ord * 10`) and MVCC dead-tuple filtering
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id AND c.seq > p.ord * 10
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
+SET max_parallel_workers_per_gather = 0;
+DROP INDEX vsp_parents_idx;
+CREATE INDEX vsp_parents_idx ON vsp_parents
+    USING paradedb (id, (category::pdb.literal), (metadata::pdb.literal))
+    WITH (
+        target_segment_count = 8,
+        mutable_segment_rows = 0,
+        background_layer_sizes = '0'
+    );
 
-BEGIN;
-DELETE FROM vsp_children WHERE seq = 20;
+INSERT INTO vsp_parents
+SELECT i,
+       CASE WHEN i BETWEEN 5 AND 39 THEN 'delta' ELSE 'noise' END,
+       CASE WHEN i BETWEEN 5 AND 39 THEN '{"score": 40, "region": "west"}'::jsonb
+            ELSE '{"score": 0, "region": "south"}'::jsonb END
+FROM generate_series(5, 50) i;
 
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
+INSERT INTO vsp_parents
+SELECT i,
+       CASE
+           WHEN i = 51 THEN 'delta'
+           WHEN i BETWEEN 52 AND 71 THEN 'gamma'
+           ELSE 'noise'
+       END,
+       CASE
+           WHEN i = 51 THEN '{"score": 40, "region": "south"}'::jsonb
+           WHEN i BETWEEN 52 AND 71 THEN '{"score": 50, "region": "north"}'::jsonb
+           ELSE '{"score": 0, "region": "south"}'::jsonb
+       END
+FROM generate_series(51, 200) i;
 
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha}')
-  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
+INSERT INTO vsp_children
+SELECT 1000 + i, i, CASE WHEN i = 51 OR i BETWEEN 5 AND 39 THEN '[0.6, 0.4, 0]'::vector
+                         WHEN i BETWEEN 52 AND 71 THEN '[0.7, 0.3, 0]'::vector
+                         ELSE '[0.99, 0.01, 0]'::vector END
+FROM generate_series(5, 200) i;
 
-ROLLBACK;
+REINDEX INDEX vsp_children_idx;
+ANALYZE vsp_parents, vsp_children;
 
--- ============================================================
--- Planner decline warnings for unsupported vector join shapes
--- ============================================================
-SET paradedb.ForceCustomScan = false;
-
--- 1. Wrong distance metric (<-> L2 on cosine index)
-SELECT c.seq
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.vec <-> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- 2. Descending vector distance
-SELECT c.seq
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.vec <=> '[1,0,0]'::vector DESC, c.id
-LIMIT 2;
-
--- 3. Vector distance not in primary ORDER BY position
-SELECT c.seq
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.id, c.vec <=> '[1,0,0]'::vector
-LIMIT 2;
-
--- 4. Missing LIMIT on vector-ordered join
-SELECT c.seq
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-  AND p.category = ANY('{alpha,beta}')
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id;
-
--- 5. DISTINCT with vector ORDER BY
-SELECT DISTINCT c.id, c.vec <=> '[1,0,0]'::vector
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- 6. Cross-table tie-breaker (tie-breaker on p instead of c)
-SELECT c.seq
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.vec <=> '[1,0,0]'::vector, p.category
-LIMIT 2;
-
--- 7. Tie-breaker using pdb.score(c.id)
-SELECT c.seq
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.vec <=> '[1,0,0]'::vector, pdb.score(c.id) DESC, c.id
-LIMIT 2;
-
--- 8. Conflicting pdb.score(c.id) projection on the vector-ordered table
-SELECT c.seq, pdb.score(c.id)
-FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
-WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- 9. Non-preserved join spine (LEFT JOIN where vector table is on the nullable right side)
-SELECT p.ord, c.seq
-FROM vsp_parents p
-LEFT JOIN vsp_children c ON p.id = c.parent_id AND c.id @@@ pdb.all()
-WHERE p.id @@@ pdb.all()
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-RESET paradedb.ForceCustomScan;
-
--- Edge Case 6: IVF segment where matching child rows (`100` `'gamma'` chunks) exceed initial
--- LazySort window (`4`) under HashJoinExec (exercises `uuid` InList pushdown on IVF and verifies
--- that HashJoinExec stops after the first LazySort window satisfies LIMIT K rather than pulling
--- additional expanding windows to fill an 8192-row batch).
--- Use `rank_join_unscored_selectivity_threshold = 0.99` so `gamma` (`10%`) runs on `HashJoinExec`.
 SET paradedb.rank_join_min_rows = 1;
-SET paradedb.rank_join_unscored_selectivity_threshold = 0.99;
+SET paradedb.rank_join_unscored_selectivity_threshold = 0.08;
 
--- 6a. Semi-join (`IN (SELECT ...)`) with 100 matching child rows and LIMIT 2
+-- Correlated 2-clause filter (`20 / 200 = 10%` raw, discounted by BooleanQuery::estimate_docs
+-- to `11 / 200 = 5.5% < 0.08`) selects HashJoinExec.
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{gamma}')
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
-SELECT c.seq, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.id @@@ pdb.all()
-      AND p.category = ANY('{gamma}')
-  )
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- 6b. Inner join (`JOIN`) with 100 matching child rows and LIMIT 2
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.seq, c.parent_id
+SELECT c.id, c.parent_id
 FROM vsp_children c
 JOIN vsp_parents p ON p.id = c.parent_id
 WHERE c.id @@@ pdb.all()
   AND p.id @@@ pdb.all()
-  AND p.category = ANY('{gamma}')
+  AND p.category = 'gamma'
+  AND p.metadata->>'region' = 'north'
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 
-SELECT c.seq, c.parent_id
+-- Skewed multi-segment TermSetQuery (`1 / 150` on largest segment + `35 / 46` on smaller segment
+-- = `36 / 200 = 18% > 0.08`) sums across segments and selects RankJoinExec.
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
 FROM vsp_children c
-JOIN vsp_parents p ON p.id = c.parent_id
 WHERE c.id @@@ pdb.all()
-  AND p.id @@@ pdb.all()
-  AND p.category = ANY('{gamma}')
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.category === 'delta'
+  )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 
 RESET paradedb.rank_join_unscored_selectivity_threshold;
 RESET paradedb.rank_join_min_rows;
-RESET paradedb.vector_cluster_max_probe;
-RESET paradedb.vector_clustering_threshold;
 RESET max_parallel_workers_per_gather;
-RESET client_min_messages;
 
 DROP TABLE vsp_children, vsp_parents;
 

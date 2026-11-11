@@ -981,8 +981,7 @@ impl JoinScan {
     ///
     /// Manifests also provide consistent segment counts for both DSM sizing and DSM
     /// population, avoiding the divergence that can occur when planning-time counts
-    /// (from `scan_info.segment_count`) differ from execution-time counts due to
-    /// concurrent inserts.
+    /// differ from execution-time counts due to concurrent inserts.
     fn ensure_source_manifests(state: &mut CustomScanStateWrapper<Self>) {
         if !state.custom_state().source_manifests.is_empty() {
             return;
@@ -1372,6 +1371,9 @@ impl CustomScan for JoinScan {
                 &private_data.output_columns,
                 node.custom_exprs,
             );
+
+            // Populate row estimates now that PostgreSQL chose this path
+            private_data.join_clause.plan.estimate_sources();
 
             let initial_mode = if mpp_eligible(
                 private_data.parallel_mode_ok,

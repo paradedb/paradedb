@@ -835,12 +835,13 @@ impl PgSearchTableProvider {
         // Open an unfiltered reader for metadata only and retain the original
         // expression-bearing query on the display plan. Execution still solves
         // the query above and opens its reader with the actual runtime value.
-        let reader_query =
-            if self.explain_only && (query.has_postgres_expressions() || query.has_parameters()) {
-                SearchQueryInput::All
-            } else {
-                query.clone()
-            };
+        let has_unsolved_explain_expressions =
+            self.explain_only && (query.has_postgres_expressions() || query.has_parameters());
+        let reader_query = if has_unsolved_explain_expressions {
+            SearchQueryInput::All
+        } else {
+            query.clone()
+        };
         let reader = match self.manifest.as_ref() {
             Some(manifest) => {
                 assert_eq!(
@@ -881,12 +882,29 @@ impl PgSearchTableProvider {
             .with_check_visibility(check_visibility)
             .with_ffhelper(Arc::clone(&scan_ffhelper));
 
+        // `reader` here is opened with `MvccSatisfies::Snapshot` (all segments loaded) and solved
+        // runtime parameters/filters. Recompute dictionary-backed estimates unless plan time
+        // already computed an exact `Snapshot` estimate over the same unmodified query.
+        let should_recompute_estimate = !has_unsolved_explain_expressions
+            && !query.has_heap_filters()
+            && (!filters.is_empty()
+                || match self.scan_info.estimate_basis {
+                    crate::scan::ScanEstimateBasis::TotalDocsUpperBound => true,
+                    crate::scan::ScanEstimateBasis::Sampled => {
+                        self.scan_info.estimate == RowEstimate::Unknown
+                            || (reader.supports_statistics_estimation()
+                                && reader.segment_readers().len() > 1)
+                    }
+                    crate::scan::ScanEstimateBasis::Snapshot => false,
+                });
+        let raw_estimated_rows = if should_recompute_estimate {
+            let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+            reader.estimate_docs(row_estimate).matching_docs as u64
+        } else {
+            self.scan_info.estimate.as_planner_estimate()
+        };
         let pruning = reader.segment_pruning_estimate();
-        let total_estimated_rows = self
-            .scan_info
-            .estimate
-            .as_planner_estimate()
-            .min(pruning.candidate_docs);
+        let total_estimated_rows = raw_estimated_rows.min(pruning.candidate_docs);
 
         let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();

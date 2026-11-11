@@ -23,8 +23,10 @@ use crate::index::fast_fields_helper::{
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::{VisibilityChecker, VisibilityCtids, VisibilityMask};
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
+use arrow_array::cast::AsArray;
 use arrow_array::{
-    Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, RecordBatchOptions, UInt64Array,
+    Array, ArrayRef, BooleanArray, Float32Array, GenericByteViewArray, RecordBatch,
+    RecordBatchOptions, UInt64Array, types::ByteViewType,
 };
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_schema::SchemaRef;
@@ -44,6 +46,29 @@ const MAX_BATCH_SIZE: usize = 128_000;
 /// deferred during late materialization. Aligned with DataFusion's default
 /// batch size, since we are not fetching string dictionaries during the scan phase.
 const DEFERRED_BATCH_SIZE: usize = 8_192;
+
+/// Minimum backing buffer byte capacity before considering `.gc()` compaction on a `ByteView` array.
+const MIN_SPARSE_VIEW_BUFFER_BYTES: usize = 4_096;
+
+/// Compacts a `StringViewArray` or `BinaryViewArray` via `.gc()` when its backing `data_buffers`
+/// capacity exceeds [`MIN_SPARSE_VIEW_BUFFER_BYTES`] and is more than `2x` the non-inline byte
+/// count actually referenced by its views (e.g. after `interleave` or `slice`).
+///
+/// TODO: Upstream density-based conditional `.gc()` compaction to `datafusion-distributed`
+/// (which currently runs `.gc()` unconditionally in `worker_service::garbage_collect_arrays`)
+/// and reuse a shared public helper from there.
+pub(crate) fn compact_byte_view_array(col: ArrayRef) -> ArrayRef {
+    fn compact<T: ByteViewType + 'static>(arr: &GenericByteViewArray<T>) -> Option<ArrayRef> {
+        let cap: usize = arr.data_buffers().iter().map(|b| b.capacity()).sum();
+        (cap > MIN_SPARSE_VIEW_BUFFER_BYTES
+            && cap > arr.total_buffer_bytes_used().saturating_mul(2))
+        .then(|| Arc::new(arr.gc()) as ArrayRef)
+    }
+    col.as_string_view_opt()
+        .and_then(compact)
+        .or_else(|| col.as_binary_view_opt().and_then(compact))
+        .unwrap_or(col)
+}
 
 /// Compact `ids` (and optional `orig_indices`) and `memoized_columns` in-place based on a boolean mask.
 fn compact_with_mask(
@@ -634,8 +659,9 @@ impl Scanner {
                     .iter()
                     .map(|rb| rb.column(col_idx).as_ref())
                     .collect();
-                compute::interleave(&col_refs, &interleave_indices)
-                    .expect("Failed to interleave segment column")
+                let col = compute::interleave(&col_refs, &interleave_indices)
+                    .expect("Failed to interleave segment column");
+                compact_byte_view_array(col)
             })
             .collect();
 

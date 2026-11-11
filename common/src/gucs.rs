@@ -27,7 +27,7 @@ use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 pub const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
-pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
+pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.025;
 
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PlannerWarnings {
@@ -239,7 +239,8 @@ static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
-/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0`.
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join and `base_query` filters of a
+/// disjunctive (`ScanMode::Disjunctive`) join when `rank_join_min_rows > 0`.
 static RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD: GucSetting<f64> =
     GucSetting::<f64>::new(UNSCORED_SELECTIVITY_THRESHOLD);
 
@@ -291,8 +292,11 @@ static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
+const DEFAULT_HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: i32 = 16 * 1024 * 1024;
+const DEFAULT_LAZY_SORT_INLIST_PUSHDOWN_MAX_SIZE: usize = 32 * 1024 * 1024;
+
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
-    GucSetting::<i32>::new(16 * 1024 * 1024);
+    GucSetting::<i32>::new(DEFAULT_HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE);
 
 /// The maximum number of distinct values in an InList that can be pushed down
 /// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
@@ -307,8 +311,18 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 /// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
 /// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
 /// bound. Set to 0 to disable pushdown entirely.
+const DEFAULT_HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: i32 = 20_000;
+
+/// Default distinct-key limit for `InList` pushdown into a `lazy_sort` scan's `TermSetQuery`
+/// (`InListLinearFallback::PushToIndex`). Unlike standard unsorted scans (where `PreFilter` beats
+/// `TermSetQuery` past ~20K keys), a `lazy_sort` scan without an indexed `TermSetQuery` must
+/// either probe large IVF/HNSW `k` windows or expand top-K windows over non-matching documents, so
+/// pushing up to 500K keys covers the `< 2.5%` `RankJoinExec` selectivity band even on
+/// multi-million-row parent tables.
+const DEFAULT_LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: usize = 500_000;
+
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(20_000);
+    GucSetting::<i32>::new(DEFAULT_HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES);
 
 /// Row count threshold below which DataFusion converts a partitioned HashJoinExec
 /// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
@@ -994,9 +1008,10 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.rank_join_unscored_selectivity_threshold",
-        c"Minimum estimated selectivity on unscored (RA) join inputs for RankJoinExec",
-        c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
-          inputs of a single-sided (NRJN) join when paradedb.rank_join_min_rows > 0.",
+        c"Minimum selectivity of unscored join inputs required to use RankJoinExec",
+        c"Minimum estimated fraction of rows (0.0 to 1.0) matched by unscored join inputs or \
+          table filters for the planner to choose RankJoinExec. Below this threshold, a hash \
+          join over the selective input is preferred. Set to 0.0 to disable this check.",
         &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
         0.0,
         1.0,
@@ -1027,8 +1042,13 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
-        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
-        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
+        c"Maximum distinct values in an IN list pushed into the index. Set to 0 to disable.",
+        c"Maximum distinct values in an IN list or hash-join key set pushed into a TermSetQuery \
+          on unsorted scans. Pushdown lets the index skip non-matching rows directly instead of \
+          filtering them after scanning; above this limit, batch pre-filtering or join filtering \
+          is used instead. Ordered top-K probe scans allow up to 500,000 distinct values by \
+          default unless this setting is lowered below its 20,000 default (including 0 to \
+          disable pushdown).",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,
@@ -1468,6 +1488,32 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+/// Effective distinct-key limit for `InList` pushdown on `lazy_sort` probe scans:
+/// defaults to `500,000`, while honoring any explicit reduction of
+/// `paradedb.hash_join_inlist_pushdown_max_distinct_values` below its `20,000` default (including
+/// `0` as a global kill-switch) or any explicit increase above `500,000`.
+pub fn effective_lazy_sort_inlist_max_distinct_values() -> usize {
+    let base = hash_join_inlist_pushdown_max_distinct_values().max(0);
+    if base < DEFAULT_HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES {
+        base as usize
+    } else {
+        (base as usize).max(DEFAULT_LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES)
+    }
+}
+
+/// Effective byte cap for `InList` pushdown on `lazy_sort` probe scans: honors any explicit
+/// reduction of `paradedb.hash_join_inlist_pushdown_max_size` below its `16 MiB` default while
+/// allowing up to `32 MiB` by default so `500,000` `StringViewArray` UUID keys (`~52` bytes/key)
+/// are not truncated at `~322K` keys by the `16 MiB` byte belt.
+pub fn effective_lazy_sort_inlist_max_size() -> usize {
+    let base = hash_join_inlist_pushdown_max_size().max(0);
+    if base < DEFAULT_HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE {
+        base as usize
+    } else {
+        (base as usize).max(DEFAULT_LAZY_SORT_INLIST_PUSHDOWN_MAX_SIZE)
+    }
 }
 
 pub fn hash_join_single_partition_threshold_rows() -> i32 {

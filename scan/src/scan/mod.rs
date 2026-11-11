@@ -41,5 +41,7 @@ pub mod visibility_ctid_resolver_rule;
 
 pub use batch_scanner::Scanner;
 pub use execution_plan::CtidResolver;
-pub use info::{GlobalPredicateIndex, ScanInfo, ScanMode, TagIndex, TaggedQuery};
+pub use info::{
+    GlobalPredicateIndex, ScanEstimateBasis, ScanInfo, ScanMode, TagIndex, TaggedQuery,
+};
 pub use table_provider::{PgSearchTableProvider, VisibilityMode};

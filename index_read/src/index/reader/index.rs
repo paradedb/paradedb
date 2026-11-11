@@ -49,7 +49,9 @@ use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::metadata::{CleanupAdmission, MetaPage};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
-use crate::query::estimate::QueryEstimate;
+use crate::query::estimate::{
+    EstimateContext, QueryEstimate, can_drive_lookup_from_postings, is_zero_estimate_exact,
+};
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
@@ -124,6 +126,17 @@ pub struct SegmentPruningEstimate {
     pub candidate_segments: usize,
     pub pruned_segments: usize,
     pub candidate_docs: u64,
+}
+
+struct EstimationSample<'a> {
+    candidates: Vec<&'a SegmentReader>,
+    candidate_docs: u64,
+    /// Proportion `reader_docs / total_docs` covered when summing across all `candidates`.
+    candidates_doc_proportion: f64,
+    largest_reader: &'a SegmentReader,
+    /// Proportion `(largest_seg_docs / candidate_docs) * (reader_docs / total_docs)` covered by
+    /// `largest_reader` alone.
+    largest_doc_proportion: f64,
 }
 
 fn scale_largest_segment_estimate(value: u64, segment_doc_proportion: f64) -> u64 {
@@ -400,6 +413,18 @@ impl<'a> DisjunctScorer<'a> {
     }
 }
 
+/// Result of probing [`SegmentBaseFilter`] at a candidate `DocId`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BaseFilterMatch {
+    Matched,
+    NextCandidate(DocId),
+}
+
+/// Maximum estimated live documents in a postings-backed `base_filter_weight` for which
+/// `collect_lookup_only_segment` drives intersection from `base_filter_weight` (probing
+/// `lookup_weight` in `O(1)` via `seek_danger`) instead of materializing `lookup_weight.scorer`.
+const MAX_BASE_DRIVER_DOCS: u64 = 128;
+
 /// Lazily initialized per-segment base filter for `RA` lookups.
 struct SegmentBaseFilter<'a> {
     segment_reader: &'a SegmentReader,
@@ -422,9 +447,9 @@ impl<'a> SegmentBaseFilter<'a> {
         }
     }
 
-    fn matches(&mut self, target_doc: DocId) -> bool {
+    fn seek_match(&mut self, target_doc: DocId) -> BaseFilterMatch {
         let Some(weight) = self.weight else {
-            return true;
+            return BaseFilterMatch::Matched;
         };
         // Non-`TermSetQuery` weights (such as `RangeQuery` or `BooleanQuery` from
         // `and_query`) fall back to `Weight::scorer`, which positions the scorer at its first
@@ -445,25 +470,38 @@ impl<'a> SegmentBaseFilter<'a> {
             (scorer, first_doc)
         });
         if target_doc < *min_doc {
-            return false;
+            return BaseFilterMatch::NextCandidate(*min_doc);
         }
         match scorer.seek_danger(target_doc) {
             tantivy::SeekDangerResult::Found => {
                 *min_doc = target_doc.saturating_add(1);
-                true
+                BaseFilterMatch::Matched
             }
             tantivy::SeekDangerResult::SeekLowerBound(next_bound) => {
                 *min_doc = next_bound;
-                false
+                BaseFilterMatch::NextCandidate(next_bound)
             }
         }
     }
+
+    fn matches(&mut self, target_doc: DocId) -> bool {
+        matches!(self.seek_match(target_doc), BaseFilterMatch::Matched)
+    }
 }
 
-/// Evaluates an unscored-base segment (`RaBaseFilter::MatchAll` or `RaBaseFilter::Filter`) when
-/// `score_threshold` does not prune the `0.0` base score, iterating `lookup_weight` directly,
-/// probing any `base_filter_weight` lazily via `seek_danger`, and adding any [`DisjunctScorer`]
-/// score.
+/// Collects Random Access (`RA`) point-lookup matches from a single segment with an unscored base
+/// (`RaBaseFilter::MatchAll` or `RaBaseFilter::Filter`) when `score_threshold` is `None` or
+/// `< 0.0` (so `0.0`-scored matches cannot be pruned up front).
+///
+/// Emits live, not-yet-emitted documents matching `lookup_weight` (and `base_filter_weight`, when
+/// present), scoring each match via `disjunct_weight` (`0.0` when absent or non-matching):
+/// 1. Skips the segment without opening `lookup_weight` when `base_filter_weight` has an exact
+///    zero dictionary estimate.
+/// 2. Drives intersection from `base_filter_weight` when it is postings-backed with
+///    `<= MAX_BASE_DRIVER_DOCS` estimated live docs, probing `lookup_weight` via
+///    [`intersect_scorer_with_lookup`].
+/// 3. Otherwise drives from `lookup_weight.scorer`, leapfrogging against [`SegmentBaseFilter`]
+///    (`SeekLowerBound`) and lazily scoring matches via [`DisjunctScorer`].
 #[allow(clippy::too_many_arguments)]
 fn collect_lookup_only_segment(
     segment_ord: SegmentOrdinal,
@@ -472,13 +510,55 @@ fn collect_lookup_only_segment(
     base_filter_weight: Option<&Arc<LazyWeight>>,
     disjunct_weight: Option<&Arc<LazyWeight>>,
     score_threshold: Option<Score>,
+    estimate_ctx: EstimateContext<'_>,
     emitted_docs: &mut crate::api::HashSet<DocAddress>,
     results: &mut Vec<(SearchIndexScore, DocAddress)>,
 ) {
-    let alive_bitset = segment_reader.alive_bitset();
+    if segment_reader.num_docs() == 0 {
+        return;
+    }
+    // Consult cheap base-filter dictionary statistics before opening `lookup_weight.scorer`.
+    if let Some(bf_weight) = base_filter_weight
+        && let Ok(Some(est)) = bf_weight
+            .query()
+            .estimate_docs_with_context(segment_reader, estimate_ctx)
+    {
+        let est_docs = est.live_docs(segment_reader);
+        // Path 1: base filter provably matches zero docs in this segment.
+        if est_docs == 0 && is_zero_estimate_exact(bf_weight.query()) {
+            return;
+        }
+        // Path 2: sparse postings-backed base filter drives `seek_danger` probes into `lookup_weight`.
+        if est_docs <= MAX_BASE_DRIVER_DOCS && can_drive_lookup_from_postings(bf_weight.query()) {
+            let mut base_scorer = bf_weight
+                .get()
+                .scorer(segment_reader, 1.0)
+                .expect("base filter scorer should be constructable");
+            intersect_scorer_with_lookup(
+                segment_ord,
+                segment_reader,
+                base_scorer.as_mut(),
+                false,
+                lookup_weight,
+                disjunct_weight,
+                score_threshold,
+                None,
+                emitted_docs,
+                results,
+            );
+            return;
+        }
+    }
+
+    // Path 3: drive from `lookup_weight`, leapfrogging against `SegmentBaseFilter`.
     let mut lookup_scorer = lookup_weight
         .scorer(segment_reader, 1.0)
         .expect("lookup scorer should be constructable");
+    if lookup_scorer.doc() == tantivy::TERMINATED {
+        return;
+    }
+
+    let alive_bitset = segment_reader.alive_bitset();
     let mut base_filter = SegmentBaseFilter::new(
         segment_reader,
         base_filter_weight,
@@ -489,17 +569,29 @@ fn collect_lookup_only_segment(
     let mut doc_id = lookup_scorer.doc();
     while doc_id != tantivy::TERMINATED {
         let addr = DocAddress::new(segment_ord, doc_id);
-        if alive_bitset.is_none_or(|b| b.is_alive(doc_id))
-            && !emitted_docs.contains(&addr)
-            && base_filter.matches(doc_id)
-        {
-            let score = disjunct_scorer.score_for(doc_id);
-            if score_threshold.is_none_or(|t| score > t) {
-                emitted_docs.insert(addr);
-                results.push((SearchIndexScore::new(score), addr));
+        if !alive_bitset.is_none_or(|b| b.is_alive(doc_id)) || emitted_docs.contains(&addr) {
+            doc_id = lookup_scorer.advance();
+            continue;
+        }
+        match base_filter.seek_match(doc_id) {
+            BaseFilterMatch::Matched => {
+                let score = disjunct_scorer.score_for(doc_id);
+                if score_threshold.is_none_or(|t| score > t) {
+                    emitted_docs.insert(addr);
+                    results.push((SearchIndexScore::new(score), addr));
+                }
+                doc_id = lookup_scorer.advance();
+            }
+            BaseFilterMatch::NextCandidate(tantivy::TERMINATED) => break,
+            BaseFilterMatch::NextCandidate(next_doc) => {
+                // Leapfrog `lookup_scorer` forward when the base filter skips past `doc_id + 1`.
+                doc_id = if next_doc > doc_id + 1 {
+                    lookup_scorer.seek(next_doc)
+                } else {
+                    lookup_scorer.advance()
+                };
             }
         }
-        doc_id = lookup_scorer.advance();
     }
 }
 
@@ -965,13 +1057,21 @@ impl SearchIndexReader {
     }
 
     pub fn estimate_vector_match_fraction(&self) -> f64 {
+        let candidates: Vec<_> = self.candidate_segment_readers().collect();
+        let ctx = EstimateContext::for_candidates(&self.segment_stats_snapshot, candidates.len());
         let (matches, docs) =
-            self.candidate_segment_readers()
+            candidates
+                .into_iter()
                 .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
-                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
-                        |estimate| estimate.live_docs(reader) as f64,
-                    );
+                    let estimated = self
+                        .query
+                        .estimate_docs_with_context(reader, ctx)
+                        .ok()
+                        .flatten()
+                        .map_or(
+                            f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                            |estimate| estimate.live_docs(reader) as f64,
+                        );
                     (matches + estimated, docs + u64::from(reader.num_docs()))
                 });
         matches / docs.max(1) as f64
@@ -2168,6 +2268,7 @@ impl SearchIndexReader {
             base_filter.filter(),
             disjunct_weight,
             score_threshold,
+            EstimateContext::for_single_segment(&self.segment_stats_snapshot),
             emitted_docs,
             results,
         );
@@ -2944,15 +3045,23 @@ impl SearchIndexReader {
         }
     }
 
+    /// Whether [`Self::estimate_docs`] can use segment metadata and term-dictionary statistics
+    /// instead of opening postings lists.
+    pub fn supports_statistics_estimation(&self) -> bool {
+        self.estimate_from_statistics
+    }
+
     /// Given an estimate of the total number of rows in the relation, return estimates of:
     /// 1. The number of rows which will be matched by the configured query.
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     /// 3. Tantivy's relative cost to drive the configured query's docset.
     ///
-    /// Prunes segments using `.stats` first, then samples the largest surviving candidate segment
-    /// and scales its estimates to the candidate portion of the relation.
+    /// Prunes segments using `.stats` first, sums dictionary-backed estimates across all
+    /// surviving candidate segments when [`Self::supports_statistics_estimation`] holds and every
+    /// candidate segment supports [`QueryEstimate`], and otherwise samples the largest surviving
+    /// candidate segment and scales its estimates to the candidate portion of the relation.
     ///
-    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace single-segment sampling
+    /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace per-segment sampling
     /// with persistent index-wide summary statistics, avoiding both the assumption that the
     /// largest surviving segment is representative of the rest and the plan-time cost of opening
     /// term dictionaries across every surviving segment.
@@ -2965,17 +3074,14 @@ impl SearchIndexReader {
             };
         }
 
-        // When the caller's total is unknown or 0 we can't use the heap
-        // proportion, so fall back to the index's own doc count. Either way the
-        // largest candidate segment is then scaled up to the candidate portion of that total.
+        // Fall back to the index's own doc count when the caller's heap estimate is unknown or 0;
+        // sampled candidate segments are then scaled relative to their share of `total_docs`.
         let total_docs = match total_docs {
             RowEstimate::Known(total_docs) if total_docs > 0 => total_docs,
             _ => self.total_docs(),
         };
 
-        let Some((largest_reader, segment_doc_proportion)) =
-            self.largest_estimation_candidate(total_docs as f64)
-        else {
+        let Some(sample) = self.estimation_sample(total_docs as f64) else {
             return DocsEstimate {
                 matching_docs: 0,
                 total_docs,
@@ -2983,9 +3089,20 @@ impl SearchIndexReader {
             };
         };
 
+        if let Some(docs_estimate) = self.estimate_self_across_candidates(&sample, total_docs) {
+            return docs_estimate;
+        }
+
+        let largest_reader = sample.largest_reader;
+        let single_ctx = EstimateContext::for_single_segment(&self.segment_stats_snapshot);
         let (count, mut cost) = self
             .estimate_from_statistics
-            .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
+            .then(|| {
+                self.query
+                    .estimate_docs_with_context(largest_reader, single_ctx)
+                    .ok()
+                    .flatten()
+            })
             .flatten()
             .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
             .unwrap_or_else(|| scorer_estimate(self.weight().as_ref(), largest_reader));
@@ -2994,13 +3111,74 @@ impl SearchIndexReader {
         }
 
         DocsEstimate {
-            matching_docs: scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
+            matching_docs: scale_largest_segment_estimate(count, sample.largest_doc_proportion)
+                as usize,
             total_docs,
-            query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
+            query_cost: scale_largest_segment_estimate(cost, sample.largest_doc_proportion),
         }
     }
 
-    /// Returns the largest candidate segment reader and its document proportion for scaling.
+    /// Sums dictionary-backed [`QueryEstimate`] live-doc and cost estimates for `self.query`
+    /// across `sample.candidates` and scales them to the candidate share of `total_docs`,
+    /// returning `None` if statistics estimation is disabled or unsupported on any candidate.
+    fn estimate_self_across_candidates(
+        &self,
+        sample: &EstimationSample<'_>,
+        total_docs: u64,
+    ) -> Option<DocsEstimate> {
+        if !self.estimate_from_statistics {
+            return None;
+        }
+        let ctx =
+            EstimateContext::for_candidates(&self.segment_stats_snapshot, sample.candidates.len());
+        let mut matching_docs = 0u64;
+        let mut query_cost = 0u64;
+        for &reader in &sample.candidates {
+            let estimate = self
+                .query
+                .estimate_docs_with_context(reader, ctx)
+                .ok()
+                .flatten()?;
+            let mut seg_cost = estimate.cost;
+            if let Some(shortest_posting_list) = self.shortest_posting_list(reader) {
+                seg_cost = seg_cost.max(shortest_posting_list);
+            }
+            matching_docs = matching_docs.saturating_add(estimate.live_docs(reader));
+            query_cost = query_cost.saturating_add(seg_cost);
+        }
+        Some(DocsEstimate {
+            matching_docs: scale_largest_segment_estimate(
+                matching_docs,
+                sample.candidates_doc_proportion,
+            ) as usize,
+            total_docs,
+            query_cost: scale_largest_segment_estimate(
+                query_cost,
+                sample.candidates_doc_proportion,
+            ),
+        })
+    }
+
+    /// Sums unscaled dictionary-backed [`QueryEstimate`] live-doc counts for `query` across
+    /// `candidates`, returning `None` if any candidate segment does not support [`QueryEstimate`].
+    fn estimate_live_docs_across_candidates(
+        &self,
+        query: &dyn Query,
+        candidates: &[&SegmentReader],
+    ) -> Option<u64> {
+        let ctx = EstimateContext::for_candidates(&self.segment_stats_snapshot, candidates.len());
+        let mut matching_docs = 0u64;
+        for &reader in candidates {
+            let estimate = query
+                .estimate_docs_with_context(reader, ctx)
+                .ok()
+                .flatten()?;
+            matching_docs = matching_docs.saturating_add(estimate.live_docs(reader));
+        }
+        Some(matching_docs)
+    }
+
+    /// Returns the candidate segment readers and scaling proportions for plan-time estimation.
     ///
     /// Populates `self.pruning_estimate` over all candidate segments (including mutable segments),
     /// then excludes mutable segments from the estimation sample whenever at least one persisted
@@ -3009,7 +3187,7 @@ impl SearchIndexReader {
     ///
     /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace this largest-segment
     /// sampling heuristic with index-wide summary statistics.
-    fn largest_estimation_candidate(&self, total_docs: f64) -> Option<(&SegmentReader, f64)> {
+    fn estimation_sample(&self, total_docs: f64) -> Option<EstimationSample<'_>> {
         let mut candidates: Vec<(SegmentOrdinal, &SegmentReader)> =
             self.candidate_segment_readers().collect();
         let all_candidate_docs: u64 = candidates
@@ -3046,17 +3224,24 @@ impl SearchIndexReader {
             return None;
         }
         let (_, largest_reader) = candidates
-            .into_iter()
+            .iter()
+            .copied()
             .max_by_key(|&(ord, r)| (self.segment_num_docs(r), ord))?;
         let reader_proportion = reader_docs.max(1) as f64 / total_docs.max(1.0);
-        let segment_doc_proportion = (self.segment_num_docs(largest_reader) as f64
+        let largest_doc_proportion = (self.segment_num_docs(largest_reader) as f64
             / candidate_docs as f64)
             * reader_proportion;
-        Some((largest_reader, segment_doc_proportion))
+        let candidates = candidates.into_iter().map(|(_, r)| r).collect();
+        Some(EstimationSample {
+            candidates,
+            candidate_docs,
+            candidates_doc_proportion: reader_proportion,
+            largest_reader,
+            largest_doc_proportion,
+        })
     }
 
-    /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
-    /// sampled on the largest candidate segment.
+    /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
         let heuristic = gucs::enable_heuristic_selectivity()
             .then(|| query_input.expensive_selectivity_heuristic())
@@ -3067,18 +3252,31 @@ impl SearchIndexReader {
         if query_input.has_postgres_expressions() || query_input.has_parameters() {
             return query_input.selectivity_heuristic().clamp(0.0, 1.0);
         }
-        let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)
-        else {
+        let Some(sample) = self.estimation_sample(self.total_docs() as f64) else {
             return 0.0;
         };
+        let query = self.make_query(query_input, None);
+        if query_input.supports_statistics_estimation()
+            && sample.candidate_docs > 0
+            && let Some(count) =
+                self.estimate_live_docs_across_candidates(query.as_ref(), &sample.candidates)
+        {
+            return (count as f64 / sample.candidate_docs as f64).clamp(0.0, 1.0);
+        }
+        let largest_reader = sample.largest_reader;
         let seg_docs = self.segment_num_docs(largest_reader);
         if seg_docs == 0 {
             return 0.0;
         }
-        let query = self.make_query(query_input, None);
+        let single_ctx = EstimateContext::for_single_segment(&self.segment_stats_snapshot);
         let count = query_input
             .supports_statistics_estimation()
-            .then(|| query.estimate_docs(largest_reader).ok().flatten())
+            .then(|| {
+                query
+                    .estimate_docs_with_context(largest_reader, single_ctx)
+                    .ok()
+                    .flatten()
+            })
             .flatten()
             .map(|estimate| estimate.live_docs(largest_reader))
             .unwrap_or_else(|| {
@@ -3178,9 +3376,7 @@ impl SearchIndexReader {
         total_docs: f64,
         parser: &QueryParserCtor,
     ) {
-        let Some((largest_reader, segment_doc_proportion)) =
-            self.largest_estimation_candidate(total_docs)
-        else {
+        let Some(sample) = self.estimation_sample(total_docs) else {
             query_tree.traverse_mut(0, &mut |node, _depth| {
                 node.estimated_docs = Some(0);
             });
@@ -3189,32 +3385,19 @@ impl SearchIndexReader {
 
         // Keep EXPLAIN's child estimates on the same path as the whole query.
         let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
-        self.estimate_node_recursive(
-            query_tree,
-            largest_reader,
-            segment_doc_proportion,
-            parser,
-            estimate_from_statistics,
-        );
+        self.estimate_node_recursive(query_tree, &sample, parser, estimate_from_statistics);
     }
 
     fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
         &self,
         node: &mut QueryWithEstimates,
-        largest_reader: &SegmentReader,
-        segment_doc_proportion: f64,
+        sample: &EstimationSample<'_>,
         parser: &QueryParserCtor,
         estimate_from_statistics: bool,
     ) {
         // First, recursively estimate all children
         for child in node.children_mut() {
-            self.estimate_node_recursive(
-                child,
-                largest_reader,
-                segment_doc_proportion,
-                parser,
-                estimate_from_statistics,
-            );
+            self.estimate_node_recursive(child, sample, parser, estimate_from_statistics);
         }
 
         // For structural wrapper nodes (used for labeling in EXPLAIN output), inherit
@@ -3250,11 +3433,24 @@ impl SearchIndexReader {
             .expect("converting query for estimation should not fail");
 
         if estimate_from_statistics
-            && let Ok(Some(estimate)) = tantivy_query.estimate_docs(largest_reader)
+            && let Some(count) = self
+                .estimate_live_docs_across_candidates(tantivy_query.as_ref(), &sample.candidates)
+        {
+            node.set_estimate(scale_largest_segment_estimate(
+                count,
+                sample.candidates_doc_proportion,
+            ) as usize);
+            return;
+        }
+        let largest_reader = sample.largest_reader;
+        let single_ctx = EstimateContext::for_single_segment(&self.segment_stats_snapshot);
+        if estimate_from_statistics
+            && let Ok(Some(estimate)) =
+                tantivy_query.estimate_docs_with_context(largest_reader, single_ctx)
         {
             node.set_estimate(scale_largest_segment_estimate(
                 estimate.live_docs(largest_reader),
-                segment_doc_proportion,
+                sample.largest_doc_proportion,
             ) as usize);
             return;
         }
@@ -3264,7 +3460,8 @@ impl SearchIndexReader {
             .expect("creating weight for estimation should not fail");
 
         let (count, _) = scorer_estimate(weight.as_ref(), largest_reader);
-        let estimated = scale_largest_segment_estimate(count, segment_doc_proportion) as usize;
+        let estimated =
+            scale_largest_segment_estimate(count, sample.largest_doc_proportion) as usize;
 
         node.set_estimate(estimated);
     }
@@ -3891,422 +4088,527 @@ mod tests {
     }
 
     #[pg_test]
-    fn vector_match_fraction_uses_range_statistics() {
-        let (index, _) = segmented_index_fixture("vector_range_estimate", 1, false);
-        let range = range_query("id", 9, 10);
-        for query in [
-            range.clone(),
-            SearchQueryInput::Boolean {
-                must: vec![SearchQueryInput::All, range.clone()],
-                should: vec![],
-                must_not: vec![],
-                minimum_should_match: None,
-            },
-            SearchQueryInput::ConstScore {
-                query: Box::new(range),
-                score: 1.0,
-            },
-        ] {
-            let reader = open_snapshot_reader(&index, query, false);
-            assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
-            assert_eq!(reader.search().count(), 2);
+    fn search_query_input_pruning_and_estimation_properties() {
+        use crate::index::segment_pruning::EMPIRICAL_READS;
+        use crate::query::TermInput;
+        use proptest::prelude::*;
+        use std::sync::atomic::Ordering::Relaxed;
+        use tantivy::collector::Count;
+
+        #[derive(Clone, Copy, Debug)]
+        enum ScoringMode {
+            Unscored,
+            Scored,
         }
-        for (query, expected) in [
-            (SearchQueryInput::All, 1.0),
-            (SearchQueryInput::Empty, 0.0),
-            (
-                SearchQueryInput::FieldedQuery {
-                    field: "title".into(),
-                    query: pdb::Query::Regex {
-                        pattern: "sil.*".into(),
-                    },
-                },
-                0.01,
-            ),
-        ] {
-            let reader = open_snapshot_reader(&index, query, false);
-            assert_eq!(reader.estimate_vector_match_fraction(), expected);
+
+        #[derive(Clone, Copy, Debug)]
+        enum StatsSource {
+            StatsComponent,
+            FastHeaderFallback,
         }
-        let (mutable, _) = segmented_index_fixture("vector_range_without_stats", 0, true);
-        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
-        let reader = open_snapshot_reader(&mutable, range_query("id", 1, 5), false);
-        assert_eq!(reader.estimate_vector_match_fraction(), 0.01);
-        drop(reader);
-        unsafe { pg_sys::PopActiveSnapshot() };
 
-        Spi::run(
-            "CREATE TABLE vector_date_estimate AS
-             SELECT g AS id, TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time
-             FROM generate_series(1, 100) g;
-             ALTER TABLE vector_date_estimate ADD PRIMARY KEY (id);
-             CREATE INDEX vector_date_estimate_idx ON vector_date_estimate
-             USING paradedb (id, time) WITH (target_segment_count = 1);",
-        ).unwrap();
-        let index = open_index("vector_date_estimate_idx");
-        let query = SearchQueryInput::FieldedQuery {
-            field: "time".into(),
-            query: pdb::Query::Range {
-                lower_bound: std::ops::Bound::Included(PdbOwnedValue::Date(
-                    crate::postgres::datetime::PostgresDateTime::try_from_raw(91).unwrap(),
-                )),
-                upper_bound: std::ops::Bound::Unbounded,
-            },
-        };
-        let reader = open_snapshot_reader(&index, query, false);
-        assert_eq!(reader.estimate_vector_match_fraction(), 0.1);
-        assert_eq!(reader.search().count(), 10);
-    }
-
-    #[pg_test]
-    fn uniform_range_estimates_numeric_and_timestamp_bounds() {
-        use crate::postgres::datetime::PostgresDateTime;
-
-        Spi::run(
-            "CREATE TABLE range_bounds_estimate AS
-             SELECT g AS id, g::oid AS unsigned,
-                    TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time,
-                    9223372036854775707::bigint + g AS wide
-             FROM generate_series(1, 100) g;
-             ALTER TABLE range_bounds_estimate ADD PRIMARY KEY (id);
-             CREATE INDEX range_bounds_estimate_idx ON range_bounds_estimate
-             USING paradedb (id, unsigned, time, wide) WITH (target_segment_count = 1);",
-        )
-        .unwrap();
-        let index = open_index("range_bounds_estimate_idx");
-        for (field, value) in [
-            ("id", PdbOwnedValue::I64 as fn(i64) -> PdbOwnedValue),
-            ("unsigned", |value| PdbOwnedValue::U64(value as u64)),
-            ("time", |value| {
-                PdbOwnedValue::Date(PostgresDateTime::try_from_raw(value).unwrap())
-            }),
-            ("wide", |value| PdbOwnedValue::I64(i64::MAX - 100 + value)),
-        ] {
-            for (lower, upper, expected) in [
-                (Bound::Included(91), Bound::Unbounded, 10),
-                (Bound::Excluded(90), Bound::Unbounded, 10),
-                (Bound::Unbounded, Bound::Included(10), 10),
-                (Bound::Unbounded, Bound::Excluded(11), 10),
-                (Bound::Included(100), Bound::Included(100), 1),
-                (Bound::Included(20), Bound::Excluded(20), 0),
-                (Bound::Included(90), Bound::Included(10), 0),
-                (Bound::Excluded(100), Bound::Unbounded, 0),
-                (Bound::Unbounded, Bound::Excluded(1), 0),
-                (Bound::Unbounded, Bound::Unbounded, 100),
-            ] {
-                let query = SearchQueryInput::FieldedQuery {
-                    field: field.into(),
-                    query: pdb::Query::Range {
-                        lower_bound: lower.map(value),
-                        upper_bound: upper.map(value),
-                    },
-                };
-                let reader = open_snapshot_reader(&index, query, false);
-                let segment = reader.searcher.segment_reader(0);
-                let estimate = reader.query.estimate_docs(segment).unwrap().unwrap();
-                assert_eq!(estimate.live_docs(segment), expected, "{field}");
+        fn is_exact_pdb_leaf(field: &FieldName, query: &pdb::Query) -> bool {
+            match query {
+                pdb::Query::All | pdb::Query::Empty | pdb::Query::Term { .. } => true,
+                pdb::Query::Range { .. } => !matches!(field.root().as_str(), "title" | "u"),
+                pdb::Query::ScoreAdjusted { query, .. } => is_exact_pdb_leaf(field, query),
+                _ => false,
             }
         }
-    }
 
-    #[pg_test]
-    fn uniform_range_estimates_float_constant_and_unknown_fields() {
-        Spi::run(
-            "CREATE TABLE range_float_estimate AS
-             SELECT g AS id, (g - 1) * 100.0 / 99 AS score,
-                    CASE WHEN g > 1 THEN (g - 1) * 100.0 / 99 END AS nullable,
-                    100.0::float8 AS constant, 'NaN'::float8 AS nonfinite, 'a'::text AS name
-             FROM generate_series(1, 100) g;
-             ALTER TABLE range_float_estimate ALTER COLUMN score TYPE float8;
-             ALTER TABLE range_float_estimate ALTER COLUMN nullable TYPE float8;
-             ALTER TABLE range_float_estimate ADD PRIMARY KEY (id);
-             CREATE INDEX range_float_estimate_idx ON range_float_estimate
-             USING paradedb (id, score, nullable, constant, nonfinite, (name::pdb.literal))
-             WITH (target_segment_count = 1);",
-        )
-        .unwrap();
-        let index = open_index("range_float_estimate_idx");
-        for (field, lower, upper, expected) in [
-            ("score", Bound::Included(90.0), Bound::Unbounded, Some(10)),
-            ("nullable", Bound::Included(90.0), Bound::Unbounded, None),
-            ("nonfinite", Bound::Unbounded, Bound::Unbounded, None),
-            (
-                "constant",
-                Bound::Included(90.0),
-                Bound::Unbounded,
-                Some(100),
-            ),
-            (
-                "constant",
-                Bound::Included(100.0),
-                Bound::Included(100.0),
-                Some(100),
-            ),
-            (
-                "constant",
-                Bound::Excluded(100.0),
-                Bound::Unbounded,
-                Some(0),
-            ),
-            (
-                "constant",
-                Bound::Unbounded,
-                Bound::Excluded(100.0),
-                Some(0),
-            ),
-        ] {
-            let query = SearchQueryInput::FieldedQuery {
-                field: field.into(),
-                query: pdb::Query::Range {
-                    lower_bound: lower.map(PdbOwnedValue::F64),
-                    upper_bound: upper.map(PdbOwnedValue::F64),
-                },
-            };
-            let reader = open_snapshot_reader(&index, query, false);
-            let segment = reader.searcher.segment_reader(0);
-            assert_eq!(
-                reader
-                    .query
-                    .estimate_docs(segment)
-                    .unwrap()
-                    .map(|estimate| estimate.live_docs(segment)),
-                expected,
-                "{field}",
-            );
+        fn is_exact_single_leaf(query: &SearchQueryInput) -> bool {
+            match query {
+                SearchQueryInput::All | SearchQueryInput::Empty => true,
+                SearchQueryInput::FieldedQuery { field, query } => is_exact_pdb_leaf(field, query),
+                SearchQueryInput::Parse { query_string, .. } => {
+                    matches!(query_string.as_str(), "id:[1 TO 5]" | "id: IN [1 3 15]")
+                }
+                SearchQueryInput::Boost { query, .. }
+                | SearchQueryInput::ConstScore { query, .. }
+                | SearchQueryInput::WithIndex { query, .. } => is_exact_single_leaf(query),
+                _ => false,
+            }
         }
-        let query = SearchQueryInput::FieldedQuery {
-            field: "name".into(),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::Str("a".into())),
-                upper_bound: Bound::Included(PdbOwnedValue::Str("z".into())),
-            },
-        };
-        let reader = open_snapshot_reader(&index, query, false);
-        assert!(
-            reader
-                .query
-                .estimate_docs(reader.searcher.segment_reader(0))
-                .unwrap()
-                .is_none()
-        );
-    }
 
-    #[pg_test]
-    fn statistics_estimation_uses_only_supported_query_trees() {
-        let (index, _) = segmented_index_fixture("statistics_estimation", 1, false);
-        let term = term_query("title", "silver");
-        let phrase = SearchQueryInput::FieldedQuery {
-            field: "title".into(),
-            query: pdb::Query::TokenizedPhrase {
-                phrase: "silver dragon".into(),
-                slop: None,
-            },
-        };
-        let match_query = SearchQueryInput::FieldedQuery {
-            field: "title".into(),
-            query: pdb::Query::Match {
-                value: "SILVER dragon".into(),
-                tokenizer: None,
-                distance: None,
-                transposition_cost_one: None,
-                prefix: None,
-                conjunction_mode: Some(true),
-                synonyms: None,
-            },
-        };
-        let boolean = |must, should, must_not| SearchQueryInput::Boolean {
-            must,
-            should,
-            must_not,
-            minimum_should_match: None,
-        };
-        for (query, expected) in [
-            (SearchQueryInput::All, 10),
-            (SearchQueryInput::from_unfielded(pdb::Query::All), 10),
-            (
-                SearchQueryInput::FieldedQuery {
-                    field: "title".into(),
-                    query: pdb::Query::All,
-                },
-                10,
-            ),
-            (term.clone(), 10),
-            (match_query.clone(), 10),
-            (phrase.clone(), 1),
-            (
-                to_search_query_input(
-                    "title".into(),
-                    pdb::Query::ScoreAdjusted {
-                        query: Box::new(pdb::Query::ScoreAdjusted {
-                            query: Box::new(pdb::Query::TokenizedPhrase {
-                                phrase: "silver dragon".into(),
-                                slop: None,
-                            }),
-                            score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
-                        }),
-                        score: Some(pdb::ScoreAdjustStyle::Const(0.0)),
-                    },
+        fn arb_search_query_input(
+            index_oid: pg_sys::Oid,
+        ) -> impl Strategy<Value = SearchQueryInput> {
+            let term_input = prop_oneof![
+                prop::sample::select(vec![1i64, 10, 15, 99]).prop_map(|v| TermInput {
+                    field: FieldName::from("id"),
+                    value: PdbOwnedValue::I64(v),
+                }),
+                prop::sample::select(vec![1i64, 2, 99]).prop_map(|v| TermInput {
+                    field: FieldName::from("bucket"),
+                    value: PdbOwnedValue::I64(v),
+                }),
+                prop::sample::select(vec![i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX])
+                    .prop_map(|v| TermInput {
+                        field: FieldName::from("signed_extreme"),
+                        value: PdbOwnedValue::U64(v),
+                    }),
+                Just(TermInput {
+                    field: FieldName::from("title"),
+                    value: PdbOwnedValue::Str("silver".into()),
+                }),
+                Just(TermInput {
+                    field: FieldName::from("u"),
+                    value: PdbOwnedValue::Str("e29b".into()),
+                }),
+            ];
+
+            let int_bounds = prop::sample::select(vec![0i64, 1, 5, 10, 11, 20, 100]);
+            let base_pdb_leaf = prop_oneof![
+                Just(("id", pdb::Query::All)),
+                Just(("title", pdb::Query::All)),
+                prop::sample::select(vec!["id", "nullable_num", "title"])
+                    .prop_map(|f| (f, pdb::Query::Exists)),
+                prop::sample::select(vec![1i64, 10, 11, 20, 99]).prop_map(|v| (
+                    "id",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::I64(v),
+                    }
+                )),
+                prop::sample::select(vec![1i64, 2, 3]).prop_map(|v| (
+                    "bucket",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::I64(v),
+                    }
+                )),
+                prop::sample::select(vec![1i64, 2]).prop_map(|v| (
+                    "nullable_num",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::I64(v),
+                    }
+                )),
+                prop::sample::select(vec![
+                    PdbOwnedValue::I64(i64::MIN),
+                    PdbOwnedValue::I64(-2),
+                    PdbOwnedValue::I64(-1),
+                    PdbOwnedValue::U64(i64::MAX as u64),
+                    PdbOwnedValue::U64(i64::MAX as u64 + 1),
+                    PdbOwnedValue::U64(u64::MAX),
+                ])
+                .prop_map(|value| ("signed_extreme", pdb::Query::Term { value })),
+                any::<bool>().prop_map(|b| (
+                    "active",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::Bool(b),
+                    }
+                )),
+                prop::sample::select(vec!["silver_1", "quiet_11", "absent"]).prop_map(|s| (
+                    "lit",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::Str(s.into()),
+                    }
+                )),
+                prop::sample::select(vec!["silver", "quiet", "absent"]).prop_map(|s| (
+                    "title",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::Str(s.into()),
+                    }
+                )),
+                prop::sample::select(vec!["e29b", "550e8400", "absent"]).prop_map(|s| (
+                    "u",
+                    pdb::Query::Term {
+                        value: PdbOwnedValue::Str(s.into()),
+                    }
+                )),
+                prop::collection::vec(
+                    prop::sample::select(vec![
+                        PdbOwnedValue::U64(i64::MAX as u64),
+                        PdbOwnedValue::U64(i64::MAX as u64 + 1),
+                        PdbOwnedValue::U64(u64::MAX),
+                    ]),
+                    1..=2,
+                )
+                .prop_map(|terms| ("signed_extreme", pdb::Query::TermSet { terms })),
+                (
+                    prop::sample::select(vec!["id", "bucket", "nullable_num"]),
+                    int_bounds.clone(),
+                    int_bounds,
+                )
+                    .prop_map(|(f, a, b)| (
+                        f,
+                        pdb::Query::Range {
+                            lower_bound: Bound::Included(PdbOwnedValue::I64(a.min(b))),
+                            upper_bound: Bound::Included(PdbOwnedValue::I64(a.max(b))),
+                        }
+                    )),
+                Just((
+                    "signed_extreme",
+                    pdb::Query::Range {
+                        lower_bound: Bound::Included(PdbOwnedValue::U64(u64::MAX - 1)),
+                        upper_bound: Bound::Excluded(PdbOwnedValue::U64(u64::MAX)),
+                    }
+                )),
+                prop::sample::select(vec![
+                    ("2024-01-01T00:00:00Z", "2024-12-31T23:59:59Z"),
+                    ("2025-01-01T00:00:00Z", "2025-12-31T23:59:59Z"),
+                    ("2026-01-01T00:00:00Z", "2026-12-31T23:59:59Z"),
+                ])
+                .prop_map(|(lo, hi)| (
+                    "created_at",
+                    pdb::Query::Range {
+                        lower_bound: Bound::Included(PdbOwnedValue::Str(lo.into())),
+                        upper_bound: Bound::Included(PdbOwnedValue::Str(hi.into())),
+                    }
+                )),
+                prop::sample::select(vec![("title", "silver"), ("u", "e29b")]).prop_map(
+                    |(f, tok)| (
+                        f,
+                        pdb::Query::Range {
+                            lower_bound: Bound::Included(PdbOwnedValue::Str(tok.into())),
+                            upper_bound: Bound::Included(PdbOwnedValue::Str(tok.into())),
+                        }
+                    )
                 ),
-                1,
-            ),
-            (term_query("title", "absent"), 0),
-            (
-                boolean(vec![SearchQueryInput::All, term.clone()], vec![], vec![]),
-                10,
-            ),
-            (
-                boolean(vec![SearchQueryInput::All], vec![], vec![term.clone()]),
-                0,
-            ),
-            (
-                boolean(vec![term.clone(), phrase.clone()], vec![], vec![]),
-                1,
-            ),
-            (
-                boolean(
-                    vec![term.clone()],
-                    vec![],
-                    vec![term_query("title", "absent")],
-                ),
-                10,
-            ),
-            (
-                boolean(
-                    vec![],
-                    vec![
-                        term.clone(),
-                        boolean(vec![match_query.clone()], vec![], vec![]),
+                (
+                    prop::option::of(Just(1u8)),
+                    any::<bool>(),
+                    prop::option::of(Just(pdb::SynonymRules::Rules(vec![
+                        "dragon => quiet".into(),
+                    ]))),
+                )
+                    .prop_map(|(distance, conj, synonyms)| (
+                        "title",
+                        pdb::Query::Match {
+                            value: "SILVER dragon".into(),
+                            tokenizer: None,
+                            distance,
+                            transposition_cost_one: None,
+                            prefix: None,
+                            conjunction_mode: Some(conj),
+                            synonyms,
+                        }
+                    )),
+                prop::sample::select(vec!["silver dragon", "silver quiet"]).prop_map(|p| (
+                    "title",
+                    pdb::Query::TokenizedPhrase {
+                        phrase: p.into(),
+                        slop: None,
+                    }
+                )),
+                prop::sample::select(vec!["sil.*", "zzz.*"]).prop_map(|pat| (
+                    "title",
+                    pdb::Query::Regex {
+                        pattern: pat.into(),
+                    }
+                )),
+            ];
+
+            let leaf = prop_oneof![
+                2 => Just(SearchQueryInput::All),
+                1 => Just(SearchQueryInput::Empty),
+                1 => Just(SearchQueryInput::from_unfielded(pdb::Query::All)),
+                3 => prop::collection::vec(term_input, 0..=16)
+                    .prop_map(|terms| SearchQueryInput::TermSet { terms }),
+                2 => prop::sample::select(vec![
+                    "id:[1 TO 5]",
+                    "id: IN [1 3 15]",
+                    "title:silver",
+                    "id:[1 TO 5] AND title:silver",
+                ])
+                .prop_map(|s| SearchQueryInput::Parse {
+                    query_string: s.into(),
+                    lenient: None,
+                    conjunction_mode: None,
+                }),
+                8 => (
+                    base_pdb_leaf,
+                    prop_oneof![
+                        3 => Just(None),
+                        1 => Just(Some((pdb::ScoreAdjustStyle::Boost(2.0), false))),
+                        1 => Just(Some((pdb::ScoreAdjustStyle::Const(0.0), true))),
                     ],
-                    vec![],
-                ),
-                10,
-            ),
-            (
-                SearchQueryInput::WithIndex {
-                    oid: index.oid(),
-                    query: Box::new(phrase.clone()),
-                },
-                1,
-            ),
-        ] {
-            for query in [
-                query.clone(),
-                SearchQueryInput::Boost {
-                    query: Box::new(query.clone()),
-                    factor: 2.0,
-                },
-                SearchQueryInput::ConstScore {
-                    query: Box::new(SearchQueryInput::Boost {
-                        query: Box::new(query),
+                )
+                    .prop_map(|((field, q), adj)| {
+                        let field = FieldName::from(field);
+                        match adj {
+                            None => SearchQueryInput::FieldedQuery { field, query: q },
+                            Some((style, hoist)) => {
+                                let adjusted = pdb::Query::ScoreAdjusted {
+                                    query: Box::new(q),
+                                    score: Some(style),
+                                };
+                                if hoist {
+                                    to_search_query_input(field, adjusted)
+                                } else {
+                                    SearchQueryInput::FieldedQuery {
+                                        field,
+                                        query: adjusted,
+                                    }
+                                }
+                            }
+                        }
+                    }),
+            ];
+
+            leaf.prop_recursive(2, 10, 3, move |inner| {
+                prop_oneof![
+                    4 => (
+                        prop::collection::vec(inner.clone(), 0..=2),
+                        prop::collection::vec(inner.clone(), 0..=2),
+                        prop::collection::vec(inner.clone(), 0..=2),
+                        prop::sample::select(vec![None, Some(0), Some(1), Some(2), Some(-1)]),
+                    )
+                        .prop_map(|(must, should, must_not, minimum_should_match)| {
+                            SearchQueryInput::Boolean {
+                                must,
+                                should,
+                                must_not,
+                                minimum_should_match,
+                            }
+                        }),
+                    1 => inner.clone().prop_map(|q| SearchQueryInput::Boost {
+                        query: Box::new(q),
                         factor: 2.0,
                     }),
-                    score: 0.0,
-                },
-            ] {
-                let reader = SearchIndexReader::open(
-                    &index,
-                    query.clone(),
+                    1 => inner.clone().prop_map(|q| SearchQueryInput::ConstScore {
+                        query: Box::new(q),
+                        score: 0.0,
+                    }),
+                    1 => inner.clone().prop_map(move |q| SearchQueryInput::WithIndex {
+                        oid: index_oid,
+                        query: Box::new(q),
+                    }),
+                    1 => prop::collection::vec(inner, 1..=2).prop_map(|disjuncts| {
+                        SearchQueryInput::DisjunctionMax {
+                            disjuncts,
+                            tie_breaker: None,
+                        }
+                    }),
+                ]
+            })
+        }
+
+        Spi::run(
+            "CREATE TABLE query_properties (
+                 id bigint PRIMARY KEY,
+                 signed_extreme bigint NOT NULL,
+                 bucket bigint NOT NULL,
+                 active boolean NOT NULL,
+                 created_at timestamp NOT NULL,
+                 nullable_num bigint,
+                 title text NOT NULL,
+                 lit text NOT NULL,
+                 u uuid NOT NULL
+             );
+             CREATE INDEX query_properties_idx ON query_properties
+             USING paradedb (
+                 id,
+                 signed_extreme,
+                 bucket,
+                 active,
+                 created_at,
+                 nullable_num,
+                 (title::pdb.unicode_words('columnar=true')),
+                 (lit::pdb.literal),
+                 u
+             )
+             WITH (
+                 partition_by = 'id',
+                 target_segment_count = 8,
+                 background_layer_sizes = '0',
+                 text_fields = '{\"u\": {\"tokenizer\": {\"type\": \"default\"}, \"fast\": true}}'
+             );
+             SET paradedb.global_mutable_segment_rows = 0;
+             INSERT INTO query_properties
+             SELECT g,
+                    CASE WHEN g = 1 THEN '-9223372036854775808'::bigint ELSE -1 END,
+                    1,
                     false,
-                    MvccSatisfies::LargestSegment,
-                )
-                .unwrap();
-                assert!(reader.estimate_from_statistics, "{query:?}");
-                let estimate = reader.estimate_docs(RowEstimate::Known(10));
-                assert_eq!(estimate.matching_docs, expected, "{query:?}");
-                assert_eq!(
-                    reader
-                        .build_query_tree_with_estimates(query.clone())
-                        .unwrap()
-                        .estimated_docs,
-                    Some(expected),
-                    "{query:?}"
+                    TIMESTAMP '2024-01-01 00:00:00' + (g || ' days')::interval,
+                    CASE WHEN g = 1 THEN NULL ELSE 1 END,
+                    'silver dragon ' || g,
+                    'silver_' || g,
+                    '550e8400-e29b-41d4-a716-446655440000'::uuid
+             FROM generate_series(1, 10) g;
+             INSERT INTO query_properties
+             SELECT g,
+                    CASE WHEN g = 20 THEN '9223372036854775807'::bigint ELSE -2 END,
+                    2,
+                    true,
+                    TIMESTAMP '2025-01-01 00:00:00' + (g || ' days')::interval,
+                    1,
+                    'quiet river ' || g,
+                    'quiet_' || g,
+                    '650e8400-e29b-41d4-a716-446655440000'::uuid
+             FROM generate_series(11, 20) g;
+             RESET paradedb.global_mutable_segment_rows;",
+        )
+        .unwrap();
+
+        let index_rel = open_index("query_properties_idx");
+        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let segment_ids = probe.segment_ids();
+        assert_eq!(segment_ids.len(), 2);
+        for name in [
+            "id",
+            "signed_extreme",
+            "bucket",
+            "active",
+            "created_at",
+            "nullable_num",
+            "title",
+            "lit",
+            "u",
+        ] {
+            let field = probe.schema().search_field(name).unwrap();
+            for ord in 0..2 {
+                assert!(
+                    probe
+                        .segment_stats_snapshot()
+                        .empirical(ord, &field)
+                        .is_some(),
+                    "fixture must populate .stats for {name}"
                 );
-                assert_eq!(
-                    reader.estimate_docs(RowEstimate::Known(100)).matching_docs,
-                    expected * 10
-                );
-                assert_eq!(reader.estimate_docs(RowEstimate::Unknown).total_docs, 10);
             }
         }
 
-        let mut fuzzy_match = match_query;
-        if let SearchQueryInput::FieldedQuery {
-            query: pdb::Query::Match { distance, .. },
-            ..
-        } = &mut fuzzy_match
-        {
-            *distance = Some(1);
+        let config = ProptestConfig::with_cases(64);
+        proptest!(config, |(
+            query in arb_search_query_input(index_rel.oid()),
+            scoring_mode in prop_oneof![Just(ScoringMode::Unscored), Just(ScoringMode::Scored)],
+            stats_source in prop_oneof![
+                Just(StatsSource::StatsComponent),
+                Just(StatsSource::FastHeaderFallback),
+            ],
+        )| {
+            let guards: Vec<_> = match stats_source {
+                StatsSource::StatsComponent => Vec::new(),
+                StatsSource::FastHeaderFallback => segment_ids
+                    .iter()
+                    .map(|&seg| inject_stats_failure(seg, InjectedStatsFailure::Missing))
+                    .collect(),
+            };
+            let need_scores = matches!(scoring_mode, ScoringMode::Scored);
+
+            STATS_OPENS.store(0, Relaxed);
+            EMPIRICAL_READS.store(0, Relaxed);
+            let reader = open_snapshot_reader(&index_rel, query.clone(), need_scores);
+            prop_assert_eq!(STATS_OPENS.load(Relaxed), 0);
+            prop_assert_eq!(EMPIRICAL_READS.load(Relaxed), 0);
+
+            let unpruned_count = reader.searcher().search(reader.query(), &Count).unwrap();
+            let pruning = reader.segment_pruning_estimate();
+            prop_assert_eq!(pruning.candidate_segments + pruning.pruned_segments, 2);
+            assert_pruning_matches_tantivy(&reader, unpruned_count);
+            let top = reader.search_top_k_unordered_in_segments(
+                reader.segment_ids().into_iter(),
+                30,
+                0,
+            );
+            prop_assert_eq!(top.results.len(), unpruned_count);
+
+            let stats_opens = STATS_OPENS.load(Relaxed);
+            let empirical_reads = EMPIRICAL_READS.load(Relaxed);
+            prop_assert!(stats_opens <= 2);
+            if !SegmentPruner::has_prunable_predicate(reader.schema(), &query) {
+                prop_assert_eq!(pruning.candidate_segments, 2);
+                prop_assert_eq!(stats_opens, 0);
+                prop_assert_eq!(empirical_reads, 0);
+            }
+            if let SearchQueryInput::TermSet { terms } = &query {
+                let distinct_fields: crate::api::HashSet<_> =
+                    terms.iter().map(|t| &t.field).collect();
+                prop_assert!(empirical_reads <= distinct_fields.len() * 2);
+            }
+            if matches!(stats_source, StatsSource::FastHeaderFallback) {
+                let hidden_hits: usize = guards.iter().map(|g| g.hits()).sum();
+                prop_assert_eq!(hidden_hits, stats_opens);
+            }
+
+            let uses_stats = query.supports_statistics_estimation();
+            prop_assert_eq!(reader.supports_statistics_estimation(), uses_stats);
+            let est = reader.estimate_docs(RowEstimate::Unknown);
+            prop_assert_eq!(est.total_docs, 20);
+            let scaled = reader.estimate_docs(RowEstimate::Known(160));
+            prop_assert_eq!(scaled.matching_docs, est.matching_docs * 8);
+            let vec_frac = reader.estimate_vector_match_fraction();
+            prop_assert!((0.0..=1.0).contains(&vec_frac));
+            if pruning.candidate_segments == 0 {
+                prop_assert_eq!(est.matching_docs, 0);
+                prop_assert_eq!(est.query_cost, 0);
+                prop_assert_eq!(vec_frac, 0.0);
+            }
+            if uses_stats {
+                prop_assert!(est.matching_docs <= 20);
+                if is_exact_single_leaf(&query) {
+                    prop_assert_eq!(est.matching_docs, unpruned_count);
+                    if pruning.candidate_segments > 0 {
+                        let candidate_docs: u64 = reader
+                            .candidate_segment_readers()
+                            .map(|(_, r)| u64::from(r.num_docs()))
+                            .sum();
+                        prop_assert!(
+                            (vec_frac - (unpruned_count as f64 / candidate_docs as f64)).abs()
+                                <= 1e-9
+                        );
+                    }
+                }
+            }
+            if !need_scores || uses_stats {
+                let mut tree = reader
+                    .build_query_tree_with_estimates(query.clone())
+                    .unwrap();
+                prop_assert_eq!(tree.estimated_docs, Some(est.matching_docs));
+                let mut all_nodes_valid = true;
+                tree.traverse_mut(0, &mut |node, _| {
+                    all_nodes_valid &= node
+                        .estimated_docs
+                        .is_some_and(|n| !uses_stats || n <= 20);
+                });
+                prop_assert!(all_nodes_valid);
+            }
+        });
+
+        for scoring in [false, true] {
+            let single_must_with_min_should = open_snapshot_reader(
+                &index_rel,
+                SearchQueryInput::Boolean {
+                    must: vec![SearchQueryInput::ConstScore {
+                        query: Box::new(SearchQueryInput::All),
+                        score: 1.0,
+                    }],
+                    should: vec![],
+                    must_not: vec![],
+                    minimum_should_match: Some(1),
+                },
+                scoring,
+            );
+            assert_eq!(
+                single_must_with_min_should
+                    .segment_pruning_estimate()
+                    .candidate_segments,
+                0
+            );
+            assert_pruning_matches_tantivy(&single_must_with_min_should, 0);
         }
-        for unsupported in [
-            range_query("id", 1, 5),
-            fuzzy_match,
-            SearchQueryInput::Parse {
-                query_string: "title:silver".into(),
-                lenient: None,
-                conjunction_mode: None,
-            },
-            SearchQueryInput::Parse {
-                query_string: "title:\"silver dragon\"".into(),
-                lenient: None,
-                conjunction_mode: None,
-            },
+
+        let regex_reader = open_snapshot_reader(
+            &index_rel,
             SearchQueryInput::FieldedQuery {
                 field: "title".into(),
                 query: pdb::Query::Regex {
                     pattern: "sil.*".into(),
                 },
             },
-            to_search_query_input(
-                "title".into(),
-                pdb::Query::ScoreAdjusted {
-                    query: Box::new(pdb::Query::Regex {
-                        pattern: "sil.*".into(),
-                    }),
-                    score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
-                },
-            ),
-        ] {
-            for query in [
-                unsupported.clone(),
-                SearchQueryInput::Boost {
-                    query: Box::new(unsupported.clone()),
-                    factor: 2.0,
-                },
-                SearchQueryInput::ConstScore {
-                    query: Box::new(unsupported.clone()),
-                    score: 0.0,
-                },
-                boolean(vec![phrase.clone(), unsupported.clone()], vec![], vec![]),
-                boolean(vec![], vec![term.clone(), unsupported.clone()], vec![]),
-                boolean(vec![term.clone()], vec![], vec![unsupported]),
-            ] {
-                let reader = SearchIndexReader::open(
-                    &index,
-                    query.clone(),
-                    false,
-                    MvccSatisfies::LargestSegment,
-                )
-                .unwrap();
-                assert!(!reader.estimate_from_statistics, "{query:?}");
-                let segment = reader.searcher.segment_reader(0);
-                let (count, mut cost) = scorer_estimate(reader.weight().as_ref(), segment);
-                if let Some(shortest) = reader.shortest_posting_list(segment) {
-                    cost = cost.max(shortest);
-                }
-                let estimate = reader.estimate_docs(RowEstimate::Known(10));
-                assert_eq!(
-                    (estimate.matching_docs, estimate.query_cost),
-                    (count as usize, cost),
-                    "{query:?}"
-                );
-                let mut tree = reader.build_query_tree_with_estimates(query).unwrap();
-                assert_eq!(tree.estimated_docs, Some(count as usize));
-                tree.traverse_mut(0, &mut |node, _| {
-                    if node.query == phrase {
-                        assert_eq!(node.estimated_docs, Some(10));
-                    }
-                });
-            }
-        }
+            false,
+        );
+        assert_eq!(
+            regex_reader.estimate_vector_match_fraction(),
+            DEFAULT_VECTOR_MATCH_FRACTION
+        );
+
+        Spi::run("SET paradedb.enable_segment_pruning = off;").unwrap();
+        STATS_OPENS.store(0, Relaxed);
+        let disabled = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
+        assert_eq!(disabled.segment_pruning_estimate().candidate_segments, 2);
+        assert_eq!(STATS_OPENS.load(Relaxed), 0);
+        assert_pruning_matches_tantivy(&disabled, 0);
+        Spi::run("RESET paradedb.enable_segment_pruning;").unwrap();
+
         for (name, mutable, expected) in [
             ("statistics_empty", false, 0),
             ("statistics_mutable", true, 5),
@@ -4353,84 +4655,6 @@ mod tests {
         assert_eq!(all_ctids.len(), 20);
         assert!(largest_ctids.is_subset(&all_ctids));
         unsafe { pg_sys::PopActiveSnapshot() };
-    }
-
-    #[pg_test]
-    fn segment_pruning_preserves_unsigned_terms_encoded_as_signed_values() {
-        use crate::query::TermInput;
-
-        Spi::run(
-            "CREATE TABLE pruning_signed_terms (id bigint PRIMARY KEY, x bigint NOT NULL);
-             CREATE INDEX pruning_signed_terms_idx ON pruning_signed_terms USING paradedb (id, x)
-             WITH (partition_by = 'x', background_layer_sizes = '0');
-             SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO pruning_signed_terms VALUES
-                 (1, -1), (2, -2), (3, '-9223372036854775808'), (4, '9223372036854775807');
-             RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        let index_rel = open_index("pruning_signed_terms_idx");
-        let field = FieldName::from("x");
-        let mut queries = Vec::new();
-        for value in [i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX - 1, u64::MAX] {
-            // Only `i64::MAX` fits the field. No value in it is equal to a larger one.
-            let expected = usize::from(value == i64::MAX as u64);
-            let value = PdbOwnedValue::U64(value);
-            for query in [
-                SearchQueryInput::FieldedQuery {
-                    field: field.clone(),
-                    query: pdb::Query::Term {
-                        value: value.clone(),
-                    },
-                },
-                SearchQueryInput::FieldedQuery {
-                    field: field.clone(),
-                    query: pdb::Query::TermSet {
-                        terms: vec![value.clone()],
-                    },
-                },
-                SearchQueryInput::TermSet {
-                    terms: vec![TermInput {
-                        field: field.clone(),
-                        value,
-                    }],
-                },
-            ] {
-                queries.push((query, expected));
-            }
-        }
-        // Both endpoints lie above the field's range, so no value falls between them.
-        queries.push((
-            SearchQueryInput::FieldedQuery {
-                field,
-                query: pdb::Query::Range {
-                    lower_bound: Bound::Included(PdbOwnedValue::U64(u64::MAX - 1)),
-                    upper_bound: Bound::Excluded(PdbOwnedValue::U64(u64::MAX)),
-                },
-            },
-            0,
-        ));
-        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        let snapshot = probe.segment_stats_snapshot();
-        let field = probe.schema().search_field("x").unwrap();
-        assert!(!snapshot.is_empty());
-        for ordinal in 0..snapshot.len() {
-            assert!(
-                snapshot.empirical(ordinal, &field).is_some(),
-                "must exercise statistics"
-            );
-        }
-        for (query, expected) in queries {
-            for scoring in [false, true] {
-                let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
-                assert_pruning_matches_tantivy(&reader, expected);
-                // A query that no value of the field can match prunes every segment.
-                if expected == 0 {
-                    let candidates = reader.segment_pruning_estimate().candidate_segments;
-                    assert_eq!(candidates, 0, "{query:?}");
-                }
-            }
-        }
     }
 
     /// `from_manifest` must reuse the capture's open (zero additional index opens) and must
@@ -4526,85 +4750,6 @@ mod tests {
             1,
             "only the candidate segment may open a scorer"
         );
-    }
-
-    #[pg_test]
-    fn analyzed_text_and_uuid_terms_keep_segments_eligible() {
-        Spi::run(
-            "CREATE TABLE analyzed_pruning (id bigint PRIMARY KEY, title text NOT NULL, lit text NOT NULL, u uuid NOT NULL);
-             CREATE INDEX analyzed_pruning_idx ON analyzed_pruning
-             USING paradedb (id, (title::pdb.unicode_words('columnar=true')), (lit::pdb.literal), u)
-             WITH (partition_by = 'id', target_segment_count = 8, background_layer_sizes = '0',
-                   text_fields = '{\"u\": {\"tokenizer\": {\"type\": \"default\"}, \"fast\": true}}');
-             SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO analyzed_pruning
-             SELECT g, 'silver dragon ' || g, 'silver dragon ' || g, '550e8400-e29b-41d4-a716-446655440000'::uuid
-             FROM generate_series(1, 10) g;
-             INSERT INTO analyzed_pruning
-             SELECT g, 'quiet river ' || g, 'quiet river ' || g, '650e8400-e29b-41d4-a716-446655440000'::uuid
-             FROM generate_series(11, 20) g;
-             RESET paradedb.global_mutable_segment_rows;",
-        ).unwrap();
-        let index_rel = open_index("analyzed_pruning_idx");
-        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        assert_eq!(probe.total_segment_count(), 2);
-        let with_partition_predicate = |query| SearchQueryInput::Boolean {
-            must: vec![range_query("id", 1, 20), query],
-            should: vec![],
-            must_not: vec![],
-            minimum_should_match: None,
-        };
-        // UUID keeps its search field type even though its Tantivy field is analyzed text.
-        // Both tokens lie outside the whole-value bounds in at least one segment.
-        for (name, token, expected) in [("title", "silver", 10), ("u", "e29b", 20)] {
-            let field = probe.schema().search_field(name).unwrap();
-            let snapshot = probe.segment_stats_snapshot();
-            assert!(
-                (0..snapshot.len()).all(|ord| snapshot.empirical(ord, &field).is_some()),
-                "the analyzed-field guard must run with available whole-value statistics"
-            );
-            let value = PdbOwnedValue::Str(token.to_string());
-            for query in [
-                pdb::Query::Term {
-                    value: value.clone(),
-                },
-                pdb::Query::TermSet {
-                    terms: vec![value.clone()],
-                },
-                pdb::Query::Range {
-                    lower_bound: Bound::Included(value.clone()),
-                    upper_bound: Bound::Included(value),
-                },
-            ] {
-                let reader = open_snapshot_reader(
-                    &index_rel,
-                    with_partition_predicate(SearchQueryInput::FieldedQuery {
-                        field: FieldName::from(name),
-                        query,
-                    }),
-                    false,
-                );
-                assert_eq!(
-                    reader.segment_pruning_estimate().candidate_segments,
-                    2,
-                    "whole-value statistics cannot reject analyzed tokens: {name}"
-                );
-            }
-            let reader = open_snapshot_reader(
-                &index_rel,
-                with_partition_predicate(term_query(name, token)),
-                false,
-            );
-            assert_pruning_matches_tantivy(&reader, expected);
-        }
-        // Whole-value terms are what the statistics describe.
-        let reader = open_snapshot_reader(
-            &index_rel,
-            with_partition_predicate(term_query("lit", "silver dragon 1")),
-            false,
-        );
-        assert_eq!(reader.segment_pruning_estimate().candidate_segments, 1);
-        assert_pruning_matches_tantivy(&reader, 1);
     }
 
     /// One partition's scan omits the range filter on fully included segments and keeps it on
@@ -4922,78 +5067,6 @@ mod tests {
         .execute()
         .expect("an unknown sort field must fail even with nothing to collect");
         assert!(error.contains("no_such_field"), "{error}");
-    }
-
-    #[pg_test]
-    fn term_sets_read_each_field_at_most_once_per_segment() {
-        use crate::index::segment_pruning::EMPIRICAL_READS;
-        use crate::query::TermInput;
-        use std::sync::atomic::Ordering::Relaxed;
-
-        Spi::run("CREATE TABLE grouped_term_proofs (id bigint PRIMARY KEY, x bigint NOT NULL, title text NOT NULL);
-            CREATE INDEX grouped_term_proofs_idx ON grouped_term_proofs USING paradedb
-            (id, x, (title::pdb.unicode_words('columnar=true')))
-            WITH (partition_by = 'id,x', background_layer_sizes = '0');
-            SET paradedb.global_mutable_segment_rows = 0;
-            INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(1, 10) g;
-            INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(11, 20) g;
-            RESET paradedb.global_mutable_segment_rows;").unwrap();
-        let index_rel = open_index("grouped_term_proofs_idx");
-        let mut same_field = (1000..1512)
-            .map(|value| TermInput {
-                field: FieldName::from("id"),
-                value: PdbOwnedValue::I64(value),
-            })
-            .collect::<Vec<_>>();
-        // Duplicates neither multiply results nor create additional field proof passes.
-        same_field.extend([10, 10].map(|value| TermInput {
-            field: FieldName::from("id"),
-            value: PdbOwnedValue::I64(value),
-        }));
-        let mut mixed_fields = same_field.clone();
-        mixed_fields.push(TermInput {
-            field: FieldName::from("x"),
-            value: PdbOwnedValue::I64(1011),
-        });
-        let mut unsupported = mixed_fields.clone();
-        unsupported.push(TermInput {
-            field: FieldName::from("title"),
-            value: PdbOwnedValue::Str("alpha".into()),
-        });
-        for (terms, expected, candidates, passes) in [
-            (vec![], 0, 0, 0),
-            (same_field, 1, 1, 1),
-            (mixed_fields, 2, 2, 2),
-            (unsupported, 20, 2, 2),
-        ] {
-            for scoring in [false, true] {
-                EMPIRICAL_READS.store(0, Relaxed);
-                let reader = open_snapshot_reader(
-                    &index_rel,
-                    SearchQueryInput::TermSet {
-                        terms: terms.clone(),
-                    },
-                    scoring,
-                );
-                assert_eq!(reader.segment_ids().len(), 2);
-                assert_eq!(
-                    reader.segment_pruning_estimate().candidate_segments,
-                    candidates
-                );
-                assert!(
-                    EMPIRICAL_READS.load(Relaxed) <= passes * 2,
-                    "each supported field is read at most once per segment; disjunction can stop earlier"
-                );
-                if passes == 1 {
-                    assert_eq!(
-                        EMPIRICAL_READS.load(Relaxed),
-                        2,
-                        "the single-field case checks both segments despite having hundreds of terms"
-                    );
-                }
-                assert_pruning_matches_tantivy(&reader, expected);
-            }
-        }
     }
 
     #[pg_test]
@@ -5519,231 +5592,6 @@ mod tests {
     }
 
     #[pg_test]
-    fn pruning_requires_a_query_predicate_on_a_field_with_statistics() {
-        use crate::index::segment_pruning::EMPIRICAL_READS;
-        use crate::query::TermInput;
-        use std::sync::atomic::Ordering::Relaxed;
-
-        let boolean = |must, should, must_not| SearchQueryInput::Boolean {
-            must,
-            should,
-            must_not,
-            minimum_should_match: None,
-        };
-        let id = range_query("id", 1, 10);
-        let bucket = range_query("bucket", 2, 2);
-        let mut queries = vec![
-            (SearchQueryInput::All, 20, false),
-            (bucket.clone(), 10, true),
-            (boolean(vec![], vec![bucket.clone()], vec![]), 10, true),
-            (
-                boolean(vec![SearchQueryInput::All], vec![], vec![bucket.clone()]),
-                10,
-                true,
-            ),
-            (id.clone(), 10, true),
-            (
-                boolean(vec![id.clone(), bucket.clone()], vec![], vec![]),
-                0,
-                true,
-            ),
-            // The unrelated OR branch must remain in the proof: it matches the second segment.
-            (
-                boolean(vec![], vec![id.clone(), bucket.clone()], vec![]),
-                20,
-                true,
-            ),
-            // An unprunable OR branch forces every segment to remain a candidate, so statistics
-            // cannot exclude any segment and must not be opened.
-            (
-                boolean(vec![], vec![id.clone(), SearchQueryInput::All], vec![]),
-                20,
-                false,
-            ),
-            // Positive Exists cannot exclude a segment from .stats (nullable only indicates that
-            // at least one row is NULL), whereas negated Exists (IS NULL) can exclude non-null
-            // segments.
-            (
-                SearchQueryInput::FieldedQuery {
-                    field: FieldName::from("id"),
-                    query: pdb::Query::Exists,
-                },
-                20,
-                false,
-            ),
-            (
-                boolean(
-                    vec![SearchQueryInput::All],
-                    vec![],
-                    vec![SearchQueryInput::FieldedQuery {
-                        field: FieldName::from("id"),
-                        query: pdb::Query::Exists,
-                    }],
-                ),
-                0,
-                true,
-            ),
-            (
-                boolean(vec![SearchQueryInput::All], vec![], vec![id.clone()]),
-                10,
-                true,
-            ),
-            (
-                SearchQueryInput::Boost {
-                    query: Box::new(id.clone()),
-                    factor: 2.0,
-                },
-                10,
-                true,
-            ),
-            (
-                SearchQueryInput::TermSet {
-                    terms: vec![TermInput {
-                        field: FieldName::from("id"),
-                        value: PdbOwnedValue::I64(1),
-                    }],
-                },
-                1,
-                true,
-            ),
-            // A disjunction keeps its strongest child.
-            (
-                SearchQueryInput::DisjunctionMax {
-                    disjuncts: vec![range_query("id", 100, 200), range_query("id", 1, 20)],
-                    tie_breaker: None,
-                },
-                20,
-                true,
-            ),
-            (
-                SearchQueryInput::DisjunctionMax {
-                    disjuncts: vec![range_query("id", 100, 200), range_query("id", 100, 200)],
-                    tie_breaker: None,
-                },
-                0,
-                true,
-            ),
-            // A negative `minimum_should_match` compiles to a huge `usize`; the compiled shape
-            // stays authoritative under NOT.
-            (
-                boolean(
-                    vec![id.clone()],
-                    vec![],
-                    vec![SearchQueryInput::Boolean {
-                        must: vec![],
-                        should: vec![SearchQueryInput::All],
-                        must_not: vec![],
-                        minimum_should_match: Some(-1),
-                    }],
-                ),
-                0,
-                true,
-            ),
-        ];
-        // Naming a field with statistics in a match-all clause cannot make its statistics useful.
-        // Exercise both score adjustments, including nesting, without changing query scores.
-        for query in [
-            pdb::Query::All,
-            pdb::Query::Term {
-                value: 11_i64.into(),
-            },
-        ] {
-            let relevant = !matches!(query, pdb::Query::All);
-            let boosted = pdb::Query::ScoreAdjusted {
-                query: Box::new(query.clone()),
-                score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
-            };
-            let constant = pdb::Query::ScoreAdjusted {
-                query: Box::new(query.clone()),
-                score: Some(pdb::ScoreAdjustStyle::Const(3.0)),
-            };
-            let nested = pdb::Query::ScoreAdjusted {
-                query: Box::new(boosted.clone()),
-                score: Some(pdb::ScoreAdjustStyle::Const(4.0)),
-            };
-            for query in [query, boosted, constant, nested] {
-                queries.push((
-                    boolean(
-                        vec![SearchQueryInput::FieldedQuery {
-                            field: FieldName::from("id"),
-                            query,
-                        }],
-                        vec![],
-                        vec![],
-                    ),
-                    if relevant { 1 } else { 20 },
-                    relevant,
-                ));
-            }
-        }
-        for partitioned in [false, true] {
-            let name = if partitioned {
-                "pruning_relevance_partitioned"
-            } else {
-                "pruning_relevance_unpartitioned"
-            };
-            let options = if partitioned {
-                "partition_by = 'id', background_layer_sizes = '0'"
-            } else {
-                "background_layer_sizes = '0'"
-            };
-            Spi::run(&format!(
-                "CREATE TABLE {name} (id bigint PRIMARY KEY, bucket bigint NOT NULL);
-                 CREATE INDEX {name}_idx ON {name} USING paradedb (id, bucket) WITH ({options});
-                 SET paradedb.global_mutable_segment_rows = 0;
-                 INSERT INTO {name} SELECT g, 1 FROM generate_series(1, 10) g;
-                 INSERT INTO {name} SELECT g, 2 FROM generate_series(11, 20) g;
-                 RESET paradedb.global_mutable_segment_rows;"
-            ))
-            .unwrap();
-            let index_rel = open_index(&format!("{name}_idx"));
-            // Both indexes contain usable statistics. Skipping them must be the relevance gate,
-            // not a fixture without persisted components or empirical entries.
-            let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-            assert_eq!(probe.segment_ids().len(), 2);
-            for name in ["id", "bucket"] {
-                let field = probe.schema().search_field(name).unwrap();
-                for ordinal in 0..2 {
-                    assert!(
-                        probe
-                            .segment_stats_snapshot()
-                            .empirical(ordinal, &field)
-                            .is_some()
-                    );
-                }
-            }
-            for (query, expected, relevant) in &queries {
-                for scoring in [false, true] {
-                    STATS_OPENS.store(0, Relaxed);
-                    EMPIRICAL_READS.store(0, Relaxed);
-                    let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
-                    assert_eq!(
-                        STATS_OPENS.load(Relaxed),
-                        0,
-                        "eligibility must not read statistics"
-                    );
-                    let estimate = reader.segment_pruning_estimate();
-                    assert_pruning_matches_tantivy(&reader, *expected);
-                    let top = reader.search_top_k_unordered_in_segments(
-                        reader.segment_ids().into_iter(),
-                        30,
-                        0,
-                    );
-                    assert_eq!(top.results.len(), *expected);
-                    if *relevant {
-                        assert_eq!(STATS_OPENS.load(Relaxed), 2);
-                        assert!(EMPIRICAL_READS.load(Relaxed) > 0);
-                    } else {
-                        assert_eq!(estimate.candidate_segments, 2);
-                        assert_eq!(STATS_OPENS.load(Relaxed), 0, "{query:?}");
-                        assert_eq!(EMPIRICAL_READS.load(Relaxed), 0, "{query:?}");
-                    }
-                }
-            }
-        }
-    }
-
-    #[pg_test]
     fn unreadable_stats_abort_query() {
         let (index_rel, _heap) = segmented_index_fixture("unreadable_stats_test", 2, false);
         let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
@@ -5836,142 +5684,6 @@ mod tests {
                 "a failed read must not cache absence or make the segment permanently eligible"
             );
         }
-    }
-
-    #[pg_test]
-    fn missing_stats_fall_back_to_fast_field_headers() {
-        Spi::run(
-            "CREATE TABLE missing_stats_fast_fallback (
-                 id bigint PRIMARY KEY,
-                 active boolean NOT NULL,
-                 created_at timestamp NOT NULL,
-                 tag text NOT NULL,
-                 nullable_num bigint
-             );
-             CREATE INDEX missing_stats_fast_fallback_idx ON missing_stats_fast_fallback
-             USING paradedb (id, active, created_at, (tag::pdb.literal), nullable_num)
-             WITH (background_layer_sizes = '0');
-             SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO missing_stats_fast_fallback
-             SELECT g, false, TIMESTAMP '2024-01-01 00:00:00' + (g || ' days')::interval, 'alpha',
-                    CASE WHEN g = 1 THEN NULL ELSE 1 END
-             FROM generate_series(1, 10) g;
-             INSERT INTO missing_stats_fast_fallback
-             SELECT g, true, TIMESTAMP '2025-01-01 00:00:00' + (g || ' days')::interval, 'beta', 1
-             FROM generate_series(11, 20) g;
-             RESET paradedb.global_mutable_segment_rows;",
-        )
-        .unwrap();
-        let index_rel = open_index("missing_stats_fast_fallback_idx");
-        let probe = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
-        let segment_ids = probe.segment_ids();
-        assert_eq!(segment_ids.len(), 2);
-
-        let guards: Vec<_> = segment_ids
-            .iter()
-            .map(|&segment| inject_stats_failure(segment, InjectedStatsFailure::Missing))
-            .collect();
-
-        let bool_query = SearchQueryInput::FieldedQuery {
-            field: FieldName::from("active"),
-            query: pdb::Query::Term {
-                value: PdbOwnedValue::Bool(true),
-            },
-        };
-        let date_range_2024 = SearchQueryInput::FieldedQuery {
-            field: FieldName::from("created_at"),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::Str("2024-01-01T00:00:00Z".into())),
-                upper_bound: Bound::Included(PdbOwnedValue::Str("2024-12-31T23:59:59Z".into())),
-            },
-        };
-        let date_range_empty = SearchQueryInput::FieldedQuery {
-            field: FieldName::from("created_at"),
-            query: pdb::Query::Range {
-                lower_bound: Bound::Included(PdbOwnedValue::Str("2026-01-01T00:00:00Z".into())),
-                upper_bound: Bound::Included(PdbOwnedValue::Str("2026-12-31T23:59:59Z".into())),
-            },
-        };
-        let not_nullable_range = SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![range_query("nullable_num", 1, 1)],
-            minimum_should_match: None,
-        };
-        let not_nullable_term = SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![SearchQueryInput::FieldedQuery {
-                field: FieldName::from("nullable_num"),
-                query: pdb::Query::Term {
-                    value: PdbOwnedValue::I64(1),
-                },
-            }],
-            minimum_should_match: None,
-        };
-        let not_nullable_exists = SearchQueryInput::Boolean {
-            must: vec![SearchQueryInput::All],
-            should: vec![],
-            must_not: vec![SearchQueryInput::FieldedQuery {
-                field: FieldName::from("nullable_num"),
-                query: pdb::Query::Exists,
-            }],
-            minimum_should_match: None,
-        };
-
-        for (query, expected_candidates, expected_docs) in [
-            (range_query("id", 1, 10), 1, 10),
-            (range_query("id", 11, 20), 1, 10),
-            (range_query("id", 1, 20), 2, 20),
-            (range_query("id", 100, 200), 0, 0),
-            (bool_query, 1, 10),
-            (date_range_2024, 1, 10),
-            (date_range_empty, 0, 0),
-            // Segment 1 has min=1, max=1, nullable=false so `must_not` prunes it; segment 0 has
-            // min=1, max=1, nullable=true so it stays a candidate and yields the 1 NULL row.
-            (not_nullable_range, 1, 1),
-            (not_nullable_term, 1, 1),
-            (not_nullable_exists, 1, 1),
-            // Dictionary-backed (`Str`) columns are not read from `.fast`, so all segments stay
-            // candidates when `.stats` is absent.
-            (term_query("tag", "alpha"), 2, 10),
-        ] {
-            for scoring in [false, true] {
-                let reader = open_snapshot_reader(&index_rel, query.clone(), scoring);
-                let estimate = reader.segment_pruning_estimate();
-                assert_eq!(
-                    estimate.candidate_segments, expected_candidates,
-                    "{query:?}"
-                );
-                assert_eq!(
-                    estimate.pruned_segments,
-                    2 - expected_candidates,
-                    "{query:?}"
-                );
-                assert_pruning_matches_tantivy(&reader, expected_docs);
-            }
-        }
-
-        for guard in &guards {
-            assert!(
-                guard.hits() > 0,
-                "every segment must have hidden its .stats component and used the .fast fallback"
-            );
-        }
-
-        Spi::run("SET paradedb.enable_segment_pruning = off;").unwrap();
-        STATS_OPENS.store(0, std::sync::atomic::Ordering::Relaxed);
-        let disabled = open_snapshot_reader(&index_rel, range_query("id", 100, 200), false);
-        let estimate = disabled.segment_pruning_estimate();
-        assert_eq!(estimate.candidate_segments, 2);
-        assert_eq!(estimate.pruned_segments, 0);
-        assert_eq!(
-            STATS_OPENS.load(std::sync::atomic::Ordering::Relaxed),
-            0,
-            "disabling paradedb.enable_segment_pruning must skip statistics opens"
-        );
-        assert_pruning_matches_tantivy(&disabled, 0);
-        Spi::run("RESET paradedb.enable_segment_pruning;").unwrap();
     }
 
     /// Missing statistics retain mutable segments without materializing their in-memory index.
@@ -6149,5 +5861,210 @@ mod vector_probe_stats_tests {
         assert_eq!(info[&id]["exact_bytes_read"], 64);
         assert_eq!(info[&id]["exact_storage_blocks"], 5);
         assert!(info[&id].get("exact_io").is_none());
+    }
+}
+
+#[cfg(test)]
+mod lookup_only_segment_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::Bound;
+    use std::ops::RangeInclusive;
+    use tantivy::query::{BooleanQuery, EnableScoring, Query, RangeQuery, TermQuery, TermSetQuery};
+    use tantivy::schema::{FAST, Field, INDEXED, IndexRecordOption, Schema, TEXT};
+    use tantivy::{DocSet, Index, Score, TantivyDocument, Term, doc};
+
+    #[derive(Clone, Debug)]
+    enum BaseFilterSpec {
+        MatchAll,
+        Term(i64),
+        TermSet(Vec<i64>),
+        Range(RangeInclusive<i64>),
+        Union(Box<Self>, Box<Self>),
+        Intersection(Box<Self>, Box<Self>),
+    }
+
+    impl BaseFilterSpec {
+        fn matches(&self, div: i64) -> bool {
+            match self {
+                Self::MatchAll => true,
+                Self::Term(v) => div == *v,
+                Self::TermSet(vs) => vs.contains(&div),
+                Self::Range(r) => r.contains(&div),
+                Self::Union(a, b) => a.matches(div) || b.matches(div),
+                Self::Intersection(a, b) => a.matches(div) && b.matches(div),
+            }
+        }
+
+        fn to_query(&self, div_field: Field) -> Option<Box<dyn Query>> {
+            match self {
+                Self::MatchAll => None,
+                Self::Term(v) => Some(Box::new(TermQuery::new(
+                    Term::from_field_i64(div_field, *v),
+                    IndexRecordOption::Basic,
+                ))),
+                Self::TermSet(vs) => Some(Box::new(TermSetQuery::new(
+                    vs.iter().map(|&v| Term::from_field_i64(div_field, v)),
+                ))),
+                Self::Range(r) => Some(Box::new(RangeQuery::new(
+                    Bound::Included(Term::from_field_i64(div_field, *r.start())),
+                    Bound::Included(Term::from_field_i64(div_field, *r.end())),
+                ))),
+                Self::Union(a, b) => Some(Box::new(BooleanQuery::union(vec![
+                    a.to_query(div_field).unwrap(),
+                    b.to_query(div_field).unwrap(),
+                ]))),
+                Self::Intersection(a, b) => Some(Box::new(BooleanQuery::intersection(vec![
+                    a.to_query(div_field).unwrap(),
+                    b.to_query(div_field).unwrap(),
+                ]))),
+            }
+        }
+    }
+
+    fn arb_base_filter() -> impl Strategy<Value = BaseFilterSpec> {
+        let divs = prop::sample::select(vec![0i64, 1, 10, 20, 25, 30, 50, 99, 100]);
+        let leaf = prop_oneof![
+            divs.clone().prop_map(BaseFilterSpec::Term),
+            prop::collection::vec(divs.clone(), 0..=4).prop_map(BaseFilterSpec::TermSet),
+            (divs.clone(), divs).prop_map(|(a, b)| BaseFilterSpec::Range(a.min(b)..=a.max(b))),
+        ];
+        let compound = leaf.prop_recursive(2, 8, 2, |inner| {
+            prop_oneof![
+                (inner.clone(), inner.clone())
+                    .prop_map(|(a, b)| BaseFilterSpec::Union(Box::new(a), Box::new(b))),
+                (inner.clone(), inner)
+                    .prop_map(|(a, b)| BaseFilterSpec::Intersection(Box::new(a), Box::new(b))),
+            ]
+        });
+        prop_oneof![1 => Just(BaseFilterSpec::MatchAll), 5 => compound]
+    }
+
+    #[test]
+    fn collect_lookup_only_segment_matches_ground_truth() {
+        let mut sb = Schema::builder();
+        let id_field = sb.add_i64_field("id", INDEXED | FAST);
+        let div_field = sb.add_i64_field("division", INDEXED | FAST);
+        let body_field = sb.add_text_field("body", TEXT);
+        let index = Index::create_in_ram(sb.build());
+        let mut writer = index
+            .writer_with_num_threads::<TantivyDocument>(1, 50_000_000)
+            .unwrap();
+
+        // 250 docs: division 1 (> MAX_BASE_DRIVER_DOCS = 128), divisions 20 and 30 (<= 128).
+        for id in 0i64..250 {
+            let div = if id < 180 {
+                1i64
+            } else if id < 200 {
+                20
+            } else {
+                30
+            };
+            let body = match id % 3 {
+                0 => "zebra zebra",
+                1 => "zebra",
+                _ => "noise",
+            };
+            writer
+                .add_document(doc!(id_field => id, div_field => div, body_field => body))
+                .unwrap();
+        }
+        writer.commit().unwrap();
+        for deleted in [5i64, 183, 210] {
+            writer.delete_term(Term::from_field_i64(id_field, deleted));
+        }
+        writer.commit().unwrap();
+
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
+        assert_eq!(searcher.segment_readers().len(), 1);
+        let segment = searcher.segment_reader(0);
+        let id_col = segment.fast_fields().i64("id").unwrap();
+        let div_col = segment.fast_fields().i64("division").unwrap();
+        let disjunct_query = TermQuery::new(
+            Term::from_field_text(body_field, "zebra"),
+            IndexRecordOption::WithFreqs,
+        );
+        let mut zebra_scores = vec![0.0; segment.max_doc() as usize];
+        let mut scorer = disjunct_query
+            .weight(EnableScoring::enabled_from_searcher(&searcher))
+            .unwrap()
+            .scorer(segment, 1.0)
+            .unwrap();
+        while scorer.doc() != tantivy::TERMINATED {
+            zebra_scores[scorer.doc() as usize] = scorer.score();
+            scorer.advance();
+        }
+        let disjunct_weight = Arc::new(LazyWeight::new(
+            Box::new(disjunct_query),
+            true,
+            searcher.clone(),
+        ));
+
+        proptest!(|(
+            lookup_ids in prop::collection::btree_set(-5i64..260, 0..=80),
+            base_filter in arb_base_filter(),
+            use_disjunct in any::<bool>(),
+            score_threshold in prop_oneof![
+                Just(None),
+                Just(Some(-0.1f32)),
+                Just(Some(0.0f32)),
+                (0.01f32..3.0).prop_map(Some),
+            ],
+            pre_emitted_docs in prop::collection::btree_set(0u32..250, 0..=10),
+        )| {
+            let segment_ord = 3u32;
+            let lookup_query = TermSetQuery::new(
+                lookup_ids.iter().map(|&id| Term::from_field_i64(id_field, id)),
+            );
+            let lookup_weight = lookup_query
+                .weight(EnableScoring::disabled_from_searcher(&searcher))
+                .unwrap();
+            let bf_weight = base_filter
+                .to_query(div_field)
+                .map(|q| Arc::new(LazyWeight::new(q, false, searcher.clone())));
+
+            let mut emitted: crate::api::HashSet<DocAddress> = pre_emitted_docs
+                .iter()
+                .map(|&doc_id| DocAddress::new(segment_ord, doc_id))
+                .collect();
+            let initial_emitted = emitted.clone();
+            let mut results = Vec::new();
+            collect_lookup_only_segment(
+                segment_ord,
+                segment,
+                lookup_weight.as_ref(),
+                bf_weight.as_ref(),
+                use_disjunct.then_some(&disjunct_weight),
+                score_threshold,
+                EstimateContext::default(),
+                &mut emitted,
+                &mut results,
+            );
+
+            let mut expected_results = Vec::new();
+            let mut expected_emitted = initial_emitted;
+            for doc_id in 0..segment.max_doc() {
+                let addr = DocAddress::new(segment_ord, doc_id);
+                if !segment.alive_bitset().is_none_or(|b| b.is_alive(doc_id))
+                    || expected_emitted.contains(&addr)
+                    || !lookup_ids.contains(&id_col.first(doc_id).unwrap())
+                    || !base_filter.matches(div_col.first(doc_id).unwrap())
+                {
+                    continue;
+                }
+                let score: Score = if use_disjunct {
+                    zebra_scores[doc_id as usize]
+                } else {
+                    0.0
+                };
+                if score_threshold.is_none_or(|t| score > t) {
+                    expected_emitted.insert(addr);
+                    expected_results.push((SearchIndexScore::new(score), addr));
+                }
+            }
+            prop_assert_eq!(results, expected_results);
+            prop_assert_eq!(emitted, expected_emitted);
+        });
     }
 }

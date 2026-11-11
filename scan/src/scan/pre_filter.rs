@@ -1265,13 +1265,20 @@ fn try_convert_in_list_to_query(
     let field_type = field.field_type();
 
     // Check GUC thresholds
-    let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
-    let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+    let (max_size, max_distinct) = match linear_fallback {
+        InListLinearFallback::KeepAsPreFilter => (
+            crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as usize,
+            crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize,
+        ),
+        InListLinearFallback::PushToIndex => (
+            crate::gucs::effective_lazy_sort_inlist_max_size(),
+            crate::gucs::effective_lazy_sort_inlist_max_distinct_values(),
+        ),
+    };
 
-    // K cap. Default 20,000 is bench-tuned to the win/lose crossover for
-    // pushdown vs PreFilter at N=1M sorted. See
-    // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
-    // reasoning and trade-off. Set to 0 to disable pushdown.
+    // K cap: defaults to 20,000 on standard scans (`HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`)
+    // and 500,000 on `lazy_sort` scans (`DEFAULT_LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`).
+    // See the GUC docs in `common::gucs` for the crossover trade-offs. Set to 0 to disable pushdown.
     if in_list.list().len() > max_distinct {
         return InListPushdown::Keep;
     }

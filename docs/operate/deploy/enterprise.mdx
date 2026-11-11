@@ -63,11 +63,6 @@ ParadeDB Enterprise adds commercial licensing, support, and physical replication
   B-tree indexes.
   3. In a primary-replica topology, ParadeDB indexes in ParadeDB Community are
   only available on the primary because Community does not physically replicate
-  the ParadeDB index. A Community standby keeps replaying WAL for every other
-  table and index, and a query that uses a ParadeDB index on the standby fails
-  with a `feature not supported` error. If a Community standby is promoted, the
-  ParadeDB indexes it received through replication refuse queries until
-  `REINDEX` rebuilds them on the new primary. After restoring a base backup taken
-  from a Community standby, run `REINDEX` on its ParadeDB indexes.
+  the ParadeDB index.
 </p>
 </Info>

@@ -2,4 +2,4 @@
 header: stability
 ---
 
-- Creating a ParadeDB index on a primary no longer stops WAL replay on a ParadeDB Community physical standby; only a query that uses a ParadeDB index on the standby fails, with a `feature not supported` error. After the standby is promoted, the ParadeDB indexes it received through replication refuse queries with the same error until `REINDEX` rebuilds them, while tables, writes and every other index keep working. A base backup taken from a standby needs `REINDEX` on its ParadeDB indexes after a restore; crash recovery and restores of backups taken from the primary are not affected (#6007).
+- A ParadeDB Community physical standby no longer stops replaying WAL when a ParadeDB index is created on the primary; after the standby is promoted, the ParadeDB indexes it received through replication refuse queries until `REINDEX` rebuilds them (#6007).

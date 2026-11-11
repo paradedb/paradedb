@@ -58,9 +58,6 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Turns synonym expansion off for a session or a role without a change to the index.
-static ENABLE_SYNONYMS: GucSetting<bool> = GucSetting::<bool>::new(true);
-
 /// Each alternative is one more posting list in the query, so a long rule must not grow a query
 /// without a limit.
 const DEFAULT_SYNONYMS_MAX_ALTERNATIVES: i32 = 32;
@@ -463,15 +460,6 @@ pub fn init() {
         c"Enable ParadeDB's custom scan",
         c"Enable ParadeDB's custom scan, which replaces table scans with ParadeDB index scans in cases where beneficial",
         &ENABLE_CUSTOM_SCAN,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_bool_guc(
-        c"paradedb.enable_synonyms",
-        c"Expand match queries with the synonym index of the index or field",
-        c"When off, a match query searches only the terms it was given, even when the index or the field names a synonym index.",
-        &ENABLE_SYNONYMS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1171,10 +1159,6 @@ pub fn init() {
 /// Whether DataFusion queries spill to a `BufFile` temp file on `work_mem` overflow.
 pub fn spill_to_disk() -> bool {
     SPILL_TO_DISK.get()
-}
-
-pub fn enable_synonyms() -> bool {
-    ENABLE_SYNONYMS.get()
 }
 
 pub fn synonyms_max_alternatives() -> usize {

@@ -1,9 +1,10 @@
--- A match query expands with the synonym index that its index or its field names.
+-- `pdb.with_synonyms` makes a match query expand with the rules of a synonym index.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 2;
-DROP TABLE IF EXISTS products, owned_products, json_products, en_products, shop_synonyms, en_synonyms CASCADE;
-DROP ROLE IF EXISTS synonym_expansion_reader, synonym_expansion_owner;
+DROP VIEW IF EXISTS sofa_products;
+DROP TABLE IF EXISTS products, json_products, en_products, shop_synonyms, en_synonyms CASCADE;
+DROP ROLE IF EXISTS synonym_expansion_reader;
 
 CREATE TABLE shop_synonyms (rule pdb.synonym_rule NOT NULL);
 INSERT INTO shop_synonyms VALUES
@@ -24,115 +25,118 @@ INSERT INTO products VALUES
     (8, 'sofa and couch set');
 CREATE INDEX products_idx ON products USING bm25 (id, description);
 
--- Without the option, a query searches only its own terms.
+-- A plain match searches only its own terms.
 SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
 
-ALTER INDEX products_idx SET (synonyms = 'shop_synonyms_idx');
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
-SELECT id FROM products WHERE description &&& 'red sofa' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id;
+SELECT id FROM products
+WHERE description &&& pdb.with_synonyms('red sofa', 'shop_synonyms_idx') ORDER BY id;
 
 -- A multi-word alternative is a phrase, and a directed rule drops the typed word.
-SELECT id FROM products WHERE description ||| 'sneakers' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sneakers', 'shop_synonyms_idx') ORDER BY id;
 
 -- A run of words that a rule lists is searched as a phrase, so `shoes for running` drops out.
 INSERT INTO shop_synonyms VALUES ('running shoes, trainers');
-SELECT id FROM products WHERE description ||| 'running shoes' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('running shoes', 'shop_synonyms_idx') ORDER BY id;
 DELETE FROM shop_synonyms WHERE rule = 'running shoes, trainers';
 
 -- A group scores as one term, so a row with two of its words scores a little above a row with
 -- one.
-SELECT id, round(pdb.score(id)::numeric, 4) AS score
-FROM products WHERE description ||| 'couch' ORDER BY score DESC, id;
+SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products
+WHERE description ||| pdb.with_synonyms('couch', 'shop_synonyms_idx') ORDER BY score DESC, id;
 
 -- A fuzzy match keeps the typed word fuzzy and matches the alternatives exactly, so `sofas`
--- matches a fuzzy `sofa` and not a fuzzy `couch`. A directed rule drops the typed word.
+-- matches a fuzzy `sofa` and not a fuzzy `couch`. A directed rule drops the typed word. The cast
+-- goes on the text or on the result.
 INSERT INTO products VALUES (10, 'two sofas');
-SELECT id FROM products WHERE description ||| 'sofa'::pdb.fuzzy(1) ORDER BY id;
-SELECT id FROM products WHERE description ||| 'couch'::pdb.fuzzy(1) ORDER BY id;
-SELECT id FROM products WHERE description ||| 'sneakers'::pdb.fuzzy(1) ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx')::pdb.fuzzy(1) ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('couch'::pdb.fuzzy(1), 'shop_synonyms_idx') ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sneakers', 'shop_synonyms_idx')::pdb.fuzzy(1) ORDER BY id;
 -- `&&&` keeps both fuzzy groups of one rule, and `sofas` matches only the first.
-SELECT id FROM products WHERE description &&& 'sofa couch'::pdb.fuzzy(1) ORDER BY id;
+SELECT id FROM products
+WHERE description &&& pdb.with_synonyms('sofa couch', 'shop_synonyms_idx')::pdb.fuzzy(1) ORDER BY id;
 DELETE FROM products WHERE id = 10;
+
+-- A boost keeps the expansion.
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx')::pdb.boost(2) ORDER BY id;
 
 -- A parallel worker expands under the leader's snapshot.
 SET debug_parallel_query = on;
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id;
 RESET debug_parallel_query;
 
--- A tokenizer cast in the query, or the setting, turns expansion off.
-SELECT id FROM products WHERE description ||| 'sofa'::pdb.simple ORDER BY id;
-SET paradedb.enable_synonyms = off;
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
-RESET paradedb.enable_synonyms;
+-- A generic plan expands the parameter at execution.
+PREPARE sofa_query(text) AS SELECT id FROM products
+WHERE description ||| pdb.with_synonyms($1, 'shop_synonyms_idx') ORDER BY id;
+SET plan_cache_mode = force_generic_plan;
+EXECUTE sofa_query('sofa');
+RESET plan_cache_mode;
+DEALLOCATE sofa_query;
 
 -- The setting caps the alternatives, and the typed word stays.
 SET paradedb.synonyms_max_alternatives = 2;
-SELECT id FROM products WHERE description ||| 'divan' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('divan', 'shop_synonyms_idx') ORDER BY id;
 RESET paradedb.synonyms_max_alternatives;
 
 -- A rule change is live on the next query.
 INSERT INTO products VALUES (9, 'velvet settee');
 INSERT INTO shop_synonyms VALUES ('sofa, settee');
-SELECT id FROM products WHERE description ||| 'settee' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('settee', 'shop_synonyms_idx') ORDER BY id;
 DELETE FROM shop_synonyms WHERE rule = 'sofa, settee';
-SELECT id FROM products WHERE description ||| 'settee' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('settee', 'shop_synonyms_idx') ORDER BY id;
 
--- The role that runs the query needs no rights on the rules table, or on the schema of a
--- qualified name.
-CREATE SCHEMA shop;
-CREATE TABLE shop.synonyms (rule pdb.synonym_rule NOT NULL);
-INSERT INTO shop.synonyms VALUES ('sofa, settee');
-CREATE INDEX synonyms_idx ON shop.synonyms USING paradedb (rule);
-ALTER INDEX products_idx SET (synonyms = 'shop.synonyms_idx');
+-- The role that runs the query needs SELECT on the rules table, and must be exempt from row
+-- security on it.
 CREATE ROLE synonym_expansion_reader;
 GRANT SELECT ON products TO synonym_expansion_reader;
 SET ROLE synonym_expansion_reader;
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id;
 RESET ROLE;
-REVOKE SELECT ON products FROM synonym_expansion_reader;
-DROP ROLE synonym_expansion_reader;
-ALTER INDEX products_idx SET (synonyms = 'shop_synonyms_idx');
-
--- The owner of the index that names the rules needs SELECT on the rules table, and must be exempt
--- from row security on it.
-CREATE ROLE synonym_expansion_owner;
-CREATE TABLE owned_products (id int PRIMARY KEY, description text);
-INSERT INTO owned_products VALUES (1, 'red couch');
-CREATE INDEX owned_products_idx ON owned_products USING bm25 (id, description)
-    WITH (synonyms = 'shop_synonyms_idx');
-ALTER TABLE owned_products OWNER TO synonym_expansion_owner;
-SELECT id FROM owned_products WHERE description ||| 'sofa' ORDER BY id;
-GRANT SELECT ON shop_synonyms TO synonym_expansion_owner;
-SELECT id FROM owned_products WHERE description ||| 'sofa' ORDER BY id;
+GRANT SELECT ON shop_synonyms TO synonym_expansion_reader;
+SET ROLE synonym_expansion_reader;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id;
+RESET ROLE;
 ALTER TABLE shop_synonyms ENABLE ROW LEVEL SECURITY;
-SELECT id FROM owned_products WHERE description ||| 'sofa' ORDER BY id;
+SET ROLE synonym_expansion_reader;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id;
+RESET ROLE;
 ALTER TABLE shop_synonyms DISABLE ROW LEVEL SECURITY;
-DROP TABLE owned_products;
-REVOKE SELECT ON shop_synonyms FROM synonym_expansion_owner;
-DROP ROLE synonym_expansion_owner;
+REVOKE SELECT ON products, shop_synonyms FROM synonym_expansion_reader;
+DROP ROLE synonym_expansion_reader;
 
--- A bare name resolves in the schema of the index that names it, whatever the `search_path`.
-CREATE TABLE shop.products (id int PRIMARY KEY, description text);
-INSERT INTO shop.products VALUES (1, 'a settee'), (2, 'a sofa');
-CREATE INDEX products_idx ON shop.products USING bm25 (id, description) WITH (synonyms = 'synonyms_idx');
-SET search_path = public;
-SELECT id FROM shop.products WHERE description ||| 'sofa' ORDER BY id;
-ALTER INDEX shop.products_idx SET (synonyms = 'shop_synonyms_idx');
-SELECT id FROM shop.products WHERE description ||| 'sofa' ORDER BY id;
-RESET search_path;
-DROP SCHEMA shop CASCADE;
+-- A view keeps the synonym index and not its name, so a rename does not break the view.
+CREATE VIEW sofa_products AS SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx');
+ALTER INDEX shop_synonyms_idx RENAME TO shop_rules_idx;
+SELECT id FROM sofa_products ORDER BY id;
+ALTER INDEX shop_rules_idx RENAME TO shop_synonyms_idx;
+DROP VIEW sofa_products;
 
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);
 INSERT INTO json_products VALUES (1, '{"seat": "red couch"}'), (2, '{"shoes": "running shoes"}');
-CREATE INDEX json_products_idx ON json_products USING bm25 (id, attrs)
-    WITH (synonyms = 'shop_synonyms_idx');
-SELECT id FROM json_products WHERE attrs->>'seat' ||| 'sofa' ORDER BY id;
-SELECT id FROM json_products WHERE attrs->>'shoes' ||| 'sneakers' ORDER BY id;
+CREATE INDEX json_products_idx ON json_products USING bm25 (id, attrs);
+SELECT id FROM json_products
+WHERE attrs->>'seat' ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx') ORDER BY id;
+SELECT id FROM json_products
+WHERE attrs->>'shoes' ||| pdb.with_synonyms('sneakers', 'shop_synonyms_idx') ORDER BY id;
 DROP TABLE json_products;
 
--- The field option comes before the index option. Keys are stored analyzed, so the synonym
--- index must use the tokenizer of the field.
+-- Keys are stored analyzed, so the synonym index must use the tokenizer of the field.
 CREATE TABLE en_synonyms (rule pdb.synonym_rule NOT NULL);
 INSERT INTO en_synonyms VALUES ('couch, sofa');
 CREATE INDEX en_synonyms_idx ON en_synonyms
@@ -140,36 +144,22 @@ CREATE INDEX en_synonyms_idx ON en_synonyms
 CREATE TABLE en_products (id int PRIMARY KEY, description text);
 INSERT INTO en_products VALUES (1, 'two couches'), (2, 'a sofa'), (3, 'a divan');
 CREATE INDEX en_products_idx ON en_products USING bm25 (
-    id,
-    (description::pdb.simple('stemmer=english', 'synonyms=en_synonyms_idx'))
-) WITH (synonyms = 'shop_synonyms_idx');
-SELECT id FROM en_products WHERE description ||| 'sofas' ORDER BY id;
-
--- The index option covers only the fields that share the tokenizer of the synonym index, and a
--- field option with another tokenizer fails.
-ALTER INDEX products_idx SET (synonyms = 'en_synonyms_idx');
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
-CREATE TABLE mixed_products (id int PRIMARY KEY, description text);
-CREATE INDEX mixed_products_idx ON mixed_products USING bm25 (
-    id, (description::pdb.unicode_words('synonyms=en_synonyms_idx'))
+    id, (description::pdb.simple('stemmer=english'))
 );
-SELECT id FROM mixed_products WHERE description ||| 'sofa';
-DROP TABLE mixed_products;
+SELECT id FROM en_products
+WHERE description ||| pdb.with_synonyms('sofas', 'en_synonyms_idx') ORDER BY id;
+SELECT id FROM products
+WHERE description ||| pdb.with_synonyms('sofa', 'en_synonyms_idx') ORDER BY id;
 
--- A name with more than two parts fails the `ALTER`. The name is resolved on each query, so the
--- other errors come at query time.
-ALTER INDEX products_idx SET (synonyms = 'a.b.c');
-ALTER INDEX products_idx SET (synonyms = 'missing_idx');
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
-ALTER INDEX products_idx SET (synonyms = 'en_products_idx');
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
-ALTER INDEX products_idx SET (synonyms = 'shop_synonyms');
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+-- Only `|||` and `&&&` expand, and only a text value.
+SELECT id FROM products WHERE description @@@ pdb.with_synonyms('sofa', 'shop_synonyms_idx');
+SELECT pdb.with_synonyms(pdb.term('sofa'), 'shop_synonyms_idx');
+
+-- The second argument must be a valid synonym index.
+SELECT id FROM products WHERE description ||| pdb.with_synonyms('sofa', 'products_idx');
+SELECT id FROM products WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms');
 UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'shop_synonyms_idx'::regclass;
-ALTER INDEX products_idx SET (synonyms = 'shop_synonyms_idx');
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
+SELECT id FROM products WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx');
 UPDATE pg_index SET indisvalid = true WHERE indexrelid = 'shop_synonyms_idx'::regclass;
-ALTER INDEX products_idx RESET (synonyms);
-SELECT id FROM products WHERE description ||| 'sofa' ORDER BY id;
 
 DROP TABLE products, en_products, shop_synonyms, en_synonyms;

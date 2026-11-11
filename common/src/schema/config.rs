@@ -46,8 +46,6 @@ pub enum SearchFieldConfig {
         tokenizer: SearchTokenizer,
         #[serde(default)]
         search_tokenizer: Option<SearchTokenizer>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        synonyms: Option<String>,
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -80,8 +78,6 @@ pub enum SearchFieldConfig {
         tokenizer: SearchTokenizer,
         #[serde(default)]
         search_tokenizer: Option<SearchTokenizer>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        synonyms: Option<String>,
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -372,13 +368,6 @@ impl SearchFieldConfig {
     pub fn tokenizer(&self) -> Option<&SearchTokenizer> {
         match self {
             Self::Text { tokenizer, .. } | Self::Json { tokenizer, .. } => Some(tokenizer),
-            _ => None,
-        }
-    }
-
-    pub fn synonyms(&self) -> Option<&str> {
-        match self {
-            Self::Text { synonyms, .. } | Self::Json { synonyms, .. } => synonyms.as_deref(),
             _ => None,
         }
     }

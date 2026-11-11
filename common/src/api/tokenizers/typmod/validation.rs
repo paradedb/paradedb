@@ -276,7 +276,6 @@ impl TypmodSchema {
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])
                 ),
                 rule!("alias", ValueConstraint::String),
-                rule!("synonyms", ValueConstraint::String),
                 rule!("columnar", ValueConstraint::Boolean),
                 rule!(
                     "k1",

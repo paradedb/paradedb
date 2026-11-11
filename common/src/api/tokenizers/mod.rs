@@ -17,7 +17,7 @@
 #![allow(clippy::missing_safety_doc, unsafe_op_in_unsafe_fn)]
 
 use crate::postgres::catalog::{
-    is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid, split_relation_name,
+    is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid,
 };
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
@@ -507,16 +507,6 @@ pub fn search_field_config_from_type(
                 .unwrap_or_else(|| panic!("unknown search_tokenizer: {expr}"))
         });
 
-    let synonyms = parsed_typmod
-        .get("synonyms")
-        .and_then(|p| p.as_str())
-        .map(|name| {
-            if split_relation_name(name).is_none() {
-                panic!("invalid synonyms: '{name}' is not an index name");
-            }
-            name.to_string()
-        });
-
     let k1 = parsed_typmod.get("k1").and_then(|p| p.as_f32());
     let b = parsed_typmod.get("b").and_then(|p| p.as_f32());
 
@@ -529,7 +519,6 @@ pub fn search_field_config_from_type(
             bitmap_postings,
             tokenizer,
             search_tokenizer,
-            synonyms,
             record,
             normalizer,
             column: None,
@@ -546,7 +535,6 @@ pub fn search_field_config_from_type(
             pnorms,
             tokenizer,
             search_tokenizer,
-            synonyms,
             record,
             normalizer,
             column: None,

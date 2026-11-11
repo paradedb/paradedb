@@ -5,8 +5,8 @@ canonical: https://www.paradedb.com/docs/reference/tokenizers/synonyms
 ---
 
 Say your catalog calls them couches, but shoppers type `sofa`. With synonyms, a search for `sofa` also finds the rows that
-say `couch`. You keep the rules in a regular table with an index on it, and the next query uses whatever you changed. The
-index you search stays as it is, so there is nothing to rebuild.
+say `couch`. You keep the rules in a regular table with an index on it, and a query names that index when it wants the
+rules. The next query uses whatever you changed. The index you search stays as it is, so there is nothing to rebuild.
 
 ## Creating a Synonym Index
 
@@ -51,9 +51,8 @@ CREATE INDEX shop_synonyms_en_idx ON shop_synonyms
 USING paradedb ((rule::pdb.simple('stemmer=english')));
 ```
 
-A synonym index set on the whole index covers the fields that use its tokenizer, and the other fields don't expand. A
-synonym index set on a field must use the field's tokenizer, or a query on that field fails with an error that names
-both tokenizers. The tokenizer has to be written the same way on both, options included, so `pdb.simple` and
+The synonym index must use the tokenizer of the field you search, or the query fails with an error that names both
+tokenizers. The tokenizer has to be written the same way on both, options included, so `pdb.simple` and
 `pdb.simple('lowercase=true')` count as two tokenizers. If you search fields with different tokenizers, create one synonym
 index per tokenizer on the same table.
 
@@ -67,51 +66,26 @@ CREATE INDEX shop_idx ON synonyms USING paradedb (rule) WHERE set_name = 'shop';
 CREATE INDEX colors_idx ON synonyms USING paradedb (rule) WHERE set_name = 'colors';
 ```
 
-A synonym index does not count toward the one ParadeDB index a table can have, and a query on its table never uses it.
+Each query names the set it wants. A synonym index does not count toward the one ParadeDB index a table can have, and a
+query on its table never uses it.
 
-## Using a Synonym Index
+## Searching with Synonyms
 
-Tell the index you search to use the synonym index. You can set it on the whole index, which covers the text and JSON
-fields that use its tokenizer:
+The index you search needs no setting for synonyms:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING paradedb (id, description, category)
-WITH (synonyms = 'shop_synonyms_idx');
+USING paradedb (id, description, category);
 ```
 
-Or on single fields, with the tokenizer cast. A field setting wins over the index setting:
+Wrap the text of a [match](/reference/full-text/match) query in `pdb.with_synonyms`, and name the synonym index:
 
 ```sql
-CREATE INDEX search_by_field_idx ON mock_items
-USING paradedb (id, (description::pdb.unicode_words('synonyms=shop_synonyms_idx')), category);
+SELECT description FROM mock_items
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx');
 ```
 
-You can change or remove the index setting at any time, with no reindex:
-
-```sql
-ALTER INDEX search_idx SET (synonyms = 'shop_synonyms_idx');
-ALTER INDEX search_idx RESET (synonyms);
-```
-
-On a partitioned table, the index of each partition has its own setting, so change it on each one.
-
-The setting holds the name of the synonym index, written as in SQL. A bare name is looked up in the schema of the index
-you search and never through `search_path`. A name such as `shop.shop_synonyms_idx` names its schema. Each query looks the
-name up again, so a `REINDEX` or a rename of the synonym index takes effect at once. The synonym index doesn't have to
-exist when you create the index. A query against a name that doesn't exist fails, and the error tells you which name.
-
-A query reads the rules with the rights of the owner of the index you search, the way a view reads its tables. That owner
-needs `SELECT` on the rules table and `USAGE` on its schema, and the role that runs the query needs neither. If row
-security on the rules table applies to the owner, the query fails.
-
-## Which Queries Expand
-
-Synonyms apply to the [match](/reference/full-text/match) operators, `|||` and `&&&`:
-
-```sql
-SELECT description FROM mock_items WHERE description ||| 'sofa';
-```
+Any query can use any synonym index, and a query without `pdb.with_synonyms` searches only the words you typed.
 
 Each run of words in your query that matches a rule becomes the group of its alternatives, and a row matches the group if
 it contains any of them. With `&&&`, every group has to match. When rules overlap, the longest match wins, so `running shoes`
@@ -123,14 +97,29 @@ A few things stay exact:
 - A [fuzzy](/reference/full-text/fuzzy) query keeps the words you typed fuzzy, and a prefix query keeps them a prefix, but
   both match the alternatives exactly. A directed rule drops the words you typed, with or without fuzzy, and a group with
   a fuzzy word scores with the best of its alternatives.
-- A query that picks its own tokenizer, with a cast such as `'sofa'::pdb.simple` or the `tokenizer` argument of
-  `pdb.match()`, searches the exact tokens with no synonyms. That is the way to turn synonyms off for one query.
-- A match on a text array, such as `description ||| ARRAY['sofa']`, searches each element as an exact token.
-- [Term](/reference/full-text/term), [phrase](/reference/full-text/phrase) and
-  [query parser](/reference/full-text/query-parser) queries do not expand.
+- `pdb.with_synonyms` takes text. A text array, such as `ARRAY['sofa']`, has no tokenizer to match the rules with.
+- Only the match operators, `|||` and `&&&`, expand. With [phrase](/reference/full-text/phrase),
+  [term](/reference/full-text/term) or the [query parser](/reference/full-text/query-parser), `pdb.with_synonyms` is an
+  error.
+
+The fuzzy and boost casts go on the text or on the result:
+
+```sql
+SELECT description FROM mock_items
+WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx')::pdb.fuzzy(1);
+```
 
 A change to the rules is transactional. Your own transaction sees it right away, and every other session sees it once it
 commits.
+
+### Naming the Synonym Index
+
+The second argument is a `regclass`, so the name follows the usual rules. A bare name goes through `search_path`, and a
+name such as `shop.shop_synonyms_idx` names its schema. A view or a prepared statement keeps the index and not its name,
+so it still works after you rename the synonym index.
+
+The role that runs the query needs `SELECT` on the rules table and `USAGE` on its schema. If row security on the rules
+table applies to that role, the query fails.
 
 ## Scoring
 
@@ -147,17 +136,10 @@ Each alternative is one more term the query has to look up, so a long rule costs
 - `paradedb.synonyms_max_rules_per_key` (default `1024`) caps how many rules one word reads in each segment of the synonym
   index. A word in more rules reads only the first ones.
 
-If synonyms ever get in the way, `paradedb.enable_synonyms` turns them off for a session or a role, with nothing to change
-on the index:
-
-```sql
-SET paradedb.enable_synonyms = off;
-```
-
 ## Checking an Expansion
 
-`EXPLAIN` shows a query as you wrote it. `pdb.synonym_expansion` shows what the synonym index turns it into, with the
-synonym index's own tokenizer:
+`EXPLAIN` shows the match as you wrote it, with the name of the synonym index. `pdb.synonym_expansion` shows what the
+synonym index turns the text into, with the synonym index's own tokenizer:
 
 ```sql
 SELECT * FROM pdb.synonym_expansion('shop_synonyms_idx', 'red sofa');

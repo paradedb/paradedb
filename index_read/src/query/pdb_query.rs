@@ -43,7 +43,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use pgrx::AnyNumeric;
 use pgrx::PgOid;
-use pgrx::pg_sys::BuiltinOid;
+use pgrx::pg_sys::{self, BuiltinOid};
 use pgrx::{InOutFuncs, StringInfo, pg_schema};
 use serde_json::Value;
 use std::collections::Bound;
@@ -81,7 +81,7 @@ pub mod pdb {
     use crate::query::more_like_this::MoreLikeThisOptions;
     use crate::query::proximity::{ProximityClause, ProximityDistance};
     use crate::query::range::{deserialize_bound, serialize_bound};
-    use pgrx::PostgresType;
+    use pgrx::{PostgresType, pg_sys};
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
     use std::fmt::{Display, Formatter};
@@ -194,6 +194,9 @@ pub mod pdb {
             fuzzy_data: Option<FuzzyData>,
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
+            /// The synonym index that `pdb.with_synonyms` names.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            synonyms: Option<pg_sys::Oid>,
         },
         /// This is instantiated in places where a text array is used
         /// as the right-hand-side of one of our operators.  For example, in
@@ -244,6 +247,9 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
+            /// The synonym index whose rules expand the tokens of `value`.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            synonyms: Option<pg_sys::Oid>,
         },
         MatchArray {
             tokens: Vec<String>,
@@ -373,6 +379,7 @@ impl pdb::Query {
             string: s.to_string(),
             fuzzy_data: None,
             slop_data: None,
+            synonyms: None,
         }
     }
 
@@ -381,6 +388,7 @@ impl pdb::Query {
             string: s.to_string(),
             fuzzy_data: Some(fuzz),
             slop_data: None,
+            synonyms: None,
         }
     }
 
@@ -389,6 +397,16 @@ impl pdb::Query {
             string: s.to_string(),
             fuzzy_data: None,
             slop_data: Some(slop),
+            synonyms: None,
+        }
+    }
+
+    /// Only a text value can expand, since a rule key matches the tokens of a tokenizer.
+    pub fn apply_synonyms(&mut self, index: pg_sys::Oid) {
+        match self {
+            pdb::Query::UnclassifiedString { synonyms, .. } => *synonyms = Some(index),
+            pdb::Query::ScoreAdjusted { query, .. } => query.apply_synonyms(index),
+            _ => panic!("`pdb.with_synonyms` takes a text value"),
         }
     }
 
@@ -577,6 +595,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                synonyms,
             } => match_query(
                 &field,
                 schema,
@@ -588,6 +607,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                synonyms,
             )?,
             pdb::Query::MatchArray {
                 tokens: value,
@@ -917,6 +937,7 @@ impl InOutFuncs for pdb::Query {
                     .to_string(),
                 fuzzy_data: None,
                 slop_data: None,
+                synonyms: None,
             }
         }
     }
@@ -2186,6 +2207,7 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
+    synonyms: Option<pg_sys::Oid>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
@@ -2196,19 +2218,11 @@ fn match_query(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
-    // A cast in the query picks the tokenizer, and the query searches the exact tokens of the
-    // cast, so a cast turns synonyms off for one query.
-    let (mut analyzer, synonyms) = match tokenizer {
-        Some(ref tokenizer) => (
-            SearchTokenizer::from_json_value(tokenizer)?
-                .to_tantivy_tokenizer()
-                .expect("tantivy should support tokenizer {tokenizer:?}"),
-            None,
-        ),
-        None => (
-            resolve_search_tokenizer(&search_field, schema, searcher)?,
-            synonym_index_of(&search_field, schema),
-        ),
+    let mut analyzer = match tokenizer {
+        Some(ref tokenizer) => SearchTokenizer::from_json_value(tokenizer)?
+            .to_tantivy_tokenizer()
+            .expect("tantivy should support tokenizer {tokenizer:?}"),
+        None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
     let mut stream = analyzer.token_stream(value);
     let mut tokens = Vec::new();
@@ -2217,7 +2231,7 @@ fn match_query(
     }
 
     let mut expansions = match synonyms {
-        Some(synonyms) => expand_match(&synonyms, &search_field, schema, &tokens)?,
+        Some(index) => expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?,
         None => no_expansion(&tokens),
     };
 
@@ -2290,34 +2304,6 @@ fn match_query(
     Ok(clauses.into_query())
 }
 
-/// The synonym index that a match on a field expands with.
-struct SynonymSetting {
-    name: String,
-    /// True when the name comes from the option of the field, and false when it comes from the
-    /// option of the index.
-    on_field: bool,
-}
-
-/// The field's option comes before the index's.
-fn synonym_index_of(
-    search_field: &SearchField,
-    schema: &SearchIndexSchema,
-) -> Option<SynonymSetting> {
-    if !crate::gucs::enable_synonyms() {
-        return None;
-    }
-    match search_field.field_config().synonyms() {
-        Some(name) => Some(SynonymSetting {
-            name: name.to_string(),
-            on_field: true,
-        }),
-        None => schema.index_synonyms().map(|name| SynonymSetting {
-            name,
-            on_field: false,
-        }),
-    }
-}
-
 fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
     tokens
         .iter()
@@ -2337,32 +2323,33 @@ fn query_tokenizer(
         .or_else(|| search_field.field_config().tokenizer().cloned())
 }
 
-/// A key of a synonym index matches only the tokens of the tokenizer that analyzed it. The index
-/// option skips a field with another tokenizer, and a field option on such a field is an error.
+/// A key of a synonym index matches only the tokens of the tokenizer that analyzed it, so a query
+/// with another tokenizer is an error.
 fn expand_match(
-    synonyms: &SynonymSetting,
+    index: pg_sys::Oid,
     search_field: &SearchField,
     schema: &SearchIndexSchema,
+    tokenizer: Option<&Value>,
     tokens: &[String],
 ) -> anyhow::Result<Vec<Expansion>> {
     if tokens.is_empty() {
         return Ok(Vec::new());
     }
-    let name = &synonyms.name;
-    let index = open_synonym_index(schema.index_namespace(), schema.index_owner(), name)?;
-    let query_tokenizer = query_tokenizer(search_field, schema);
+    let index = open_synonym_index(index)?;
+    let query_tokenizer = match tokenizer {
+        Some(tokenizer) => Some(SearchTokenizer::from_json_value(tokenizer)?),
+        None => query_tokenizer(search_field, schema),
+    };
     let rule_tokenizer = rule_tokenizer(&index);
     if query_tokenizer != rule_tokenizer {
-        if !synonyms.on_field {
-            return Ok(no_expansion(tokens));
-        }
         let name_of = |tokenizer: Option<SearchTokenizer>| {
             tokenizer.map_or_else(|| "none".to_string(), |tokenizer| tokenizer.name())
         };
         return Err(anyhow::anyhow!(
-            "field `{}` tokenizes queries with `{}`, but synonym index \"{name}\" uses `{}`",
+            "field `{}` tokenizes queries with `{}`, but synonym index \"{}\" uses `{}`",
             search_field.field_name(),
             name_of(query_tokenizer),
+            index.name(),
             name_of(rule_tokenizer),
         ));
     }

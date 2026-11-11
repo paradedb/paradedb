@@ -48,11 +48,10 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 
 ## Synonyms
 
-These settings affect match queries on an index or a field that names a synonym index. See [Synonyms](/reference/tokenizers/synonyms).
+These settings affect match queries that use `pdb.with_synonyms`. See [Synonyms](/reference/tokenizers/synonyms).
 
 | Setting                               | Default | Context | Description                                                                                       |
 | ------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_synonyms`            | `on`    | user    | Expands match queries with the synonym index of the index or field.                               |
 | `paradedb.synonyms_max_alternatives`  | `32`    | user    | Most alternatives one run of query words expands to. The typed words stay when a rule lists them. |
 | `paradedb.synonyms_max_rules_per_key` | `1024`  | user    | Most rules one synonym word reads in a segment. A word in more rules reads only the first ones.   |
 
@@ -148,7 +147,6 @@ Set these options in the index's `WITH` clause. The linked guides explain when c
 | `partition_by`               | None                      | Columns used to partition index segments.                                                                                      | [Index Partitioning](/reference/indexing/partition-by)                              |
 | `target_segment_count`       | Automatic                 | Target number of segments during `CREATE INDEX` or `REINDEX`. Overridden by a non-zero `paradedb.global_target_segment_count`. | [Read Throughput](/operate/performance-tuning/reads#adjusting-target-segment-count) |
 | `search_tokenizer`           | Indexed field's tokenizer | Default search-time tokenizer for text and JSON fields.                                                                        | [Search Tokenizer](/reference/tokenizers/search-tokenizer)                          |
-| `synonyms`                   | None                      | Synonym index that match queries on text and JSON fields expand with.                                                          | [Synonyms](/reference/tokenizers/synonyms)                                          |
 | `training_sample_ratio`      | `0.32`                    | Fraction of vectors sampled whenever a segment is clustered. Accepts `0.000001` through `1.0`.                                 | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `target_leaf_size`           | `200`                     | Target sampled training vectors per clustering leaf. Accepts integers from `1` through `2147483647`.                           | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |
 | `quantization`               | `[1,1]`                   | Quantization layer widths shared by all vector fields. Set to `0` to disable quantization.                                     | [Vector Index Options](/reference/indexing/indexing-vectors#index-options)          |

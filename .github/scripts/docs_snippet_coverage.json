@@ -198,18 +198,19 @@
         "reference/tokenizers/synonyms.mdx::fence-001"
       ]
     },
-    "reference/tokenizers/synonyms.mdx::fence-007": {
-      "setup": [
-        "reference/tokenizers/synonyms.mdx::fence-005"
-      ]
-    },
-    "reference/tokenizers/synonyms.mdx::fence-008": {
+    "reference/tokenizers/synonyms.mdx::fence-006": {
       "setup": [
         "reference/tokenizers/synonyms.mdx::fence-001",
         "reference/tokenizers/synonyms.mdx::fence-005"
       ]
     },
-    "reference/tokenizers/synonyms.mdx::fence-010": {
+    "reference/tokenizers/synonyms.mdx::fence-007": {
+      "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-001",
+        "reference/tokenizers/synonyms.mdx::fence-005"
+      ]
+    },
+    "reference/tokenizers/synonyms.mdx::fence-008": {
       "setup": [
         "reference/tokenizers/synonyms.mdx::fence-001"
       ]

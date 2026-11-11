@@ -361,6 +361,7 @@ impl SearchQueryInput {
                 string,
                 fuzzy_data: None,
                 slop_data: None,
+                synonyms: None,
             } => Self::Parse {
                 query_string: string,
                 lenient: None,
@@ -2430,6 +2431,7 @@ mod tests {
                 transposition_cost_one: None,
                 prefix: None,
                 conjunction_mode: None,
+                synonyms: None,
             },
         }
     }

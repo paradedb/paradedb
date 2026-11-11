@@ -25,7 +25,7 @@ use crate::api::{CTID_FIELD_NAME, FieldName, HashMap};
 use crate::gucs;
 use crate::index::synonym_index::is_synonym_index_relation;
 use crate::parallel_worker::WorkerStyle;
-use crate::postgres::catalog::{split_relation_name, synonym_rule_typoid};
+use crate::postgres::catalog::synonym_rule_typoid;
 use crate::postgres::utils::{ExtractedFieldAttribute, extract_field_attributes};
 use crate::schema::{SearchFieldConfig, SearchFieldType, VectorQuantizationConfig};
 
@@ -189,16 +189,6 @@ extern "C-unwind" fn validate_partition_by(value: *const std::os::raw::c_char) {
 
     if fields == 0 {
         panic!("invalid partition_by value: must specify at least one field");
-    }
-}
-
-/// Only the syntax of the name is checked here. A dump restores indexes in any order, so the
-/// synonym index can come after the index that names it, and a missing one fails the query.
-#[pg_guard]
-extern "C-unwind" fn validate_synonyms(value: *const std::os::raw::c_char) {
-    let s = cstr_to_rust_str(value);
-    if !s.is_empty() && split_relation_name(&s).is_none() {
-        panic!("invalid synonyms: '{s}' is not an index name");
     }
 }
 
@@ -379,13 +369,6 @@ pub unsafe extern "C-unwind" fn amoptions(
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
-            optname: "synonyms".as_pg_cstr(),
-            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: std::mem::offset_of!(BM25IndexOptionsData, synonyms_offset) as i32,
-            #[cfg(feature = "pg18")]
-            isset_offset: 0,
-        },
-        pg_sys::relopt_parse_elt {
             optname: "target_leaf_size".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: std::mem::offset_of!(BM25IndexOptionsData, target_leaf_size) as i32,
@@ -556,18 +539,6 @@ impl BM25IndexOptions {
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
         self.options_data().search_tokenizer()
-    }
-
-    pub fn synonyms(&self) -> Option<String> {
-        self.options_data().synonyms()
-    }
-
-    pub fn namespace(&self) -> pg_sys::Oid {
-        unsafe { (*(*self.indexrel).rd_rel).relnamespace }
-    }
-
-    pub fn owner(&self) -> pg_sys::Oid {
-        unsafe { (*(*self.indexrel).rd_rel).relowner }
     }
 
     /// The rule column of a synonym index, its one key column, typed `pdb.synonym_rule`.
@@ -951,7 +922,6 @@ struct BM25IndexOptionsData {
     partition_by_offset: i32,
     vector_router_quantization: bool,
     replication: i32,
-    synonyms_offset: i32,
 }
 
 static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
@@ -976,7 +946,6 @@ static DEFAULT_INDEX_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
     partition_by_offset: 0,
     vector_router_quantization: true,
     replication: DEFAULT_REPLICATION,
-    synonyms_offset: 0,
 };
 
 impl BM25IndexOptionsData {
@@ -1057,11 +1026,6 @@ impl BM25IndexOptionsData {
                 .map(|s| FieldName::from(s.trim().to_string()))
                 .collect()
         }
-    }
-
-    pub fn synonyms(&self) -> Option<String> {
-        let name = self.get_str(self.synonyms_offset, "".to_string());
-        (!name.is_empty()).then_some(name)
     }
 
     pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
@@ -1289,14 +1253,6 @@ pub unsafe fn init() {
         "Default search-time tokenizer for text/JSON fields".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_search_tokenizer),
-        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    );
-    pg_sys::add_string_reloption(
-        RELOPT_KIND_PDB,
-        "synonyms".as_pg_cstr(),
-        "Synonym index that match queries on text/JSON fields expand with".as_pg_cstr(),
-        std::ptr::null(),
-        Some(validate_synonyms),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_int_reloption(

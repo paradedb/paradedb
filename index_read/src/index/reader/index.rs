@@ -3882,6 +3882,7 @@ mod tests {
                 transposition_cost_one: None,
                 prefix: None,
                 conjunction_mode: Some(true),
+                synonyms: None,
             },
         };
         let boolean = |must, should, must_not| SearchQueryInput::Boolean {

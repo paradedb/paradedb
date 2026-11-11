@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794384512722,
+  "lastUpdate": 1794384539860,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -182836,6 +182836,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13744303236-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794384537410,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 161.1278806296878,
+            "unit": "median tps",
+            "extra": "avg tps: 158.65981390118395, max tps: 168.132604002225, count: 59086"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 549.7759092165737,
+            "unit": "median tps",
+            "extra": "avg tps: 566.2169345110394, max tps: 4958.970010547567, count: 59086"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3152.3792196724635,
+            "unit": "median tps",
+            "extra": "avg tps: 3137.224778503981, max tps: 3263.7282021173605, count: 59086"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 198.16347644215165,
+            "unit": "median tps",
+            "extra": "avg tps: 195.73664158767156, max tps: 213.03138132791054, count: 59086"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 278.92544444496576,
+            "unit": "median tps",
+            "extra": "avg tps: 383.0763279602917, max tps: 2894.2197743604975, count: 118172"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.72448064307844,
+            "unit": "median tps",
+            "extra": "avg tps: 29.244059302647432, max tps: 49.500010296002145, count: 59086"
+          }
+        ],
+        "publication_id": "13837374321-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -232364,6 +232423,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13744303236-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aa89199fb483546851f9dc03c1ff843251027f33",
+          "message": "perf(vector): replicate each vector into a second IVF cluster (#7277)\n\nQuantized IVF indexes now default to `replication = 2`: each vector is\nassigned to its nearest cluster and a second cluster selected by SOAR.\nSet `replication = 1` to disable the second assignment. The option\napplies when segments are clustered and is inert for unquantized fields;\nexisting segments retain their assignment until rebuilt.\n\nQuantized codes are stored in both clusters, while full-precision rows\nand the ID map remain one per document. Searches drop duplicate\ndocuments before first-stage decoding and scoring, expose the count as\n`replication_dropped`, and account for replicated rows in the probe\nbudget.\n\nStacked on #7275's document-ordered exact-row layout. Pins Tantivy to\nthe merged paradedb/tantivy#396 commit,\n`71a9b0e6fca86a3a1e9962748f881f9654107c6b`, and SuperKmeans to\n`06c8e247a6a0241a996a640080c7245f6c7b5940`. The Tantivy merge commit has\nthe same file tree as the previously tested\n`de571939f7b1a1e45e33bfd2446a8a8ac76288ba` pin.\n\nCoverage includes the `vector_replication` SQL regression for row\ncounts, equivalent exhaustive results, the located path, and REINDEX\noption changes. Two quantization fixtures explicitly use `replication =\n1`. The Cohere benchmark verifies two quantized rows per vector before\nits recall sweep. Documentation and the changelog describe the new\noption.\n\n---------\n\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-11T05:46:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/aa89199fb483546851f9dc03c1ff843251027f33"
+        },
+        "date": 1794384539792,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.297821,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.629738682082662, max cpu: 38.476955, count: 59086"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.18706419456386, max mem: 47.1953125, count: 59086"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3652736560117935, max cpu: 41.37931, count: 59086"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 29.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.824071057441696, max mem: 29.8984375, count: 59086"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.792724421743327, max cpu: 13.859479, count: 59086"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.574349584186606, max mem: 46.6484375, count: 59086"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2553,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2533.4187117083575, max block_count: 2553.0, count: 59086"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 3.7267082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.187501068925553, max cpu: 9.239654, count: 59086"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 27.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.573574231311138, max mem: 27.63671875, count: 59086"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.586094844802492, max segment_count: 36.0, count: 59086"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.116822942654755, max cpu: 33.48281, count: 59086"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 58.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 58.20051651406425, max mem: 58.2421875, count: 59086"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.431616314022432, max cpu: 36.78161, count: 118172"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 46.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.8017108735043, max mem: 54.6875, count: 118172"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 6.2888956,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.6675325768241605, max cpu: 18.488205, count: 59086"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.73768776920506, max mem: 46.42578125, count: 59086"
+          }
+        ],
+        "publication_id": "13837374321-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

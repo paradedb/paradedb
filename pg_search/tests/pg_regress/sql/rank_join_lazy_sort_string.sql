@@ -21,12 +21,14 @@ CREATE TABLE lss_posts (
     id INT PRIMARY KEY,
     user_id INT NOT NULL,
     title TEXT COLLATE "C",
+    tag TEXT COLLATE "C",
     amount NUMERIC(40, 0)
 ) WITH (autovacuum_enabled = false);
 
 CREATE INDEX lss_users_bm25 ON lss_users USING paradedb (id, bio);
 CREATE INDEX lss_posts_bm25 ON lss_posts USING paradedb (
-    id, user_id, (title::pdb.unicode_words('columnar=true')), amount
+    id, user_id, (title::pdb.unicode_words('columnar=true')),
+    (tag::pdb.unicode_words('columnar=true')), amount
 );
 
 -- Two inserts per table produce multiple segments, so per-segment term ordinals differ.
@@ -43,12 +45,14 @@ INSERT INTO lss_posts
 SELECT i,
        (i % 100) + 1,
        CASE WHEN i % 97 = 0 THEN NULL ELSE md5(i::text) END,
+       't' || (i % 7),
        CASE WHEN i % 19 = 0 THEN NULL ELSE ((i * 7919) % 2001 - 1000) * 10::numeric ^ 25 + i END
 FROM generate_series(1, 500) i;
 INSERT INTO lss_posts
 SELECT i,
        (i % 100) + 1,
        CASE WHEN i % 97 = 0 THEN NULL ELSE md5(i::text) END,
+       't' || (i % 7),
        CASE WHEN i % 19 = 0 THEN NULL ELSE ((i * 7919) % 2001 - 1000) * 10::numeric ^ 25 + i END
 FROM generate_series(501, 1000) i;
 
@@ -127,6 +131,67 @@ SELECT p.id, p.amount
 FROM lss_posts p
 WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
 ORDER BY p.amount ASC, p.id ASC
+LIMIT 5;
+RESET paradedb.enable_join_custom_scan;
+
+-- =============================================================================
+-- TEST 4: Low-cardinality TEXT primary sort key, with equal keys from both segments
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.user_id, p.tag
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.tag ASC, p.user_id ASC, p.id ASC
+LIMIT 5;
+
+SELECT p.id, p.user_id, p.tag
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.tag ASC, p.user_id ASC, p.id ASC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.user_id, p.tag
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.tag ASC, p.user_id ASC, p.id ASC
+LIMIT 5;
+RESET paradedb.enable_join_custom_scan;
+
+-- =============================================================================
+-- TEST 5: First lazy-sort window is all dead rows (deleted without VACUUM), so the
+-- leaf must re-query
+-- =============================================================================
+
+SET paradedb.enable_join_custom_scan = off;
+DELETE FROM lss_posts WHERE id IN (
+    SELECT p.id
+    FROM lss_posts p
+    WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+    ORDER BY p.title ASC, p.id ASC
+    LIMIT 30
+);
+RESET paradedb.enable_join_custom_scan;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT p.id, p.title
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+
+SELECT p.id, p.title
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.title
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.title ASC, p.id ASC
 LIMIT 5;
 RESET paradedb.enable_join_custom_scan;
 

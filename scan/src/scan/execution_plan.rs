@@ -982,7 +982,8 @@ impl PgSearchScanPlan {
     /// Tantivy's specialized `SortByStaticFastValue` Top-K collector in `LazySortMode`.
     ///
     /// TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key in
-    /// `RankJoinRule` and `RankJoinExec`: <https://github.com/paradedb/paradedb/issues/7244>.
+    /// `RankJoinExec` (`RankJoinRule`'s lazy-sorted probe path already does):
+    /// <https://github.com/paradedb/paradedb/issues/7244>.
     pub fn is_sortable_fast_field(&self, col_idx: usize) -> bool {
         self.check_scalar_search_field(col_idx, |delivery, sf| {
             delivery == crate::index::fast_fields_helper::FieldDelivery::Eager
@@ -991,11 +992,15 @@ impl PgSearchScanPlan {
         })
     }
 
-    /// Returns `true` if `col_idx` refers to a scalar fast-field column that can be used as a
-    /// secondary tie-breaker at `position` (`> 0`) in `LazySortConfig`'s `orderby_info`.
+    /// Returns `true` if `col_idx` refers to a scalar, raw-sortable fast-field column that can be
+    /// used as the sort key at `position` in `LazySortConfig`'s `orderby_info`.
     pub fn is_sortable_tiebreaker_field(&self, col_idx: usize, position: usize) -> bool {
         self.check_scalar_search_field(col_idx, |_, sf| {
-            crate::postgres::customscan::orderby::sortable_at_position(&sf.field_type(), position)
+            sf.is_raw_sortable()
+                && crate::postgres::customscan::orderby::sortable_at_position(
+                    &sf.field_type(),
+                    position,
+                )
         })
     }
 

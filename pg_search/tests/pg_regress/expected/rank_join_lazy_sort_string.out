@@ -17,11 +17,13 @@ CREATE TABLE lss_posts (
     id INT PRIMARY KEY,
     user_id INT NOT NULL,
     title TEXT COLLATE "C",
+    tag TEXT COLLATE "C",
     amount NUMERIC(40, 0)
 ) WITH (autovacuum_enabled = false);
 CREATE INDEX lss_users_bm25 ON lss_users USING paradedb (id, bio);
 CREATE INDEX lss_posts_bm25 ON lss_posts USING paradedb (
-    id, user_id, (title::pdb.unicode_words('columnar=true')), amount
+    id, user_id, (title::pdb.unicode_words('columnar=true')),
+    (tag::pdb.unicode_words('columnar=true')), amount
 );
 -- Two inserts per table produce multiple segments, so per-segment term ordinals differ.
 SET paradedb.global_mutable_segment_rows = 0;
@@ -35,12 +37,14 @@ INSERT INTO lss_posts
 SELECT i,
        (i % 100) + 1,
        CASE WHEN i % 97 = 0 THEN NULL ELSE md5(i::text) END,
+       't' || (i % 7),
        CASE WHEN i % 19 = 0 THEN NULL ELSE ((i * 7919) % 2001 - 1000) * 10::numeric ^ 25 + i END
 FROM generate_series(1, 500) i;
 INSERT INTO lss_posts
 SELECT i,
        (i % 100) + 1,
        CASE WHEN i % 97 = 0 THEN NULL ELSE md5(i::text) END,
+       't' || (i % 7),
        CASE WHEN i % 19 = 0 THEN NULL ELSE ((i * 7919) % 2001 - 1000) * 10::numeric ^ 25 + i END
 FROM generate_series(501, 1000) i;
 RESET paradedb.global_mutable_segment_rows;
@@ -213,6 +217,129 @@ LIMIT 5;
  729 | -9339999999999999999999999271
  799 | -8809999999999999999999999201
   69 | -8619999999999999999999999931
+(5 rows)
+
+RESET paradedb.enable_join_custom_scan;
+-- =============================================================================
+-- TEST 4: Low-cardinality TEXT primary sort key, with equal keys from both segments
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.user_id, p.tag
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.tag ASC, p.user_id ASC, p.id ASC
+LIMIT 5;
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: p.id, p.user_id, p.tag
+   Relation Tree: p SEMI u
+   Join Cond: p.user_id = u.id
+   Limit: 5
+   Order By: p.tag asc, p.user_id asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, user_id@1 as col_2, tag@2 as col_3, ctid_0@0 as ctid_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, user_id@1)], fetch=5
+     :     CooperativeExec
+     :       PgSearchScan: table=u, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"bio","value":"rare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     VisibilityFilterExec: tables=[p]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=2, lazy_sort=10, eager=[tag], dynamic_filters=1, query="all"
+(14 rows)
+
+SELECT p.id, p.user_id, p.tag
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.tag ASC, p.user_id ASC, p.id ASC
+LIMIT 5;
+ id  | user_id | tag 
+-----+---------+-----
+ 609 |      10 | t0
+ 119 |      20 | t0
+ 819 |      20 | t0
+ 329 |      30 | t0
+ 539 |      40 | t0
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.user_id, p.tag
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.tag ASC, p.user_id ASC, p.id ASC
+LIMIT 5;
+ id  | user_id | tag 
+-----+---------+-----
+ 609 |      10 | t0
+ 119 |      20 | t0
+ 819 |      20 | t0
+ 329 |      30 | t0
+ 539 |      40 | t0
+(5 rows)
+
+RESET paradedb.enable_join_custom_scan;
+-- =============================================================================
+-- TEST 5: First lazy-sort window is all dead rows (deleted without VACUUM), so the
+-- leaf must re-query
+-- =============================================================================
+SET paradedb.enable_join_custom_scan = off;
+DELETE FROM lss_posts WHERE id IN (
+    SELECT p.id
+    FROM lss_posts p
+    WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+    ORDER BY p.title ASC, p.id ASC
+    LIMIT 30
+);
+RESET paradedb.enable_join_custom_scan;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT p.id, p.title
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+   Relation Tree: p SEMI u
+   Join Cond: p.user_id = u.id
+   Limit: 5
+   Order By: p.title asc, p.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, title@1 as col_2, ctid_0@0 as ctid_0], metrics=[output_rows=5, output_bytes=3.2 KB, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, user_id@1)], projection=[ctid_0@0, title@2, id@3], fetch=5, metrics=[output_rows=5, output_bytes=3.2 KB, output_batches=1, build_mem_used=444.0 B, array_map_created_count=1, build_input_batches=2, build_input_rows=10, input_batches=3, input_rows=40, avg_fanout=100% (40/40), probe_hit_rate=100% (40/40)]
+     :     CooperativeExec
+     :       PgSearchScan: table=u, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"bio","value":"rare","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=10, output_bytes=80.0 B, output_batches=2]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=40, output_bytes=3.6 KB, output_batches=3, ctids_fetched=70, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=2, lazy_sort=10, eager=[title], dynamic_filters=1, query="all", metrics=[output_rows=70, output_bytes=5.9 KB, output_batches=3, dynamic_filter_pushdown_linear=1, queries=3, rows_pruned=0, rows_scanned=70]
+(13 rows)
+
+SELECT p.id, p.title
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+ id  |              title               
+-----+----------------------------------
+ 529 | 37f0e884fbad9667e38940169d0a3c95
+ 559 | 3a0772443a0739141292a5429b952fe6
+ 819 | 3b5dca501ee1e6d8cd7b905f4e1bf723
+ 949 | 3cef96dcc9b8035d23f69e30bb19218a
+ 499 | 3cf166c6b73f030b4f67eeaeba301103
+(5 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.title
+FROM lss_posts p
+WHERE p.user_id IN (SELECT u.id FROM lss_users u WHERE u.bio ||| 'rare')
+ORDER BY p.title ASC, p.id ASC
+LIMIT 5;
+ id  |              title               
+-----+----------------------------------
+ 529 | 37f0e884fbad9667e38940169d0a3c95
+ 559 | 3a0772443a0739141292a5429b952fe6
+ 819 | 3b5dca501ee1e6d8cd7b905f4e1bf723
+ 949 | 3cef96dcc9b8035d23f69e30bb19218a
+ 499 | 3cf166c6b73f030b4f67eeaeba301103
 (5 rows)
 
 RESET paradedb.enable_join_custom_scan;

@@ -42,6 +42,7 @@ FROM generate_series(1, 100) AS i;
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING paradedb ((id::pdb.literal), (category::pdb.unicode_words('columnar=true')));
 CREATE INDEX stk_files_bm25_idx ON stk_files USING paradedb (id, (document_id::pdb.literal), (title::pdb.unicode_words('columnar=true')), (content::pdb.unicode_words('columnar=true')));
 SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_rank_join = off;
 -- =============================================================================
 -- TEST 1: ASC LIMIT — SegmentedTopKExec should appear in plan
 -- =============================================================================
@@ -688,22 +689,25 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 5;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
    Relation Tree: f SEMI d
    Join Cond: f.document_id = d.id
    Limit: 5
    Order By: f.title asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[NULL as col_1, title@1 as col_2, ctid_0@0 as ctid_0], metrics=[output_rows=5, output_bytes=496.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], fetch=5, metrics=[output_rows=5, output_bytes=496.0 B, output_batches=1, build_mem_used=204.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
-     :     CooperativeExec
-     :       PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=80.0 B, output_batches=1]
-     :     VisibilityFilterExec: tables=[f], metrics=[output_rows=10, output_bytes=688.0 B, output_batches=1, ctids_fetched=10, ctids_lazy=0]
-     :       CooperativeExec
-     :         PgSearchScan: table=f, segments=4, lazy_sort=10, eager=[title], dynamic_filters=1, query="all", metrics=[output_rows=10, output_bytes=688.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, queries=1, rows_pruned=0, rows_scanned=10]
-(13 rows)
+     : ProjectionExec: expr=[NULL as col_1, title@1 as col_2, ctid_0@0 as ctid_0], metrics=[output_rows=5, output_bytes=248.0 B, output_batches=1]
+     :   TantivyDecodeExec: decode=[title], metrics=[output_rows=5, output_bytes=248.0 B, output_batches=1]
+     :     TantivyFetchExec: fetch=[title], metrics=[output_rows=5, output_bytes=80.0 B, output_batches=1]
+     :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=5, metrics=[rows_input=14.42 K, rows_output=5, segments_seen=2]
+     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=14.42 K, output_bytes=240.6 KB, output_batches=2, ctids_fetched=14.42 K, ctids_lazy=0]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=14.42 K, output_bytes=256.0 KB, output_batches=2, build_mem_used=204.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.42 K, avg_fanout=100% (14.42 K/14.42 K), probe_hit_rate=55.81% (14.42 K/25.83 K)]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=80.0 B, output_batches=1]
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=4, dynamic_filters=2, query="all", metrics=[output_rows=14.42 K, output_bytes=450.6 KB, output_batches=4, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=15.58 K, rows_scanned=30.00 K]
+(16 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -721,6 +725,7 @@ LIMIT 5;
   8 | File Title 00008
 (5 rows)
 
+RESET paradedb.enable_rank_join;
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

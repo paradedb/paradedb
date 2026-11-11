@@ -356,6 +356,131 @@ async fn unrelated_table_write_commits(database: Db) {
     assert_eq!(failure, None);
 }
 
+/// A bm25 insert can become searchable after `index_insert` has checked for conflicting reads.
+/// An `AFTER ROW` trigger holds the writer in between.
+async fn insert_held_before_flush(
+    database: &Db,
+    settings: &str,
+    read: &str,
+    node: &str,
+) -> Option<String> {
+    let mut gate = database.connection().await;
+    run(&mut gate, SETUP).await.expect("setup should succeed");
+    run(
+        &mut gate,
+        "CREATE FUNCTION ssi_hold() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+             PERFORM pg_advisory_lock_shared(7258);
+             PERFORM pg_advisory_unlock_shared(7258);
+             RETURN NULL;
+         END $$;
+         CREATE TRIGGER ssi_hold AFTER INSERT ON ssi_doctors
+         FOR EACH ROW EXECUTE FUNCTION ssi_hold();
+         SELECT pg_advisory_lock(7258);",
+    )
+    .await
+    .expect("the trigger should install");
+
+    let mut reader = database.connection().await;
+    run(
+        &mut reader,
+        &format!("SET enable_seqscan = off; {settings}"),
+    )
+    .await
+    .expect("settings should apply");
+    assert_plan_has(&mut reader, read, node).await;
+
+    let mut writer = database.connection().await;
+    macro_rules! step {
+        ($conn:expr, $sql:expr) => {
+            if let Err(err) = run(&mut $conn, $sql).await {
+                return Some(sqlstate(&err));
+            }
+        };
+    }
+
+    step!(writer, "SET enable_seqscan = off");
+    step!(writer, "BEGIN ISOLATION LEVEL SERIALIZABLE");
+    step!(writer, "SELECT note FROM ssi_doctors WHERE id = 1");
+    let insert = async_std::task::spawn(async move {
+        let inserted = run(&mut writer, INSERT_ONE).await;
+        (writer, inserted)
+    });
+    // Wait for the insert to reach the trigger.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let (held,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks
+                            WHERE locktype = 'advisory' AND objid = 7258 AND NOT granted)",
+        )
+        .fetch_one(&mut gate)
+        .await
+        .expect("pg_locks should be readable");
+        if held {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the insert never reached the trigger"
+        );
+        async_std::task::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    step!(reader, "BEGIN ISOLATION LEVEL SERIALIZABLE");
+    step!(reader, read);
+    step!(reader, "UPDATE ssi_doctors SET note = 'busy' WHERE id = 1");
+    step!(reader, "COMMIT");
+
+    step!(gate, "SELECT pg_advisory_unlock(7258)");
+    let (mut writer, inserted) = insert.await;
+    if let Err(err) = inserted {
+        return Some(sqlstate(&err));
+    }
+    step!(writer, "COMMIT");
+    None
+}
+
+#[rstest]
+#[async_std::test]
+async fn base_scan_insert_held_before_flush(database: Db) {
+    let failure = insert_held_before_flush(
+        &database,
+        "",
+        "SELECT id FROM ssi_doctors WHERE name @@@ 'new1'",
+        "ParadeDB Base Scan",
+    )
+    .await;
+    assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
+}
+
+#[rstest]
+#[async_std::test]
+async fn aggregate_scan_insert_held_before_flush(database: Db) {
+    let failure = insert_held_before_flush(
+        &database,
+        "",
+        "SELECT count(*) FROM ssi_doctors WHERE name @@@ 'new1'",
+        "ParadeDB Aggregate Scan",
+    )
+    .await;
+    assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
+}
+
+/// A plain index scan locks the index, but `index_insert` checked that before the row was
+/// searchable.
+#[rstest]
+#[async_std::test]
+async fn postgres_index_scan_insert_held_before_flush(database: Db) {
+    let failure = insert_held_before_flush(
+        &database,
+        "SET paradedb.enable_custom_scan = off;",
+        "SELECT id FROM ssi_doctors WHERE name @@@ 'new1'",
+        "Index Scan using ssi_doctors_idx",
+    )
+    .await;
+    assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
+}
+
 /// Postgres' own plan for the same read already aborts one of the two, which is the behavior
 /// the custom scans have to match.
 #[rstest]

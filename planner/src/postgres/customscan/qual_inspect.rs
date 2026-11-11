@@ -888,16 +888,30 @@ pub unsafe fn has_leaky_heap_filter(
     })
 }
 
-/// The `security_level` that says where `ri` came from. A clause PostgreSQL regenerated from
-/// an equivalence class carries the class's lowest level, not the level of the clause it
-/// stands for: a policy's `division = 1` and the statement's `client_id = 1` share one class
-/// through the constant, and both come back at the policy's level. The clauses that were
-/// written are still in `ec_sources` with their own levels, so a class member's clause takes
-/// the highest level of the sources on that member. A clause outside any class, or a
-/// partition child's copy, which keeps no class link, is read as it is.
-unsafe fn security_level(ri: &pg_sys::RestrictInfo) -> pg_sys::Index {
-    if ri.left_ec.is_null() {
+/// The `security_level` that says where `ri`, a clause on `rti`, came from. A clause
+/// PostgreSQL regenerated from an equivalence class carries the class's lowest level, not the
+/// level of the clause it stands for: a policy's `division = 1` and the statement's
+/// `client_id = 1` share one class through the constant, and both come back at the policy's
+/// level. The clauses that were written are still in `ec_sources` with their own levels, so a
+/// class member's clause takes the highest level of the sources on that member. A partition
+/// child's copy keeps the parent's level but no class link (`apply_child_basequals`), so the
+/// parent's clause decides for it. A level at or above `qual_security_level` is a clause the
+/// statement wrote: the sources on a member are never below the class's minimum.
+unsafe fn security_level(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    ri: &pg_sys::RestrictInfo,
+) -> pg_sys::Index {
+    if ri.security_level >= unsafe { (*root).qual_security_level } {
         return ri.security_level;
+    }
+    if ri.left_ec.is_null() {
+        return match unsafe { parent_clause(root, rti, ri) } {
+            Some((parent_rti, parent_ri)) => unsafe {
+                security_level(root, parent_rti, &*parent_ri)
+            },
+            None => ri.security_level,
+        };
     }
     let is_const = |em: *mut pg_sys::EquivalenceMember| unsafe { (*em).em_is_const };
     let members: Vec<_> = [ri.left_em, ri.right_em]
@@ -913,6 +927,36 @@ unsafe fn security_level(ri: &pg_sys::RestrictInfo) -> pg_sys::Index {
         .map(|source| unsafe { (*source).security_level })
         .max()
         .unwrap_or(ri.security_level)
+}
+
+/// The parent relation's clause that `apply_child_basequals` copied to `rti` as `ri`: the one
+/// whose clause, translated to the child's columns, is equal to the child's.
+unsafe fn parent_clause(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    ri: &pg_sys::RestrictInfo,
+) -> Option<(pg_sys::Index, *mut pg_sys::RestrictInfo)> {
+    let planner = unsafe { &*root };
+    if planner.append_rel_array.is_null() {
+        return None;
+    }
+    let mut appinfo = unsafe { *planner.append_rel_array.add(rti as usize) };
+    if appinfo.is_null() {
+        return None;
+    }
+    let parent_rti = unsafe { (*appinfo).parent_relid };
+    let parent = unsafe { *planner.simple_rel_array.add(parent_rti as usize) };
+    if parent.is_null() {
+        return None;
+    }
+    unsafe { PgList::<pg_sys::RestrictInfo>::from_pg((*parent).baserestrictinfo) }
+        .iter_ptr()
+        .find(|&parent_ri| unsafe {
+            let translated =
+                pg_sys::adjust_appendrel_attrs(root, (*parent_ri).clause.cast(), 1, &mut appinfo);
+            pg_sys::equal(translated.cast(), ri.clause.cast())
+        })
+        .map(|parent_ri| (parent_rti, parent_ri))
 }
 
 /// A `RestrictInfo` for a clause the statement wrote, as `extract_quals` expects one. It
@@ -1026,9 +1070,9 @@ pub fn extract_quals(
             )?;
             // A clause below the query's `qual_security_level` came from the range table
             // entry's `securityQuals`: a row-level security policy.
-            let from_security_qual = context
-                .planner_info()
-                .is_some_and(|root| unsafe { security_level(ri) < (*root).qual_security_level });
+            let from_security_qual = context.planner_info().is_some_and(|root| unsafe {
+                security_level(root, rti, ri) < (*root).qual_security_level
+            });
             Some(if from_security_qual {
                 mark_security(qual)
             } else {

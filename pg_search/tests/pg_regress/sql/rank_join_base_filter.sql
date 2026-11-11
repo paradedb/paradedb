@@ -415,6 +415,31 @@ $$);
 SELECT id, pdb.score(id) AS score FROM rjf_jobs WHERE body @@@ 'zebra' AND division = 1 ORDER BY id;
 RESET ROLE;
 
+-- A partition's copy of the regenerated clause has no equivalence-class link of its own, so
+-- the parent's clause decides: the user's client_id = 1 scores as for the superuser here too.
+CREATE TABLE rjf_jobs_part (
+    id INT NOT NULL,
+    division INT NOT NULL,
+    client_id INT NOT NULL,
+    body TEXT NOT NULL
+) PARTITION BY LIST (division);
+CREATE TABLE rjf_jobs_part_1 PARTITION OF rjf_jobs_part FOR VALUES IN (1);
+CREATE TABLE rjf_jobs_part_2 PARTITION OF rjf_jobs_part FOR VALUES IN (2);
+INSERT INTO rjf_jobs_part SELECT id, division, client_id, body FROM rjf_jobs;
+CREATE INDEX rjf_jobs_part_bm25 ON rjf_jobs_part USING bm25 (id, division, client_id, body);
+GRANT SELECT ON rjf_jobs_part TO rjf_eq_user;
+ALTER TABLE rjf_jobs_part ENABLE ROW LEVEL SECURITY;
+CREATE POLICY rjf_jobs_part_eq ON rjf_jobs_part TO rjf_eq_user USING (division = 1);
+
+SELECT id, pdb.score(id) AS score FROM rjf_jobs_part WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id;
+SET ROLE rjf_eq_user;
+SELECT id, pdb.score(id) AS score FROM rjf_jobs_part WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id;
+SELECT explain_redact_oid($$
+SELECT id FROM rjf_jobs_part WHERE body @@@ 'zebra' AND client_id = 1 ORDER BY id
+$$);
+RESET ROLE;
+DROP TABLE rjf_jobs_part;
+
 -- ============================================================
 -- Test 14: with MPP enabled but inputs that are not range co-partitioned, a filtered join
 -- still plans and runs the single-task RankJoinExec (mode=CollectLeft).

@@ -19,6 +19,10 @@ mint dev
 
 ## 😎 Publishing Changes
 
+Production documentation updates are deployed manually through the
+`Publish ParadeDB (Docs)` GitHub Actions workflow. The workflow asks Mintlify to
+rebuild the configured production branch.
+
 - To refresh the website MCP after docs deploy, create a deploy hook for `main`
   in the Vercel `website` project's **Settings → Git → Deploy Hooks**, then save
   its URL as the `WEBSITE_DEPLOY_HOOK_URL` Actions secret in `paradedb/paradedb`.

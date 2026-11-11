@@ -961,22 +961,6 @@ unsafe fn parent_clause(
         .map(|parent_ri| (parent_rti, parent_ri))
 }
 
-/// A `RestrictInfo` for a clause the statement wrote, as `extract_quals` expects one. It
-/// carries `qual_security_level`, the level PostgreSQL gives such a clause; left at the
-/// zeroed default of a bare allocation, `extract_quals` would take it for a policy clause
-/// (`Qual::Security`).
-pub unsafe fn user_clause_restrictinfo(
-    root: *mut pg_sys::PlannerInfo,
-    clause: *mut pg_sys::Node,
-) -> *mut pg_sys::RestrictInfo {
-    let ri =
-        pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>()).cast::<pg_sys::RestrictInfo>();
-    (*ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
-    (*ri).clause = clause.cast();
-    (*ri).security_level = (*root).qual_security_level;
-    ri
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn extract_quals(
     context: &PlannerContext,

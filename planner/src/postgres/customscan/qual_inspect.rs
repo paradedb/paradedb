@@ -900,7 +900,7 @@ pub unsafe fn has_leaky_heap_filter(
 /// clauses that were written are still in `ec_sources` with their own levels, so a class
 /// member's clause is a policy only if every source on that member is. A partition child's
 /// copy keeps the parent's level but no class link (`apply_child_basequals`), so the top
-/// parent's clause decides for it.
+/// parent's clause is classified in its place.
 unsafe fn is_security_clause(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -910,13 +910,16 @@ unsafe fn is_security_clause(
     if ri.security_level >= user_level {
         return false;
     }
+    let ri = if ri.left_ec.is_null() {
+        match unsafe { parent_clause(root, rti, ri) } {
+            Some(parent_ri) => unsafe { &*parent_ri },
+            None => return true,
+        }
+    } else {
+        ri
+    };
     if ri.left_ec.is_null() {
-        return match unsafe { parent_clause(root, rti, ri) } {
-            Some((parent_rti, parent_ri)) => unsafe {
-                is_security_clause(root, parent_rti, &*parent_ri)
-            },
-            None => true,
-        };
+        return true;
     }
     let on_member = |em: *mut pg_sys::EquivalenceMember| {
         !em.is_null() && !unsafe { (*em).em_is_const } && (em == ri.left_em || em == ri.right_em)
@@ -934,7 +937,7 @@ unsafe fn parent_clause(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     ri: &pg_sys::RestrictInfo,
-) -> Option<(pg_sys::Index, *mut pg_sys::RestrictInfo)> {
+) -> Option<*mut pg_sys::RestrictInfo> {
     let (parent_rti, _) = unsafe { top_parent(root, rti) }?;
     if parent_rti == rti {
         return None;
@@ -955,7 +958,6 @@ unsafe fn parent_clause(
             );
             pg_sys::equal(translated.cast(), ri.clause.cast())
         })
-        .map(|parent_ri| (parent_rti, parent_ri))
 }
 
 #[allow(clippy::too_many_arguments)]

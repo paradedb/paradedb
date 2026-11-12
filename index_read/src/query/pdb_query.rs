@@ -18,9 +18,14 @@
 
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
-use crate::index::synonym_index::{expand_with_index, open_synonym_index, rule_tokenizer};
+use crate::index::synonym_index::{
+    expand_with_index, expand_with_rules, open_synonym_index, rule_tokenizer,
+};
+use crate::postgres::catalog::OidExt;
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::is_datetime_type;
 use crate::query::estimate::RangeQueryWithEstimate;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
@@ -164,6 +169,16 @@ pub mod pdb {
         Const(tantivy::Score),
     }
 
+    /// Where a match reads its synonym rules.
+    #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+    #[serde(untagged)]
+    pub enum SynonymRules {
+        /// A synonym index that holds the rules that a `pdb.expand` subquery reads.
+        Index(pg_sys::Oid),
+        /// The rules that a `pdb.expand` subquery read.
+        Rules(Vec<String>),
+    }
+
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
     #[inoutfuncs]
     #[serde(rename_all = "snake_case")]
@@ -195,9 +210,9 @@ pub mod pdb {
             fuzzy_data: Option<FuzzyData>,
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
-            /// The synonym index that `pdb.with_synonyms` names.
+            /// The rules that a `pdb.expand` subquery gives to the match.
             #[serde(skip_serializing_if = "Option::is_none")]
-            synonyms: Option<pg_sys::Oid>,
+            synonyms: Option<SynonymRules>,
         },
         /// This is instantiated in places where a text array is used
         /// as the right-hand-side of one of our operators.  For example, in
@@ -248,9 +263,9 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
-            /// The synonym index whose rules expand the tokens of `value`.
+            /// The rules that expand the tokens of `value`.
             #[serde(skip_serializing_if = "Option::is_none")]
-            synonyms: Option<pg_sys::Oid>,
+            synonyms: Option<SynonymRules>,
         },
         MatchArray {
             tokens: Vec<String>,
@@ -399,15 +414,6 @@ impl pdb::Query {
             fuzzy_data: None,
             slop_data: Some(slop),
             synonyms: None,
-        }
-    }
-
-    /// Only a text value can expand, since a rule key matches the tokens of a tokenizer.
-    pub fn apply_synonyms(&mut self, index: pg_sys::Oid) {
-        match self {
-            pdb::Query::UnclassifiedString { synonyms, .. } => *synonyms = Some(index),
-            pdb::Query::ScoreAdjusted { query, .. } => query.apply_synonyms(index),
-            _ => panic!("`pdb.with_synonyms` takes a text value"),
         }
     }
 
@@ -2232,7 +2238,7 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
-    synonyms: Option<pg_sys::Oid>,
+    synonyms: Option<pdb::SynonymRules>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
@@ -2249,14 +2255,20 @@ fn match_query(
             .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
-    let mut stream = analyzer.token_stream(value);
     let mut tokens = Vec::new();
-    while stream.advance() {
-        tokens.push(stream.token().text.clone());
+    {
+        let mut stream = analyzer.token_stream(value);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
     }
 
     let mut expansions = match synonyms {
-        Some(index) => expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?,
+        Some(pdb::SynonymRules::Index(index)) => {
+            expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?
+        }
+        // The analyzer of the query tokens compiles the rules, so a key matches the same tokens.
+        Some(pdb::SynonymRules::Rules(rules)) => expand_with_rules(&rules, &mut analyzer, &tokens)?,
         None => no_expansion(&tokens),
     };
 
@@ -2381,6 +2393,51 @@ fn expand_match(
         ));
     }
     expand_with_index(&index, tokens)
+}
+
+/// The synonym index on the column at `column_index` (from zero) of `table` that `holds_rules`
+/// accepts, and that `expand_match` accepts for a query on `field` of the text index `index`.
+pub fn synonym_index_of_column(
+    table: &PgSearchRelation,
+    column_index: usize,
+    holds_rules: impl Fn(&PgSearchRelation) -> bool,
+    index: &PgSearchRelation,
+    field: &FieldName,
+) -> Option<pg_sys::Oid> {
+    // The index of a partitioned table has no storage to read a schema from. Each of its leaves
+    // has its definition.
+    let leaf;
+    let index = if is_partitioned_index(index.oid()) {
+        leaf = leaf_partition_indexes(index).next()?;
+        &leaf
+    } else {
+        index
+    };
+    let schema = index.schema().ok()?;
+    let search_field = schema.search_field(field.root())?;
+    let query_tokenizer = query_tokenizer(&search_field, &schema)?;
+    table
+        .indices(pg_sys::AccessShareLock as _)
+        .filter(|candidate| unsafe {
+            (*candidate.rd_rel).relam.is_paradedb_am()
+                && pg_sys::get_rel_relkind(candidate.oid()) as u8
+                    != pg_sys::RELKIND_PARTITIONED_INDEX
+                && pg_sys::get_index_isvalid(candidate.oid())
+        })
+        .find(|candidate| {
+            let options = candidate.options();
+            let reads_column = options.synonym_rule_field().is_some_and(|rule_field| {
+                options
+                    .attributes()
+                    .get(&rule_field)
+                    .and_then(|attribute| attribute.source.heap_attno())
+                    == Some(column_index)
+            });
+            reads_column
+                && rule_tokenizer(candidate).as_ref() == Some(&query_tokenizer)
+                && holds_rules(candidate)
+        })
+        .map(|candidate| candidate.oid())
 }
 
 /// A multi-token alternative is a phrase, which needs positions.

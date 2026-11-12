@@ -1157,7 +1157,7 @@ impl SearchQueryInput {
                 query = inner;
             }
             if let pdb::Query::Match {
-                synonyms: Some(index),
+                synonyms: Some(pdb::SynonymRules::Index(index)),
                 ..
             } = query
                 && !indexes.contains(index)

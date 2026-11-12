@@ -18,11 +18,12 @@
 use super::anyelement_query_input_opoid;
 use crate::api::operator::{
     ReturnedNodePointer, ReturnedNodePointerSupport, estimate_selectivity, find_var_relation,
+    record_field,
 };
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
-use pgrx::{Internal, PgList, PgRelation, pg_extern, pg_sys};
+use pgrx::{FromDatum, Internal, PgList, PgRelation, pg_extern, pg_sys};
 
 /// SQL API for allowing the user to specify the index to query.
 ///
@@ -115,7 +116,17 @@ pub(super) fn query_input_selectivity(
         return UNKNOWN_SELECTIVITY;
     };
 
+    let selectivity_now = args
+        .iter_ptr()
+        .last()
+        .and_then(|node| unsafe { nodecast!(RowExpr, node) })
+        .and_then(|row| unsafe { record_field(row, c"selectivity") })
+        .and_then(|node| unsafe { nodecast!(Const, node) })
+        .and_then(|value| unsafe { f64::from_datum((*value).constvalue, (*value).constisnull) });
+
     let selectivity = match unsafe { (*rhs).type_ } {
+        // The subquery has no value yet. Its estimate is the `selectivity` field of the record.
+        _ if selectivity_now.is_some() => selectivity_now.unwrap_or(UNKNOWN_SELECTIVITY),
         pg_sys::NodeTag::T_Const => {
             let const_ = unsafe { &*rhs.cast::<pg_sys::Const>() };
             let (heaprelid, _, _) = unsafe { find_var_relation(var, planner_info) };

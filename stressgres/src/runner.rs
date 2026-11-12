@@ -238,10 +238,6 @@ impl Conn {
         })
     }
 
-    pub fn clients(&mut self) -> impl Iterator<Item = &mut postgres::Client> {
-        self.clients.iter_mut().map(|(client, ..)| client)
-    }
-
     pub fn query(
         &mut self,
         query: &str,
@@ -257,18 +253,6 @@ impl Conn {
             results.push((result, duration, ConnInfo::new(id, server, *pid)));
         }
 
-        results
-    }
-
-    pub fn execute(
-        &mut self,
-        query: &str,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Vec<PostgresResult<u64>> {
-        let mut results = Vec::new();
-        for client in self.clients() {
-            results.push(client.execute(query, params).map_err(Arc::new));
-        }
         results
     }
 

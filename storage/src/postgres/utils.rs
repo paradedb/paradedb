@@ -167,14 +167,17 @@ pub unsafe fn extract_field_attributes(
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if is_text_lower(expression.cast()) {
+                        // An explicit normalizer from the tokenizer cast wins. Inferring Lowercase
+                        // here would reorder Top-K for `lower(text)::pdb.literal` under the C
+                        // collation (#7054).
+                        if normalizer.is_none() && is_text_lower(expression.cast()) {
                             normalizer = Some(SearchNormalizer::Lowercase);
                         } else if let Some(relabel) = nodecast!(RelabelType, expression) {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
                             }
 
-                            if is_text_lower((*relabel).arg.cast()) {
+                            if normalizer.is_none() && is_text_lower((*relabel).arg.cast()) {
                                 normalizer = Some(SearchNormalizer::Lowercase);
                             }
                         }

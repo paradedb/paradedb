@@ -209,6 +209,8 @@ impl RelationBufferAccess {
                 buffer
             } else if strategy.is_null()
                 && buffer_mode == pg_sys::ReadBufferMode::RBM_NORMAL
+                // Parallel workers cannot amortize seeding a backend-local cache across queries.
+                && pg_sys::ParallelWorkerNumber == -1
                 && crate::gucs::recent_buffers()
                 && (*(*self.rel.as_ptr()).rd_rel).relkind
                     == pg_sys::RELKIND_INDEX as std::ffi::c_char

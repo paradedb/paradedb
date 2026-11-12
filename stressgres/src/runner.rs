@@ -256,6 +256,14 @@ impl Conn {
         results
     }
 
+    fn tls_connector() -> postgres_openssl::MakeTlsConnector {
+        use openssl::ssl::{SslConnector, SslMethod};
+        let mut builder =
+            SslConnector::builder(SslMethod::tls()).expect("ssl builder should not fail");
+        builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
+        postgres_openssl::MakeTlsConnector::new(builder.build())
+    }
+
     #[doc(hidden)]
     pub fn _open_conn(server: &Server, job: &Job) -> Result<postgres::Client> {
         let sanitized = job.title().replace(|c: char| !c.is_alphanumeric(), "_");
@@ -265,14 +273,7 @@ impl Conn {
             ServerStyle::With { .. } => server.connstr(),
             _ => format!("{} application_name={}", server.connstr(), sanitized),
         };
-        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), {
-            use openssl::ssl::{SslConnector, SslMethod};
-            use postgres_openssl::MakeTlsConnector;
-            let mut builder =
-                SslConnector::builder(SslMethod::tls()).expect("ssl builder should not fail");
-            builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
-            MakeTlsConnector::new(builder.build())
-        })?;
+        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), Self::tls_connector())?;
 
         for query in job.on_connect() {
             conn.execute(query.sql, &[])?;
@@ -930,6 +931,7 @@ pub struct JobRunner {
     worker_error: RwLock<Option<Arc<anyhow::Error>>>,
 
     runtime_stats: RwLock<BTreeMap<ConnInfo, RuntimeStats>>,
+    cancel_targets: RwLock<Vec<(String, BackendPid, postgres::CancelToken)>>,
 
     sys: Arc<RwLock<System>>,
 }
@@ -954,6 +956,7 @@ impl JobRunner {
             paused: AtomicBool::new(false),
             worker_error: Default::default(),
             runtime_stats: Default::default(),
+            cancel_targets: Default::default(),
             sys,
         })
     }
@@ -1075,33 +1078,15 @@ impl JobRunner {
         if !self.running() {
             return;
         }
-        // Snapshot targets before opening connections or waiting on the network.
-        let targets = self
-            .runtime_stats
-            .read()
-            .keys()
-            .map(|info| (info.server(), info.pid()))
-            .collect::<Vec<_>>();
-        for (server, pid) in targets {
-            if pid <= 0 {
-                continue;
-            }
-            let result = Conn::_open_conn(&server, &self.job).and_then(|mut client| {
-                let row = client.query_one("SELECT pg_cancel_backend($1);", &[&pid])?;
-                Ok(row.get::<_, bool>(0))
-            });
-            match result {
-                Ok(true) => {}
-                Ok(false) => eprintln!(
-                    "could not cancel job={} server={} pid={pid}: backend was not canceled",
-                    self.title(),
-                    server.name
-                ),
-                Err(error) => eprintln!(
-                    "could not cancel job={} server={} pid={pid}: {error:#}",
-                    self.title(),
-                    server.name
-                ),
+        // Tokens retain the original connection's endpoint and cancellation key.
+        // Unlike a SQL session, a cancel request can be sent during smart shutdown.
+        let targets = self.cancel_targets.read().clone();
+        for (server, pid, token) in targets {
+            if let Err(error) = token.cancel_query(Conn::tls_connector()) {
+                eprintln!(
+                    "could not send cancellation job={} server={server} pid={pid}: {error:#}",
+                    self.title()
+                );
             }
         }
     }
@@ -1121,6 +1106,13 @@ impl JobRunner {
 
             std::thread::yield_now();
         }
+
+        // Refresh tokens on every connection replacement before a query can block.
+        *self.cancel_targets.write() = conn
+            .clients
+            .iter()
+            .map(|(client, server, pid)| (server.name.clone(), *pid, client.cancel_token()))
+            .collect();
 
         // Publish backend IDs before the first query can block, including after reconnects.
         {

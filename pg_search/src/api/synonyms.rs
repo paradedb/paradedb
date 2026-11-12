@@ -149,16 +149,18 @@ pub mod pdb {
             _direct_arg: Self::OrderedSetArgs,
             fcinfo: pg_sys::FunctionCallInfo,
         ) -> Self::Finalize {
+            // A window frame reads the state of each row and then adds the next row to it, so
+            // the state stays as it is.
             let state = unsafe { current.get_or_insert_default::<ExpandState>() };
-            let query = match state.query.take() {
-                Some(query) => query,
+            let query = match &state.query {
+                Some(query) => query.clone(),
                 None => unsafe { query_without_rules(fcinfo)? },
             };
             Some(pdb::Query::UnclassifiedString {
                 string: query,
                 fuzzy_data: None,
                 slop_data: None,
-                synonyms: Some(pdb::SynonymRules::Rules(std::mem::take(&mut state.rules))),
+                synonyms: Some(pdb::SynonymRules::Rules(state.rules.clone())),
             })
         }
     }

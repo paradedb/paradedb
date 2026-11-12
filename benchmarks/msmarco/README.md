@@ -49,6 +49,12 @@ CI removes the label when the run starts; reapply it to rerun. Each label starts
 only its selected engine. The generic `benchmarks` and Cohere labels do not
 trigger this large dataset.
 
+For on-demand runners, apply `benchmark-nonspot` to the PR **before** adding
+the benchmark trigger label. This applies to every engine in this workflow.
+The modifier stays on the PR for subsequent runs; remove it to use Spot again.
+It does not start a benchmark by itself or change an already queued or running
+job. Scheduled and manual runs use Spot because they have no PR labels.
+
 Each extension has its own workflow and runs daily on main. Manual dispatch runs
 only the selected workflow's extension:
 

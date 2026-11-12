@@ -1137,7 +1137,7 @@ impl CustomScan for BaseScan {
             // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
             let mut precomputed_segment_count: Option<usize> = None;
-            let mut vector_filter = None;
+            let mut vector_filter_strategy = VectorFilterStrategy::default();
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
@@ -1154,10 +1154,11 @@ impl CustomScan for BaseScan {
                             source_context.indexrel().unwrap(),
                             indexable.clone(),
                             None,
+                            vector_field.as_ref(),
                         );
                         precomputed_query_cost = estimated.query_cost;
                         precomputed_segment_count = estimated.segment_count;
-                        vector_filter = estimated.vector_filter;
+                        vector_filter_strategy = estimated.vector_filter_strategy;
                         if norm_selec != UNASSIGNED_SELECTIVITY {
                             norm_selec
                         } else {
@@ -1181,29 +1182,7 @@ impl CustomScan for BaseScan {
             // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
-            let vector_filter_strategy = vector_field.as_ref().map(|field| {
-                let uses_fast_fields = vector_filter
-                    .map(|filter| filter.uses_fast_fields)
-                    .unwrap_or_else(|| {
-                        !estimation_query
-                            .resolve(&query)
-                            .unwrap_or(&query)
-                            .is_match_all()
-                    });
-                let post_filtering_enabled = gucs::vector_max_scan_levels() > 0
-                    && source_context
-                        .indexrel()
-                        .unwrap()
-                        .options()
-                        .field_config_or_default(field)
-                        .quantization_layers()
-                        .is_some();
-                VectorFilterStrategy::from_estimate(
-                    uses_fast_fields,
-                    vector_filter.map_or(0, |filter| filter.matches),
-                    post_filtering_enabled,
-                )
-            });
+            let vector_filter_strategy = vector_field.as_ref().map(|_| vector_filter_strategy);
             custom_private.set_vector_filter_strategy(vector_filter_strategy);
 
             custom_private.set_heaprelid(source_context.heaprel.oid());

@@ -28,6 +28,7 @@ use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
+use tantivy::vector::VectorFilterStrategy;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
@@ -63,7 +64,7 @@ pub struct PrivateData {
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
     #[serde(default)]
-    vector_filter_strategy: Option<tantivy::vector::VectorFilterStrategy>,
+    vector_filter_strategy: Option<VectorFilterStrategy>,
     // `nodeToString` of the WHERE clauses evaluated in `plan.qual` instead of the scan: the leaky
     // ones, and the base clauses the join qual fallback could not push down.
     #[serde(default)]
@@ -215,10 +216,7 @@ impl PrivateData {
         self.worker_selection_reason = Some(reason);
     }
 
-    pub(super) fn set_vector_filter_strategy(
-        &mut self,
-        strategy: Option<tantivy::vector::VectorFilterStrategy>,
-    ) {
+    pub(super) fn set_vector_filter_strategy(&mut self, strategy: Option<VectorFilterStrategy>) {
         self.vector_filter_strategy = strategy;
     }
 
@@ -314,7 +312,7 @@ impl PrivateData {
         self.worker_selection_reason
     }
 
-    pub(super) fn vector_filter_strategy(&self) -> Option<tantivy::vector::VectorFilterStrategy> {
+    pub(super) fn vector_filter_strategy(&self) -> Option<VectorFilterStrategy> {
         self.vector_filter_strategy
     }
 

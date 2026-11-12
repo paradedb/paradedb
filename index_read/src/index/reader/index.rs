@@ -72,7 +72,7 @@ use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Sc
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
-    ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
+    ProbeParams, ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
     TopDocsByVectorSimilarityBuilder, VectorFilterStrategy, VectorSearchBudget, VectorSegment,
     VectorSimilarityFruit,
 };
@@ -92,8 +92,6 @@ pub struct DocsEstimate {
     pub matching_docs: usize,
     pub total_docs: u64,
     pub query_cost: u64,
-    pub uses_fast_fields: bool,
-    pub vector_matches: usize,
 }
 
 /// A count-only summary of the pruning proof for this reader's segment snapshot.
@@ -963,20 +961,24 @@ impl SearchIndexReader {
         self.estimate_vector_matches() / docs.max(1) as f64
     }
 
-    pub fn vector_filter_strategy(&self, name: &FieldName) -> VectorFilterStrategy {
-        self.vector_filter_strategy.unwrap_or_else(|| {
-            VectorFilterStrategy::from_estimate(
-                self.weight().uses_fast_fields(),
-                self.estimate_vector_matches().ceil() as usize,
-                gucs::vector_max_scan_levels() > 0
-                    && self
-                        .index_rel
-                        .options()
-                        .field_config_or_default(name)
-                        .quantization_layers()
-                        .is_some(),
-            )
-        })
+    pub fn vector_filter_strategy(&self) -> VectorFilterStrategy {
+        self.vector_filter_strategy
+            .expect("vector filter strategy must be selected before routing or collection")
+    }
+
+    pub fn plan_vector_filter(&self, name: &FieldName) -> Result<VectorFilterStrategy> {
+        let field = self.schema.tantivy_schema().get_field(&name.root())?;
+        let segments = self
+            .candidate_segment_readers()
+            .map(VectorSegment::from)
+            .collect::<Vec<_>>();
+        Ok(VectorFilterStrategy::plan(
+            field,
+            self.weight().as_ref(),
+            self.estimate_vector_matches().ceil() as usize,
+            gucs::vector_max_scan_levels(),
+            &segments,
+        )?)
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -1021,15 +1023,13 @@ impl SearchIndexReader {
                 segment
             })
             .collect::<Vec<_>>();
-        let match_fraction = if self.vector_filter_strategy(name) == VectorFilterStrategy::Post {
-            1.0
-        } else {
-            match_fraction
-        };
         let router = TopClustersBySimilarityCollector::new(
             field,
             query.to_vec(),
-            probe_params(),
+            ProbeParams {
+                filter_strategy: self.vector_filter_strategy(),
+                ..probe_params()
+            },
             match_fraction,
         )
         .expect("vector routing parameters should be valid")
@@ -2580,8 +2580,8 @@ impl SearchIndexReader {
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_probe_params(tantivy::vector::ProbeParams {
-                        filter_strategy: self.vector_filter_strategy(name),
+                    .with_probe_params(ProbeParams {
+                        filter_strategy: self.vector_filter_strategy(),
                         ..probe_params()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -2973,8 +2973,6 @@ impl SearchIndexReader {
                 matching_docs: 0,
                 total_docs: 0,
                 query_cost: 0,
-                uses_fast_fields: false,
-                vector_matches: 0,
             };
         }
 
@@ -2993,8 +2991,6 @@ impl SearchIndexReader {
                 matching_docs: 0,
                 total_docs,
                 query_cost: 0,
-                uses_fast_fields: false,
-                vector_matches: 0,
             };
         };
 
@@ -3012,8 +3008,6 @@ impl SearchIndexReader {
             matching_docs: scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
-            uses_fast_fields: self.weight().uses_fast_fields(),
-            vector_matches: self.estimate_vector_matches().ceil() as usize,
         }
     }
 
@@ -5216,7 +5210,10 @@ mod tests {
         )
         .unwrap();
         let index_rel = open_index("cancel_vectors_idx");
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        reader.vector_filter_strategy = Some(VectorFilterStrategy::Pre {
+            uses_fast_fields: false,
+        });
         let ids = reader.segment_ids();
         assert_eq!(ids.len(), 2);
         let order = [OrderByInfo {
@@ -5255,7 +5252,10 @@ mod tests {
                 .unwrap()
                 .unwrap(),
         );
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        reader.vector_filter_strategy = Some(VectorFilterStrategy::Pre {
+            uses_fast_fields: false,
+        });
         let order = vec![OrderByInfo {
             feature: OrderByFeature::VectorDistance {
                 name: FieldName::from("embedding"),
@@ -5348,6 +5348,10 @@ mod tests {
         let index_rel = open_index("candidate_vectors_idx");
         let base = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         assert_eq!(base.segment_ids().len(), 2);
+        let pre = VectorFilterStrategy::Pre {
+            uses_fast_fields: true,
+        };
+        let post = VectorFilterStrategy::Post;
         for (lo, hi, expected_rows, expected_segments) in [
             (1, 10, 10, 1),
             (11, 20, 10, 1),
@@ -5355,11 +5359,18 @@ mod tests {
             (99, 100, 0, 0),
         ] {
             for reverse in [false, true] {
-                for (tie_break, individual_segments) in
-                    [(false, false), (true, false), (false, true), (true, true)]
-                {
+                for (tie_break, individual_segments, strategy) in [
+                    (false, false, pre),
+                    (true, false, pre),
+                    (false, true, pre),
+                    (true, true, pre),
+                    (false, false, post),
+                    (true, false, post),
+                    (false, true, post),
+                    (true, true, post),
+                ] {
                     let trace = io_stats::Trace::default();
-                    let reader = SearchIndexReader::open_with_context(
+                    let mut reader = SearchIndexReader::open_with_context(
                         &index_rel,
                         range_query("id", lo, hi),
                         false,
@@ -5370,6 +5381,7 @@ mod tests {
                         Some(trace.clone()),
                     )
                     .unwrap();
+                    reader.vector_filter_strategy = Some(strategy);
                     let mut ids = reader.segment_ids();
                     if reverse {
                         ids.reverse();
@@ -5486,7 +5498,10 @@ mod tests {
              REINDEX INDEX retry_vectors_idx;",
         ).unwrap();
         let index_rel = open_index("retry_vectors_idx");
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        reader.vector_filter_strategy = Some(VectorFilterStrategy::Pre {
+            uses_fast_fields: false,
+        });
         let field = FieldName::from("embedding");
         let query = vec![1.0, 0.0, 0.0];
         let plan = Arc::new(SharedVectorRouting::from(reader.vector_routing_plan(

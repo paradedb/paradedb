@@ -19,6 +19,7 @@
 pub use common::api::operator::*;
 
 use crate::api::{CTID_FIELD_NAME, FieldName};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{DocsEstimate, SearchIndexReader};
 use crate::postgres::catalog::lookup_reltuples;
 use crate::postgres::index::{
@@ -28,6 +29,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::scan::info::RowEstimate;
 use pgrx::pg_sys;
+use tantivy::vector::VectorFilterStrategy;
 
 /// #4172: for queries whose scorer is expensive to build (fuzzy, regex, range),
 /// estimate heuristically rather than opening the index. Both selectivity and the
@@ -51,7 +53,8 @@ fn open_and_estimate_docs(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
-) -> Option<(DocsEstimate, usize)> {
+    vector_field: Option<&FieldName>,
+) -> Option<(DocsEstimate, usize, VectorFilterStrategy)> {
     // A partitioned index has no storage of its own (#4643). A predicate above an Append
     // covers every partition, so one leaf stands in for the tree: its match ratio is the
     // selectivity, and its counts scale up to the rows of every leaf. The largest leaf is
@@ -65,11 +68,13 @@ fn open_and_estimate_docs(
             .collect();
         leaves.sort_by(|a, b| b.1.unwrap_or(-1.0).total_cmp(&a.1.unwrap_or(-1.0)));
         let ordered: Vec<pg_sys::Oid> = leaves.iter().map(|(oid, _)| *oid).collect();
-        let (sample_oid, estimate, segment_count) = free_leaf_partition_indexes(&ordered)
+        let (sample_oid, estimate, segment_count, strategy) = free_leaf_partition_indexes(&ordered)
             .find_map(|leaf| {
-                open_and_estimate_docs(&leaf, search_query_input.clone(), None)
-                    .filter(|(estimate, _)| estimate.total_docs > 0)
-                    .map(|(estimate, segment_count)| (leaf.oid(), estimate, segment_count))
+                open_and_estimate_docs(&leaf, search_query_input.clone(), None, vector_field)
+                    .filter(|(estimate, _, _)| estimate.total_docs > 0)
+                    .map(|(estimate, segment_count, strategy)| {
+                        (leaf.oid(), estimate, segment_count, strategy)
+                    })
             })?;
         // A leaf that has never been counted is taken to be the sample's size.
         let sample_rows = estimate.total_docs as f64;
@@ -85,10 +90,9 @@ fn open_and_estimate_docs(
                 matching_docs: (estimate.matching_docs as f64 * scale).ceil() as usize,
                 total_docs: total_rows.ceil() as u64,
                 query_cost: (estimate.query_cost as f64 * scale).ceil() as u64,
-                uses_fast_fields: estimate.uses_fast_fields,
-                vector_matches: (estimate.vector_matches as f64 * scale).ceil() as usize,
             },
             segment_count,
+            strategy,
         ));
     }
 
@@ -101,14 +105,22 @@ fn open_and_estimate_docs(
     let reader = match reader {
         Some(reader) => reader,
         None => {
-            let mvcc_style = SearchIndexReader::mvcc_for_estimation(indexrel, &search_query_input);
+            let mvcc_style = if vector_field.is_some() {
+                MvccSatisfies::Snapshot
+            } else {
+                SearchIndexReader::mvcc_for_estimation(indexrel, &search_query_input)
+            };
             opened =
                 SearchIndexReader::open(indexrel, search_query_input, false, mvcc_style).ok()?;
             &opened
         }
     };
     let estimate = reader.estimate_docs(row_estimate);
-    Some((estimate, reader.estimated_segment_count()))
+    let strategy = match vector_field {
+        Some(field) => reader.plan_vector_filter(field).ok()?,
+        None => VectorFilterStrategy::default(),
+    };
+    Some((estimate, reader.estimated_segment_count(), strategy))
 }
 
 /// The planner's row count for the partition a leaf index is attached to, `None` when
@@ -120,17 +132,11 @@ fn leaf_heap_rows(index_oid: pg_sys::Oid) -> Option<f64> {
         .flatten()
 }
 
-#[derive(Clone, Copy)]
-pub struct VectorFilterEstimate {
-    pub matches: usize,
-    pub uses_fast_fields: bool,
-}
-
 pub struct SelectivityAndCost {
     pub selectivity: Option<f64>,
     pub query_cost: Option<u64>,
     pub segment_count: Option<usize>,
-    pub vector_filter: Option<VectorFilterEstimate>,
+    pub vector_filter_strategy: VectorFilterStrategy,
 }
 
 /// One index open, all planning answers: selectivity (matching/total docs), the
@@ -149,6 +155,7 @@ pub fn estimate_selectivity_and_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
+    vector_field: Option<&FieldName>,
 ) -> SelectivityAndCost {
     if let Some(selectivity) = heuristic_selectivity(&search_query_input) {
         // #4172 skips opening the index, so derive the work estimate from the same
@@ -164,18 +171,18 @@ pub fn estimate_selectivity_and_cost(
             selectivity: Some(selectivity),
             query_cost: cost,
             segment_count: None,
-            vector_filter: None,
+            vector_filter_strategy: VectorFilterStrategy::default(),
         };
     }
 
-    let Some((estimate, segment_count)) =
-        open_and_estimate_docs(indexrel, search_query_input, reader)
+    let Some((estimate, segment_count, vector_filter_strategy)) =
+        open_and_estimate_docs(indexrel, search_query_input, reader, vector_field)
     else {
         return SelectivityAndCost {
             selectivity: None,
             query_cost: None,
             segment_count: None,
-            vector_filter: None,
+            vector_filter_strategy: VectorFilterStrategy::default(),
         };
     };
 
@@ -186,10 +193,7 @@ pub fn estimate_selectivity_and_cost(
         selectivity,
         query_cost: Some(estimate.query_cost),
         segment_count: Some(segment_count),
-        vector_filter: Some(VectorFilterEstimate {
-            matches: estimate.vector_matches,
-            uses_fast_fields: estimate.uses_fast_fields,
-        }),
+        vector_filter_strategy,
     }
 }
 
@@ -197,7 +201,7 @@ pub fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input, None).selectivity
+    estimate_selectivity_and_cost(indexrel, search_query_input, None, None).selectivity
 }
 
 /// The estimated number of heap rows matching `search_query_input`, scaled from the
@@ -219,8 +223,8 @@ pub fn estimate_matching_rows(
             .map(|reltuples| (selectivity * reltuples as f64) as u64);
     }
 
-    open_and_estimate_docs(indexrel, search_query_input, reader)
-        .map(|(estimate, _)| estimate.matching_docs as u64)
+    open_and_estimate_docs(indexrel, search_query_input, reader, None)
+        .map(|(estimate, _, _)| estimate.matching_docs as u64)
 }
 
 /// Estimate the query's traversal cost using the shared selectivity/cost estimator.
@@ -229,7 +233,7 @@ pub fn estimate_query_cost(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<u64> {
-    estimate_selectivity_and_cost(indexrel, search_query_input, None).query_cost
+    estimate_selectivity_and_cost(indexrel, search_query_input, None, None).query_cost
 }
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`

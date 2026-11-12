@@ -180,7 +180,10 @@ pub unsafe fn extract_field_attributes(
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
                             }
 
-                            if !is_literal && normalizer.is_none() && is_text_lower((*relabel).arg.cast()) {
+                            if !is_literal
+                                && normalizer.is_none()
+                                && is_text_lower((*relabel).arg.cast())
+                            {
                                 normalizer = Some(SearchNormalizer::Lowercase);
                             }
                         }

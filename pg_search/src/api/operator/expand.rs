@@ -41,17 +41,27 @@ pub fn expand_with_index(query: String, index: IndexOid) -> pdb::Query {
     }
 }
 
+const MORE: &str = "it does more than read the rules of one table";
+
 /// Replaces the `pdb.expand` subquery in `rhs` with a query on a synonym index of its table, for
 /// a match on `field` of the text index `index`. `None` leaves the subquery to run as written.
-pub(super) unsafe fn read_synonym_index(
+pub(super) unsafe fn replace_expand_subquery(
     root: *mut pg_sys::PlannerInfo,
     rhs: *mut pg_sys::Node,
     index: &PgSearchRelation,
     field: &FieldName,
 ) -> Option<*mut pg_sys::Node> {
+    // The replaced plan depends on the role, and only a root can record that.
+    if root.is_null() {
+        return None;
+    }
     let replaced = replace_subquery(rhs, &|subquery| {
-        let expand = expand_call(subquery)?;
-        synonym_index_query(root, subquery, expand, index, field)
+        if !calls_expand(subquery) {
+            return None;
+        }
+        expand_call(subquery)
+            .ok_or_else(|| MORE.to_owned())
+            .and_then(|expand| synonym_index_query(root, subquery, expand, index, field))
             .map_err(|reason| {
                 add_planner_warning(
                     "Synonyms",
@@ -69,7 +79,8 @@ pub(super) unsafe fn read_synonym_index(
     Some(pg_sys::eval_const_expressions(root, replaced))
 }
 
-/// A cast such as `::pdb.fuzzy(1)` is a function call around the subquery.
+/// A cast such as `::pdb.fuzzy(1)` is a function call around the subquery. Any other function
+/// gets the value that the subquery returns.
 unsafe fn replace_subquery(
     node: *mut pg_sys::Node,
     replace: &dyn Fn(*mut pg_sys::Query) -> Option<*mut pg_sys::Node>,
@@ -81,6 +92,9 @@ unsafe fn replace_subquery(
         return replace(nodecast!(Query, (*sublink).subselect)?);
     }
     let call = nodecast!(FuncExpr, node)?;
+    if (*call).funcformat == pg_sys::CoercionForm::COERCE_EXPLICIT_CALL {
+        return None;
+    }
     let args = PgList::<pg_sys::Node>::from_pg((*call).args);
     let mut replaced_args = PgList::<pg_sys::Node>::new();
     replaced_args.push(replace_subquery(args.get_ptr(0)?, replace)?);
@@ -93,18 +107,32 @@ unsafe fn replace_subquery(
     Some(replaced.cast())
 }
 
-/// The `pdb.expand` call of a subquery that selects nothing else.
+/// The schema of `text` is written, because a type of that name can come first on the search
+/// path.
+unsafe fn is_expand(call: *mut pg_sys::Aggref) -> bool {
+    direct_function_call::<pg_sys::Oid>(
+        pg_sys::to_regprocedure,
+        &["pdb.expand(pg_catalog.text, pg_catalog.text)".into_datum()],
+    ) == Some((*call).aggfnoid)
+}
+
+/// A subquery that calls `pdb.expand` anywhere in its values is one that the user means to expand
+/// with, so it gets the warning when it runs as written.
+unsafe fn calls_expand(subquery: *mut pg_sys::Query) -> bool {
+    (*subquery)
+        .targetList
+        .cast::<pg_sys::Node>()
+        .any(|node| nodecast!(Aggref, node).is_some_and(|call| is_expand(call)))
+}
+
+/// The `pdb.expand` call of a subquery that returns nothing else.
 unsafe fn expand_call(subquery: *mut pg_sys::Query) -> Option<*mut pg_sys::Aggref> {
     let targets = PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
-    if targets.len() != 1 {
+    let mut values = targets.iter_ptr().filter(|target| !(**target).resjunk);
+    let (Some(value), None) = (values.next(), values.next()) else {
         return None;
-    }
-    let aggref = nodecast!(Aggref, (*targets.get_ptr(0)?).expr)?;
-    let expand = direct_function_call::<pg_sys::Oid>(
-        pg_sys::to_regprocedure,
-        &["pdb.expand(text, text)".into_datum()],
-    )?;
-    ((*aggref).aggfnoid == expand).then_some(aggref)
+    };
+    nodecast!(Aggref, without_relabel((*value).expr.cast())).filter(|call| is_expand(*call))
 }
 
 /// The call of `expand_with_index` that reads a synonym index in place of the subquery, or the
@@ -119,7 +147,7 @@ unsafe fn synonym_index_query(
     let rules = rules_of_one_table(root, subquery, expand)?;
     let synonym_index = synonym_index_of_column(
         &rules.table,
-        rules.attno,
+        rules.column_index,
         |candidate| holds_rows(candidate, rules.quals),
         index,
         field,
@@ -137,9 +165,19 @@ unsafe fn synonym_index_query(
         }
     })?;
 
+    // The scan opens the index with the rights of the role that runs it. That role is not the
+    // role of the subquery in a view, and not the role of a cached plan after `SET ROLE`.
+    if !IndexOid::from(synonym_index).is_readable() {
+        return Err(format!(
+            "the role can't read the rules of \"{}\" through an index",
+            rules.table.name()
+        ));
+    }
+    (*(*root).glob).dependsOnRole = true;
+
     let expand_with_index = direct_function_call::<pg_sys::Oid>(
         pg_sys::regprocedurein,
-        &[c"paradedb.expand_with_index(text, regclass)".into_datum()],
+        &[c"paradedb.expand_with_index(pg_catalog.text, pg_catalog.regclass)".into_datum()],
     )
     .ok_or("`paradedb.expand_with_index` does not exist")?;
     let mut args = PgList::<pg_sys::Node>::new();
@@ -170,8 +208,8 @@ unsafe fn synonym_index_query(
 /// What a subquery of the form `SELECT pdb.expand('text', rule) FROM rules WHERE quals` reads.
 struct TableRules {
     table: PgSearchRelation,
-    /// The rule column, counted from zero.
-    attno: usize,
+    /// The position of the rule column in the table, from zero.
+    column_index: usize,
     /// The `WHERE` as an implicit `AND` list.
     quals: *mut pg_sys::List,
     /// The text to expand, a constant or a parameter of the statement.
@@ -183,7 +221,13 @@ unsafe fn rules_of_one_table(
     subquery: *mut pg_sys::Query,
     expand: *mut pg_sys::Aggref,
 ) -> Result<TableRules, String> {
-    const MORE: &str = "it does more than read the rules of one table";
+    // The subquery is not planned yet. A root of its own makes a column in its expressions a
+    // column of its table, and not of a table of the outer query.
+    let mut subroot: pg_sys::PlannerInfo = std::mem::zeroed();
+    subroot.type_ = pg_sys::NodeTag::T_PlannerInfo;
+    subroot.glob = (*root).glob;
+    subroot.parse = subquery;
+    let root: *mut pg_sys::PlannerInfo = &mut subroot;
 
     let query = &*subquery;
     let only_rules = query.commandType == pg_sys::CmdType::CMD_SELECT
@@ -221,10 +265,7 @@ unsafe fn rules_of_one_table(
     let rte = PgList::<pg_sys::RangeTblEntry>::from_pg(query.rtable)
         .get_ptr(0)
         .ok_or(MORE)?;
-    if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION
-        || pg_sys::get_rel_relkind((*rte).relid) as u8 != pg_sys::RELKIND_RELATION
-        || !(*rte).tablesample.is_null()
-    {
+    if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION || !(*rte).tablesample.is_null() {
         return Err(MORE.into());
     }
 
@@ -239,11 +280,20 @@ unsafe fn rules_of_one_table(
 
     let table = PgSearchRelation::with_lock((*rte).relid, pg_sys::AccessShareLock as _);
     let name = table.name();
+    match pg_sys::get_rel_relkind(table.oid()) as u8 {
+        pg_sys::RELKIND_RELATION => {}
+        pg_sys::RELKIND_PARTITIONED_TABLE => {
+            return Err(format!("\"{name}\" is a partitioned table"));
+        }
+        _ => return Err(MORE.into()),
+    }
     // Row security adds its quals here, and the index would read rows that they hide.
     if !(*rte).securityQuals.is_null() {
         return Err(format!("row security applies to \"{name}\""));
     }
-    if (*table.rd_rel).relhassubclass {
+    // `ONLY` reads the rows of the table itself, and those are the rows that the index holds.
+    if (*rte).inh && !pg_sys::find_inheritance_children(table.oid(), pg_sys::NoLock as _).is_null()
+    {
         return Err(format!("\"{name}\" has child tables"));
     }
     // The index is read with `SELECT` on the whole table. A role with a column grant reads the
@@ -257,7 +307,10 @@ unsafe fn rules_of_one_table(
     // Any other text can read a row of the subquery or of the outer query.
     let text = pg_sys::eval_const_expressions(root, (*text).expr.cast());
     let value = without_relabel(text);
-    let known = nodecast!(Const, value).is_some_and(|text| !(*text).constisnull)
+    if nodecast!(Const, value).is_some_and(|text| (*text).constisnull) {
+        return Err("the text to expand is NULL".into());
+    }
+    let known = nodecast!(Const, value).is_some()
         || nodecast!(Param, value)
             .is_some_and(|text| (*text).paramkind == pg_sys::ParamKind::PARAM_EXTERN);
     if !known {
@@ -273,7 +326,7 @@ unsafe fn rules_of_one_table(
     };
     Ok(TableRules {
         table,
-        attno: (*rule).varattno as usize - 1,
+        column_index: (*rule).varattno as usize - 1,
         quals,
         text,
     })

@@ -55,11 +55,6 @@ SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('blue', rule) FROM shop_synonyms) ORDER BY id;
 DELETE FROM shop_synonyms WHERE rule IN ('red, blue', 'red, oak');
 
--- A group scores as one term, so a row with two of its words scores a little above a row with
--- one.
-SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products
-WHERE description ||| (SELECT pdb.expand('couch', rule) FROM shop_synonyms) ORDER BY score DESC, id;
-
 -- A fuzzy match keeps the typed word fuzzy and matches the alternatives exactly, so `sofas`
 -- matches a fuzzy `sofa` and not a fuzzy `couch`. A directed rule drops the typed word.
 INSERT INTO products VALUES (10, 'two sofas');

@@ -117,7 +117,7 @@ impl ListedRuleSource {
                 }
             }
         }
-        // A synonym index reads the same number of rules for a key.
+        // The same setting caps the rules of a key in each segment of a synonym index.
         let max_rules_per_key = gucs::synonyms_max_rules_per_key();
         let mut keys_of_token: HashMap<String, Vec<KeyDocs>> = HashMap::default();
         for (key, mut docs) in docs_of_key {

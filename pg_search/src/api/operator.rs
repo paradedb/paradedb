@@ -158,7 +158,7 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
             SimplifyRhs::Rewrite(operator) => {
                 let rhs = match (&field, operator) {
                     (Some(field), SearchOperator::Conjunction | SearchOperator::Disjunction) => {
-                        expand::read_synonym_index((*request).root, rhs, &indexrel, field)
+                        expand::replace_expand_subquery((*request).root, rhs, &indexrel, field)
                             .unwrap_or(rhs)
                     }
                     _ => rhs,

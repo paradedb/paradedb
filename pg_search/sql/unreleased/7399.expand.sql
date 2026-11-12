@@ -1,3 +1,4 @@
+-- No release has pdb.with_synonyms. Only a database that was built from main has it.
 DROP FUNCTION IF EXISTS pdb.with_synonyms(pdb.query, regclass);
 DROP FUNCTION IF EXISTS pdb.with_synonyms(text, regclass);
 

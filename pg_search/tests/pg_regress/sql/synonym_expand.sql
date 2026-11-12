@@ -3,7 +3,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 2;
 DROP VIEW IF EXISTS sofa_products;
-DROP TABLE IF EXISTS products, en_products, shop_synonyms, text_rules CASCADE;
+DROP TABLE IF EXISTS products, parted_products, en_products, shop_synonyms, text_rules CASCADE;
 DROP ROLE IF EXISTS synonym_expand_reader;
 
 CREATE TABLE shop_synonyms (rule pdb.synonym_rule NOT NULL, shop text NOT NULL DEFAULT 'main');
@@ -73,6 +73,13 @@ WHERE description ||| (SELECT pdb.expand('divan', rule) FROM shop_synonyms WHERE
 ORDER BY id;
 RESET paradedb.synonyms_max_alternatives;
 
+-- A word reads the first `paradedb.synonyms_max_rules_per_key` rules that list it, so `sofa` does
+-- not reach `settee`.
+SET paradedb.synonyms_max_rules_per_key = 1;
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+RESET paradedb.synonyms_max_rules_per_key;
+
 -- The rules are compiled with the tokenizer of the field, so a stemmed field expands a stemmed word.
 CREATE TABLE en_products (id int PRIMARY KEY, description text);
 INSERT INTO en_products VALUES (1, 'two couches'), (2, 'a sofa'), (3, 'a divan');
@@ -113,6 +120,29 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 0);
 
+-- A cast inside the subquery is more than the aggregate, so the subquery runs as written.
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule)::pdb.boost(2) FROM shop_synonyms)
+ORDER BY id;
+
+-- The index of a partitioned table has no storage. The query still reads the synonym index.
+CREATE TABLE parted_products (id int PRIMARY KEY, description text) PARTITION BY RANGE (id);
+CREATE TABLE parted_products_low PARTITION OF parted_products FOR VALUES FROM (0) TO (5);
+CREATE TABLE parted_products_high PARTITION OF parted_products FOR VALUES FROM (5) TO (100);
+INSERT INTO parted_products SELECT id, description FROM products;
+CREATE INDEX parted_products_idx ON parted_products USING bm25 (id, description);
+SELECT id FROM parted_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+DROP TABLE parted_products;
+
+-- The index holds the rows of the table itself. With a child table, `ONLY` reads those rows.
+CREATE TABLE more_synonyms () INHERITS (shop_synonyms);
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM ONLY shop_synonyms) ORDER BY id;
+DROP TABLE more_synonyms;
+
 -- A group scores as one term, and the index gives the scores that the rules give.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products
 WHERE description ||| (SELECT pdb.expand('couch', rule) FROM shop_synonyms)
@@ -138,6 +168,11 @@ EXECUTE sofa_query('sofa');
 SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
 EXECUTE sofa_query('sofa');
+-- The cached plan is planned again when the synonym index goes away and when it comes back.
+DROP INDEX shop_synonyms_idx;
+EXECUTE sofa_query('sofa');
+CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);
+EXECUTE sofa_query('sofa');
 RESET plan_cache_mode;
 DEALLOCATE sofa_query;
 
@@ -154,10 +189,13 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE 
 ORDER BY id;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
--- A generic plan has no value for a parameter in the filter, so it can't pick a partial index.
+-- A custom plan has the value of a parameter in the filter and picks the partial index. A
+-- generic plan has no value, so it can't.
 PREPARE outlet_query(text) AS SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = $1)
 ORDER BY id;
+SET plan_cache_mode = force_custom_plan;
+EXECUTE outlet_query('outlet');
 SET plan_cache_mode = force_generic_plan;
 EXECUTE outlet_query('outlet');
 RESET plan_cache_mode;
@@ -168,16 +206,12 @@ CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);
 
 -- A synonym index that is not valid is not read.
 UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'shop_synonyms_idx'::regclass;
-EXPLAIN (COSTS OFF)
 SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
 UPDATE pg_index SET indisvalid = true WHERE indexrelid = 'shop_synonyms_idx'::regclass;
 
--- A subquery with a filter that no index has still reads the rules itself. The warning says why,
--- and `paradedb.planner_warnings` makes it an error.
-EXPLAIN (COSTS OFF)
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
+-- A subquery with a filter that no index has reads the rules itself, and
+-- `paradedb.planner_warnings` makes that an error.
 SET paradedb.planner_warnings = 'error';
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main');
@@ -189,16 +223,36 @@ SET ROLE synonym_expand_reader;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
 RESET ROLE;
+
+-- A view reads the rules with the rights of its owner. The index is read with the rights of the
+-- role that runs the query, so under row security for that role the subquery runs as written.
+CREATE VIEW sofa_products AS SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+GRANT SELECT ON sofa_products TO synonym_expand_reader;
+SET ROLE synonym_expand_reader;
+SELECT id FROM sofa_products ORDER BY id;
+RESET ROLE;
+DROP VIEW sofa_products;
 DELETE FROM shop_synonyms WHERE shop = 'outlet';
 DROP POLICY outlet_rules ON shop_synonyms;
 ALTER TABLE shop_synonyms DISABLE ROW LEVEL SECURITY;
-REVOKE SELECT ON products, shop_synonyms FROM synonym_expand_reader;
+
+-- A cached plan that reads the index is planned again for another role. A column grant is
+-- enough for the subquery and not for the index, so that role reads the rules itself.
+REVOKE SELECT ON shop_synonyms FROM synonym_expand_reader;
+GRANT SELECT (rule) ON shop_synonyms TO synonym_expand_reader;
+PREPARE role_query AS SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+EXECUTE role_query;
+SET ROLE synonym_expand_reader;
+EXECUTE role_query;
+RESET ROLE;
+DEALLOCATE role_query;
+REVOKE SELECT ON products FROM synonym_expand_reader;
+REVOKE SELECT (rule) ON shop_synonyms FROM synonym_expand_reader;
 DROP ROLE synonym_expand_reader;
 
 -- A synonym index with another tokenizer than the field is not read, and the query still expands.
-EXPLAIN (COSTS OFF)
-SELECT id FROM en_products
-WHERE description ||| (SELECT pdb.expand('sofas', rule) FROM shop_synonyms);
 SELECT id FROM en_products
 WHERE description ||| (SELECT pdb.expand('sofas', rule) FROM shop_synonyms) ORDER BY id;
 
@@ -232,6 +286,11 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM text_rules) ORDER BY
 INSERT INTO text_rules VALUES ('sofa => couch => divan');
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM text_rules) ORDER BY id;
+
+-- A window frame reads the aggregate after each row, so the final function keeps the state.
+SELECT rule, (pdb.expand('sofa', rule) OVER (ORDER BY rule))::text::jsonb
+    #> '{unclassified_string,synonyms}' AS rules
+FROM shop_synonyms ORDER BY rule;
 
 -- The aggregate takes one query text.
 SELECT pdb.expand(texts.query, rule) FROM shop_synonyms, (VALUES ('a'), ('b')) AS texts(query);

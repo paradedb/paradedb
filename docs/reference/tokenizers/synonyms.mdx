@@ -157,7 +157,8 @@ Each alternative is one more term the query has to look up, so a long rule costs
 - `paradedb.synonyms_max_alternatives` (default `32`) caps how many alternatives one run of words expands to, in sorted
   order. The words you typed stay when a rule lists them.
 - `paradedb.synonyms_max_rules_per_key` (default `1024`) caps how many rules one word reads in each segment of the synonym
-  index. A word in more rules reads only the first ones.
+  index. A word in more rules reads only the first ones. Without a synonym index, the cap counts the rules that the
+  subquery returns.
 
 ## Checking an Expansion
 

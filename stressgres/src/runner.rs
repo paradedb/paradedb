@@ -1081,17 +1081,38 @@ impl JobRunner {
         self.worker_error.read().clone()
     }
 
-    /// A best efforts attempt to cancel the query that this Job might currently be running.
-    ///
-    /// No errors are reported, even if the attempt to cancel failed in some generally unexpected way
+    /// Best-effort cancellation of the job's active queries.
     pub fn cancel_query(&self) {
-        if self.running() {
-            // open a new connection to everywhere the job is configured to connect to
-            if let Ok(mut conn) = Conn::open(&self.suite, &self.job) {
-                for conninfo in &mut self.runtime_stats.read().keys() {
-                    // this is a best efforts to cancel the pid.
-                    conn.execute("SELECT pg_cancel_backend($1);", &[&conninfo.pid()]);
-                }
+        if !self.running() {
+            return;
+        }
+        // Snapshot targets before opening connections or waiting on the network.
+        let targets = self
+            .runtime_stats
+            .read()
+            .keys()
+            .map(|info| (info.server(), info.pid()))
+            .collect::<Vec<_>>();
+        for (server, pid) in targets {
+            if pid <= 0 {
+                continue;
+            }
+            let result = Conn::_open_conn(&server, &self.job).and_then(|mut client| {
+                let row = client.query_one("SELECT pg_cancel_backend($1);", &[&pid])?;
+                Ok(row.get::<_, bool>(0))
+            });
+            match result {
+                Ok(true) => {}
+                Ok(false) => eprintln!(
+                    "could not cancel job={} server={} pid={pid}: backend was not canceled",
+                    self.title(),
+                    server.name
+                ),
+                Err(error) => eprintln!(
+                    "could not cancel job={} server={} pid={pid}: {error:#}",
+                    self.title(),
+                    server.name
+                ),
             }
         }
     }
@@ -1110,6 +1131,19 @@ impl JobRunner {
             }
 
             std::thread::yield_now();
+        }
+
+        // Publish backend IDs before the first query can block, including after reconnects.
+        {
+            let mut stats = self.runtime_stats.write();
+            for (id, (_, server, pid)) in conn.clients.iter().enumerate() {
+                let info = ConnInfo::new(id, server, *pid);
+                if let Some((existing, _)) = stats.get_key_value(&info) {
+                    *existing.meta.write() = info.meta.read().clone();
+                } else {
+                    stats.insert(info, RuntimeStats::default());
+                }
+            }
         }
 
         let statements = self.job.sql();
@@ -1243,6 +1277,84 @@ fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::tokio_connstr;
+
+    #[test]
+    #[ignore = "requires STRESSGRES_TEST_DATABASE_URL pointing to PostgreSQL"]
+    fn cancels_first_query_after_connect_and_reconnect() {
+        use super::*;
+        use crate::suite::{ServerStyle, SuiteDefinition};
+        use std::sync::mpsc;
+
+        let url = std::env::var("STRESSGRES_TEST_DATABASE_URL").unwrap();
+        let job = Job {
+            title: Some("first query cancellation".into()),
+            sql: "SELECT pg_sleep(5)".into(),
+            ..Job::default()
+        };
+        let server = Server {
+            name: "Primary".into(),
+            default: true,
+            style: ServerStyle::With {
+                connection_string: url,
+            },
+            setup: Job::default(),
+            teardown: Job::default(),
+            monitor: Job::default(),
+        };
+        let suite = Arc::new(Suite::new(SuiteDefinition {
+            path: None,
+            name: None,
+            jobs: vec![job.clone()],
+            servers: vec![server],
+            ignore_errors: vec![],
+        }));
+        let runner = Arc::new(
+            JobRunner::new(
+                suite.clone(),
+                job.clone(),
+                false,
+                Arc::new(AtomicBool::new(true)),
+                Arc::new(RwLock::new(System::new())),
+            )
+            .unwrap(),
+        );
+        let mut observer = Conn::open(&suite, &job).unwrap();
+        let mut previous_pid = 0;
+        for _ in 0..2 {
+            let mut conn = Conn::open(&suite, &job).unwrap();
+            let pid = conn.clients[0].2;
+            assert_ne!(pid, previous_pid);
+            previous_pid = pid;
+            let (done_tx, done_rx) = mpsc::channel();
+            let worker_runner = runner.clone();
+            let worker = std::thread::spawn(move || {
+                done_tx.send(worker_runner.run(&mut conn)).unwrap();
+            });
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                let row = observer
+                    .first_client()
+                    .query_one(
+                        "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1 AND wait_event = 'PgSleep')",
+                        &[&pid],
+                    )
+                    .unwrap();
+                if row.get::<_, bool>(0) {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "first query did not start");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let infos = runner.runtime_stats();
+            assert_eq!(infos.keys().next().unwrap().pid(), pid);
+            runner.cancel_query();
+            done_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("first query was not canceled")
+                .unwrap();
+            worker.join().unwrap();
+        }
+    }
 
     #[test]
     fn tokio_connstr_translates_only_the_keepalive_probe_count() {

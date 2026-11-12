@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794444010330,
+  "lastUpdate": 1794444039605,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -58078,6 +58078,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13845795455-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c",
+          "message": "fix: add a configurable hard-cap for termset size in queries (#7395)\n\n## What\nThis PR adds a configurable hard-cap for termset size. Queries that\nexceed 50% of the cap will see a warning and those that exceed the cap\nwill see an error.\n\n## Why\nIt is currently possible to exhaust memory by filling a termset with the\nresults of a subquery, which will cause a crash and postgres to restart.\nThis will prevent that for most setups unless the cap is raised by the\nuser such that it can exhaust memory again.\n\n## How\n- A new GUC `paradedb.max_term_set_size` and the associated helper\nfunctions.\n- A new function `check_term_set_size`, called during term set\nconstruction\n\n## Tests\n- New regress tests.",
+          "timestamp": "2026-11-11T22:40:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c"
+        },
+        "date": 1794444032605,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.452,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.701,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 12.491,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.52,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 11.82,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 12.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 16.656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 19.218,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 21.525,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 11.036,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 14.202,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 14.52,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.4,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.198,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 20.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.102,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 23.047,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 24.421,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.072,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.053,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 4.376,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 5.179,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 5.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 9.249,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 10.439,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 11.109,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13900708893-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -61875,6 +62033,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13845795455-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c",
+          "message": "fix: add a configurable hard-cap for termset size in queries (#7395)\n\n## What\nThis PR adds a configurable hard-cap for termset size. Queries that\nexceed 50% of the cap will see a warning and those that exceed the cap\nwill see an error.\n\n## Why\nIt is currently possible to exhaust memory by filling a termset with the\nresults of a subquery, which will cause a crash and postgres to restart.\nThis will prevent that for most setups unless the cap is raised by the\nuser such that it can exhaust memory again.\n\n## How\n- A new GUC `paradedb.max_term_set_size` and the associated helper\nfunctions.\n- A new function `check_term_set_size`, called during term set\nconstruction\n\n## Tests\n- New regress tests.",
+          "timestamp": "2026-11-11T22:40:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c"
+        },
+        "date": 1794444034541,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 94.92705775349808,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 93.0345070804158,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 59.04548007957242,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 86.25955423216718,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 61.127349535100066,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 54.20100256259273,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 317.88690464046687,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 226.23986013289053,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 114.71566545104797,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13900708893-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -78010,6 +78236,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13845795455-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c",
+          "message": "fix: add a configurable hard-cap for termset size in queries (#7395)\n\n## What\nThis PR adds a configurable hard-cap for termset size. Queries that\nexceed 50% of the cap will see a warning and those that exceed the cap\nwill see an error.\n\n## Why\nIt is currently possible to exhaust memory by filling a termset with the\nresults of a subquery, which will cause a crash and postgres to restart.\nThis will prevent that for most setups unless the cap is raised by the\nuser such that it can exhaust memory again.\n\n## How\n- A new GUC `paradedb.max_term_set_size` and the associated helper\nfunctions.\n- A new function `check_term_set_size`, called during term set\nconstruction\n\n## Tests\n- New regress tests.",
+          "timestamp": "2026-11-11T22:40:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c"
+        },
+        "date": 1794444039593,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.7002529959833333,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4595.375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13900708893-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -81456,6 +81715,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13845795455-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c",
+          "message": "fix: add a configurable hard-cap for termset size in queries (#7395)\n\n## What\nThis PR adds a configurable hard-cap for termset size. Queries that\nexceed 50% of the cap will see a warning and those that exceed the cap\nwill see an error.\n\n## Why\nIt is currently possible to exhaust memory by filling a termset with the\nresults of a subquery, which will cause a crash and postgres to restart.\nThis will prevent that for most setups unless the cap is raised by the\nuser such that it can exhaust memory again.\n\n## How\n- A new GUC `paradedb.max_term_set_size` and the associated helper\nfunctions.\n- A new function `check_term_set_size`, called during term set\nconstruction\n\n## Tests\n- New regress tests.",
+          "timestamp": "2026-11-11T22:40:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c"
+        },
+        "date": 1794444036437,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 4542.41,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 5258.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 9335.75,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 5743.1,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 7808.8,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 10072.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 776.91,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1198.21,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 2660.36,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13900708893-buffers"
       }
     ],
     "benchmarker hackernews (latency)": [
@@ -83601,6 +83928,131 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13903778621-router-detail"
+      }
+    ],
+    "benchmarker cohere-1m (router)": [
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c",
+          "message": "fix: add a configurable hard-cap for termset size in queries (#7395)\n\n## What\nThis PR adds a configurable hard-cap for termset size. Queries that\nexceed 50% of the cap will see a warning and those that exceed the cap\nwill see an error.\n\n## Why\nIt is currently possible to exhaust memory by filling a termset with the\nresults of a subquery, which will cause a crash and postgres to restart.\nThis will prevent that for most setups unless the cap is raised by the\nuser such that it can exhaust memory again.\n\n## How\n- A new GUC `paradedb.max_term_set_size` and the associated helper\nfunctions.\n- A new function `check_term_set_size`, called during term set\nconstruction\n\n## Tests\n- New regress tests.",
+          "timestamp": "2026-11-11T22:40:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c"
+        },
+        "date": 1794444038174,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 1.0487451737451738,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 1.107266435986159,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.992312072726806,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 0.9471647765176784,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.9113057649177643,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "13900708893-router"
+      }
+    ],
+    "benchmarker cohere-1m (router detail)": [
+      {
+        "commit": {
+          "author": {
+            "name": "RJ Barman",
+            "username": "barbarj",
+            "email": "rjhallsted@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c",
+          "message": "fix: add a configurable hard-cap for termset size in queries (#7395)\n\n## What\nThis PR adds a configurable hard-cap for termset size. Queries that\nexceed 50% of the cap will see a warning and those that exceed the cap\nwill see an error.\n\n## Why\nIt is currently possible to exhaust memory by filling a termset with the\nresults of a subquery, which will cause a crash and postgres to restart.\nThis will prevent that for most setups unless the cap is raised by the\nuser such that it can exhaust memory again.\n\n## How\n- A new GUC `paradedb.max_term_set_size` and the associated helper\nfunctions.\n- A new function `check_term_set_size`, called during term set\nconstruction\n\n## Tests\n- New regress tests.",
+          "timestamp": "2026-11-11T22:40:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d89bfb92f59fa1c7a74f43ce0f3d6ab40453b78c"
+        },
+        "date": 1794444038886,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 16084.9,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 16890.59,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.13108826,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 30996.95,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 34014.89,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.20386690000000002,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 112867.43,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 97491.19,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 0.48111463,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13900708893-router-detail"
       }
     ]
   }

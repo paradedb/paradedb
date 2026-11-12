@@ -565,11 +565,6 @@ where
                             && let Some(resolved) = context
                                 .resolve_fast_field(ResTarget::Field(&field_name), Access::Any)
                             && let Some(field_type) = resolved.field.field_type()
-                            && context
-                                .resolve_heap_field(ResTarget::Field(&field_name.root()))
-                                .is_some_and(|hf| {
-                                    hf.field.is_raw_sortable() || !hf.field.is_lower_sortable()
-                                })
                             && sortable_at_position(field_type, pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
@@ -775,11 +770,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 else {
                     return false;
                 };
-                let lowercase_only = hf.field.is_lower_sortable() && !hf.field.is_raw_sortable();
-                if !hf.field.is_fast()
-                    || lowercase_only
-                    || !sortable_at_position(&hf.field.field_type(), position)
-                {
+                if !hf.field.is_fast() || !sortable_at_position(&hf.field.field_type(), position) {
                     return false;
                 }
             }

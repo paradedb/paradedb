@@ -35,12 +35,25 @@ use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
 use pgrx::*;
 use rustc_hash::FxHashMap;
+use tokenizers::SearchNormalizer;
 
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
+    #[inline]
+    unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
+        if let Some(coerce) = nodecast!(CoerceViaIO, expression)
+            && let Some(func_expr) = nodecast!(FuncExpr, (*coerce).arg)
+            && (*func_expr).funcid == text_lower_funcoid()
+        {
+            return true;
+        }
+
+        false
+    }
+
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let pg_search_indexrel = PgSearchRelation::from_pg(indexrel);
@@ -154,14 +167,16 @@ pub unsafe fn extract_field_attributes(
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        // Do not infer SearchNormalizer::Lowercase from lower(). PostgreSQL's
-                        // lower() under the C collation only changes ASCII, while Tantivy's
-                        // lowercase is Unicode-aware, so a second pass reorders values and
-                        // breaks Top-K ordering (#7054).
-                        if let Some(relabel) = nodecast!(RelabelType, expression)
-                            && is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO)
-                        {
-                            inner_typoid = pg_sys::exprType((*relabel).arg.cast());
+                        if is_text_lower(expression.cast()) {
+                            normalizer = Some(SearchNormalizer::Lowercase);
+                        } else if let Some(relabel) = nodecast!(RelabelType, expression) {
+                            if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
+                                inner_typoid = pg_sys::exprType((*relabel).arg.cast());
+                            }
+
+                            if is_text_lower((*relabel).arg.cast()) {
+                                normalizer = Some(SearchNormalizer::Lowercase);
+                            }
                         }
                         if attname.is_none() {
                             let heap_attname = heap_relation

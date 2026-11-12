@@ -30,8 +30,8 @@ ORDER BY lower(category) COLLATE "C", id
 LIMIT 2;
  id | category 
 ----+----------
-  1 | ä
   2 | Å
+  1 | ä
 (2 rows)
 
 -- The same query through PostgreSQL's own sort.

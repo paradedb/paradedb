@@ -4,8 +4,8 @@ import db from "k6/x/database";
 
 const points = JSON.parse(open(__ENV.OPERATING_POINTS));
 const point = points.find((item) => item.name === __ENV.OPERATING_POINT);
-if (!point?.reached)
-  throw new Error("A reached recall operating point is required");
+if (!point || (!point.reached && !point.fixed_probe))
+  throw new Error("A reached or fixed operating point is required");
 
 const vectors = JSON.parse(open(__ENV.QUERY_VECTORS));
 if (vectors.length !== 100)
@@ -13,7 +13,7 @@ if (vectors.length !== 100)
 
 const session = {
   ...point.session,
-  "paradedb.vector_cluster_max_probe": point.probe,
+  [point.param || "paradedb.vector_cluster_max_probe"]: point.probe,
 };
 const settings = Object.entries(session)
   .map(([key, value]) => `-c ${key}=${value}`)
@@ -22,7 +22,7 @@ const url = `${__ENV.PARADEDB_URL}?default_query_exec_mode=exec&options=${encode
 const backends = db.backends({
   backends: [
     {
-      type: "paradedb",
+      type: point.backend || "paradedb",
       connection: url,
       container: "",
     },
@@ -43,11 +43,20 @@ const scenarios = {
     tags: { warmup: "true" },
   },
 };
-export const options = { scenarios, thresholds: { checks: ["rate==1"] } };
+const requiredChecks =
+  point.require_full_neighbors === false
+    ? "checks{check:query succeeds}"
+    : "checks";
+export const options = {
+  scenarios,
+  thresholds: { [requiredChecks]: ["rate==1"] },
+};
 
 export function search() {
   const vector = vectors[exec.scenario.iterationInTest % vectors.length];
-  const result = backends.get("paradedb").query(point.sql, vector);
+  const result = backends
+    .get(point.backend || "paradedb")
+    .query(point.sql, vector);
   if (result.deadlineReached) return;
   check(result, {
     "query succeeds": (r) => !r.error,

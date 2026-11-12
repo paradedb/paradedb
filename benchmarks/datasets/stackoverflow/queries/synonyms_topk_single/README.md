@@ -1,6 +1,6 @@
 # Synonyms, Single Term (Score Sort)
 
-- **Description**: Top 10 by BM25 score for one term that a ten-word rule expands. The `no_synonyms` variant is the same match without `pdb.with_synonyms`, so the two variants differ only in the expansion. The rule words are common on purpose, so this is the costly case.
+- **Description**: Top 10 by BM25 score for one term that a ten-word rule expands. The `no_synonyms` variant is the same match without the `pdb.expand` subquery, so the two variants differ only in the expansion. The rule words are common on purpose, so this is the costly case.
 
 ## Query Info (statistics from 1m dataset; larger datasets may have different values):
 

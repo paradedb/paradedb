@@ -2911,7 +2911,7 @@ unsafe fn is_junk_vector_distance(te: *mut pg_sys::TargetEntry) -> bool {
     if te.is_null() || !(*te).resjunk {
         return false;
     }
-    nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>())
+    nodecast!(OpExpr, (*te).expr.cast::<pg_sys::Node>())
         .is_some_and(|opexpr| VectorMetric::from_opoid((*opexpr).opno).is_some())
 }
 

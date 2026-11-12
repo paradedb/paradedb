@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794471148517,
+  "lastUpdate": 1794487337923,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -82983,6 +82983,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13837308555-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794487336499,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.618,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.679,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.557,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.555,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.604,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.593,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.631,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.877,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.321,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13941238560-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -83289,6 +83357,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13837308555-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794487337912,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6823.6561762208075,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7570.645092648107,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.03207927405465,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13941238560-throughput"
       }
     ],
     "benchmarker msmarco-113m (latency)": [

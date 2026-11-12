@@ -496,7 +496,8 @@ impl PgSearchRelation {
         })?;
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        set_ivf_clusterer(&mut index, self.options());
+        let memory_limit = (unsafe { pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+        set_ivf_clusterer(&mut index, self.options(), memory_limit);
         setup_tokenizers(self, &mut index)?;
         Ok(index)
     }

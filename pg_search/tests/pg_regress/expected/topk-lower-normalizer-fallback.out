@@ -54,7 +54,7 @@ LIMIT 3;
 ----+----------
   3 | apple
   4 | Banana
-  1 | ä
+  2 | Å
 (3 rows)
 
 SET paradedb.enable_custom_scan = off;

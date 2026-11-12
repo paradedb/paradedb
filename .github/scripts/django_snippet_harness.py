@@ -110,6 +110,33 @@ class ArrayDemo(models.Model):
         db_table = "array_demo"
 
 
+class ShopSynonym(models.Model):
+    """Read-only model used by docs snippets that target `shop_synonyms`."""
+
+    rule = models.TextField(primary_key=True)
+
+    class Meta:
+        """Bind the model to the synonym rules table of the docs."""
+
+        app_label = "docs_snippets"
+        managed = False
+        db_table = "shop_synonyms"
+
+
+class Synonym(models.Model):
+    """Read-only model used by docs snippets that target `synonyms`."""
+
+    set_name = models.TextField()
+    rule = models.TextField(primary_key=True)
+
+    class Meta:
+        """Bind the model to the table that holds several synonym sets."""
+
+        app_label = "docs_snippets"
+        managed = False
+        db_table = "synonyms"
+
+
 class MockItemGeo(models.Model):
     """Read-only geometric-filter fixture; the filter references location in SQL."""
 

@@ -17,7 +17,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "46b6c65ea0dd99d8a9cd4ba52b7f86185ddd8f9f"
+        default: "625852ddcdfb16661cf91260549a2263e125eefa"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -55,7 +55,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       COHERE_SIZE: ${{ matrix.size }}
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '46b6c65ea0dd99d8a9cd4ba52b7f86185ddd8f9f' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '625852ddcdfb16661cf91260549a2263e125eefa' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
 

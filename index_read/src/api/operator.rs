@@ -33,8 +33,10 @@ use pgrx::pg_sys;
 /// estimate heuristically rather than opening the index. Both selectivity and the
 /// TopK worker decision honor this so neither pays full scorer construction at
 /// plan time.
-fn estimate_heuristically(search_query_input: &SearchQueryInput) -> bool {
-    crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
+fn heuristic_selectivity(search_query_input: &SearchQueryInput) -> Option<f64> {
+    crate::gucs::enable_heuristic_selectivity()
+        .then(|| search_query_input.expensive_selectivity_heuristic())
+        .flatten()
 }
 
 /// Reuse the supplied reader, or open one via [`SearchIndexReader::mvcc_for_estimation`],
@@ -139,11 +141,10 @@ pub fn estimate_selectivity_and_cost(
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
 ) -> SelectivityAndCost {
-    if estimate_heuristically(&search_query_input) {
+    if let Some(selectivity) = heuristic_selectivity(&search_query_input) {
         // #4172 skips opening the index, so derive the work estimate from the same
         // heuristic: these shapes drive far more docset work than they match, so scale the
         // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
-        let selectivity = search_query_input.selectivity_heuristic();
         let cost = indexrel
             .heap_relation()
             .and_then(|heap| heap.reltuples())
@@ -196,8 +197,7 @@ pub fn estimate_matching_rows(
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
 ) -> Option<u64> {
-    if estimate_heuristically(&search_query_input) {
-        let selectivity = search_query_input.selectivity_heuristic();
+    if let Some(selectivity) = heuristic_selectivity(&search_query_input) {
         return indexrel
             .heap_relation()
             .and_then(|heap| heap.reltuples())

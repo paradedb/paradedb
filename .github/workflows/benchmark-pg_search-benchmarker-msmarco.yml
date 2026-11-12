@@ -1,4 +1,4 @@
-name: Benchmark pg_search (Benchmarker MS MARCO)
+name: Benchmark MS MARCO vector
 
 on:
   schedule:
@@ -12,7 +12,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "625852ddcdfb16661cf91260549a2263e125eefa"
+        default: "b133229c4c96df4e05552c4db4f2d06e3dd4960e"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -29,8 +29,12 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: MS MARCO 113m (ParadeDB)
-    if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-cohere-msmarco'
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: ${{ fromJSON(github.event_name != 'pull_request' && '["pg_search", "pg_vectorsearch", "vectorchord"]' || github.event.label.name == 'benchmark-msmarco-pg_search' && '["pg_search"]' || github.event.label.name == 'benchmark-msmarco-pg_vectorsearch' && '["pg_vectorsearch"]' || '["vectorchord"]') }}
+    name: MS MARCO 113m (${{ matrix.engine }})
+    if: github.event_name != 'pull_request' || contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-pg_vectorsearch", "benchmark-msmarco-vectorchord"]'), github.event.label.name)
     timeout-minutes: 720
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -40,10 +44,15 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       MSMARCO_SIZE: 113m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '625852ddcdfb16661cf91260549a2263e125eefa' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'b133229c4c96df4e05552c4db4f2d06e3dd4960e' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
-      MSMARCO_CONFIG: benchmarks/msmarco/113m.toml
+      MSMARCO_CONFIG: ${{ matrix.engine == 'pg_search' && 'benchmarks/msmarco/113m.toml' || format('benchmarks/msmarco/113m-{0}.toml', matrix.engine) }}
+      BENCHMARK_ENGINE: ${{ matrix.engine }}
+      LOAD_CONFIG: ${{ matrix.engine == 'pg_vectorsearch' && '../benchmarks/msmarco/pg_vectorsearch/load.yaml' || format('configs/load/msmarco-113m-{0}.yaml', matrix.engine == 'pg_search' && 'paradedb' || matrix.engine) }}
+      BENCHMARK_IMAGE: ${{ matrix.engine == 'pg_search' && 'paradedb-source:ci' || matrix.engine == 'pg_vectorsearch' && 'msmarco-pg-vectorsearch:ci' || 'tensorchord/vchord-postgres:pg18-v1.1.1' }}
+      RESULTS_DATASET: ${{ matrix.engine == 'pg_search' && 'msmarco-113m' || format('msmarco-113m-{0}', matrix.engine) }}
+      PG_VECTORSEARCH_VERSION: "0.1.0"
 
     steps:
       - name: Remove benchmark label
@@ -116,6 +125,34 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      # The pinned pdbench revision supplies VectorChord loading, calibration, and reports.
+      - name: Prepare comparison engine image and dataset
+        if: matrix.engine != 'pg_search'
+        run: |
+          set -euo pipefail
+          if [ "$BENCHMARK_ENGINE" = pg_vectorsearch ]; then
+            docker build --build-arg "PG_VECTORSEARCH_VERSION=$PG_VECTORSEARCH_VERSION" \
+              -t msmarco-pg-vectorsearch:ci pdbench/docker/timescale
+            mkdir -p pdbench/datasets/msmarco/timescale
+            cp benchmarks/msmarco/pg_vectorsearch/{pre,post}.sql pdbench/datasets/msmarco/timescale/
+          else
+            docker pull tensorchord/vchord-postgres:pg18-v1.1.1
+            test -f pdbench/configs/load/msmarco-113m-vectorchord.yaml
+          fi
+          # Keep the same resource limits and settings, without ParadeDB preload libraries.
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          path = Path("pdbench/datasets/msmarco/docker-compose.yml")
+          compose = path.read_text()
+          preload = "shared_preload_libraries=pg_search,pg_cron"
+          if compose.count(preload) != 1:
+              raise ValueError("Expected exactly one ParadeDB preload setting")
+          libraries = "vchord" if os.environ["BENCHMARK_ENGINE"] == "vectorchord" else ""
+          path.write_text(compose.replace(preload, f"shared_preload_libraries={libraries}"))
+          PYTHON
+          docker image inspect "${{ env.BENCHMARK_IMAGE }}" > benchmark-artifacts/image.json
+
       - name: Set up Docker benchmark cluster
         uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
@@ -123,6 +160,8 @@ jobs:
           dataset: msmarco
           size: ${{ env.MSMARCO_SIZE }}
           backup: "20261102-224214F"
+          image_tag: ${{ env.BENCHMARK_IMAGE }}
+          build_from_source: ${{ matrix.engine == 'pg_search' }}
           compose_file: pdbench/datasets/msmarco/docker-compose.yml
 
       - name: Install pdbench toolchain
@@ -147,11 +186,24 @@ jobs:
         with:
           ref: ${{ env.BENCHMARKER_REF }}
 
-      - name: Refresh pg_search and build index
+      - name: Refresh benchmark extension and build index
         run: |
           set -euo pipefail
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
-            -c 'DROP EXTENSION IF EXISTS pg_search;' -c 'CREATE EXTENSION pg_search;'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'DROP EXTENSION IF EXISTS pg_search;'
+          if [ "$BENCHMARK_ENGINE" = pg_search ]; then
+            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION pg_search;'
+          elif [ "$BENCHMARK_ENGINE" = pg_vectorsearch ]; then
+            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;'
+            psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+              -c "SELECT json_build_object('version', extversion, 'commit', pg_vectorsearch_git_commit())
+                  FROM pg_extension WHERE extname = 'pg_vectorsearch'" \
+              > benchmark-artifacts/pg-vectorsearch-version.json
+          else
+            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vchord CASCADE;'
+            psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+              -c "SELECT json_object_agg(extname, extversion) FROM pg_extension" \
+              > benchmark-artifacts/vectorchord-version.json
+          fi
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
             -c "SELECT name, setting, unit FROM pg_settings
                 WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
@@ -165,7 +217,8 @@ jobs:
           # from pdbench's load config and dataset files.
           (
             cd pdbench
-            pdbench-load finalize configs/load/msmarco-113m-paradedb.yaml \
+            pdbench-load finalize "$LOAD_CONFIG" \
+              --set "datastore.url=$PARADEDB_URL" --set datastore.container=paradedb \
               --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load"
           ) 2>&1 | tee benchmark-artifacts/index-build.log
           runs=(benchmark-artifacts/load/*/*_load)
@@ -190,6 +243,7 @@ jobs:
           ]' > benchmark-artifacts/index-metrics.json
 
       - name: Verify eight-segment index
+        if: matrix.engine == 'pg_search'
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
@@ -202,6 +256,24 @@ jobs:
             and all(.[]; .vector_format == "ivf" and .quantized)' benchmark-artifacts/vector-info.json
           jq -e 'index("target_segment_count=8") != null
             and index("vector_router_quantization=true") != null' benchmark-artifacts/index-options.json
+
+      - name: Record PRISM index settings
+        if: matrix.engine == 'pg_vectorsearch'
+        run: |
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_agg(s) FROM prism_index_settings('msmarco_prism_idx'::regclass) AS s" \
+            > benchmark-artifacts/prism-index-settings.json
+
+      - name: Record VectorChord index settings
+        if: matrix.engine == 'vectorchord'
+        run: |
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_build_object('options', c.reloptions, 'valid', i.indisvalid,
+                  'ready', i.indisready, 'method', am.amname)
+                FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+                JOIN pg_am am ON am.oid = c.relam WHERE c.oid = 'msmarco_vchordrq_idx'::regclass" \
+            > benchmark-artifacts/vectorchord-index-settings.json
+          jq -e '.valid and .ready and .method == "vchordrq"' benchmark-artifacts/vectorchord-index-settings.json
 
       - name: Install fixture reader
         uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
@@ -236,6 +308,7 @@ jobs:
 
           db = duckdb.connect()
           db.execute("INSTALL httpfs; LOAD httpfs; INSTALL postgres; LOAD postgres;")
+          db.execute("CREATE SECRET (TYPE s3, PROVIDER credential_chain);")
           url = os.environ["PARADEDB_URL"].replace("'", "''")
           db.execute(f"ATTACH '{url}' AS pg (TYPE postgres);")
           for query in ("knn_top10_unfiltered", "knn_top100_unfiltered"):
@@ -247,7 +320,7 @@ jobs:
               db.execute("INSERT INTO pg.public.pdbench_ground_truth SELECT 'msmarco', ?, query_id, gt_ids FROM read_parquet(?)", [query, source])
           PYTHON
 
-      - name: Sweep max_probe with pdbench
+      - name: Sweep recall with pdbench
         run: |
           set -euo pipefail
           for k in 10 100; do
@@ -262,7 +335,7 @@ jobs:
           TANTIVY_SHA: ${{ steps.commit_info.outputs.tantivy_sha }}
         run: |
           set -euo pipefail
-          python3 benchmarks/cohere/prepare_k6.py --dataset msmarco --runs benchmark-artifacts/search --output benchmark-artifacts
+          python3 benchmarks/cohere/prepare_k6.py --dataset msmarco --engine "$BENCHMARK_ENGINE" --runs benchmark-artifacts/search --output benchmark-artifacts
           jq '[.[] | select(.reached and .buffers.shared_hit_mean != null)
             | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
           ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json
@@ -281,9 +354,9 @@ jobs:
 
           pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
 
-          Uses heap backup \`20261102-224214F\`, eight index segments, a 0.32 training sample ratio, and quantized vector routing.
+          Engine: \`$BENCHMARK_ENGINE\`. Uses heap backup \`20261102-224214F\` and the same 100 held-out query vectors for all engines. Each engine runs on its own runner, with a 64-CPU / 128-GiB database container.
 
-          Integer probe-work budgets are selected independently for top-10 and top-100 at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 100 and searches from 1 to 100,000.
+          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch $PG_VECTORSEARCH_VERSION uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (80,000 lists, residual quantization, spherical centroids) and sweeps vchordrq.probes from 1–80000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
 
           Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 
@@ -298,7 +371,7 @@ jobs:
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"pg_search","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -326,7 +399,7 @@ jobs:
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"msmarco-${{ env.MSMARCO_SIZE }}",
+            {"dataset":"${{ env.RESULTS_DATASET }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && inputs.commit == '' }}",
              "context_file":"benchmark-artifacts/result-context.md",
@@ -343,7 +416,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: msmarco-${{ env.MSMARCO_SIZE }}-diagnostics
+          name: ${{ env.RESULTS_DATASET }}-diagnostics
           path: |
             benchmark-artifacts/
             benchmarker/results/

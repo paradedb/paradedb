@@ -21,14 +21,35 @@ SUITES = {
 DIMENSIONS = {"cohere": 1024, "msmarco": 1024, "hn": 1536}
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
+PROBES = {
+    "pg_search": PROBE,
+    "pg_vectorsearch": "prism.nprobe",
+    "vectorchord": "vchordrq.probes",
+}
+INDEX_SUFFIXES = {"pg_vectorsearch": "prism", "vectorchord": "vchordrq"}
 
 
-def operating_points(reports, dataset="cohere"):
+def selected_metrics(selected, measured, target, sweep, query):
+    """Validate a calibrated integer probe and return its measured metrics."""
+    if selected is None:
+        return None
+    probe = float(selected["value"])
+    metrics = measured[selected["value"]]
+    if (
+        not sweep.get("min", 1) <= probe <= sweep.get("max", 100_000)
+        or not probe.is_integer()
+        or not target - 1e-12 <= selected["recall"] <= 1
+        or metrics["recall"]["recall"] != selected["recall"]
+    ):
+        raise ValueError(f"{query}: invalid selected point for {target}")
+    return metrics
+
+
+def operating_points(reports, dataset="cohere", engine="pg_search"):
     """Validate and export pdbench selections without choosing new probes."""
     points = []
     seen = set()
     config = None
-    qvec = f"current_setting('{dataset}.qvec')"
     for report in reports:
         current = json.loads(json.dumps(report["config"]))
         current["search"].pop("query", None)
@@ -40,12 +61,13 @@ def operating_points(reports, dataset="cohere"):
         config = current
         if (
             report["kind"] != "search"
-            or report["data"]["sweep_param"] != PROBE
+            or current.get("engine", "pg_search") != engine
+            or report["data"]["sweep_param"] != PROBES[engine]
             or current["dataset"]["name"] != dataset
             or current["dataset"]["dims"] != DIMENSIONS[dataset]
         ):
             raise ValueError(
-                "Expected a pdbench max_probe search report with "
+                f"Expected a pdbench {engine} {PROBES[engine]} search report with "
                 f"{DIMENSIONS[dataset]}-dimensional query vectors"
             )
         if report["data"]["query_vectors"] != 100:
@@ -59,7 +81,7 @@ def operating_points(reports, dataset="cohere"):
             neighbors = SUITES[dataset][query]
             if not 0 < current["search"]["sweep"]["tolerance"] < 1 / (100 * neighbors):
                 raise ValueError("CI requires strict recall targets")
-            if result["query"].count(qvec) != 1:
+            if result["query"].count(f"current_setting('{dataset}.qvec')") != 1:
                 raise ValueError(f"{query}: expected exactly one query-vector operand")
             measured = {point["value"]: point["metrics"] for point in result["points"]}
             if report["config"]["search"].get("k", 10) != neighbors or any(
@@ -68,17 +90,18 @@ def operating_points(reports, dataset="cohere"):
                 raise ValueError(f"{query}: expected recall@{neighbors}")
             for target in TARGETS:
                 selected = result["targets"].get(str(target))
-                metrics = measured[selected["value"]] if selected else None
-                if selected and (
-                    not 1 <= float(selected["value"]) <= 100_000
-                    or not target - 1e-12 <= selected["recall"] <= 1
-                    or metrics["recall"]["recall"] != selected["recall"]
-                ):
-                    raise ValueError(f"{query}: invalid selected point for {target}")
+                metrics = selected_metrics(
+                    selected, measured, target, current["search"]["sweep"], query
+                )
                 points.append(
                     {
                         "name": f"{query}@r{round(target * 100)}",
                         "query": query,
+                        "engine": engine,
+                        "probe_param": PROBES[engine],
+                        "index_name": f"{current['dataset']['table']}_{INDEX_SUFFIXES[engine]}_idx"
+                        if engine in INDEX_SUFFIXES
+                        else None,
                         "neighbors": neighbors,
                         "dimensions": DIMENSIONS[dataset],
                         "filter_fields": HN_FILTER_FIELDS[query]
@@ -92,7 +115,9 @@ def operating_points(reports, dataset="cohere"):
                         else max(
                             point["recall"]["recall"] for point in measured.values()
                         ),
-                        "sql": result["query"].replace(qvec, "$1"),
+                        "sql": result["query"].replace(
+                            f"current_setting('{dataset}.qvec')", "$1"
+                        ),
                         "session": current["search"]["session"],
                         "buffers": metrics["buffers"] if metrics else None,
                     }
@@ -105,12 +130,15 @@ def operating_points(reports, dataset="cohere"):
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher, collapsed under a summary
     line so the PR comment leads with regressions."""
+    probe_name = (
+        PROBES[points[0]["engine"]].split(".")[-1].removeprefix("vector_cluster_")
+    )
     lines = [
         # GitHub renders Markdown inside <details> only with a blank line after the summary.
         "<details><summary>Operating points</summary>",
         "",
         (
-            "| Workload / recall target | k | max_probe | Achieved recall@k "
+            f"| Workload / recall target | k | {probe_name} | Achieved recall@k "
             "| Shared hits/query | Shared reads/query |"
         ),
         "|---|---:|---:|---:|---:|---:|",
@@ -133,7 +161,8 @@ def summary(points):
             f"{point['recall']:.1%} | {hits} | {reads} |"
         )
     lines.append(
-        "\npdbench selects max_probe separately for each workload and recall target on this index. "
+        f"\npdbench selects {probe_name} separately for each workload and recall target "
+        "on this index. "
         "Buffer counts are means from its EXPLAIN pass. k6 measures p50/p95/p99 and QPS at the "
         "selected settings with 1 VU, after 10 seconds of warmup, for 50 seconds per point. "
         "Unreached targets have no latency or throughput results.\n"
@@ -147,6 +176,7 @@ if __name__ == "__main__":
     parser.add_argument("--runs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dataset", choices=SUITES, default="cohere")
+    parser.add_argument("--engine", choices=PROBES, default="pg_search")
     args = parser.parse_args()
     selected_points = operating_points(
         (
@@ -154,6 +184,7 @@ if __name__ == "__main__":
             for path in sorted(args.runs.rglob("*_search.json"))
         ),
         dataset=args.dataset,
+        engine=args.engine,
     )
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "operating_points.json").write_text(

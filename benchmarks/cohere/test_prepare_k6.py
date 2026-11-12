@@ -7,7 +7,7 @@ from pathlib import Path
 
 import tomllib
 from prepare_k6 import DIMENSIONS, PROBE, QUERIES, SUITES, operating_points, summary
-from verify_plans import verify
+from verify_plans import verify, verify_ordered_index
 
 
 def reports(dataset="cohere"):
@@ -155,6 +155,86 @@ class OperatingPointsTest(unittest.TestCase):
             report["config"]["search"]["sweep"]["tolerance"] = 0.0001
         with self.assertRaisesRegex(ValueError, "strict recall targets"):
             operating_points(inputs, dataset="msmarco")
+
+    def test_comparison_engines_preserve_calibration_and_reject_mismatched_reports(
+        self,
+    ):
+        """Preserve calibrated points and require matching engine reports."""
+        for engine, param, suffix, maximum in (
+            ("pg_vectorsearch", "prism.nprobe", "prism", 4096),
+            ("vectorchord", "vchordrq.probes", "vchordrq", 80000),
+        ):
+            with self.subTest(engine=engine):
+                inputs = reports("msmarco")
+                for report in inputs:
+                    report["config"]["engine"] = engine
+                    report["config"]["dataset"]["table"] = "msmarco"
+                    report["config"]["search"]["sweep"].update(
+                        min=1, max=maximum, integer=True
+                    )
+                    report["data"]["sweep_param"] = param
+                original = copy.deepcopy(inputs)
+                points = operating_points(inputs, dataset="msmarco", engine=engine)
+                self.assertEqual(len(points), 6)
+                self.assertEqual(sum(point["reached"] for point in points), 4)
+                for point in points:
+                    self.assertEqual(point["engine"], engine)
+                    self.assertEqual(point["probe_param"], param)
+                    self.assertEqual(point["index_name"], f"msmarco_{suffix}_idx")
+                    self.assertEqual(
+                        point["session"], inputs[0]["config"]["search"]["session"]
+                    )
+                    self.assertEqual(
+                        point["neighbors"], SUITES["msmarco"][point["query"]]
+                    )
+                    self.assertIn(f"LIMIT {point['neighbors']}", point["sql"])
+                    self.assertIn("$1::vector(1024)", point["sql"])
+                self.assertIn(
+                    f"pdbench selects {param.rsplit('.', maxsplit=1)[-1]} separately",
+                    summary(points),
+                )
+                self.assertEqual(inputs, original)
+                with self.assertRaisesRegex(ValueError, "Expected a pdbench pg_search"):
+                    operating_points(inputs, dataset="msmarco")
+                inputs[0]["data"]["sweep_param"] = PROBE
+                with self.assertRaisesRegex(ValueError, param):
+                    operating_points(inputs, dataset="msmarco", engine=engine)
+
+    def test_rejects_fractional_and_out_of_range_selected_probes(self):
+        """Require integer probes within the configured sweep bounds."""
+        for value in ("0", "100001", "1.5"):
+            with self.subTest(probe=value):
+                inputs = reports("msmarco")
+                variant = inputs[0]["data"]["variants"]["knn_top10_unfiltered"]
+                for target in variant["targets"].values():
+                    target["value"] = value
+                variant["points"][0]["value"] = value
+                with self.assertRaisesRegex(ValueError, "invalid selected point"):
+                    operating_points(inputs, dataset="msmarco")
+
+    def test_ordered_index_plan_rejects_wrong_index_and_fallback_plans(self):
+        """Require an ordered cosine scan of the requested ANN index."""
+        scan = {
+            "Node Type": "Index Scan",
+            "Index Name": "msmarco_prism_idx",
+            "Order By": "(emb <=> '[1,2,3]'::vector)",
+        }
+        plan = [{"Plan": {"Node Type": "Limit", "Plans": [scan]}}]
+        verify_ordered_index(plan, "msmarco_prism_idx")
+        with self.assertRaisesRegex(ValueError, "cosine ANN"):
+            verify_ordered_index(plan, "another_idx")
+        for kind in ("Seq Scan", "Sort", "Incremental Sort", "Bitmap Heap Scan"):
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(ValueError, "fallback or sort"),
+            ):
+                verify_ordered_index(
+                    [{"Plan": {"Node Type": kind, "Plans": [scan]}}],
+                    "msmarco_prism_idx",
+                )
+        del scan["Order By"]
+        with self.assertRaisesRegex(ValueError, "cosine ANN"):
+            verify_ordered_index(plan, "msmarco_prism_idx")
 
     def test_top100_plan_requires_cosine_topk_inside_paradedb(self):
         """Reject plans that do not push the requested TopK into the index."""

@@ -13,16 +13,20 @@ if (vectors.length !== 100)
 
 const session = {
   ...point.session,
-  "paradedb.vector_cluster_max_probe": point.probe,
+  [point.probe_param]: point.probe,
 };
 const settings = Object.entries(session)
   .map(([key, value]) => `-c ${key}=${value}`)
   .join(" ");
 const url = `${__ENV.PARADEDB_URL}?default_query_exec_mode=exec&options=${encodeURIComponent(settings)}`;
+const backend =
+  point.engine === "pg_vectorsearch" || point.engine === "vectorchord"
+    ? point.engine
+    : "paradedb";
 const backends = db.backends({
   backends: [
     {
-      type: "paradedb",
+      type: backend,
       connection: url,
       container: "",
     },
@@ -47,7 +51,7 @@ export const options = { scenarios, thresholds: { checks: ["rate==1"] } };
 
 export function search() {
   const vector = vectors[exec.scenario.iterationInTest % vectors.length];
-  const result = backends.get("paradedb").query(point.sql, vector);
+  const result = backends.get(backend).query(point.sql, vector);
   if (result.deadlineReached) return;
   check(result, {
     "query succeeds": (r) => !r.error,

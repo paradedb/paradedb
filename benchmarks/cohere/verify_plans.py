@@ -18,8 +18,39 @@ SETTING_DRIVEN_FIELD = re.compile(
 
 def setting_driven_field(expression, required):
     """The required field a `postgres_expression` searches, or None for any other expression."""
-    match = SETTING_DRIVEN_FIELD.fullmatch(str(expression.get("expr", {}).get("expr_desc", "")))
+    match = SETTING_DRIVEN_FIELD.fullmatch(
+        str(expression.get("expr", {}).get("expr_desc", ""))
+    )
     return match["field"] if match and match["field"] in required else None
+
+
+def indexed_predicate_fields(query, required):
+    """Collect index predicate fields and reject unresolved heap expressions."""
+    pending = [query]
+    indexed_fields = set()
+    while pending:
+        part = pending.pop()
+        if isinstance(part, dict):
+            expression = part.get("postgres_expression")
+            field = (
+                setting_driven_field(expression, required)
+                if isinstance(expression, dict) and len(part) == 1
+                else None
+            )
+            if field is not None:
+                indexed_fields.add(field)
+                continue
+            if {"heap_filter", "postgres_expression"} & part.keys():
+                raise ValueError(
+                    "Predicate uses heap filtering or an unresolved expression"
+                )
+            indexed_fields.update(
+                part[key] for key in ("field", "field_name") if key in part
+            )
+            pending.extend(part.values())
+        elif isinstance(part, list):
+            pending.extend(part)
+    return indexed_fields
 
 
 def verify(plan, filtered, neighbors=None, fields=None):
@@ -39,30 +70,7 @@ def verify(plan, filtered, neighbors=None, fields=None):
         query = scan.get("Tantivy Query", '"all"')
         if isinstance(query, str):
             query = json.loads(query)
-        pending = [query]
-        indexed_fields = set()
-        while pending:
-            part = pending.pop()
-            if isinstance(part, dict):
-                expression = part.get("postgres_expression")
-                field = (
-                    setting_driven_field(expression, required)
-                    if isinstance(expression, dict) and len(part) == 1
-                    else None
-                )
-                if field is not None:
-                    indexed_fields.add(field)
-                    continue
-                if {"heap_filter", "postgres_expression"} & part.keys():
-                    raise ValueError(
-                        "Predicate uses heap filtering or an unresolved expression"
-                    )
-                indexed_fields.update(
-                    part[key] for key in ("field", "field_name") if key in part
-                )
-                pending.extend(part.values())
-            elif isinstance(part, list):
-                pending.extend(part)
+        indexed_fields = indexed_predicate_fields(query, required)
         if required <= indexed_fields:
             matching.append(scan)
     if not matching:
@@ -79,6 +87,28 @@ def verify(plan, filtered, neighbors=None, fields=None):
         )
 
 
+def verify_ordered_index(plan, index_name):
+    """Require ordered retrieval from the expected ANN index without sorting."""
+    nodes = [plan[0]["Plan"]]
+    scans = []
+    while nodes:
+        node = nodes.pop()
+        kind = node.get("Node Type", "")
+        if kind in ("Seq Scan", "Sort", "Incremental Sort", "Bitmap Heap Scan"):
+            raise ValueError("Expected ordered ANN index scan without fallback or sort")
+        if node.get("Filter"):
+            raise ValueError("Unexpected filter in unfiltered ANN query")
+        if kind in ("Index Scan", "Index Only Scan"):
+            scans.append(node)
+        nodes.extend(node.get("Plans", []))
+    if (
+        len(scans) != 1
+        or scans[0].get("Index Name") != index_name
+        or "<=>" not in str(scans[0].get("Order By", ""))
+    ):
+        raise ValueError(f"Expected cosine ANN index scan on {index_name}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
@@ -90,9 +120,7 @@ if __name__ == "__main__":
     for point in points:
         if not point["reached"]:
             continue
-        session = point["session"] | {
-            "paradedb.vector_cluster_max_probe": point["probe"]
-        }
+        session = point["session"] | {point["probe_param"]: point["probe"]}
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()
         )
@@ -115,10 +143,13 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
         )
         path = output / f"{point['name']}.json"
         path.write_text(result.stdout)
-        verify(
-            json.loads(result.stdout),
-            not point["query"].endswith("_unfiltered"),
-            point["neighbors"],
-            point["filter_fields"],
-        )
+        if point["engine"] != "pg_search":
+            verify_ordered_index(json.loads(result.stdout), point["index_name"])
+        else:
+            verify(
+                json.loads(result.stdout),
+                not point["query"].endswith("_unfiltered"),
+                point["neighbors"],
+                point["filter_fields"],
+            )
         print(f"Verified {point['name']}: {path}")

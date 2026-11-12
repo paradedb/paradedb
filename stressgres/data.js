@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794384574210,
+  "lastUpdate": 1794470774077,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -521721,6 +521721,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13838876810-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794470771451,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3972.531145020258,
+            "unit": "median tps",
+            "extra": "avg tps: 3949.651447176265, max tps: 4389.285218313902, count: 58938"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4602.260853788057,
+            "unit": "median tps",
+            "extra": "avg tps: 4631.006790452763, max tps: 5433.014254418399, count: 58938"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.17585807282481,
+            "unit": "median tps",
+            "extra": "avg tps: 164.3800467130623, max tps: 2915.7516709186616, count: 58938"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.102919904709378,
+            "unit": "median tps",
+            "extra": "avg tps: 40.528263136382954, max tps: 575.9450076499116, count: 58938"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.10470932972219,
+            "unit": "median tps",
+            "extra": "avg tps: 40.68482070121537, max tps: 539.1028842812963, count: 58938"
+          }
+        ],
+        "publication_id": "13926101804-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -537118,6 +537171,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13838876810-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794470774002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.015660506375085, max cpu: 4.6624575, count: 58938"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.722629142594762, max mem: 20.78125, count: 58938"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.512671599642845, max cpu: 4.745428, count: 58938"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.398189755548202, max mem: 20.40234375, count: 58938"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.2441025,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.491882254050372, max cpu: 37.573387, count: 58938"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.934600302966675, max mem: 20.9375, count: 58938"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.019528996572, max document_count: 10002.0, count: 58938"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.03457870983, max document_count: 10002.0, count: 58938"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58938"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.268316,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.52856901559152, max cpu: 32.32323, count: 58938"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 59.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.0476892163163, max mem: 73.65234375, count: 58938"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.255291,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.501663925780132, max cpu: 32.925037, count: 58938"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 58.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.48300306041942, max mem: 68.05078125, count: 58938"
+          }
+        ],
+        "publication_id": "13926101804-other"
       }
     ]
   }

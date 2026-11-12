@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794470774077,
+  "lastUpdate": 1794470803185,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -345167,6 +345167,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13837659126-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794470800628,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.41704371441038,
+            "unit": "median tps",
+            "extra": "avg tps: 57.209444204944944, max tps: 658.3352994546182, count: 59040"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.70337902866154,
+            "unit": "median tps",
+            "extra": "avg tps: 56.37268322863797, max tps: 673.2519150206988, count: 59040"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.65092474847789,
+            "unit": "median tps",
+            "extra": "avg tps: 59.68899381701094, max tps: 780.668012413769, count: 59040"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.64628577093157,
+            "unit": "median tps",
+            "extra": "avg tps: 56.04371148945475, max tps: 653.8256012901356, count: 59040"
+          }
+        ],
+        "publication_id": "13925430326-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -368460,6 +368507,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13837659126-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794470803068,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.070182725859663, max cpu: 37.702503, count: 59040"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 50.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.80176376714939, max mem: 60.9765625, count: 59040"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.300213499824527, max cpu: 4.5605702, count: 59040"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 20.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.52512425368394, max mem: 20.55078125, count: 59040"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.556241,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.63403445948307, max cpu: 9.164679, count: 59040"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 29.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.1151748285061, max mem: 29.12109375, count: 59040"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 2235,
+            "unit": "median pages",
+            "extra": "avg pages: 1986.314295392954, max pages: 3096.0, count: 59040"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 17.4609375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 15.518080697408537, max relation_size:MB: 24.1875, count: 59040"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 6.048915989159892, max segment_count: 19.0, count: 59040"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.348804361270075, max cpu: 4.597701, count: 59040"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 20.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 20.283588853954946, max mem: 20.30078125, count: 59040"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.200696627137212, max cpu: 42.415318, count: 59040"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 49.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.55310587895918, max mem: 59.3515625, count: 59040"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.108290190913877, max cpu: 42.33219, count: 59040"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 43.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 44.0682952632749, max mem: 55.93359375, count: 59040"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 95.71258544921875,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 195.89198659261066, max replication_lag:MB: 939.9595108032227, count: 59040"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.235789356924137, max cpu: 37.628616, count: 59040"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 61.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.41659342447917, max mem: 71.4921875, count: 59040"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.035295,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.92940504979842, max cpu: 32.12237, count: 59040"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 20.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.646593808223237, max mem: 22.72265625, count: 59040"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.048068,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.007823914290443, max cpu: 32.10702, count: 59040"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 20.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.4657069095105, max mem: 22.72265625, count: 59040"
+          }
+        ],
+        "publication_id": "13925430326-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

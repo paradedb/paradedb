@@ -107,11 +107,12 @@ SELECT id, description, rating, category FROM mock_items WHERE description @@@ p
 -- Fuzzy match query
 -- ============================================================================
 
-CREATE TABLE expensive_estimate_titles (id int PRIMARY KEY, title text);
-INSERT INTO expensive_estimate_titles SELECT g, md5(g::text) FROM generate_series(1, 10000) g;
-INSERT INTO expensive_estimate_titles VALUES (10001, 'naruto'), (10002, 'narutoo'), (10003, 'naruta');
+CREATE TABLE expensive_estimate_titles (id int PRIMARY KEY, title text, lang text);
+INSERT INTO expensive_estimate_titles
+SELECT g, md5(g::text), CASE WHEN g % 2 = 0 THEN 'en' ELSE 'ja' END FROM generate_series(1, 10000) g;
+INSERT INTO expensive_estimate_titles VALUES (10001, 'naruto', 'ja'), (10002, 'narutoo', 'ja'), (10003, 'naruta', 'ja');
 CREATE INDEX expensive_estimate_titles_idx ON expensive_estimate_titles
-    USING bm25 (id, (title::pdb.literal_normalized));
+    USING bm25 (id, (title::pdb.literal_normalized), lang);
 ANALYZE expensive_estimate_titles;
 
 CREATE FUNCTION expensive_estimate_plan_rows(q text) RETURNS text LANGUAGE plpgsql AS $$
@@ -138,6 +139,12 @@ SELECT expensive_estimate_plan_rows($$SELECT id FROM expensive_estimate_titles W
 
 -- A match at distance 0 builds no automaton, so its estimate comes from the index.
 SELECT expensive_estimate_plan_rows($$SELECT id FROM expensive_estimate_titles WHERE title ||| 'naruto'::pdb.fuzzy(0)$$) AS match_op;
+
+-- The heuristic has no estimate for a negated fuzzy match, so the estimate comes from the index.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT count(*) FROM expensive_estimate_titles WHERE lang === 'ja' AND NOT (title ||| 'naruto'::pdb.fuzzy(1));
+SELECT count(*) FROM expensive_estimate_titles WHERE lang === 'ja' AND NOT (title ||| 'naruto'::pdb.fuzzy(1));
+SELECT expensive_estimate_plan_rows($$SELECT id FROM expensive_estimate_titles WHERE lang === 'ja' AND NOT (title ||| 'naruto'::pdb.fuzzy(1))$$) AS negated_match,
+       expensive_estimate_plan_rows($$SELECT id FROM expensive_estimate_titles WHERE lang === 'ja' AND NOT (title === 'naruto'::pdb.fuzzy(1))$$) AS negated_term;
 
 -- With the heuristic off, every estimate comes from the index.
 SET paradedb.enable_heuristic_selectivity = off;

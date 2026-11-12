@@ -866,6 +866,14 @@ impl SearchQueryInput {
             .unwrap_or(crate::UNKNOWN_SELECTIVITY)
     }
 
+    /// The heuristic selectivity of a query whose scorer is expensive to build, or `None` when
+    /// the index has to estimate it. An expensive clause in a `must_not` has no heuristic.
+    pub fn expensive_selectivity_heuristic(&self) -> Option<f64> {
+        self.is_expensive_to_estimate()
+            .then(|| self.estimated_selectivity())
+            .flatten()
+    }
+
     /// The heuristic selectivity, or `None` where this shape has no heuristic to offer.
     ///
     /// Keeping "no estimate" distinct from a value is what lets a conjunction skip the clauses it

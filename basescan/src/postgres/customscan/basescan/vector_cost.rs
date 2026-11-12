@@ -44,8 +44,12 @@ impl VectorWork {
         field: &FieldName,
         options: &BM25IndexOptions,
     ) -> Option<Self> {
-        if !matches!(strategy, VectorFilterStrategy::Pre { is_text_only: true })
-            || query.is_match_all()
+        if !matches!(
+            strategy,
+            VectorFilterStrategy::Pre {
+                uses_fast_fields: false
+            }
+        ) || query.is_match_all()
         {
             return None;
         }
@@ -149,15 +153,17 @@ mod tests {
     }
 
     #[test]
-    fn worker_policy_preserves_costed_pre_text_queries() {
+    fn worker_policy_preserves_costed_posting_filters() {
         for workers in [0, 7] {
             for leader_participates in [false, true] {
                 for cheap in [false, true] {
                     for strategy in [
                         VectorFilterStrategy::Post,
-                        VectorFilterStrategy::Pre { is_text_only: true },
                         VectorFilterStrategy::Pre {
-                            is_text_only: false,
+                            uses_fast_fields: false,
+                        },
+                        VectorFilterStrategy::Pre {
+                            uses_fast_fields: true,
                         },
                     ] {
                         let work = if cheap {
@@ -168,8 +174,8 @@ mod tests {
                         let parallel = workers > 0
                             && match strategy {
                                 VectorFilterStrategy::Post => false,
-                                VectorFilterStrategy::Pre { is_text_only } => {
-                                    !is_text_only || !cheap
+                                VectorFilterStrategy::Pre { uses_fast_fields } => {
+                                    uses_fast_fields || !cheap
                                 }
                             };
                         assert_eq!(

@@ -966,7 +966,7 @@ impl SearchIndexReader {
     pub fn vector_filter_strategy(&self, name: &FieldName) -> VectorFilterStrategy {
         self.vector_filter_strategy.unwrap_or_else(|| {
             VectorFilterStrategy::from_estimate(
-                !self.weight().uses_fast_fields(),
+                self.weight().uses_fast_fields(),
                 self.estimate_vector_matches().ceil() as usize,
                 gucs::vector_max_scan_levels() > 0
                     && self

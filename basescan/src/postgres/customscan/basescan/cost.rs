@@ -91,8 +91,8 @@ impl WorkerPathPolicy {
     ) -> Self {
         let reason = WorkerDecisionReason::VectorWork;
         match (strategy, NonZeroUsize::new(workers)) {
-            (VectorFilterStrategy::Pre { is_text_only }, Some(nworkers))
-                if !is_text_only
+            (VectorFilterStrategy::Pre { uses_fast_fields }, Some(nworkers))
+                if uses_fast_fields
                     || work.is_some_and(|work| {
                         work.parallel_wins(parallel_divisor(nworkers, leader_participates))
                     }) =>
@@ -537,10 +537,15 @@ mod vector_filter_tests {
     fn filtering_strategy_selects_vector_workers() {
         for workers in [0, 1, 7] {
             for (strategy, parallel) in [
-                (VectorFilterStrategy::Pre { is_text_only: true }, false),
                 (
                     VectorFilterStrategy::Pre {
-                        is_text_only: false,
+                        uses_fast_fields: false,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
                     },
                     workers > 0,
                 ),

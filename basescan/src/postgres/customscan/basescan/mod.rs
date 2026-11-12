@@ -1182,13 +1182,13 @@ impl CustomScan for BaseScan {
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
             let vector_filter_strategy = vector_field.as_ref().map(|field| {
-                let is_text_only = vector_filter
-                    .map(|filter| !filter.uses_fast_fields)
+                let uses_fast_fields = vector_filter
+                    .map(|filter| filter.uses_fast_fields)
                     .unwrap_or_else(|| {
-                        estimation_query
+                        !estimation_query
                             .resolve(&query)
                             .unwrap_or(&query)
-                            .is_text_only()
+                            .is_match_all()
                     });
                 let post_filtering_enabled = gucs::vector_max_scan_levels() > 0
                     && source_context
@@ -1199,7 +1199,7 @@ impl CustomScan for BaseScan {
                         .quantization_layers()
                         .is_some();
                 VectorFilterStrategy::from_estimate(
-                    is_text_only,
+                    uses_fast_fields,
                     vector_filter.map_or(0, |filter| filter.matches),
                     post_filtering_enabled,
                 )
@@ -1842,10 +1842,12 @@ impl CustomScan for BaseScan {
             explainer.add_text(
                 "Vector Filtering",
                 match strategy {
-                    VectorFilterStrategy::Pre { is_text_only: true } => "Pre (text only)",
                     VectorFilterStrategy::Pre {
-                        is_text_only: false,
-                    } => "Pre (non-text)",
+                        uses_fast_fields: false,
+                    } => "Pre (postings)",
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
+                    } => "Pre (fast fields)",
                     VectorFilterStrategy::Post => "Post",
                 },
             );

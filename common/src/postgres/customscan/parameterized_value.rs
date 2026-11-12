@@ -112,7 +112,9 @@ where
     /// Resolve at execution time using the executor's parameter list.
     ///
     /// `Static(v)` returns `Some(v.clone())`.
-    /// `Param { param_id }` looks up `estate.es_param_list_info.params[param_id - 1]`.
+    /// `Param { param_id }` reads `estate.es_param_list_info` the way
+    /// `ExecEvalParamExtern` does: through its `paramFetch` hook when set
+    /// (PL/pgSQL's list has no `params` array), else from `params[param_id - 1]`.
     /// Returns `None` if the parameter is null or out of range.
     pub fn resolve(&self, estate: *mut pg_sys::EState) -> Option<T> {
         match self {
@@ -121,17 +123,23 @@ where
                 if estate.is_null() {
                     return None;
                 }
-                let param_list = unsafe { (*estate).es_param_list_info };
-                if param_list.is_null() {
+                let param_list_info = unsafe { (*estate).es_param_list_info };
+                if param_list_info.is_null() {
                     return None;
                 }
-                let param_list = unsafe { &*param_list };
+                let param_list = unsafe { &*param_list_info };
                 let num_params = param_list.numParams as usize;
                 let idx = (*param_id - 1) as usize;
                 if idx >= num_params {
                     return None;
                 }
-                let param_data = &unsafe { param_list.params.as_slice(num_params) }[idx];
+                let mut workspace = pg_sys::ParamExternData::default();
+                let param_data = match param_list.paramFetch {
+                    Some(fetch) => unsafe {
+                        &*fetch(param_list_info, *param_id, false, &mut workspace)
+                    },
+                    None => unsafe { &param_list.params.as_slice(num_params)[idx] },
+                };
                 unsafe { T::from_datum(param_data.value, param_data.isnull) }
             }
         }

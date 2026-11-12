@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794466710291,
+  "lastUpdate": 1794471148517,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -83766,6 +83766,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13854470854-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794471145213,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 10.479,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 15.134,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 17.282,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 27.139,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 38.056,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 42.612,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 71.49,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 661.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 698.427,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.319,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 6.664,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.179,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.689,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 16.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 17.988,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13926655349-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -84003,6 +84101,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13854470854-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794471146541,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 93.80925608317287,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 40.81805391565673,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 6.963407479528203,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 187.48108551566517,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 99.25693518001846,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13926655349-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -84240,6 +84386,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13854470854-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794471147508,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2465.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 6866.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 51754.42,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1170.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2694.99,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13926655349-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -84457,6 +84651,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13854470854-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794471148502,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 201.18333333333334,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 508969.9296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 125.40038299560547,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13926655349-index"
       }
     ],
     "benchmarker cohere-10m (router)": [

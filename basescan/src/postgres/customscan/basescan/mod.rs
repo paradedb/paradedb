@@ -21,6 +21,7 @@ mod cost;
 pub mod exec_methods;
 pub mod parallel;
 pub mod privdat;
+mod vector_cost;
 pub use planner::postgres::customscan::basescan::{missing_scan_error, projections};
 mod scan_state;
 pub mod telemetry;
@@ -63,7 +64,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
 use crate::postgres::customscan::basescan::scan_state::{BasePlaceholders, BaseScanState};
 use crate::postgres::customscan::bitmap_intersection;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType, restrict_info,
+    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, restrict_info,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -1098,6 +1099,28 @@ impl CustomScan for BaseScan {
             );
 
             let mut query = SearchQueryInput::from(&quals);
+            let vector_field =
+                topk_pathkey_info
+                    .pathkeys()
+                    .and_then(|orders| match orders.first() {
+                        Some(OrderByStyle::VectorDistance { name, .. }) if is_maybe_topk => {
+                            Some(name.clone())
+                        }
+                        _ => None,
+                    });
+            let is_vector_topk = vector_field.is_some();
+            let available_workers = |segment_count| {
+                if (*rel).consider_parallel {
+                    max_useful_workers(
+                        segment_count,
+                        quals.contains_external_var(),
+                        quals.contains_correlated_param(root),
+                    )
+                } else {
+                    0
+                }
+            };
+
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
             } else {
@@ -1227,22 +1250,12 @@ impl CustomScan for BaseScan {
                     _ => pg_sys::cpu_tuple_cost,
                 };
 
-                let drive_cost = match (&method, row_estimate) {
-                    // Posting costs omit vector work; preserve the fallback for runtime filters.
-                    (
-                        ExecMethodType::TopK {
-                            orderby_info: Some(orderby),
-                            ..
-                        },
-                        _,
-                    ) if matches!(estimation_query, EstimationQuery::Folded(_))
-                        && orderby
-                            .first()
-                            .is_some_and(|order| order.is_vector_distance()) =>
-                    {
-                        None
-                    }
-                    (_, RowEstimate::Known(_)) => costable_drive_cost(
+                let is_sorted = method.declares_sorted_output();
+                let consider_parallel_local = (*builder.args().rel).consider_parallel;
+
+                let drive_cost = match row_estimate {
+                    _ if is_vector_topk => None,
+                    RowEstimate::Known(_) => costable_drive_cost(
                         &query,
                         &estimation_query,
                         source_context.indexrel().unwrap(),
@@ -1250,25 +1263,23 @@ impl CustomScan for BaseScan {
                         builder.args().root,
                         &mut cost_memo,
                     ),
-                    (_, RowEstimate::Unknown) => None,
+                    RowEstimate::Unknown => None,
                 };
 
-                let is_sorted = method.declares_sorted_output();
-                let consider_parallel_local = (*builder.args().rel).consider_parallel;
-                let prunability = topk_can_prune_for_method(&method, builder.args().root, &quals);
-
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = if query.is_match_all()
-                    && !quals.contains_heap_expr()
-                    && matches!(&method, ExecMethodType::TopK { orderby_info: Some(orderby), .. }
-                        if orderby.first().is_some_and(|order| order.is_vector_distance()))
-                {
-                    WorkerPathPolicy::SerialOnly {
-                        reason: WorkerDecisionReason::UnfilteredVectorTopK,
-                    }
+                let policy = if let Some(field) = vector_field.as_ref() {
+                    WorkerPathPolicy::for_vector_topk(
+                        estimation_query.resolve(&query).unwrap_or(&query),
+                        (*rel).tuples.max(1.0),
+                        selectivity,
+                        field,
+                        source_context.indexrel().unwrap().options(),
+                        available_workers(segment_count),
+                        parallel_leader_participates,
+                    )
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
-                        prunability,
+                        prunability: topk_can_prune_for_method(&method, root, &quals),
                         query: &query,
                         drive_cost,
                         row_estimate,
@@ -1292,7 +1303,7 @@ impl CustomScan for BaseScan {
                 // applied to the cost.)
                 let path_drive_cost = match reason {
                     WorkerDecisionReason::BlockWandPrunable
-                    | WorkerDecisionReason::UnfilteredVectorTopK
+                    | WorkerDecisionReason::VectorWork
                     | WorkerDecisionReason::DocumentCount => None,
                     WorkerDecisionReason::CostModel
                     | WorkerDecisionReason::CostModelLimited

@@ -22,6 +22,7 @@ use crate::index::synonym_index::{expand_with_index, open_synonym_index, rule_to
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::is_datetime_type;
+use crate::query::estimate::RangeQueryWithEstimate;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
     clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
@@ -1752,7 +1753,8 @@ fn range_query_from_bounds(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQuery> {
+) -> anyhow::Result<RangeQueryWithEstimate> {
+    let bounds = (lower_bound.clone(), upper_bound.clone());
     let field_type = search_field.field_entry().field_type();
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1790,7 +1792,12 @@ fn range_query_from_bounds(
         Bound::Unbounded => Bound::Unbounded,
     };
 
-    Ok(RangeQuery::new(lower_bound, upper_bound))
+    Ok(RangeQueryWithEstimate {
+        query: RangeQuery::new(lower_bound, upper_bound),
+        field: search_field.clone(),
+        lower_bound: bounds.0,
+        upper_bound: bounds.1,
+    })
 }
 
 /// Creates a range query for the given field and bounds.
@@ -1815,7 +1822,7 @@ fn range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQuery> {
+) -> anyhow::Result<RangeQueryWithEstimate> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1844,7 +1851,7 @@ fn stored_range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQuery> {
+) -> anyhow::Result<RangeQueryWithEstimate> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;

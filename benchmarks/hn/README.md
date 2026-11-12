@@ -76,10 +76,11 @@ python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 
 Apply `benchmark-hn-pg_vectorsearch` to run the pinned PRISM engine, or manually
 dispatch `benchmark-hn-pg-vectorsearch.yml`. The label is removed when the job
-starts. This separate workflow retains the host cluster settings from
-[sweep 43100831368](https://github.com/paradedb/paradedb/actions/runs/43100831368),
-including 12GB shared buffers and maintenance memory, eight parallel maintenance
-workers, and pg_vectorsearch commit `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`.
+starts. This separate workflow uses the same Docker configuration as pg_search,
+with pg_vectorsearch commit `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`.
+The fixed probes come from
+[sweep 43100831368](https://github.com/paradedb/paradedb/actions/runs/43100831368)
+and their recall is remeasured under the shared container settings.
 
 CI uses the following fixed nprobe values from that sweep. Targets that were
 not reached use the maximum, 4096.
@@ -105,3 +106,9 @@ The EXPLAIN gate requires the cosine PRISM index scan and the scalar predicates;
 sequential scans, B-tree scans, and ParadeDB scans are rejected. Results use the
 separate `hackernews-vector-28m-pg-vectorsearch` dataset and `prism-postfilter`
 workload names. Manual main runs without a `commit` override update its baseline.
+
+All HN engines use the `paradedb` service from the pinned pdbench Compose file: 64 CPUs
+(cores 0–63), 128 GiB memory, 64 GiB shared memory, 32 GiB shared buffers,
+1 GiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
+The workflow verifies runtime settings and saves the resolved Compose, container
+limits, and PostgreSQL settings in the diagnostics artifact.

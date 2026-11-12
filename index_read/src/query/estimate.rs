@@ -15,11 +15,30 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::Bound;
+
+use crate::index::stats::SegmentStats;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::schema::SearchField;
 use tantivy::SegmentReader;
 use tantivy::query::{
-    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, Occur, PhraseQuery, Query,
-    SynonymQuery, TermQuery,
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, EnableScoring, Occur,
+    PhraseQuery, Query, RangeQuery, SynonymQuery, TermQuery, Weight,
 };
+
+#[derive(Clone, Debug)]
+pub(super) struct RangeQueryWithEstimate {
+    pub query: RangeQuery,
+    pub field: SearchField,
+    pub lower_bound: Bound<PdbOwnedValue>,
+    pub upper_bound: Bound<PdbOwnedValue>,
+}
+
+impl Query for RangeQueryWithEstimate {
+    fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        self.query.weight(enable_scoring)
+    }
+}
 
 pub trait QueryEstimate {
     fn is_fast_count(&self) -> bool {
@@ -67,13 +86,74 @@ impl QueryEstimate for dyn Query {
         }
         estimate_as! {
             AllQuery, TermQuery, SynonymQuery, PhraseQuery, BooleanQuery, EmptyQuery,
-            ConstScoreQuery, BoostQuery
+            ConstScoreQuery, BoostQuery, RangeQueryWithEstimate
         }
         // SearchQueryInput::All wraps AllQuery directly, without boxing it.
         if let Some(query) = self.downcast_ref::<ConstScoreQuery<AllQuery>>() {
             return query.query().estimate_docs(reader);
         }
         Ok(None)
+    }
+}
+
+impl QueryEstimate for RangeQueryWithEstimate {
+    fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
+        // Assume values are uniformly distributed between the segment's minimum and maximum.
+        // TODO: Keep more granular statistics to estimate nonuniform distributions.
+        let Some(stats) = SegmentStats::of_reader(reader)? else {
+            return Ok(None);
+        };
+        Ok(stats.empirical_for(&self.field)?.and_then(|stats| {
+            let distance = |value: &PdbOwnedValue| {
+                let distance = match (&stats.min, value) {
+                    (PdbOwnedValue::I64(min), PdbOwnedValue::I64(value)) => {
+                        (i128::from(*value) - i128::from(*min)) as f64
+                    }
+                    (PdbOwnedValue::U64(min), PdbOwnedValue::U64(value)) => {
+                        (i128::from(*value) - i128::from(*min)) as f64
+                    }
+                    (PdbOwnedValue::Date(min), PdbOwnedValue::Date(value)) => {
+                        (i128::from(value.into_inner()) - i128::from(min.into_inner())) as f64
+                    }
+                    (PdbOwnedValue::F64(min), PdbOwnedValue::F64(value)) => value - min,
+                    _ => return None,
+                };
+                distance.is_finite().then_some(distance)
+            };
+            let span = distance(&stats.max)?;
+            let step = if matches!(stats.min, PdbOwnedValue::F64(_)) {
+                0.0
+            } else {
+                1.0
+            };
+            let lower_offset = match &self.lower_bound {
+                Bound::Included(value) => distance(value)?,
+                Bound::Excluded(value) => distance(value)? + step,
+                Bound::Unbounded => 0.0,
+            };
+            let upper_offset = match &self.upper_bound {
+                Bound::Included(value) => distance(value)? + step,
+                Bound::Excluded(value) => distance(value)?,
+                Bound::Unbounded => span + step,
+            };
+            let fraction = if !stats.intersects(&self.lower_bound, &self.upper_bound)
+                || lower_offset > upper_offset
+            {
+                0.0
+            } else if stats.nullable {
+                // Nullability also covers multivalued fields; min/max cannot estimate their document counts.
+                return None;
+            } else if span == 0.0 {
+                1.0
+            } else {
+                ((upper_offset.min(span + step) - lower_offset.max(0.0)) / (span + step))
+                    .clamp(0.0, 1.0)
+            };
+            Some(Estimate {
+                matches: fraction * f64::from(reader.max_doc()),
+                cost: u64::from(reader.max_doc()),
+            })
+        }))
     }
 }
 

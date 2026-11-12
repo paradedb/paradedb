@@ -20,15 +20,12 @@ use crate::api::version::VersionInfo;
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::index_settings;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::synonym_index::{
-    refuse_synonym_rule_columns, rule_field_options, validate_synonym_index,
-};
+use crate::index::synonym_index::rule_field_options;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::build_partitioning::{
     check_fast_dims, normalized_dims, partition_vector_field,
 };
-use crate::postgres::catalog::OidExt;
-use crate::postgres::options::{BM25IndexOptions, IndexType};
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
@@ -67,23 +64,8 @@ pub extern "C-unwind" fn ambuild(
     let is_reindex = !index_tuple.indisvalid;
     let is_concurrent = unsafe { (*index_info).ii_Concurrent };
 
-    // A synonym index serves no query on its table, so a table can hold several of them, such as
-    // a partial index per set or one per tokenizer.
-    if !is_reindex && index_relation.index_type() == IndexType::Search {
-        for existing_index in heap_relation.indices(pg_sys::AccessShareLock as _) {
-            if existing_index.oid() == index_relation.oid() {
-                // the index we're about to build already exists on the table.
-                continue;
-            }
-
-            let rd_rel = unsafe { &*existing_index.rd_rel };
-            if rd_rel.relam.is_paradedb_am()
-                && !is_concurrent
-                && existing_index.index_type() == IndexType::Search
-            {
-                panic!("a relation may only have one ParadeDB index");
-            }
-        }
+    if !is_reindex && !is_concurrent {
+        index_relation.refuse_second_index(&heap_relation);
     }
 
     let heap_tuples = build_index(heap_relation, index_relation.clone(), is_concurrent)
@@ -240,10 +222,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         }
     }
 
-    match options.index_type() {
-        IndexType::Search => refuse_synonym_rule_columns(options),
-        IndexType::Synonym => validate_synonym_index(options),
-    }
+    index_relation.validate_index_type();
 
     // Validate that `sort_by` and `partition_by` fields are single-valued
     let check_single_valued = |field_name: &FieldName, context: &str| {

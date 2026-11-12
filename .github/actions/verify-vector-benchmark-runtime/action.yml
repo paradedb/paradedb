@@ -1,0 +1,44 @@
+name: Verify Vector Benchmark Runtime
+description: Record and verify the shared pg_search Docker resource and PostgreSQL settings
+
+runs:
+  using: composite
+  steps:
+    - name: Verify container and PostgreSQL settings
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p benchmark-artifacts
+        docker compose config --format json | jq '.services.paradedb |
+          {image, cpus, cpuset, mem_limit, shm_size, command}' \
+          > benchmark-artifacts/docker-compose.json
+        docker inspect paradedb | jq '.[0] |
+          {image: .Image, config_image: .Config.Image, limits: (.HostConfig |
+            {NanoCpus, CpusetCpus, Memory, ShmSize, PidMode})}' \
+          > benchmark-artifacts/docker-runtime.json
+        jq -e '.limits | .NanoCpus == 64000000000 and .CpusetCpus == "0-63"
+          and .Memory == 137438953472 and .ShmSize == 68719476736
+          and .PidMode != "host"' benchmark-artifacts/docker-runtime.json
+        psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 -c \
+          "SELECT json_object_agg(name, json_build_object('value', current_setting(name), 'setting', setting, 'unit', unit))
+           FROM pg_settings WHERE name IN (
+             'server_version', 'shared_preload_libraries', 'shared_buffers', 'effective_cache_size',
+             'maintenance_work_mem', 'work_mem', 'max_parallel_maintenance_workers',
+             'max_parallel_workers', 'max_parallel_workers_per_gather', 'max_worker_processes',
+             'max_connections', 'random_page_cost', 'effective_io_concurrency',
+             'maintenance_io_concurrency', 'jit', 'autovacuum', 'checkpoint_timeout',
+             'max_wal_size', 'min_wal_size', 'checkpoint_completion_target',
+             'track_io_timing', 'track_wal_io_timing');" \
+          > benchmark-artifacts/postgres-settings.json
+        jq -e 'with_entries(.value = .value.value) |
+          .shared_buffers == "32GB" and .effective_cache_size == "96GB"
+          and .maintenance_work_mem == "52428MB" and .work_mem == "1GB"
+          and .max_parallel_maintenance_workers == "8" and .max_parallel_workers == "16"
+          and .max_parallel_workers_per_gather == "8" and .max_worker_processes == "32"
+          and .max_connections == "82" and .random_page_cost == "1.1"
+          and .effective_io_concurrency == "256" and .maintenance_io_concurrency == "256"
+          and .jit == "off" and .autovacuum == "off" and .checkpoint_timeout == "1h"
+          and .max_wal_size == "32GB" and .min_wal_size == "2GB"
+          and .checkpoint_completion_target == "0.9"
+          and .track_io_timing == "on" and .track_wal_io_timing == "on"' \
+          benchmark-artifacts/postgres-settings.json

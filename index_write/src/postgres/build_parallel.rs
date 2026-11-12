@@ -1607,7 +1607,7 @@ pub mod plan {
     ) -> usize {
         // If there are fewer rows than number of CPUs, use 1 worker
         let reltuples = plan::estimate_heap_reltuples(heaprel);
-        let target_segment_count = indexrel.options().target_segment_count();
+        let target_segment_count = indexrel.target_segment_count();
         if reltuples <= target_segment_count as f64 {
             pgrx::debug1!(
                 "number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment"
@@ -1621,9 +1621,8 @@ pub mod plan {
         // the partitions it asked for. A plain build cuts on the worker layout instead, and
         // its count under the floor would depend on the machine.
         let byte_size = plan::estimate_heap_byte_size(heaprel);
-        let options = indexrel.options();
-        let explicit_partitioned =
-            options.explicit_target_segment_count().is_some() && !options.partition_by().is_empty();
+        let explicit_partitioned = indexrel.explicit_target_segment_count().is_some()
+            && !indexrel.options().partition_by().is_empty();
         if byte_size <= 15 * 1024 * 1024 && !explicit_partitioned {
             pgrx::debug1!(
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"

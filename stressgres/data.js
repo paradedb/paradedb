@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794470908081,
+  "lastUpdate": 1794470933332,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -407263,6 +407263,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13838249572-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794470930101,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 489.622724987847,
+            "unit": "median tps",
+            "extra": "avg tps: 487.84071968279676, max tps: 491.710585555869, count: 57181"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 457.889238789744,
+            "unit": "median tps",
+            "extra": "avg tps: 456.86932618661496, max tps: 459.5190158954711, count: 57181"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3706.834416560981,
+            "unit": "median tps",
+            "extra": "avg tps: 3702.0218292553245, max tps: 3941.4660610855776, count: 57181"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 488.61676756573075,
+            "unit": "median tps",
+            "extra": "avg tps: 486.0555089296051, max tps: 490.4701795828212, count: 57181"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3288.7865379659243,
+            "unit": "median tps",
+            "extra": "avg tps: 3283.1501756396146, max tps: 3318.5672615654544, count: 57181"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3292.6189007669195,
+            "unit": "median tps",
+            "extra": "avg tps: 3280.303001444802, max tps: 3325.535782372581, count: 57181"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 190.75361560546068,
+            "unit": "median tps",
+            "extra": "avg tps: 190.4960006911512, max tps: 191.19657493621048, count: 57181"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 376.0418872372343,
+            "unit": "median tps",
+            "extra": "avg tps: 373.1751762579171, max tps: 378.6451672110492, count: 57181"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 594.6293935057124,
+            "unit": "median tps",
+            "extra": "avg tps: 592.7997102990266, max tps: 597.3345336235398, count: 57181"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 687.1949326528281,
+            "unit": "median tps",
+            "extra": "avg tps: 684.1690432256237, max tps: 690.8136767502002, count: 57181"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1416.803700561773,
+            "unit": "median tps",
+            "extra": "avg tps: 1413.188962639634, max tps: 1420.5802704671469, count: 57181"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 490.39473626931,
+            "unit": "median tps",
+            "extra": "avg tps: 489.44017429032255, max tps: 491.8370165747799, count: 57181"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 603.8930646594489,
+            "unit": "median tps",
+            "extra": "avg tps: 601.6348394357115, max tps: 606.7597230598842, count: 57181"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2438.7920525697223,
+            "unit": "median tps",
+            "extra": "avg tps: 2434.352143128145, max tps: 2451.3130590298756, count: 57181"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1782.422797079673,
+            "unit": "median tps",
+            "extra": "avg tps: 1781.3871870140274, max tps: 1873.1146120741196, count: 57181"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.12393564958268,
+            "unit": "median tps",
+            "extra": "avg tps: 53.22100791677278, max tps: 1322.0483287987076, count: 57181"
+          }
+        ],
+        "publication_id": "13925757468-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [
@@ -440672,6 +440791,233 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13838249572-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794470933220,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.477567355842201, max cpu: 13.786501, count: 57181"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 47.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.97319907126056, max mem: 48.09765625, count: 57181"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - cpu",
+            "value": 4.5605702,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.641600619606256, max cpu: 13.799712, count: 57181"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - mem",
+            "value": 55.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.92691341420227, max mem: 55.9375, count: 57181"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5696598494623455, max cpu: 9.151573, count: 57181"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 30.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.922961872169076, max mem: 30.9296875, count: 57181"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.531787442358812, max cpu: 13.81295, count: 57181"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - mem",
+            "value": 45.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.4959489931096, max mem: 45.515625, count: 57181"
+          },
+          {
+            "name": "Insert value A - Primary - cpu",
+            "value": 4.5519204,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.612505608109665, max cpu: 9.164679, count: 57181"
+          },
+          {
+            "name": "Insert value A - Primary - mem",
+            "value": 37.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 37.74543363398681, max mem: 37.74609375, count: 57181"
+          },
+          {
+            "name": "Insert value B - Primary - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.569570231610492, max cpu: 9.160305, count: 57181"
+          },
+          {
+            "name": "Insert value B - Primary - mem",
+            "value": 37.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 37.73947701432731, max mem: 37.74609375, count: 57181"
+          },
+          {
+            "name": "JoinScan - Primary - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.41508507391552, max cpu: 23.312288, count: 57181"
+          },
+          {
+            "name": "JoinScan - Primary - mem",
+            "value": 79.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 79.72544734592785, max mem: 79.734375, count: 57181"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 725,
+            "unit": "median block_count",
+            "extra": "avg block_count: 711.2432276455467, max block_count: 725.0, count: 57181"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.1955894440460995, max segment_count: 13.0, count: 57181"
+          },
+          {
+            "name": "Normal Base Scan - Primary - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.424776965149796, max cpu: 18.207682, count: 57181"
+          },
+          {
+            "name": "Normal Base Scan - Primary - mem",
+            "value": 43.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 43.43966609319529, max mem: 43.64453125, count: 57181"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622955916290736, max cpu: 9.138506, count: 57181"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - mem",
+            "value": 41.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.797744429421485, max mem: 41.91796875, count: 57181"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.005788778113607, max cpu: 13.747017, count: 57181"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - mem",
+            "value": 42.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.01350344738637, max mem: 42.04296875, count: 57181"
+          },
+          {
+            "name": "Rotate join keys - Primary - cpu",
+            "value": 4.5605702,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.483636755056485, max cpu: 4.653417, count: 57181"
+          },
+          {
+            "name": "Rotate join keys - Primary - mem",
+            "value": 38.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.01980600800528, max mem: 38.06640625, count: 57181"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.576712860275488, max cpu: 14.04193, count: 57181"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - mem",
+            "value": 57.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.36227806220598, max mem: 57.36328125, count: 57181"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 4.556241,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.218497440776038, max cpu: 14.028252, count: 57181"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 56.75,
+            "unit": "median mem",
+            "extra": "avg mem: 56.72352267361536, max mem: 56.75, count: 57181"
+          },
+          {
+            "name": "Update joined rows - Primary - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.559627307143262, max cpu: 9.116809, count: 57181"
+          },
+          {
+            "name": "Update joined rows - Primary - mem",
+            "value": 38.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 37.97335079615607, max mem: 38.00390625, count: 57181"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.537046393850694, max cpu: 4.5867176, count: 57181"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 38.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 38.77278933889754, max mem: 38.8203125, count: 57181"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.646846438938476, max cpu: 4.5757866, count: 57181"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 42.446414401199696, max mem: 44.04296875, count: 57181"
+          }
+        ],
+        "publication_id": "13925757468-other"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - TPS": [

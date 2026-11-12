@@ -4995,27 +4995,42 @@ mod tests {
     }
 
     #[pg_test]
-    fn vector_parallelism_depends_on_filter() {
+    fn vector_parallelism_uses_work_only_for_filters() {
         Spi::run(
             "SET max_parallel_workers_per_gather = 2;
              SET parallel_setup_cost = 0;
              SET parallel_tuple_cost = 0;
              SET paradedb.min_rows_per_worker = 0;
-             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3));
+             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3), heap_value bigint DEFAULT 1);
              CREATE INDEX vector_parallelism_idx ON vector_parallelism
              USING paradedb (id, (category::pdb.literal), embedding vector_l2_ops)
              WITH (background_layer_sizes = '0', layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
-             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
+             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             SET vector_parallelism.filter = 'keep OR other';
+             SET vector_parallelism.range = '[2 TO 100]';
              RESET paradedb.global_mutable_segment_rows;"
         ).unwrap();
-        for (predicate, workers, parallel, serial_unfiltered) in [
-            ("", 2, false, true),
-            ("AND category = 'keep'", 2, true, false),
-            ("AND id > 1", 2, true, false),
-            ("AND category = 'keep'", 0, false, false),
-            ("AND id > 1", 0, false, false),
+        for (predicate, workers, parallel) in [
+            ("", 2, false),
+            ("AND category = 'keep'", 2, false),
+            (
+                "AND id @@@ paradedb.parse_with_field('category', current_setting('vector_parallelism.filter'))",
+                2,
+                false,
+            ),
+            ("AND id > 1", 2, true),
+            (
+                "AND id @@@ paradedb.parse_with_field('id', current_setting('vector_parallelism.range'))",
+                2,
+                true,
+            ),
+            ("AND heap_value = 1", 2, true),
+            ("AND category = 'keep' AND heap_value = 1", 2, true),
+            ("AND category = 'keep'", 0, false),
+            ("AND id > 1", 0, false),
+            ("AND heap_value = 1", 0, false),
         ] {
             Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
             let plan = Spi::get_one::<pgrx::Json>(&format!(
@@ -5029,11 +5044,13 @@ mod tests {
                 if node["Index"] == "vector_parallelism_idx" {
                     found = true;
                     assert_eq!(node["Parallel Aware"], parallel, "{plan}");
-                    assert_eq!(
-                        node["Worker Selection"] == "Unfiltered vector TopK",
-                        serial_unfiltered,
-                        "{plan}"
-                    );
+                    assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
+                    if predicate.contains("heap_value") {
+                        assert!(
+                            node["Tantivy Query"].to_string().contains("heap_filter"),
+                            "{plan}"
+                        );
+                    }
                     if predicate.contains("category") {
                         assert!(
                             node["Tantivy Query"].to_string().contains("category"),
@@ -5048,6 +5065,31 @@ mod tests {
             }
             assert!(found, "{plan}");
             assert_eq!(workers, parallel, "{plan}");
+        }
+        Spi::run(
+            "ANALYZE vector_parallelism;
+             UPDATE pg_class SET reltuples = 10000000 WHERE oid = 'vector_parallelism'::regclass;
+             SET max_parallel_workers_per_gather = 2;
+             SET paradedb.vector_cluster_max_probe = 65536;",
+        )
+        .unwrap();
+        for (predicate, parallel) in [("", false), ("AND category = 'keep'", true)] {
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+            )).unwrap().unwrap().0;
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            while let Some(node) = nodes.pop() {
+                if node["Index"] == "vector_parallelism_idx" {
+                    found = true;
+                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
+                    assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
         }
     }
 

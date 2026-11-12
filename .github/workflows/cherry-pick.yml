@@ -4,7 +4,13 @@ on:
   pull_request_target: # pull_request_target enables cherry-picks from forked repos
     branches:
       - main
-    types: [closed]
+    types: [closed, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Merged PR number to cherry-pick (e.g. 7366)."
+        required: true
+        type: number
 
 permissions:
   contents: write
@@ -14,8 +20,9 @@ jobs:
   backport:
     name: Backport (Cherry Pick)
     if: >
-      github.event.pull_request.merged == true &&
-      contains(join(github.event.pull_request.labels.*.name, ','), 'cherry-pick/')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true && github.event.action == 'closed' && contains(join(github.event.pull_request.labels.*.name, ','), 'cherry-pick/')) ||
+      (github.event.pull_request.merged == true && github.event.action == 'labeled' && startsWith(github.event.label.name, 'cherry-pick/'))
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App Token
@@ -29,7 +36,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: ${{ github.event.pull_request.base.ref || github.ref_name }}
           fetch-depth: 1 # The backport action fetches source commits and target branches itself
           token: ${{ steps.app-token.outputs.token }}
 
@@ -51,7 +58,9 @@ jobs:
           add_author_as_reviewer: true
           add_labels: automated-cherry-pick
           pull_title: "${pull_title}"
-          label_pattern: "^cherry-pick/([^ ]+)$"
+          source_pr_number: ${{ inputs.pr_number }}
+          # On `labeled`, restrict matching to the newly added label while still capturing only `<branch>`.
+          label_pattern: ${{ github.event.action == 'labeled' && format('^(?={0}$)cherry-pick/([^ ]+)$', github.event.label.name) || '^cherry-pick/([^ ]+)$' }}
           experimental: |
             {
               "conflict_resolution": "draft_commit_conflicts"

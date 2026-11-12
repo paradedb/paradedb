@@ -66,6 +66,7 @@ pub struct BaseScanState {
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
+    pub vector_filter_strategy: Option<tantivy::vector::VectorFilterStrategy>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.

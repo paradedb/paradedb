@@ -21,7 +21,6 @@ mod cost;
 pub mod exec_methods;
 pub mod parallel;
 pub mod privdat;
-mod vector_cost;
 pub use planner::postgres::customscan::basescan::{missing_scan_error, projections};
 mod scan_state;
 pub mod telemetry;
@@ -110,6 +109,7 @@ use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::VectorFilterStrategy;
 
 use super::pullup::SourceContext;
 
@@ -202,6 +202,7 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
+        search_reader.vector_filter_strategy = state.custom_state().vector_filter_strategy;
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -1179,6 +1180,31 @@ impl CustomScan for BaseScan {
             // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
+            let vector_filter_strategy = vector_field.as_ref().map(|field| {
+                let is_text_only = vector_filter
+                    .map(|filter| !filter.uses_fast_fields)
+                    .unwrap_or_else(|| {
+                        estimation_query
+                            .resolve(&query)
+                            .unwrap_or(&query)
+                            .is_text_only()
+                    });
+                let post_filtering_enabled = gucs::vector_max_scan_levels() > 0
+                    && source_context
+                        .indexrel()
+                        .unwrap()
+                        .options()
+                        .field_config_or_default(field)
+                        .quantization_layers()
+                        .is_some();
+                VectorFilterStrategy::from_estimate(
+                    is_text_only,
+                    vector_filter.map_or(0, |filter| filter.matches),
+                    post_filtering_enabled,
+                )
+            });
+            custom_private.set_vector_filter_strategy(vector_filter_strategy);
+
             custom_private.set_heaprelid(source_context.heaprel.oid());
             custom_private.set_indexrelid(source_context.indexrel().unwrap().oid());
             custom_private.set_range_table_index(rti);
@@ -1276,17 +1302,8 @@ impl CustomScan for BaseScan {
                 };
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = if let Some(field) = vector_field.as_ref() {
-                    WorkerPathPolicy::for_vector_topk(
-                        estimation_query.resolve(&query).unwrap_or(&query),
-                        vector_filter,
-                        (*rel).tuples.max(1.0),
-                        selectivity,
-                        field,
-                        source_context.indexrel().unwrap().options(),
-                        available_workers(segment_count),
-                        parallel_leader_participates,
-                    )
+                let policy = if let Some(strategy) = vector_filter_strategy {
+                    WorkerPathPolicy::for_vector_topk(strategy, available_workers(segment_count))
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
                         prunability: topk_can_prune_for_method(&method, root, &quals),
@@ -1662,6 +1679,8 @@ impl CustomScan for BaseScan {
         builder.custom_state().segment_count = builder.custom_private().segment_count();
         builder.custom_state().worker_selection_reason =
             builder.custom_private().worker_selection_reason();
+        builder.custom_state().vector_filter_strategy =
+            builder.custom_private().vector_filter_strategy();
         builder.custom_state().var_attname_lookup = builder
             .custom_private()
             .var_attname_lookup()
@@ -1799,6 +1818,21 @@ impl CustomScan for BaseScan {
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
             explainer.add_text("Worker Selection", reason.to_string());
+        }
+
+        if explainer.is_verbose()
+            && let Some(strategy) = state.custom_state().vector_filter_strategy
+        {
+            explainer.add_text(
+                "Vector Filtering",
+                match strategy {
+                    VectorFilterStrategy::Pre { is_text_only: true } => "Pre (text only)",
+                    VectorFilterStrategy::Pre {
+                        is_text_only: false,
+                    } => "Pre (non-text)",
+                    VectorFilterStrategy::Post => "Post",
+                },
+            );
         }
 
         if explainer.is_analyze() {

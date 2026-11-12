@@ -62,6 +62,8 @@ pub struct PrivateData {
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
+    #[serde(default)]
+    vector_filter_strategy: Option<tantivy::vector::VectorFilterStrategy>,
     // `nodeToString` of the WHERE clauses evaluated in `plan.qual` instead of the scan: the leaky
     // ones, and the base clauses the join qual fallback could not push down.
     #[serde(default)]
@@ -213,6 +215,13 @@ impl PrivateData {
         self.worker_selection_reason = Some(reason);
     }
 
+    pub(super) fn set_vector_filter_strategy(
+        &mut self,
+        strategy: Option<tantivy::vector::VectorFilterStrategy>,
+    ) {
+        self.vector_filter_strategy = strategy;
+    }
+
     pub fn set_planned_which_fast_fields(
         &mut self,
         planned_which_fast_fields: HashSet<WhichFastField>,
@@ -303,6 +312,10 @@ impl PrivateData {
 
     pub(super) fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
         self.worker_selection_reason
+    }
+
+    pub(super) fn vector_filter_strategy(&self) -> Option<tantivy::vector::VectorFilterStrategy> {
+        self.vector_filter_strategy
     }
 
     pub fn segment_count(&self) -> usize {

@@ -73,7 +73,8 @@ use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
     ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
-    TopDocsByVectorSimilarityBuilder, VectorSearchBudget, VectorSegment, VectorSimilarityFruit,
+    TopDocsByVectorSimilarityBuilder, VectorFilterStrategy, VectorSearchBudget, VectorSegment,
+    VectorSimilarityFruit,
 };
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
@@ -734,6 +735,7 @@ pub struct SearchIndexReader {
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
+    pub vector_filter_strategy: Option<VectorFilterStrategy>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -782,6 +784,7 @@ impl Clone for SearchIndexReader {
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
             vector_routing_plan: self.vector_routing_plan.clone(),
+            vector_filter_strategy: self.vector_filter_strategy,
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -960,6 +963,22 @@ impl SearchIndexReader {
         self.estimate_vector_matches() / docs.max(1) as f64
     }
 
+    pub fn vector_filter_strategy(&self, name: &FieldName) -> VectorFilterStrategy {
+        self.vector_filter_strategy.unwrap_or_else(|| {
+            VectorFilterStrategy::from_estimate(
+                !self.weight().uses_fast_fields(),
+                self.estimate_vector_matches().ceil() as usize,
+                gucs::vector_max_scan_levels() > 0
+                    && self
+                        .index_rel
+                        .options()
+                        .field_config_or_default(name)
+                        .quantization_layers()
+                        .is_some(),
+            )
+        })
+    }
+
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
         let field = self
             .schema
@@ -1002,16 +1021,7 @@ impl SearchIndexReader {
                 segment
             })
             .collect::<Vec<_>>();
-        let match_fraction = if gucs::vector_max_scan_levels() > 0
-            && self
-                .index_rel
-                .options()
-                .field_config_or_default(name)
-                .quantization_layers()
-                .is_some()
-            && self.weight().uses_fast_fields()
-            && self.estimate_vector_matches() >= tantivy::vector::MIN_LATE_FILTER_MATCHES as f64
-        {
+        let match_fraction = if self.vector_filter_strategy(name) == VectorFilterStrategy::Post {
             1.0
         } else {
             match_fraction
@@ -1321,6 +1331,7 @@ impl SearchIndexReader {
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
             vector_routing_plan: None,
+            vector_filter_strategy: None,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2570,9 +2581,7 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(tantivy::vector::ProbeParams {
-                        estimated_filter_matches: Some(
-                            self.estimate_vector_matches().ceil() as usize
-                        ),
+                        filter_strategy: self.vector_filter_strategy(name),
                         ..probe_params()
                     })
                     .with_max_scan_levels(max_scan_levels);

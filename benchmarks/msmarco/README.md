@@ -15,13 +15,20 @@ calibration runs in pdbench's Rust implementation.
 | Engine          | Index configuration                                                                         | Integer recall sweep                                           |
 | --------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | ParadeDB        | Requested pg_search revision; eight segments, 0.32 training sample ratio, quantized routing | `paradedb.vector_cluster_max_probe`: 1–100000, starting at 100 |
-| pg_vectorsearch | Release 0.1.0; PRISM cosine index with automatic `nlist`                                    | `prism.nprobe`: 1–4096, starting at 64                         |
+| pg_vectorsearch | Pinned ParadeDB fork; PRISM cosine index with automatic `nlist`                             | `prism.nprobe`: 1–4096, starting at 64                         |
 | VectorChord     | Release 1.1.1; 80,000 lists, residual quantization, spherical centroids                     | `vchordrq.probes`: 1–80000, starting at 100                    |
 
 The VectorChord partition configuration is a starting point, not a tuned 113M
 result. ParadeDB uses adaptive probing; SOAR replication from #7315 is not part
 of this baseline. The pg_vectorsearch job copies its local load SQL into pdbench's
 MS MARCO dataset and uses the existing `timescale` loader backend.
+
+pg_vectorsearch is built from `paradedb/pg_vectorsearch` commit
+`1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, which fixes retained detoast memory
+during parallel index builds. CI authenticates to the private fork, builds it
+with `docker/Dockerfile.pg-vectorsearch`, and checks the installed extension's
+commit before building the index. The source revision is retained in diagnostics
+and k6 metadata.
 
 The pinned pdbench commit includes loading from
 [pdbench #56](https://github.com/paradedb/pdbench/pull/56), calibration from

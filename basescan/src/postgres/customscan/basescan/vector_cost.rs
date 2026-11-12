@@ -27,8 +27,10 @@ use std::num::NonZeroUsize;
 const MIN_PARALLEL_SAVINGS_BYTES: f64 = 64.0 * 1024.0 * 1024.0;
 
 impl WorkerPathPolicy {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn for_vector_topk(
         query: &SearchQueryInput,
+        uses_fast_fields: Option<bool>,
         vectors: f64,
         selectivity: f64,
         field: &FieldName,
@@ -45,11 +47,6 @@ impl WorkerPathPolicy {
         let Some(nworkers) = NonZeroUsize::new(workers) else {
             return Self::SerialOnly { reason };
         };
-        // TODO: Posting list filters are currently cheap, but column filters are expensive.
-        // Model column filter evaluation cost before estimating their work.
-        if !query.is_text_only() {
-            return Self::ParallelOnly { nworkers, reason };
-        }
         let Some(SearchFieldType::Vector(_, dimensions, _)) = options.get_field_type(field) else {
             return Self::SerialOnly { reason };
         };
@@ -62,6 +59,36 @@ impl WorkerPathPolicy {
         let row_bytes = layers.as_ref().map_or(full_row_bytes, |layers| {
             (dimensions * usize::from(layers[0])).div_ceil(u8::BITS as usize) as f64
         });
+        let average_cluster_size =
+            options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio());
+        let clusters = (vectors / average_cluster_size).max(1.0);
+        let replication = if layers.is_some() && options.vector_router_quantization() {
+            options.replication()
+        } else {
+            1
+        };
+        let average = average_cluster_size * f64::from(replication);
+        let x = (gucs::vector_fixed_probe_cost_rows()
+            / (gucs::vector_fixed_probe_cost_rows() + average))
+            .min(0.5);
+        let cap = (gucs::vector_cluster_max_probe() as f64).min(clusters) * average / (1.0 - x);
+        let column_filter = uses_fast_fields.unwrap_or_else(|| !query.is_text_only());
+        let late = column_filter
+            && layers.is_some()
+            && gucs::vector_max_scan_levels() > 0
+            && stats.matches > cap;
+        // TODO: Account for column materialization when estimating eager filter work.
+        if column_filter && !late {
+            return Self::ParallelOnly { nworkers, reason };
+        }
+        let stats = if late {
+            VectorSearchStats {
+                matches: vectors,
+                ..stats
+            }
+        } else {
+            stats
+        };
         let work = VectorWork::estimate(
             &stats,
             options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio()),

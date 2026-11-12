@@ -91,6 +91,7 @@ pub struct DocsEstimate {
     pub matching_docs: usize,
     pub total_docs: u64,
     pub query_cost: u64,
+    pub uses_fast_fields: bool,
 }
 
 /// A count-only summary of the pruning proof for this reader's segment snapshot.
@@ -994,6 +995,21 @@ impl SearchIndexReader {
                 segment
             })
             .collect::<Vec<_>>();
+        let match_fraction = if gucs::vector_max_scan_levels() > 0
+            && self
+                .index_rel
+                .options()
+                .field_config_or_default(name)
+                .quantization_layers()
+                .is_some()
+            && self.weight().uses_fast_fields()
+            && self.total_docs() as f64 * match_fraction
+                > budget.filter_materialization_limit() as f64
+        {
+            1.0
+        } else {
+            match_fraction
+        };
         let router = TopClustersBySimilarityCollector::new(
             field,
             query.to_vec(),
@@ -2547,7 +2563,10 @@ impl SearchIndexReader {
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_probe_params(probe_params())
+                    .with_probe_params(tantivy::vector::ProbeParams {
+                        filter_match_fraction: Some(self.estimate_vector_match_fraction()),
+                        ..probe_params()
+                    })
                     .with_max_scan_levels(max_scan_levels);
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     collector = collector.with_shared_threshold(std::sync::Arc::new(
@@ -2937,6 +2956,7 @@ impl SearchIndexReader {
                 matching_docs: 0,
                 total_docs: 0,
                 query_cost: 0,
+                uses_fast_fields: false,
             };
         }
 
@@ -2955,6 +2975,7 @@ impl SearchIndexReader {
                 matching_docs: 0,
                 total_docs,
                 query_cost: 0,
+                uses_fast_fields: false,
             };
         };
 
@@ -2972,6 +2993,7 @@ impl SearchIndexReader {
             matching_docs: scale_largest_segment_estimate(count, segment_doc_proportion) as usize,
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
+            uses_fast_fields: self.weight().uses_fast_fields(),
         }
     }
 

@@ -207,6 +207,28 @@ impl VectorFilterWeight {
 }
 
 impl tantivy::query::Weight for VectorFilterWeight {
+    fn uses_fast_fields(&self) -> bool {
+        self.base.get().uses_fast_fields()
+            || self
+                .constrained
+                .as_ref()
+                .is_some_and(|w| w.get().uses_fast_fields())
+    }
+
+    fn candidate_filter(
+        &self,
+        reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<tantivy::query::CandidateFilter> {
+        if let Some(docs) = self.visible_docs.get(&reader.segment_id()) {
+            let docs = docs.clone();
+            Ok(tantivy::query::CandidateFilter::new(move |ids| {
+                Ok(ids.iter().map(|&doc| docs.contains(doc)).collect())
+            }))
+        } else {
+            self.get(reader).candidate_filter(reader)
+        }
+    }
+
     fn scorer(
         &self,
         reader: &tantivy::SegmentReader,

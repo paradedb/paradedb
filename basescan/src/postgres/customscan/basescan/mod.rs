@@ -1135,6 +1135,7 @@ impl CustomScan for BaseScan {
             // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
             let mut precomputed_segment_count: Option<usize> = None;
+            let mut filter_uses_fast_fields = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
@@ -1154,6 +1155,7 @@ impl CustomScan for BaseScan {
                         );
                         precomputed_query_cost = estimated.query_cost;
                         precomputed_segment_count = estimated.segment_count;
+                        filter_uses_fast_fields = estimated.uses_fast_fields;
                         estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
                     }
                     Err(guess) => guess,
@@ -1273,6 +1275,7 @@ impl CustomScan for BaseScan {
                 let policy = if let Some(field) = vector_field.as_ref() {
                     WorkerPathPolicy::for_vector_topk(
                         estimation_query.resolve(&query).unwrap_or(&query),
+                        filter_uses_fast_fields,
                         (*rel).tuples.max(1.0),
                         selectivity,
                         field,

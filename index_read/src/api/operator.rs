@@ -85,6 +85,7 @@ fn open_and_estimate_docs(
                 matching_docs: (estimate.matching_docs as f64 * scale).ceil() as usize,
                 total_docs: total_rows.ceil() as u64,
                 query_cost: (estimate.query_cost as f64 * scale).ceil() as u64,
+                uses_fast_fields: estimate.uses_fast_fields,
             },
             segment_count,
         ));
@@ -122,6 +123,7 @@ pub struct SelectivityAndCost {
     pub selectivity: Option<f64>,
     pub query_cost: Option<u64>,
     pub segment_count: Option<usize>,
+    pub uses_fast_fields: Option<bool>,
 }
 
 /// One index open, all planning answers: selectivity (matching/total docs), the
@@ -155,6 +157,7 @@ pub fn estimate_selectivity_and_cost(
             selectivity: Some(selectivity),
             query_cost: cost,
             segment_count: None,
+            uses_fast_fields: None,
         };
     }
 
@@ -165,6 +168,7 @@ pub fn estimate_selectivity_and_cost(
             selectivity: None,
             query_cost: None,
             segment_count: None,
+            uses_fast_fields: None,
         };
     };
 
@@ -175,6 +179,7 @@ pub fn estimate_selectivity_and_cost(
         selectivity,
         query_cost: Some(estimate.query_cost),
         segment_count: Some(segment_count),
+        uses_fast_fields: Some(estimate.uses_fast_fields),
     }
 }
 

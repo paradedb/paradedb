@@ -28,6 +28,7 @@ FROM topk_lower_c_collation
 WHERE body ||| 'wireless'
 ORDER BY lower(category) COLLATE "C", id
 LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are included in the ParadeDB index. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.planner_warnings = 'off' (table: topk_lower_c_collation)
  id | category 
 ----+----------
   2 | Å

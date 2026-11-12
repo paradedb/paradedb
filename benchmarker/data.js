@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794518607633,
+  "lastUpdate": 1794523568894,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -85014,6 +85014,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13983924968-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f",
+          "message": "ci: run Cohere router quality on its own label (#7422)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nThe Cohere router-quality section runs only on:\n\n- the daily main run;\n- PR runs with the new `benchmark-cohere-router-quality` label;\n- manual runs with the new `router_quality` input (default off).\n\n`benchmarks`, `benchmark-cohere-pg_search` and\n`benchmark-benchmarker-cohere` run the Cohere benchmark without it.\n\nRouter-quality baselines also come from daily main runs instead of main\npushes.\n\n## Why\n\nRouter quality adds about 20 minutes to a Cohere 10M run, which slows\niteration on PRs. The daily main run keeps it, so its history keeps\nupdating and the label runs have a main baseline to compare with.\n\nThe baseline lookup only searched successful main `push` runs. The\nCohere workflow runs on main by schedule, and its last push-triggered\nrun (2026-11-01) is older than the router-quality section, so no run has\nfound a router-quality baseline.\n\n## How\n\n- Job env `ROUTER_QUALITY` is true for `schedule`, for the\n`benchmark-cohere-router-quality` label and for `workflow_dispatch` with\n`router_quality`. It gates the six router-quality steps, from the arm\nprofiles through the diagnostics upload.\n- The PR comment context is written in its own step: the operating-point\ntable, followed by the router-quality section when it ran.\n- The staged metadata names `router-metrics.json` and\n`router-detail-metrics.json` only when the section ran.\n`publish-benchmarker-results` copies router metrics only when it is\ngiven a file, so runs without the section add no router history.\n- `Find mainline router-quality baseline` searches `event: 'schedule'`\nruns on main. Manual runs can benchmark another commit, so they are left\nout.\n- README: which triggers run the section and where the baseline comes\nfrom.\n\nThe `benchmark-cohere-router-quality` label has to exist in the\nrepository before it can be used.\n\n## Tests\n\n- `actionlint`, Prettier and markdownlint on the changed files; typos\nand ASCII checks on the added lines.\n- `python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'`:\npasses (no helper changes).\n- No benchmark run on this PR yet.",
+          "timestamp": "2026-11-12T17:57:30Z",
+          "url": "https://github.com/paradedb/paradedb/commit/efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f"
+        },
+        "date": 1794523566278,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 8.642,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 10.974,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 11.676,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 23.691,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 31.617,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 34.855,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 72.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 590.215,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 635.705,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 4.859,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 5.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.702,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.04,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 12.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 12.419,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13990208832-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -85347,6 +85445,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13983924968-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f",
+          "message": "ci: run Cohere router quality on its own label (#7422)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nThe Cohere router-quality section runs only on:\n\n- the daily main run;\n- PR runs with the new `benchmark-cohere-router-quality` label;\n- manual runs with the new `router_quality` input (default off).\n\n`benchmarks`, `benchmark-cohere-pg_search` and\n`benchmark-benchmarker-cohere` run the Cohere benchmark without it.\n\nRouter-quality baselines also come from daily main runs instead of main\npushes.\n\n## Why\n\nRouter quality adds about 20 minutes to a Cohere 10M run, which slows\niteration on PRs. The daily main run keeps it, so its history keeps\nupdating and the label runs have a main baseline to compare with.\n\nThe baseline lookup only searched successful main `push` runs. The\nCohere workflow runs on main by schedule, and its last push-triggered\nrun (2026-11-01) is older than the router-quality section, so no run has\nfound a router-quality baseline.\n\n## How\n\n- Job env `ROUTER_QUALITY` is true for `schedule`, for the\n`benchmark-cohere-router-quality` label and for `workflow_dispatch` with\n`router_quality`. It gates the six router-quality steps, from the arm\nprofiles through the diagnostics upload.\n- The PR comment context is written in its own step: the operating-point\ntable, followed by the router-quality section when it ran.\n- The staged metadata names `router-metrics.json` and\n`router-detail-metrics.json` only when the section ran.\n`publish-benchmarker-results` copies router metrics only when it is\ngiven a file, so runs without the section add no router history.\n- `Find mainline router-quality baseline` searches `event: 'schedule'`\nruns on main. Manual runs can benchmark another commit, so they are left\nout.\n- README: which triggers run the section and where the baseline comes\nfrom.\n\nThe `benchmark-cohere-router-quality` label has to exist in the\nrepository before it can be used.\n\n## Tests\n\n- `actionlint`, Prettier and markdownlint on the changed files; typos\nand ASCII checks on the added lines.\n- `python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'`:\npasses (no helper changes).\n- No benchmark run on this PR yet.",
+          "timestamp": "2026-11-12T17:57:30Z",
+          "url": "https://github.com/paradedb/paradedb/commit/efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f"
+        },
+        "date": 1794523567252,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 117.12991206244764,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 47.286286158626105,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 7.500140554391835,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 209.91443443689897,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 123.61010041273548,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13990208832-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -85680,6 +85826,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13983924968-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f",
+          "message": "ci: run Cohere router quality on its own label (#7422)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nThe Cohere router-quality section runs only on:\n\n- the daily main run;\n- PR runs with the new `benchmark-cohere-router-quality` label;\n- manual runs with the new `router_quality` input (default off).\n\n`benchmarks`, `benchmark-cohere-pg_search` and\n`benchmark-benchmarker-cohere` run the Cohere benchmark without it.\n\nRouter-quality baselines also come from daily main runs instead of main\npushes.\n\n## Why\n\nRouter quality adds about 20 minutes to a Cohere 10M run, which slows\niteration on PRs. The daily main run keeps it, so its history keeps\nupdating and the label runs have a main baseline to compare with.\n\nThe baseline lookup only searched successful main `push` runs. The\nCohere workflow runs on main by schedule, and its last push-triggered\nrun (2026-11-01) is older than the router-quality section, so no run has\nfound a router-quality baseline.\n\n## How\n\n- Job env `ROUTER_QUALITY` is true for `schedule`, for the\n`benchmark-cohere-router-quality` label and for `workflow_dispatch` with\n`router_quality`. It gates the six router-quality steps, from the arm\nprofiles through the diagnostics upload.\n- The PR comment context is written in its own step: the operating-point\ntable, followed by the router-quality section when it ran.\n- The staged metadata names `router-metrics.json` and\n`router-detail-metrics.json` only when the section ran.\n`publish-benchmarker-results` copies router metrics only when it is\ngiven a file, so runs without the section add no router history.\n- `Find mainline router-quality baseline` searches `event: 'schedule'`\nruns on main. Manual runs can benchmark another commit, so they are left\nout.\n- README: which triggers run the section and where the baseline comes\nfrom.\n\nThe `benchmark-cohere-router-quality` label has to exist in the\nrepository before it can be used.\n\n## Tests\n\n- `actionlint`, Prettier and markdownlint on the changed files; typos\nand ASCII checks on the added lines.\n- `python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'`:\npasses (no helper changes).\n- No benchmark run on this PR yet.",
+          "timestamp": "2026-11-12T17:57:30Z",
+          "url": "https://github.com/paradedb/paradedb/commit/efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f"
+        },
+        "date": 1794523568082,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2505.11,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 6957.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 51978.98,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1163.03,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2363.97,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13990208832-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -85973,6 +86167,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13983924968-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj",
+            "email": "141828258+RuchirRaj@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f",
+          "message": "ci: run Cohere router quality on its own label (#7422)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nThe Cohere router-quality section runs only on:\n\n- the daily main run;\n- PR runs with the new `benchmark-cohere-router-quality` label;\n- manual runs with the new `router_quality` input (default off).\n\n`benchmarks`, `benchmark-cohere-pg_search` and\n`benchmark-benchmarker-cohere` run the Cohere benchmark without it.\n\nRouter-quality baselines also come from daily main runs instead of main\npushes.\n\n## Why\n\nRouter quality adds about 20 minutes to a Cohere 10M run, which slows\niteration on PRs. The daily main run keeps it, so its history keeps\nupdating and the label runs have a main baseline to compare with.\n\nThe baseline lookup only searched successful main `push` runs. The\nCohere workflow runs on main by schedule, and its last push-triggered\nrun (2026-11-01) is older than the router-quality section, so no run has\nfound a router-quality baseline.\n\n## How\n\n- Job env `ROUTER_QUALITY` is true for `schedule`, for the\n`benchmark-cohere-router-quality` label and for `workflow_dispatch` with\n`router_quality`. It gates the six router-quality steps, from the arm\nprofiles through the diagnostics upload.\n- The PR comment context is written in its own step: the operating-point\ntable, followed by the router-quality section when it ran.\n- The staged metadata names `router-metrics.json` and\n`router-detail-metrics.json` only when the section ran.\n`publish-benchmarker-results` copies router metrics only when it is\ngiven a file, so runs without the section add no router history.\n- `Find mainline router-quality baseline` searches `event: 'schedule'`\nruns on main. Manual runs can benchmark another commit, so they are left\nout.\n- README: which triggers run the section and where the baseline comes\nfrom.\n\nThe `benchmark-cohere-router-quality` label has to exist in the\nrepository before it can be used.\n\n## Tests\n\n- `actionlint`, Prettier and markdownlint on the changed files; typos\nand ASCII checks on the added lines.\n- `python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'`:\npasses (no helper changes).\n- No benchmark run on this PR yet.",
+          "timestamp": "2026-11-12T17:57:30Z",
+          "url": "https://github.com/paradedb/paradedb/commit/efa6d7f0e314c002fcb8c0e60294c11eef7a5f2f"
+        },
+        "date": 1794523568882,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 201.96666666666667,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 508970.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 127.86087799072266,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13990208832-index"
       }
     ],
     "benchmarker cohere-10m (router)": [

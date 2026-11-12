@@ -131,6 +131,12 @@ pub unsafe fn pullup_fast_fields(
             ResTarget::Expr((*te).expr as *mut pg_sys::Node),
             Access::Scalar,
         ) {
+            if let Some(hf) = context.resolve_heap_field(ResTarget::Field(&resolved.field.name()))
+                && hf.field.is_text()
+                && !hf.field.is_raw_sortable()
+            {
+                return None;
+            }
             matches.push(resolved.field);
             continue;
         }

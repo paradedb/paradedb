@@ -532,6 +532,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(hf) =
                                 context.resolve_heap_field(ResTarget::Field(&field_name))
+                            && hf.data.source.heap_attno() == Some(((*var).varattno - 1) as usize)
                             && lower_sortability_check(&hf.field)
                             && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
@@ -548,6 +549,7 @@ where
                         if let Some(field_name) = field_name_opt
                             && let Some(hf) =
                                 context.resolve_heap_field(ResTarget::Field(&field_name))
+                            && hf.data.source.heap_attno() == Some(((*var).varattno - 1) as usize)
                             && regular_sortability_check(&hf.field)
                             && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
@@ -562,10 +564,10 @@ where
                     }
                     SortExpressionType::IndexedExpression => {
                         if let Some(field_name) = field_name_opt
-                            && let Some(resolved) = context
-                                .resolve_fast_field(ResTarget::Field(&field_name), Access::Any)
-                            && let Some(field_type) = resolved.field.field_type()
-                            && sortable_at_position(field_type, pathkey_styles.len())
+                            && let Some(hf) =
+                                context.resolve_heap_field(ResTarget::Field(&field_name))
+                            && hf.field.is_raw_sortable()
+                            && sortable_at_position(&hf.field.field_type(), pathkey_styles.len())
                         {
                             pathkey_styles.push(OrderByStyle::Field {
                                 pathkey,
@@ -680,7 +682,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 target_relation_context.as_ref(),
             )
         };
-        let Some((sort_type, var, field_name_opt)) = sort_info else {
+        let Some((_, var, _)) = sort_info else {
             return false;
         };
 
@@ -728,6 +730,11 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
         // Validate sortability
         let context = target_relation_context.as_ref().unwrap();
+        let Some((sort_type, var, field_name_opt)) = (unsafe {
+            analyze_sort_expression(expr, VarContext::from_query(parse), Some(context))
+        }) else {
+            return false;
+        };
 
         match sort_type {
             SortExpressionType::Score => {
@@ -742,7 +749,8 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 else {
                     return false;
                 };
-                if !hf.field.is_lower_sortable()
+                if hf.data.source.heap_attno() != Some((unsafe { (*var).varattno } - 1) as usize)
+                    || !hf.field.is_lower_sortable()
                     || !sortable_at_position(&hf.field.field_type(), position)
                 {
                     return false;
@@ -756,7 +764,8 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 else {
                     return false;
                 };
-                if !hf.field.is_raw_sortable()
+                if hf.data.source.heap_attno() != Some((unsafe { (*var).varattno } - 1) as usize)
+                    || !hf.field.is_raw_sortable()
                     || !sortable_at_position(&hf.field.field_type(), position)
                 {
                     return false;
@@ -770,7 +779,9 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 else {
                     return false;
                 };
-                if !hf.field.is_fast() || !sortable_at_position(&hf.field.field_type(), position) {
+                if !hf.field.is_raw_sortable()
+                    || !sortable_at_position(&hf.field.field_type(), position)
+                {
                     return false;
                 }
             }

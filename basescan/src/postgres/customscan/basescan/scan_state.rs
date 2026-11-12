@@ -45,11 +45,11 @@ use crate::query::tid_bitmap_stream::BitmapCell;
 use std::ptr::NonNull;
 
 use crate::index::reader::vector::SharedVectorRouting;
+use crate::postgres::customscan::basescan::privdat::VectorFilterPlan;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
 use tantivy::index::SegmentId;
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::VectorFilterStrategy;
 
 #[derive(Default)]
 pub struct BaseScanState {
@@ -67,7 +67,7 @@ pub struct BaseScanState {
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
-    pub vector_filter_strategy: Option<VectorFilterStrategy>,
+    pub vector_filter_plan: Option<VectorFilterPlan>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.

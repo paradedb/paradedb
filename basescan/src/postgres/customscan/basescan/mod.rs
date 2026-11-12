@@ -44,7 +44,7 @@ use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
 };
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, Varno};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -52,7 +52,7 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
-use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::privdat::{PrivateData, VectorFilterPlan};
 
 use crate::postgres::customscan::basescan::projections::snippet::{
     SnippetType, snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets,
@@ -203,7 +203,28 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
-        search_reader.vector_filter_strategy = state.custom_state().vector_filter_strategy;
+        if let Some(OrderByInfo {
+            feature: OrderByFeature::VectorDistance { name, .. },
+            ..
+        }) = state
+            .custom_state()
+            .orderby_info()
+            .as_ref()
+            .and_then(|orders| orders.first())
+        {
+            search_reader.vector_filter_strategy = Some(
+                match state
+                    .custom_state()
+                    .vector_filter_plan
+                    .expect("vector scan requires a filter plan")
+                {
+                    VectorFilterPlan::Planned(strategy) => strategy,
+                    VectorFilterPlan::Deferred => search_reader
+                        .plan_vector_filter(name)
+                        .expect("runtime vector filter planning should succeed"),
+                },
+            );
+        }
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -1137,7 +1158,7 @@ impl CustomScan for BaseScan {
             // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
             let mut precomputed_segment_count: Option<usize> = None;
-            let mut vector_filter_strategy = VectorFilterStrategy::default();
+            let mut vector_filter_plan = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
@@ -1158,14 +1179,23 @@ impl CustomScan for BaseScan {
                         );
                         precomputed_query_cost = estimated.query_cost;
                         precomputed_segment_count = estimated.segment_count;
-                        vector_filter_strategy = estimated.vector_filter_strategy;
+                        vector_filter_plan =
+                            vector_field.as_ref().map(|_| {
+                                VectorFilterPlan::Planned(estimated.vector_filter_strategy.expect(
+                                    "vector filter strategy must be selected during planning",
+                                ))
+                            });
                         if norm_selec != UNASSIGNED_SELECTIVITY {
                             norm_selec
                         } else {
                             estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
                         }
                     }
-                    Err(guess) => guess,
+                    Err(guess) => {
+                        vector_filter_plan =
+                            vector_field.as_ref().map(|_| VectorFilterPlan::Deferred);
+                        guess
+                    }
                 }
             };
 
@@ -1182,8 +1212,7 @@ impl CustomScan for BaseScan {
             // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
-            let vector_filter_strategy = vector_field.as_ref().map(|_| vector_filter_strategy);
-            custom_private.set_vector_filter_strategy(vector_filter_strategy);
+            custom_private.set_vector_filter_plan(vector_filter_plan);
 
             custom_private.set_heaprelid(source_context.heaprel.oid());
             custom_private.set_indexrelid(source_context.indexrel().unwrap().oid());
@@ -1282,7 +1311,7 @@ impl CustomScan for BaseScan {
                 };
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = if let Some(strategy) = vector_filter_strategy {
+                let policy = if let Some(VectorFilterPlan::Planned(strategy)) = vector_filter_plan {
                     let work = vector_field.as_ref().and_then(|field| {
                         vector_cost::VectorWork::for_query(
                             strategy,
@@ -1299,6 +1328,10 @@ impl CustomScan for BaseScan {
                         work,
                         parallel_leader_participates,
                     )
+                } else if matches!(vector_filter_plan, Some(VectorFilterPlan::Deferred)) {
+                    WorkerPathPolicy::SerialOnly {
+                        reason: WorkerDecisionReason::VectorWork,
+                    }
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
                         prunability: topk_can_prune_for_method(&method, root, &quals),
@@ -1674,8 +1707,7 @@ impl CustomScan for BaseScan {
         builder.custom_state().segment_count = builder.custom_private().segment_count();
         builder.custom_state().worker_selection_reason =
             builder.custom_private().worker_selection_reason();
-        builder.custom_state().vector_filter_strategy =
-            builder.custom_private().vector_filter_strategy();
+        builder.custom_state().vector_filter_plan = builder.custom_private().vector_filter_plan();
         builder.custom_state().var_attname_lookup = builder
             .custom_private()
             .var_attname_lookup()
@@ -1816,18 +1848,26 @@ impl CustomScan for BaseScan {
         }
 
         if explainer.is_verbose()
-            && let Some(strategy) = state.custom_state().vector_filter_strategy
+            && let Some(plan) = state.custom_state().vector_filter_plan
         {
             explainer.add_text(
                 "Vector Filtering",
-                match strategy {
-                    VectorFilterStrategy::Pre {
+                match state
+                    .custom_state()
+                    .search_reader
+                    .as_ref()
+                    .and_then(|reader| reader.vector_filter_strategy)
+                    .map(VectorFilterPlan::Planned)
+                    .unwrap_or(plan)
+                {
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
                         uses_fast_fields: false,
-                    } => "Pre (postings)",
-                    VectorFilterStrategy::Pre {
+                    }) => "Pre (postings)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
                         uses_fast_fields: true,
-                    } => "Pre (fast fields)",
-                    VectorFilterStrategy::Post => "Post",
+                    }) => "Pre (fast fields)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post) => "Post",
+                    VectorFilterPlan::Deferred => "Deferred until execution",
                 },
             );
         }

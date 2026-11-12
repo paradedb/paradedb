@@ -1027,7 +1027,7 @@ impl SearchIndexReader {
             field,
             query.to_vec(),
             ProbeParams {
-                filter_strategy: self.vector_filter_strategy(),
+                filter_strategy: Some(self.vector_filter_strategy()),
                 ..probe_params()
             },
             match_fraction,
@@ -2581,7 +2581,7 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(ProbeParams {
-                        filter_strategy: self.vector_filter_strategy(),
+                        filter_strategy: Some(self.vector_filter_strategy()),
                         ..probe_params()
                     })
                     .with_max_scan_levels(max_scan_levels);

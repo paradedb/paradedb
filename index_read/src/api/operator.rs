@@ -54,7 +54,7 @@ fn open_and_estimate_docs(
     search_query_input: SearchQueryInput,
     reader: Option<&SearchIndexReader>,
     vector_field: Option<&FieldName>,
-) -> Option<(DocsEstimate, usize, VectorFilterStrategy)> {
+) -> Option<(DocsEstimate, usize, Option<VectorFilterStrategy>)> {
     // A partitioned index has no storage of its own (#4643). A predicate above an Append
     // covers every partition, so one leaf stands in for the tree: its match ratio is the
     // selectivity, and its counts scale up to the rows of every leaf. The largest leaf is
@@ -116,10 +116,11 @@ fn open_and_estimate_docs(
         }
     };
     let estimate = reader.estimate_docs(row_estimate);
-    let strategy = match vector_field {
-        Some(field) => reader.plan_vector_filter(field).ok()?,
-        None => VectorFilterStrategy::default(),
-    };
+    let strategy = vector_field.map(|field| {
+        reader
+            .plan_vector_filter(field)
+            .expect("vector filter planning should succeed")
+    });
     Some((estimate, reader.estimated_segment_count(), strategy))
 }
 
@@ -136,7 +137,7 @@ pub struct SelectivityAndCost {
     pub selectivity: Option<f64>,
     pub query_cost: Option<u64>,
     pub segment_count: Option<usize>,
-    pub vector_filter_strategy: VectorFilterStrategy,
+    pub vector_filter_strategy: Option<VectorFilterStrategy>,
 }
 
 /// One index open, all planning answers: selectivity (matching/total docs), the
@@ -157,7 +158,9 @@ pub fn estimate_selectivity_and_cost(
     reader: Option<&SearchIndexReader>,
     vector_field: Option<&FieldName>,
 ) -> SelectivityAndCost {
-    if let Some(selectivity) = heuristic_selectivity(&search_query_input) {
+    if vector_field.is_none()
+        && let Some(selectivity) = heuristic_selectivity(&search_query_input)
+    {
         // #4172 skips opening the index, so derive the work estimate from the same
         // heuristic: these shapes drive far more docset work than they match, so scale the
         // heuristic match estimate (selectivity x rows) by EXPENSIVE_QUERY_COST_FACTOR.
@@ -171,7 +174,7 @@ pub fn estimate_selectivity_and_cost(
             selectivity: Some(selectivity),
             query_cost: cost,
             segment_count: None,
-            vector_filter_strategy: VectorFilterStrategy::default(),
+            vector_filter_strategy: None,
         };
     }
 
@@ -182,7 +185,7 @@ pub fn estimate_selectivity_and_cost(
             selectivity: None,
             query_cost: None,
             segment_count: None,
-            vector_filter_strategy: VectorFilterStrategy::default(),
+            vector_filter_strategy: None,
         };
     };
 

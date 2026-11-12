@@ -260,7 +260,7 @@ LIMIT 50;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop
-         Join Filter: (l.status = lp_active_statuses.s)
+         Join Filter: (lp_active_statuses.s = l.status)
          ->  Seq Scan on lp_active_statuses
          ->  Hash Right Join
                Hash Cond: (i.fk = l.id)

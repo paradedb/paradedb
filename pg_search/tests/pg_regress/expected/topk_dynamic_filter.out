@@ -308,21 +308,21 @@ WHERE p.supplier_id IN (
 )
 ORDER BY p.id ASC
 LIMIT 3;
-                                                                                                                        QUERY PLAN                                                                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id, p.name, p.price
-   Relation Tree: p SEMI s
+   Relation Tree: p INNER s
    Join Cond: p.supplier_id = s.id
    Limit: 3
    Order By: p.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=3), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p]
-     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[ctid_0@0, id@2]
+     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@1]
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=s, segments=1, query={"with_index":{"query":{"match":{"field":"region","value":"wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query="all"
 (15 rows)
@@ -454,25 +454,24 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-   Relation Tree: f SEMI d
+   Relation Tree: f INNER d
    Join Cond: f.document_id = d.id
    Limit: 3
    Order By: f.title asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[NULL as col_1, title@1 as col_2, ctid_0@0 as ctid_0], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
-     :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
-     :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=70, output_bytes=64.5 KB, output_batches=1, ctids_fetched=70, ctids_lazy=0]
-     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=70, output_bytes=128.0 KB, output_batches=1, build_mem_used=368.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=7, output_bytes=176.0 B, output_batches=1]
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.2 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=70]
-(16 rows)
+     :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
+     :       VisibilityFilterExec: tables=[f, d], pruned=[d], metrics=[output_rows=70, output_bytes=64.5 KB, output_batches=1, ctids_fetched=70, ctids_lazy=0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@2, title@4, ctid_1@1], metrics=[output_rows=70, output_bytes=192.0 KB, output_batches=1, build_mem_used=424.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=1, fetch=[title], dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.2 KB, output_batches=1, dynamic_filter_pushdown_automaton=1, rows_pruned=0, rows_scanned=70]
+(15 rows)
 
 SELECT f.id, f.title
 FROM bench_files f
@@ -501,25 +500,24 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-   Relation Tree: f SEMI d
+   Relation Tree: f INNER d
    Join Cond: f.document_id = d.id
    Limit: 3
    Order By: f.title asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[NULL as col_1, title@1 as col_2, ctid_0@0 as ctid_0], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
      :   TantivyDecodeExec: decode=[title], metrics=[output_rows=3, output_bytes=128.0 B, output_batches=1]
-     :     TantivyFetchExec: fetch=[title], metrics=[output_rows=3, output_bytes=48.0 B, output_batches=1]
-     :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=10, rows_output=3, segments_seen=1]
-     :         VisibilityFilterExec: tables=[f], metrics=[output_rows=10, output_bytes=64.1 KB, output_batches=1, ctids_fetched=10, ctids_lazy=0]
-     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2], metrics=[output_rows=10, output_bytes=128.0 KB, output_batches=1, build_mem_used=97.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
-     :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"intro","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
-     :             CooperativeExec
-     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=328.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10]
-(16 rows)
+     :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3, metrics=[rows_input=10, rows_output=3, segments_seen=1]
+     :       VisibilityFilterExec: tables=[f, d], pruned=[d], metrics=[output_rows=10, output_bytes=64.1 KB, output_batches=1, ctids_fetched=10, ctids_lazy=0]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@2, title@4, ctid_1@1], metrics=[output_rows=10, output_bytes=192.0 KB, output_batches=1, build_mem_used=105.0 B, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+     :           CooperativeExec
+     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"title","value":"intro","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=1, output_bytes=32.0 B, output_batches=1]
+     :           CooperativeExec
+     :             PgSearchScan: table=f, segments=1, fetch=[title], dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=328.0 B, output_batches=1, dynamic_filter_pushdown_bitset_from_postings=1, rows_pruned=0, rows_scanned=10]
+(15 rows)
 
 SELECT f.id, f.title
 FROM bench_files f

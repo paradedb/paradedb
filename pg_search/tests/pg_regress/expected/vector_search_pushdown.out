@@ -694,22 +694,23 @@ WHERE c.id @@@ pdb.all()
   )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
-   Relation Tree: c SEMI p
+   Relation Tree: c INNER p
    Join Cond: c.parent_id = p.id
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
-(13 rows)
+(14 rows)
 
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -895,20 +896,20 @@ WHERE c.id @@@ pdb.all()
   )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
-   Relation Tree: c SEMI p
+   Relation Tree: c INNER p
    Join Cond: c.parent_id = p.id
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
      :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1]
-     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
-     :       RankJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c, p], pruned=[p], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@1], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=8, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1]
 (14 rows)
@@ -1542,22 +1543,23 @@ WHERE c.id @@@ pdb.all()
   )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
-   Relation Tree: c SEMI p
+   Relation Tree: c INNER p
    Join Cond: c.parent_id = p.id
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
-     :     CooperativeExec
-     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=112.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=4]
-(13 rows)
+(14 rows)
 
 SELECT c.id, c.parent_id
 FROM vsp_children c

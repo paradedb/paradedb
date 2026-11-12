@@ -567,7 +567,6 @@ WHERE l.fk IN (
 )
   AND r.body ||| 'doc'
 GROUP BY l.label ORDER BY l.label;
-WARNING:  Aggregate Scan (DataFusion) not used: predicate cannot be pushed into the scan (table: join)
  label | c 
 -------+---
  A     | 1

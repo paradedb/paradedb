@@ -945,8 +945,7 @@ impl SearchQueryInput {
     }
 
     /// Whether a synonym rule turns the token of this one-token match into a group of
-    /// alternatives. `is_topk_prunable` sees only the query input, and the rules are in the synonym
-    /// index.
+    /// alternatives. `is_topk_prunable` sees only the query input, and not the rules.
     pub fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
         match self {
             SearchQueryInput::FieldedQuery {
@@ -955,13 +954,13 @@ impl SearchQueryInput {
                     pdb::Query::Match {
                         value,
                         tokenizer: None,
-                        synonyms: Some(index),
+                        synonyms: Some(rules),
                         ..
                     },
             } => schema
                 .search_field(field.root())
                 .is_some_and(|search_field| {
-                    match_expands_with_synonyms(&search_field, schema, value, *index)
+                    match_expands_with_synonyms(&search_field, schema, value, rules)
                 }),
             SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
             _ => false,

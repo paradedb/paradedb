@@ -2351,13 +2351,13 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
         .collect()
 }
 
-/// Whether the synonym index `index` turns `value` into a group of alternatives. The planner has
-/// no searcher, so the tokens come from the tokenizer in the index options.
+/// Whether `rules` turn `value` into a group of alternatives. The planner has no searcher, so the
+/// tokens come from the tokenizer in the index options.
 pub(crate) fn match_expands_with_synonyms(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     value: &str,
-    index: pg_sys::Oid,
+    rules: &pdb::SynonymRules,
 ) -> bool {
     let Some(mut analyzer) = query_tokenizer(search_field, schema)
         .as_ref()
@@ -2365,13 +2365,21 @@ pub(crate) fn match_expands_with_synonyms(
     else {
         return false;
     };
-    let mut stream = analyzer.token_stream(value);
     let mut tokens = Vec::new();
-    while stream.advance() {
-        tokens.push(stream.token().text.clone());
+    {
+        let mut stream = analyzer.token_stream(value);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
     }
     // The selectivity estimate builds the same query first, so it has already raised any error.
-    expand_match(index, search_field, schema, None, &tokens).is_ok_and(|expansions| {
+    let expansions = match rules {
+        pdb::SynonymRules::Index(index) => {
+            expand_match(*index, search_field, schema, None, &tokens)
+        }
+        pdb::SynonymRules::Rules(rules) => expand_with_rules(rules, &mut analyzer, &tokens),
+    };
+    expansions.is_ok_and(|expansions| {
         expansions
             .iter()
             .any(|expansion| !expansion.is_single_term())

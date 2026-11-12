@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794462971522,
+  "lastUpdate": 1794466710291,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -84949,6 +84949,571 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13917638972-router-detail"
+      }
+    ],
+    "benchmarker hackernews-vector-28m (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794466707336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 35.574,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 50.652,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 63.611,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 36.852,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 45.278,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 54.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 87.018,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 115.527,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 132.888,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 69.255,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 90.556,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 97.292,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 96.344,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 114.76,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 122.071,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 247.236,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 281.199,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 337.767,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 45.811,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 66.134,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 74.474,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 38.438,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 56.541,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 64.387,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 83.452,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 100.963,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 108.556,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.559,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.595,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.655,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.607,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.671,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.543,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.639,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 18.036,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 18.943,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 19.673,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 19.204,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 20.037,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 20.828,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 12.754,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 13.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 14.603,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 19.616,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 22.314,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 22.896,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 37.136,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 41.294,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 42.057,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 97.652,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 111.224,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 113.411,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13922472179-latency"
+      }
+    ],
+    "benchmarker hackernews-vector-28m (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794466708442,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 26.37744863568292,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 26.242937349567107,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 11.484806178288624,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 13.904186359328666,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 10.25767294873027,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 4.004775205568479,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 21.584520708791068,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 24.005265279983195,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 12.002405052238935,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 278.4783940520813,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 277.7428904497562,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 279.72080059629315,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 56.20032993764401,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 52.08113734730816,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 77.79332920843892,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 52.231824465547966,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 28.397198724751657,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 10.010551698269811,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13922472179-throughput"
+      }
+    ],
+    "benchmarker hackernews-vector-28m (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794466709367,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 21964.62,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 24328.25,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 63571.31,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 37014.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 52093.86,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 82130.52,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 28203.1,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 30279.9,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 51219.52,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1302.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1302.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1302.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 8938.61,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 9713.2,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7559.23,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 7980.07,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 15893.65,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 48848.05,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13922472179-buffers"
+      }
+    ],
+    "benchmarker hackernews-vector-28m (index build)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9fe52168fabdec0c8286b410fdf93e4a8893a7b8",
+          "message": "ci: collect container metrics during vector k6 benchmarks (#7411)\n\n# Ticket(s) Closed\n\n- None\n\n## What\n\nRecord database container memory and CPU samples during each vector k6\noperating point, including warmup and measurement. The existing JSON and\nHTML dashboard artifacts retain the time series for MS MARCO, Cohere,\nand HN.\n\n## Why\n\nMS MARCO already saves build memory samples through pdbench-load, but\nthe shared k6 query script disabled container metrics. Query runs\ntherefore lacked the samples needed to graph memory usage alongside the\nbuild.\n\n## How\n\nConfigure the `paradedb` container and reuse Benchmarker\u2019s existing\n`addMetricsCollector` with the configured warmup plus measurement\nduration. Document the artifact paths, timestamp units, and matching\nbuild/query memory definitions in the MS MARCO README.\n\n## Tests\n\n- All 52 shared benchmark helper tests pass.\n- All applicable pre-commit checks pass.\n- Built k6 v1.8.0 with the workflow\u2019s pinned Benchmarker revision\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`. `k6 inspect` confirms\ndefault and custom query timings, one query VU, and one collector VU\nspanning both stages plus the helper\u2019s existing one-second telemetry\ngrace.\n- Live Docker sampling and the full MS MARCO run were not executed; the\nlocal Docker daemon was unresponsive.",
+          "timestamp": "2026-11-12T02:59:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9fe52168fabdec0c8286b410fdf93e4a8893a7b8"
+        },
+        "date": 1794466710276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 27.1,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162334.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 51.324222564697266,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13922472179-index"
       }
     ]
   }

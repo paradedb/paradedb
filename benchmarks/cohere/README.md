@@ -111,9 +111,12 @@ retaining more members cannot recover members in unopened lists.
    table, and the report links. Buffer diagnostics come from pdbench's separate
    EXPLAIN pass over all 100 vectors.
 
-The workflow runs on main and via `benchmarks`, `benchmark-cohere-pg_search`, or
-`benchmark-benchmarker-cohere`. Manual runs can select a size, pg_search commit,
-and tool refs. Competitor vector CI implementations and labels are retired.
+The workflow runs daily on main and via `benchmarks`, `benchmark-cohere-pg_search`,
+`benchmark-benchmarker-cohere`, or `benchmark-cohere-router-quality`; only the
+daily run and `benchmark-cohere-router-quality` add the router-quality section.
+Manual runs can select a size, pg_search commit, and tool refs, and add the
+router-quality section with `router_quality`. Competitor vector CI
+implementations and labels are retired.
 The pdbench checkout uses the ParadeDB GitHub App's read access to the private
 repository. Both tool revisions are pinned and recorded in diagnostics. The
 fixture import only populates pdbench's ground-truth table; the corpus is restored
@@ -138,8 +141,9 @@ python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 
 ## Router quality
 
-After k6, CI compares the index's stored router with a flat ranking of every
-centroid on the same index. `paradedb.vector_router_audit` selects the arm:
+On the daily main run, with the `benchmark-cohere-router-quality` label, and on
+manual runs with `router_quality`, CI compares the index's stored router with a
+flat ranking of every centroid on the same index after k6. Other labels skip it. `paradedb.vector_router_audit` selects the arm:
 `stored` routes every segment through its stored router, and `flat` scores every
 centroid of every segment exactly from the raw centroid rows. Both disable the
 located path, so every segment routes, and both keep the caller's `router_k`,

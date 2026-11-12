@@ -25,6 +25,10 @@ on:
         description: "Publish baseline metrics when running on main"
         type: boolean
         default: true
+      router_quality:
+        description: "Add the router-quality section"
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -41,7 +45,7 @@ jobs:
     name: Cohere ${{ matrix.size }} (ParadeDB)
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmarks", "benchmark-cohere-pg_search", "benchmark-benchmarker-cohere"]'), github.event.label.name)
+      contains(fromJSON('["benchmarks", "benchmark-cohere-pg_search", "benchmark-benchmarker-cohere", "benchmark-cohere-router-quality"]'), github.event.label.name)
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -58,6 +62,9 @@ jobs:
       PDBENCH_REF: ${{ inputs.pdbench_ref || '625852ddcdfb16661cf91260549a2263e125eefa' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
+      # The router-quality section runs on the daily main run, with the
+      # benchmark-cohere-router-quality label, and on manual runs that set router_quality.
+      ROUTER_QUALITY: ${{ github.event_name == 'schedule' || github.event.label.name == 'benchmark-cohere-router-quality' || (github.event_name == 'workflow_dispatch' && inputs.router_quality) }}
 
     steps:
       - name: Remove benchmark label
@@ -353,6 +360,7 @@ jobs:
 
       # Router quality runs after k6 so its flat sweeps do not change the cache k6 measures on.
       - name: Write router-quality arm profiles
+        if: env.ROUTER_QUALITY == 'true'
         run: |
           python3 benchmarks/cohere/router_quality.py configs \
             --profile "benchmarks/cohere/${COHERE_SIZE}.toml" --output benchmark-artifacts/router
@@ -363,17 +371,20 @@ jobs:
       # with "representative layer0 has no scan stage" is kept when it saved its report; any other
       # failure fails the step.
       - name: Sweep max_probe per router-quality arm with pdbench
+        if: env.ROUTER_QUALITY == 'true'
         run: |
           python3 benchmarks/cohere/router_quality.py sweep --runs benchmark-artifacts/router \
             --existing "benchmark-artifacts/search/${COHERE_SIZE}" --assets-dir benchmarks/cohere/assets
 
       - name: Measure router quality at the selected budgets
+        if: env.ROUTER_QUALITY == 'true'
         run: |
           python3 benchmarks/cohere/router_quality.py measure --runs benchmark-artifacts/router \
             --vectors benchmark-artifacts/query_vectors.json \
             --output benchmark-artifacts/router/measurements.json
 
       - name: Find mainline router-quality baseline
+        if: env.ROUTER_QUALITY == 'true'
         id: router_baseline
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
@@ -414,6 +425,7 @@ jobs:
       # The publisher copies sweep_reports_dir/*.html to gh-pages under
       # benchmarker-runs/<commit>/<dataset>/sweep/, so the full report is published there.
       - name: Render router-quality section
+        if: env.ROUTER_QUALITY == 'true'
         env:
           CURRENT_COMMIT: ${{ steps.commit_info.outputs.commit_sha }}
           REPOSITORY_NAME: ${{ github.event.repository.name }}
@@ -431,17 +443,23 @@ jobs:
           mkdir -p benchmark-artifacts/comparison
           cp benchmark-artifacts/router/router_quality.html benchmark-artifacts/comparison/
           cat benchmark-artifacts/router/router_quality.md >> "$GITHUB_STEP_SUMMARY"
-          cat benchmark-artifacts/operating_points.md benchmark-artifacts/router/router_quality.md \
-            > benchmark-artifacts/context.md
 
       - name: Upload router-quality diagnostics
-        if: always()
+        if: always() && env.ROUTER_QUALITY == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cohere-${{ matrix.size }}-router-quality
           path: benchmark-artifacts/router/
           retention-days: 30
           if-no-files-found: warn
+
+      - name: Write PR comment context
+        run: |
+          set -euo pipefail
+          cp benchmark-artifacts/operating_points.md benchmark-artifacts/context.md
+          if [ "$ROUTER_QUALITY" = true ]; then
+            cat benchmark-artifacts/router/router_quality.md >> benchmark-artifacts/context.md
+          fi
 
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results
@@ -455,8 +473,8 @@ jobs:
              "sweep_reports_dir":"benchmark-artifacts/comparison",
              "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
              "index_metrics_file":"benchmark-artifacts/index-metrics.json",
-             "router_metrics_file":"benchmark-artifacts/router/router-metrics.json",
-             "router_detail_metrics_file":"benchmark-artifacts/router/router-detail-metrics.json"}
+             "router_metrics_file":"${{ env.ROUTER_QUALITY == 'true' && 'benchmark-artifacts/router/router-metrics.json' || '' }}",
+             "router_detail_metrics_file":"${{ env.ROUTER_QUALITY == 'true' && 'benchmark-artifacts/router/router-detail-metrics.json' || '' }}"}
 
       - name: Database logs
         if: failure() || cancelled()

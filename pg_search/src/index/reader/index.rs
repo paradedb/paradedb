@@ -3410,6 +3410,7 @@ mod tests {
     use crate::index::segment_pruning::{InjectedStatsFailure, STATS_OPENS, inject_stats_failure};
     use crate::index::stats::SegmentStats;
     use crate::query::pdb_query::pdb;
+    use crate::query::pdb_query::to_search_query_input;
     use crate::scan::range_partitioning::RangePartitioning;
     use pgrx::prelude::*;
     use std::ops::Bound;
@@ -3511,9 +3512,9 @@ mod tests {
             (match_query.clone(), 10),
             (phrase.clone(), 1),
             (
-                SearchQueryInput::FieldedQuery {
-                    field: "title".into(),
-                    query: pdb::Query::ScoreAdjusted {
+                to_search_query_input(
+                    "title".into(),
+                    pdb::Query::ScoreAdjusted {
                         query: Box::new(pdb::Query::ScoreAdjusted {
                             query: Box::new(pdb::Query::TokenizedPhrase {
                                 phrase: "silver dragon".into(),
@@ -3523,7 +3524,7 @@ mod tests {
                         }),
                         score: Some(pdb::ScoreAdjustStyle::Const(0.0)),
                     },
-                },
+                ),
                 1,
             ),
             (term_query("title", "absent"), 0),
@@ -3633,15 +3634,15 @@ mod tests {
                     pattern: "sil.*".into(),
                 },
             },
-            SearchQueryInput::FieldedQuery {
-                field: "title".into(),
-                query: pdb::Query::ScoreAdjusted {
+            to_search_query_input(
+                "title".into(),
+                pdb::Query::ScoreAdjusted {
                     query: Box::new(pdb::Query::Regex {
                         pattern: "sil.*".into(),
                     }),
                     score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
                 },
-            },
+            ),
         ] {
             for query in [
                 unsupported.clone(),

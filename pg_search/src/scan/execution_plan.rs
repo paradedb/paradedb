@@ -775,10 +775,10 @@ impl PgSearchScanPlan {
     /// positional `old_col_idx -> Option<new_col_idx>` mapping.
     ///
     /// The base query becomes a `0.0`-score filter (`prepare_sa_and_ra`), because `RankJoinExec`
-    /// bounds a partner found only by `RA` at `0.0`. Only a pushed SQL restriction
-    /// (`SearchQueryInput::is_pushdown_filter`) qualifies; an explicit search, a scored base,
-    /// or one with heap filters that `SA` cannot apply before pulling a window, keeps
-    /// `HashJoinExec` with its score intact.
+    /// bounds a partner found only by `RA` at `0.0`. Only a constant-score restriction
+    /// (`SearchQueryInput::is_pushdown_filter`) qualifies; a scored base, or one with heap
+    /// filters that `SA` cannot apply before pulling a window, keeps `HashJoinExec` with its
+    /// score intact.
     pub(crate) fn with_elided_disjunctive_tags(
         &self,
         elided_tags: &std::collections::BTreeSet<String>,

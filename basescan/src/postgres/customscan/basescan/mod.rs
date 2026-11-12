@@ -1613,6 +1613,17 @@ impl CustomScan for BaseScan {
                 .map(|q| q.collect_expression_nodes())
                 .unwrap_or_default();
 
+            // A Top K method carries the ORDER BY, query vector included, from here on.
+            if matches!(
+                builder.custom_private().exec_method_type(),
+                ExecMethodType::TopK {
+                    orderby_info: Some(_),
+                    ..
+                }
+            ) {
+                builder.custom_private_mut().clear_maybe_orderby_info();
+            }
+
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {
                 scan.scan.plan.qual = subplan_quals.into_pg();

@@ -35,7 +35,6 @@ use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
 use pgrx::*;
 use rustc_hash::FxHashMap;
-use tokenizers::SearchNormalizer;
 
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
@@ -43,6 +42,7 @@ pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
     #[inline]
+    #[allow(dead_code)]
     unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
         if let Some(coerce) = nodecast!(CoerceViaIO, expression)
             && let Some(func_expr) = nodecast!(FuncExpr, (*coerce).arg)
@@ -167,17 +167,14 @@ pub unsafe fn extract_field_attributes(
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if is_text_lower(expression.cast()) {
-                            normalizer = Some(SearchNormalizer::Lowercase);
-                        } else if let Some(relabel) = nodecast!(RelabelType, expression) {
-                            if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
-                                inner_typoid = pg_sys::exprType((*relabel).arg.cast());
-                            }
-
-                            if is_text_lower((*relabel).arg.cast()) {
-                                normalizer = Some(SearchNormalizer::Lowercase);
-                            }
-                        }
+                        // NOTE: Do not auto-assign SearchNormalizer::Lowercase for unaliased lower() expressions.
+                        // The issue is that indexed expressions for sorting should store the value as-computed by PostgreSQL.
+                        // When PostgreSQL evaluates lower(category) under C collation, it may leave non-ASCII characters unchanged.
+                        // If we then apply a second Unicode lowercasing normalization at search time, we break the sort order:
+                        // - PostgreSQL under C: lower('Å') = 'Å' (unchanged, sorts before 'ä')
+                        // - Tantivy with Lowercase normalizer: 'Å' -> 'å' (sorts after 'ä')
+                        // The normalizer should only be applied if explicitly specified in the tokenizer cast.
+                        // See: https://github.com/paradedb/paradedb/issues/7054
                         if attname.is_none() {
                             let heap_attname = heap_relation
                                 .tuple_desc()

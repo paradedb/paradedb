@@ -202,6 +202,11 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
+        // Per-segment vector statistics are read by EXPLAIN ANALYZE's stage accounting, its I/O
+        // trace and the `paradedb.vector_stats` display; otherwise nothing reads them.
+        search_reader.vector_segment_info = gucs::vector_stats()
+            || state.custom_state().explain_stage_accounting
+            || state.custom_state().io_trace.is_some();
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));

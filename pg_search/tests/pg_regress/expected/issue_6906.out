@@ -1,0 +1,74 @@
+-- auto_explain prints plans from its ExecutorEnd hook, where no snapshot is
+-- active. Without ANALYZE, the Aggregate Scan and Join Scan rebuild their
+-- DataFusion plans to print them, and that rebuild needs a snapshot.
+-- https://github.com/paradedb/paradedb/issues/6906
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+CREATE TABLE issue_6906_t (id bigint PRIMARY KEY, cik bigint, body text);
+INSERT INTO issue_6906_t SELECT g, g % 7, 'letter of intent ' || g FROM generate_series(1, 100) g;
+CREATE INDEX issue_6906_t_idx ON issue_6906_t USING paradedb (id, body, cik);
+CREATE TABLE issue_6906_f (cik bigint PRIMARY KEY, name text);
+INSERT INTO issue_6906_f SELECT g, 'n' || g FROM generate_series(0, 6) g;
+CREATE INDEX issue_6906_f_idx ON issue_6906_f USING paradedb (cik, name);
+EXPLAIN (COSTS OFF)
+SELECT cik, count(*) FROM issue_6906_t GROUP BY cik ORDER BY 2 DESC, 1 LIMIT 1;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: issue_6906_t_idx (issue_6906_t)
+         Group By: cik
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=1), expr=[agg_0@1 DESC, cik@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[cik@0 as cik], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=issue_6906_t, segments=1, visibility=eager, query="all"
+(11 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT t.id, f.name FROM issue_6906_t t JOIN issue_6906_f f ON f.cik = t.cik
+WHERE t.body @@@ 'intent' AND f.name @@@ 'n1'
+ORDER BY t.id LIMIT 5;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: t INNER f
+   Join Cond: f.cik = t.cik
+   Limit: 5
+   Order By: t.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[t, f]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cik@1, cik@1)], projection=[ctid_0@2, id@4, ctid_1@0]
+     :         CooperativeExec
+     :           PgSearchScan: table=f, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"n1","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=t, segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"intent","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+LOAD 'auto_explain';
+SET auto_explain.log_min_duration = 0;
+SELECT cik, count(*) FROM issue_6906_t GROUP BY cik ORDER BY 2 DESC, 1 LIMIT 1;
+ cik | count 
+-----+-------
+   1 |    15
+(1 row)
+
+SELECT t.id, f.name FROM issue_6906_t t JOIN issue_6906_f f ON f.cik = t.cik
+WHERE t.body @@@ 'intent' AND f.name @@@ 'n1'
+ORDER BY t.id LIMIT 5;
+ id | name 
+----+------
+  1 | n1
+  8 | n1
+ 15 | n1
+ 22 | n1
+ 29 | n1
+(5 rows)
+
+RESET auto_explain.log_min_duration;
+RESET max_parallel_workers_per_gather;
+DROP TABLE issue_6906_t, issue_6906_f;

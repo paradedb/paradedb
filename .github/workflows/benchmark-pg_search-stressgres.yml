@@ -204,6 +204,8 @@ jobs:
 
       - name: Compile and Install pg_search
         working-directory: source
+        env:
+          PGRX_NO_ASSEMBLE_UNRELEASED: "true"
         run: >-
           cargo pgrx install -p pg_search --sudo --release
           --pg-config "/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794470803185,
+  "lastUpdate": 1794470826858,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113000,6 +113000,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13838438454-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794470824452,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1683.4004166017758,
+            "unit": "median tps",
+            "extra": "avg tps: 1667.5652010876547, max tps: 1782.8887629895637, count: 59235"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 6.022575810724198,
+            "unit": "median tps",
+            "extra": "avg tps: 6.065777368250094, max tps: 7.128591227877135, count: 59235"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1764.591112876879,
+            "unit": "median tps",
+            "extra": "avg tps: 1758.3724082452138, max tps: 1850.7569777063613, count: 59235"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2958.5471991204085,
+            "unit": "median tps",
+            "extra": "avg tps: 2877.627663685252, max tps: 3194.7282842789014, count: 59235"
+          }
+        ],
+        "publication_id": "13925528501-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158070,6 +158117,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13838438454-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794470826782,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05839453026082553, max background_merging: 2.0, count: 59235"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.364362798643138, max cpu: 9.657948, count: 59235"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.84894395733097, max mem: 25.8515625, count: 59235"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.895550469312806, max cpu: 28.785606, count: 59235"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 54.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.46543230881236, max mem: 58.40625, count: 59235"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45113,
+            "unit": "median block_count",
+            "extra": "avg block_count: 44850.85589600743, max block_count: 45116.0, count: 59235"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.43659998311809, max segment_count: 19.0, count: 59235"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.13253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.949351375302907, max cpu: 34.094368, count: 59235"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 36.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.57410044473284, max mem: 36.71484375, count: 59235"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.522091371319161, max cpu: 27.866474, count: 59235"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 52.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.060950754937956, max mem: 52.203125, count: 59235"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.545917927075573, max cpu: 23.166023, count: 59235"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 40.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.7925011342534, max mem: 50.0859375, count: 59235"
+          }
+        ],
+        "publication_id": "13925528501-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

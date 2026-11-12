@@ -10,14 +10,14 @@ vector_field = "emb"
 s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
 
 [postgres.build]
-shared_buffers = "24GB"
-maintenance_work_mem = "24GB"
+shared_buffers = "32GB"
+maintenance_work_mem = "52428MB"
 max_parallel_maintenance_workers = 8
 
 [postgres.search]
-shared_buffers = "24GB"
-max_parallel_workers = 8
-max_worker_processes = 16
+shared_buffers = "32GB"
+max_parallel_workers = 16
+max_worker_processes = 32
 
 [index]
 nlist = 0
@@ -35,7 +35,7 @@ enable_sort = "off"
 max_parallel_workers_per_gather = "8"
 jit = "off"
 plan_cache_mode = "force_custom_plan"
-work_mem = "256MB"
+work_mem = "1GB"
 
 [search.sweep]
 param = "prism.nprobe"

@@ -9,12 +9,13 @@ The workflow runs the 1M and 10M snapshots independently. Each uses the existing
 10% (`year`), and approximately 1% (`battle`) full-text filters. The index retains
 eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. Cohere, MS MARCO, HN, Wikipedia, and Stack Exchange share
-`setup-docker-benchmark-cluster` and the same Docker Compose configuration:
-CPUs 0–7, 64 GiB memory, 16 GiB shared memory, 24 GiB shared buffers and maintenance
-memory, a 48 GiB effective cache, and eight parallel workers in a 16-process pool.
-k6 runs on CPUs 8–11. Vector containers share the host PID namespace so pdbench
-can still sample build RSS. Both tools use the same database and index
-throughout a run.
+`setup-docker-benchmark-cluster`. Cohere, MS MARCO, and HN start the `paradedb`
+service from pdbench's `datasets/<dataset>/docker-compose.yml`, which is the
+same for every dataset: CPUs 0–63, 128 GiB memory, 64 GiB shared memory, 32 GiB
+shared buffers, 52428 MB maintenance memory, a 96 GiB effective cache, and 16
+parallel workers in a 32-process pool. k6 runs on CPUs 64–67. Wikipedia and
+Stack Exchange keep the Compose file on S3. Both tools use the same database
+and index throughout a run.
 
 The benchmark index enables `vector_router_quantization = true` in its
 `CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false
@@ -69,10 +70,12 @@ Wider selection compensates for errors in quantized centroid ordering;
 retaining more members cannot recover members in unopened lists.
 
 1. Restore the existing Cohere heap snapshot, refresh the installed pg_search
-   extension, and run `pdbench build` with `datasets/cohere/indexes/pg_search.sql`.
-   pdbench records build time, index size, and segment diagnostics before vacuum.
-   Snapshot generation continues to use `datasets/cohere/config.toml` and
-   `create_tables.sql`.
+   extension, and run `pdbench-load finalize` with pdbench's
+   `configs/load/cohere-<size>-paradedb.yaml`. The index definition, its options,
+   and the Postgres settings it is built under come from that config and
+   pdbench's `datasets/cohere/`. Build time is the whole finalize run: dropping
+   any old index, the build, and `VACUUM ANALYZE`. Snapshot generation continues
+   to use `datasets/cohere/config.toml` and `create_tables.sql`.
 2. Import the published ground-truth Parquets into pdbench's fixture table.
    `pdbench search` loads the query vectors and sweeps
    `paradedb.vector_cluster_max_probe` in absolute cluster-work units separately
@@ -124,7 +127,7 @@ baseline; subsequent PR runs compare with main and do not update its baseline.
 
 Diagnostics upload after plan verification, before the longer k6 pass, so recall
 sweeps can be reviewed while latency measurements continue.
-Artifacts retain index-build logs, pdbench build and search reports (including
+Artifacts retain index-build logs, the pdbench-load run and its `report.html`, pdbench search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in
 on PRs; the small handoff tests can be run with:

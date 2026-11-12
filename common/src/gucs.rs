@@ -58,6 +58,15 @@ static SPILL_TO_DISK: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Each alternative is one more posting list in the query. A rule usually lists a few words, so
+/// the default stops only an outlier.
+const DEFAULT_SYNONYMS_MAX_ALTERNATIVES: i32 = 32;
+static SYNONYMS_MAX_ALTERNATIVES: GucSetting<i32> =
+    GucSetting::<i32>::new(DEFAULT_SYNONYMS_MAX_ALTERNATIVES);
+
+static SYNONYMS_MAX_RULES_PER_KEY: GucSetting<i32> =
+    GucSetting::<i32>::new(tantivy::synonyms::DEFAULT_MAX_RULES_PER_KEY as i32);
+
 static ENABLE_BITMAP_POSTINGS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle bitmap intersection with non-ParadeDB indexes.
@@ -119,6 +128,9 @@ static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
 
 /// The maximum chunk size for a Top K query.
 static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
+
+/// The maximum number of terms a single term set in a query may contain.
+static MAX_TERM_SET_SIZE: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
@@ -455,6 +467,28 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.synonyms_max_alternatives",
+        c"The most alternatives that one run of query tokens expands to",
+        c"Alternatives past this count are dropped. The tokens of the query stay when a rule lists them.",
+        &SYNONYMS_MAX_ALTERNATIVES,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.synonyms_max_rules_per_key",
+        c"The most rules that one synonym key reads in a segment",
+        c"A key in more rules reads only the first ones in document order.",
+        &SYNONYMS_MAX_RULES_PER_KEY,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.enable_aggregate_custom_scan",
         c"Enable ParadeDB's custom aggregate scan",
@@ -665,6 +699,17 @@ pub fn init() {
         &MAX_TERM_AGG_BUCKETS,
         1,
         DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_term_set_size",
+        c"Maximum number of terms in a single term set in a query",
+        c"A query whose term set (e.g. `pdb.term_set`, `IN (...)`, or `= ANY(array)` against an indexed field) contains more terms than this is rejected with an error, and one with more than half this many emits a warning. Very large term sets are usually better expressed as a join.",
+        &MAX_TERM_SET_SIZE,
+        1,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1130,6 +1175,14 @@ pub fn spill_to_disk() -> bool {
     SPILL_TO_DISK.get()
 }
 
+pub fn synonyms_max_alternatives() -> usize {
+    SYNONYMS_MAX_ALTERNATIVES.get() as usize
+}
+
+pub fn synonyms_max_rules_per_key() -> usize {
+    SYNONYMS_MAX_RULES_PER_KEY.get() as usize
+}
+
 pub fn enable_custom_scan() -> bool {
     ENABLE_CUSTOM_SCAN.get()
 }
@@ -1315,6 +1368,10 @@ pub fn max_term_agg_buckets() -> i32 {
         pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
     }
     v
+}
+
+pub fn max_term_set_size() -> usize {
+    MAX_TERM_SET_SIZE.get().max(1) as usize
 }
 
 pub fn max_window_aggregate_response_bytes() -> usize {

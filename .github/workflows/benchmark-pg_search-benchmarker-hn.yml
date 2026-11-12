@@ -17,7 +17,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "ced11cf52a6c1e1d622ffc655a4ec38545e4d3d8"
+        default: "df22afd6d48f43653b61c24b928dcf0e929c471c"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -51,7 +51,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'ced11cf52a6c1e1d622ffc655a4ec38545e4d3d8' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'df22afd6d48f43653b61c24b928dcf0e929c471c' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}
@@ -111,14 +111,7 @@ jobs:
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      - name: Set up Docker benchmark cluster
-        uses: ./.github/actions/setup-docker-benchmark-cluster
-        with:
-          ref: ${{ env.BENCHMARK_REF }}
-          dataset: hackernews/vector
-          size: ${{ env.HN_SIZE }}/39152428323-1
-          backup: "20261018-214625F"
-
+      # pdbench comes first: it holds the compose file the cluster starts with.
       - name: Create pdbench checkout token
         id: pdbench_token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -138,6 +131,15 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      - name: Set up Docker benchmark cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          dataset: hackernews/vector
+          size: ${{ env.HN_SIZE }}/39152428323-1
+          backup: "20261018-214625F"
+          compose_file: pdbench/datasets/hn/docker-compose.yml
+
       - name: Set up pg_vectorsearch
         if: matrix.engine == 'pg_vectorsearch'
         uses: ./.github/actions/setup-pg-vectorsearch
@@ -151,6 +153,9 @@ jobs:
         with:
           ref: ${{ env.VECTORCHORD_REF }}
 
+      - name: Verify benchmark runtime
+        uses: ./.github/actions/verify-vector-benchmark-runtime
+
       - name: Install pdbench toolchain
         run: rustup toolchain install 1.97.1 --profile minimal
 
@@ -162,7 +167,10 @@ jobs:
       - name: Build pdbench
         working-directory: pdbench
         run: |
-          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          # rust-cache saves target/duckdb-sources with its files stripped, and libduckdb-sys
+          # cannot unpack over the leftover directories when its build script reruns.
+          rm -rf target/duckdb-sources
+          cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load -p pdbench-report --target-dir target -j 16
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       - name: Set up Benchmarker
@@ -215,21 +223,50 @@ jobs:
                                'paradedb.vector_router_aps')
                 ORDER BY name;" \
             | tee benchmark-artifacts/index-build-settings.log
-          pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
-            --assets-dir benchmarks/hn/assets --runs-dir benchmark-artifacts/search \
-            --set dataset.s3_base_path=benchmark-artifacts/fixtures \
-            --force-rebuild \
-            | tee benchmark-artifacts/index-build.log
-          profile="$(basename "$HN_CONFIG" .toml)"
-          jq '.data | [
-            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
-            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
-            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
-            {name: (.index.name + " peak summed RSS"), unit: "GiB", value: (.metrics.resources.peak_rss_bytes / 1073741824)}
-          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
-            -c 'VACUUM (ANALYZE) hn_items;' \
-            | tee benchmark-artifacts/index-vacuum.log
+          if [[ "$BENCHMARK_ENGINE" == pg_search ]]; then
+            # The index definition, its options and the Postgres settings it is built under come
+            # from pdbench's load config and dataset files.
+            (
+              cd pdbench
+              pdbench-load finalize configs/load/hn-full-paradedb.yaml \
+                --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load"
+            ) 2>&1 | tee benchmark-artifacts/index-build.log
+            runs=(benchmark-artifacts/load/*/*_load)
+            test "${#runs[@]}" -eq 1
+            # Writes report.html into the run directory, which is uploaded with the diagnostics.
+            pdbench-report html "${runs[0]}"
+            index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
+            # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
+            created="$(jq -r '.created_at' "${runs[0]}/run.json")"
+            finished="$(jq -r '.finished_at' "${runs[0]}/run.json")"
+            build_seconds=$(( $(date -d "$finished" +%s) - $(date -d "$created" +%s) ))
+            size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+              -c "SELECT pg_total_relation_size('${index}'::regclass)")"
+            # Container memory in use, excluding inactive page cache, sampled once a second.
+            peak_bytes="$(jq -n '[inputs | select(.type == "Point" and .metric == "container_memory") | .value] | max' \
+              "${runs[0]}/points.jsonl")"
+            jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \
+              --argjson size_bytes "$size_bytes" --argjson peak_bytes "$peak_bytes" '[
+              {name: ($index + " build time"), unit: "min", value: ($build_seconds / 60)},
+              {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)},
+              {name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
+            ]' > benchmark-artifacts/index-metrics.json
+          else
+            pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
+              --assets-dir benchmarks/hn/assets --runs-dir benchmark-artifacts/search \
+              --set dataset.s3_base_path=benchmark-artifacts/fixtures \
+              --force-rebuild \
+              | tee benchmark-artifacts/index-build.log
+            profile="$(basename "$HN_CONFIG" .toml)"
+            jq '.data | [
+              {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
+              {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
+              {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers}
+            ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
+            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+              -c 'VACUUM (ANALYZE) hn_items;' \
+              | tee benchmark-artifacts/index-vacuum.log
+          fi
 
       - name: Verify eight-segment index
         if: matrix.engine == 'pg_search'
@@ -317,14 +354,14 @@ jobs:
             printf "Engine: \`%s\`; pg_search source: \`%s\`; pdbench: \`%s\`; Benchmarker: \`%s\`.\n\n" "$BENCHMARK_ENGINE" "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
             if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
               printf "PRISM revision: \`%s\`. Automatic nlist, default replication, integer nprobe sweep 1..4096.\n\n" "$PG_VECTORSEARCH_REF"
-              printf 'HN uses one global PRISM index with PostgreSQL post-filtering and no scalar filter indexes. Sequential scans, bitmap scans, and sorts are disabled; executed plans must use PRISM. k6 series are marked prism-postfilter. work_mem is 256 MiB.\n\n'
+              printf 'HN uses one global PRISM index with PostgreSQL post-filtering and no scalar filter indexes. Sequential scans, bitmap scans, and sorts are disabled; executed plans must use PRISM. k6 series are marked prism-postfilter. work_mem is 1 GiB.\n\n'
             elif [[ "$BENCHMARK_ENGINE" == vectorchord ]]; then
               printf 'VectorChord revision: `%s`. One global cosine vchordrq index, 80,000 lists, residual quantization, spherical centroids, and integer probes 1..80000.\n\n' "$VECTORCHORD_REF"
               printf 'Partitioning uses eight threads, hierarchical k-means in 100 dimensions, and sampling_factor=64. epsilon=1.9; max_scan_tuples=-1. PostgreSQL applies the unchanged filters; executed plans must use vchordrq. k6 series are marked vchordrq-postfilter.\n\n'
             else
               printf "Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: \`%s\`.\n\n" "$TANTIVY_SHA"
             fi
-            printf 'Uses the existing heap snapshot and 100 held-out vectors. Eight build/query workers and a 16-process worker pool are available. Build RSS sums sampled processes, including shared mappings. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
+            printf 'Uses the existing heap snapshot and 100 held-out vectors. All engines use the shared pg_search Docker service: 64 CPUs on cores 0-63, 128 GiB RAM, 64 GiB shared memory, 32 GiB shared buffers, 1 GiB work_mem, eight build/query workers, 16 parallel workers and a 32-process pool. k6 runs on cores 64-67. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
           if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then
@@ -348,7 +385,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              taskset -c 8-11 "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \

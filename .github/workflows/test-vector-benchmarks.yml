@@ -7,6 +7,7 @@ on:
       - "benchmarks/hn/**"
       - "benchmarks/msmarco/**"
       - ".github/workflows/test-vector-benchmarks.yml"
+      - ".github/actions/verify-vector-benchmark-runtime/**"
 
 permissions:
   contents: read

@@ -72,6 +72,27 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Raises an ERROR if a term set in the query has more terms than `paradedb.max_term_set_size`,
+/// or a WARNING (once per statement) if it has more than half that many.
+pub(crate) fn check_term_set_size(num_terms: usize) {
+    use crate::postgres::planner_warnings::{LARGE_TERM_SET_HINT, warn_large_term_set};
+
+    let max = crate::gucs::max_term_set_size();
+    if num_terms > max {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+            format!(
+                "term set contains {num_terms} terms, which exceeds paradedb.max_term_set_size ({max})"
+            ),
+            function_name!(),
+        )
+        .set_hint(LARGE_TERM_SET_HINT)
+        .report(PgLogLevel::ERROR);
+    } else if num_terms > max / 2 {
+        warn_large_term_set(num_terms, max);
+    }
+}
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -361,6 +382,7 @@ impl SearchQueryInput {
                 string,
                 fuzzy_data: None,
                 slop_data: None,
+                synonyms: None,
             } => Self::Parse {
                 query_string: string,
                 lenient: None,
@@ -624,6 +646,50 @@ impl SearchQueryInput {
             }
             _ => false,
         }
+    }
+
+    pub fn is_text_only(&self) -> bool {
+        let mut supported = true;
+        self.visit_ref(&mut |query| {
+            supported &= match query {
+                Self::All
+                | Self::Empty
+                | Self::Null
+                | Self::Boolean { .. }
+                | Self::WithIndex { .. }
+                | Self::Boost { .. }
+                | Self::ConstScore { .. }
+                | Self::TermSet { .. } => true,
+                Self::Parse { query_string, .. }
+                | Self::FieldedQuery {
+                    query:
+                        pdb::Query::Parse { query_string, .. }
+                        | pdb::Query::ParseWithField { query_string, .. },
+                    ..
+                } => parsed_query_is_text_only(query_string),
+                Self::FieldedQuery {
+                    query:
+                        pdb::Query::All
+                        | pdb::Query::Empty
+                        | pdb::Query::Term { .. }
+                        | pdb::Query::TermSet { .. }
+                        | pdb::Query::Match {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::MatchArray {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::Phrase { .. }
+                        | pdb::Query::PhraseArray { .. }
+                        | pdb::Query::TokenizedPhrase { .. },
+                    ..
+                } => true,
+                _ => false,
+            };
+        });
+        supported
     }
 
     pub fn is_exists(&self) -> bool {
@@ -1071,12 +1137,61 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
+    /// The synonym indexes that the match queries of this tree name.
+    pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
+        let mut indexes = Vec::new();
+        self.visit_ref(&mut |input| {
+            let SearchQueryInput::FieldedQuery { query, .. } = input else {
+                return;
+            };
+            let mut query = query;
+            while let pdb::Query::ScoreAdjusted { query: inner, .. } = query {
+                query = inner;
+            }
+            if let pdb::Query::Match {
+                synonyms: Some(index),
+                ..
+            } = query
+                && !indexes.contains(index)
+            {
+                indexes.push(*index);
+            }
+        });
+        indexes
+    }
+
     pub fn canonical_query_string(&self) -> String {
         let mut cleaned_query = serde_json::to_value(self)
             .unwrap_or_else(|_| serde_json::Value::String("Error serializing query".to_string()));
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
         serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
     }
+}
+
+fn parsed_query_is_text_only(query: &str) -> bool {
+    use tantivy::query_grammar::{UserInputAst, UserInputLeaf, parse_query};
+
+    let Ok(ast) = parse_query(query) else {
+        return false;
+    };
+    let mut nodes = vec![ast];
+    while let Some(node) = nodes.pop() {
+        match node {
+            UserInputAst::Clause(children) => {
+                nodes.extend(children.into_iter().map(|(_, child)| child));
+            }
+            UserInputAst::Boost(inner, _) => nodes.push(*inner),
+            UserInputAst::Leaf(leaf) => {
+                if !matches!(
+                    *leaf,
+                    UserInputLeaf::Literal(_) | UserInputLeaf::Set { .. } | UserInputLeaf::All
+                ) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 /// Remove the oid from the with_index object
@@ -1789,6 +1904,7 @@ impl SearchQueryInput {
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
             SearchQueryInput::TermSet { terms: fields } => {
+                check_term_set_size(fields.len());
                 let terms = fields
                     .into_iter()
                     .map(|TermInput { field, value }| {
@@ -2430,6 +2546,7 @@ mod tests {
                 transposition_cost_one: None,
                 prefix: None,
                 conjunction_mode: None,
+                synonyms: None,
             },
         }
     }

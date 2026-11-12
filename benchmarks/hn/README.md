@@ -61,7 +61,7 @@ strict ID recall can leave targets unreached when multiple vectors tie at the
 top-10 boundary. Those points have no latency or QPS measurement.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, workers, and peak summed RSS. Diagnostics retain manifests, verified
+index size, and peak container memory during the build. Diagnostics retain manifests, verified
 fixtures, configuration, tool revisions, plans, pdbench reports, k6 dashboards,
 and database logs.
 
@@ -83,7 +83,7 @@ This comparison uses one global PRISM index with PostgreSQL post-filtering and
 no scalar filter indexes. It preserves the published timestamp ranges and exact
 author equality predicates. Sequential scans, bitmap scans, and sorts are
 disabled to select PRISM scans, matching the other pg_vectorsearch profiles.
-`work_mem` is 256 MiB. Per-predicate partial PRISM indexes are not part of this
+`work_mem` is 1 GiB. Per-predicate partial PRISM indexes are not part of this
 comparison.
 
 `EXPLAIN (ANALYZE, VERBOSE, BUFFERS)` records the first query vector at each
@@ -150,3 +150,9 @@ plans must use the ordered VectorChord index and retain every filter; k6 series
 are marked `vchordrq-postfilter`. As with HN PRISM, short neighbor counts remain
 diagnostic after the strict recall gate, while query errors fail k6. The existing
 warmup, timing, and R90/R95/R99 targets are unchanged.
+
+All HN engines use the `paradedb` service from the pinned pdbench Compose file: 64 CPUs
+(cores 0–63), 128 GiB memory, 64 GiB shared memory, 32 GiB shared buffers,
+1 GiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
+The workflow verifies runtime settings and saves the resolved Compose, container
+limits, and PostgreSQL settings in the diagnostics artifact.

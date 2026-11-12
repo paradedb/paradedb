@@ -32,8 +32,9 @@ reached operating point runs with one VU, 10 seconds of discarded warmup, and
 50 seconds of measurement. Unreached targets remain explicit in the results.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, worker count, and peak summed RSS under `benchmarker msmarco-113m`.
-RSS includes shared mappings. Scheduled and manual main runs establish and
+index size, and peak container memory during the build under
+`benchmarker msmarco-113m`. Container memory excludes inactive page cache.
+Scheduled and manual main runs establish and
 refresh the baseline; subsequent PRs compare with it. Diagnostics retain
 extension/tool revisions, configuration, the verified query hash, segment
 statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
@@ -68,6 +69,23 @@ time/probe budget exhaustion from an unreachable target. Only fully validated
 operating points reach k6. CI restores and saves only prior selected values as
 starting hints, keyed by dataset, engine revision, profile, and query assets;
 pdbench checks its fingerprint and fully revalidates each hint.
+
+For memory time series, download the `msmarco-113m-diagnostics` artifact:
+
+- Build samples are in `benchmark-artifacts/load/*/*_load/points.jsonl`.
+  Select records with `type == "Point"` and `metric == "container_memory_usage"`;
+  `time` is a UTC timestamp and `value` is bytes. The samples cover the entire
+  finalize step, including index creation and `VACUUM ANALYZE`.
+- Query samples are in `benchmarker/results/<operating-point>.json` under
+  `containers.paradedb.memory`. Each sample has `time` in Unix milliseconds
+  and `value` in bytes; subtract the dashboard's top-level `startTime` for
+  elapsed milliseconds. A dedicated collector covers both warmup and
+  measurement; the HTML dashboard also displays memory and CPU usage.
+
+These two memory series use the same definition: usage including page cache on
+cgroup v2, or usage minus cache on cgroup v1. The build's separate
+`container_memory` series excludes inactive page cache and supplies the published
+peak build metric.
 
 Run the shared handoff tests locally with:
 

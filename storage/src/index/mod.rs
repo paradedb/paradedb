@@ -33,7 +33,6 @@ use crate::api::FieldName;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
-use pgrx::pg_sys;
 use std::sync::Arc;
 use tantivy::columnar::CodecType;
 use tantivy::schema::FieldType;
@@ -41,8 +40,7 @@ use tantivy::vector::VectorQuantizationConfig;
 use tantivy::vector::clustering::SuperKMeansClusterer;
 use tantivy::{Index, IndexSettings};
 
-pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
-    let memory_limit = (unsafe { pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions, memory_limit: usize) {
     let clusterer = SuperKMeansClusterer::new()
         .with_target_leaf_size(options.target_leaf_size())
         .with_training_sample_ratio(options.training_sample_ratio())

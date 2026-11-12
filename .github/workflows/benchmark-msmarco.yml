@@ -51,7 +51,7 @@ jobs:
       LOAD_CONFIG: ${{ inputs.engine == 'pg_vectorsearch' && '../benchmarks/msmarco/pg_vectorsearch/load.yaml' || format('configs/load/msmarco-113m-{0}.yaml', inputs.engine == 'pg_search' && 'paradedb' || inputs.engine) }}
       BENCHMARK_IMAGE: ${{ inputs.engine == 'pg_search' && 'paradedb-source:ci' || inputs.engine == 'pg_vectorsearch' && 'msmarco-pg-vectorsearch:ci' || 'tensorchord/vchord-postgres:pg18-v1.1.1' }}
       RESULTS_DATASET: ${{ inputs.engine == 'pg_search' && 'msmarco-113m' || format('msmarco-113m-{0}', inputs.engine) }}
-      PG_VECTORSEARCH_VERSION: "0.1.0"
+      PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
 
     steps:
       - name: Remove benchmark label
@@ -89,7 +89,7 @@ jobs:
           rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
-          cp benchmark-workflow/docker/Dockerfile.source docker/Dockerfile.source
+          cp benchmark-workflow/docker/Dockerfile.{source,pg-vectorsearch} docker/
 
       - name: Record benchmark configuration
         run: |
@@ -112,7 +112,7 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           owner: paradedb
-          repositories: pdbench
+          repositories: ${{ inputs.engine == 'pg_vectorsearch' && 'pdbench,pg_vectorsearch' || 'pdbench' }}
           permission-contents: read
 
       - name: Checkout pdbench
@@ -124,14 +124,25 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      - name: Checkout pg_vectorsearch
+        if: inputs.engine == 'pg_vectorsearch'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: paradedb/pg_vectorsearch
+          ref: ${{ env.PG_VECTORSEARCH_REF }}
+          path: pg-vectorsearch
+          token: ${{ steps.pdbench_token.outputs.token }}
+          persist-credentials: false
+
       # The pinned pdbench revision supplies VectorChord loading, calibration, and reports.
       - name: Prepare comparison engine image and dataset
         if: inputs.engine != 'pg_search'
         run: |
           set -euo pipefail
           if [ "$BENCHMARK_ENGINE" = pg_vectorsearch ]; then
-            docker build --build-arg "PG_VECTORSEARCH_VERSION=$PG_VECTORSEARCH_VERSION" \
-              -t msmarco-pg-vectorsearch:ci pdbench/docker/timescale
+            git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
+            docker build -f docker/Dockerfile.pg-vectorsearch \
+              -t msmarco-pg-vectorsearch:ci pg-vectorsearch
             mkdir -p pdbench/datasets/msmarco/timescale
             cp benchmarks/msmarco/pg_vectorsearch/{pre,post}.sql pdbench/datasets/msmarco/timescale/
           else
@@ -197,6 +208,7 @@ jobs:
               -c "SELECT json_build_object('version', extversion, 'commit', pg_vectorsearch_git_commit())
                   FROM pg_extension WHERE extname = 'pg_vectorsearch'" \
               > benchmark-artifacts/pg-vectorsearch-version.json
+            jq -e --arg ref "$PG_VECTORSEARCH_REF" '.commit == $ref' benchmark-artifacts/pg-vectorsearch-version.json
           else
             psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vchord CASCADE;'
             psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
@@ -355,7 +367,7 @@ jobs:
 
           Engine: \`$BENCHMARK_ENGINE\`. Uses heap backup \`20261102-224214F\` and the same 100 held-out query vectors for all engines. Each engine runs on its own runner, with a 64-CPU / 128-GiB database container.
 
-          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch $PG_VECTORSEARCH_VERSION uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (80,000 lists, residual quantization, spherical centroids) and sweeps vchordrq.probes from 1–80000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
+          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch at paradedb/pg_vectorsearch commit \`$PG_VECTORSEARCH_REF\` includes the parallel-build detoast memory fix and uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (80,000 lists, residual quantization, spherical centroids) and sweeps vchordrq.probes from 1–80000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
 
           Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 
@@ -370,7 +382,7 @@ jobs:
       - name: Measure selected operating points with k6
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ inputs.engine }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ inputs.engine }}","pg_vectorsearch":"${{ inputs.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob

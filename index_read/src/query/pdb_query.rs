@@ -866,20 +866,25 @@ impl pdb::Query {
     }
 
     /// Returns `true` if constructing a Tantivy Scorer for this query type is expensive.
-    /// Fuzzy term and regex queries require building DFAs/automata and scanning the term
+    /// Fuzzy and regex queries require building DFAs/automata and scanning the term
     /// dictionary during scorer construction, which can be too costly for planner selectivity
     /// estimation.
     ///
-    /// Range queries and Match-with-distance are intentionally excluded: range queries on
-    /// numeric fast fields are cheap to score, and their selectivity is highly data-dependent
-    /// making heuristics unreliable. Inaccurate heuristics for these types cause plan
-    /// regressions (e.g. wrong join strategies, wrong append methods).
+    /// Range queries are intentionally excluded: range queries on numeric fast fields are
+    /// cheap to score, and their selectivity is highly data-dependent making heuristics
+    /// unreliable. Inaccurate heuristics for them cause plan regressions (e.g. wrong join
+    /// strategies, wrong append methods).
     pub fn is_expensive_to_estimate(&self) -> bool {
         match self {
             pdb::Query::FuzzyTerm { .. }
             | pdb::Query::Regex { .. }
             | pdb::Query::MoreLikeThis { .. }
             | pdb::Query::RegexPhrase { .. } => true,
+
+            // A match builds one fuzzy automaton per token, but only for a non-zero distance.
+            pdb::Query::Match { distance, .. } | pdb::Query::MatchArray { distance, .. } => {
+                distance.is_some_and(|distance| distance > 0)
+            }
 
             pdb::Query::ParseWithField { fuzzy_data, .. } => fuzzy_data.is_some(),
 
@@ -900,16 +905,28 @@ impl pdb::Query {
     pub fn estimated_selectivity(&self) -> Option<f64> {
         use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
 
+        let fuzzy_selectivity = |distance: u8| {
+            if distance <= 1 {
+                FUZZY_LOW_SELECTIVITY
+            } else {
+                FUZZY_HIGH_SELECTIVITY
+            }
+        };
+
         match self {
             pdb::Query::MoreLikeThis { .. } => Some(crate::MORE_LIKE_THIS_SELECTIVITY),
             pdb::Query::FuzzyTerm { distance, .. } => {
-                let dist = distance.unwrap_or(1);
-                if dist <= 1 {
-                    Some(FUZZY_LOW_SELECTIVITY)
-                } else {
-                    Some(FUZZY_HIGH_SELECTIVITY)
-                }
+                Some(fuzzy_selectivity(distance.unwrap_or(1)))
             }
+
+            pdb::Query::Match {
+                distance: Some(distance),
+                ..
+            }
+            | pdb::Query::MatchArray {
+                distance: Some(distance),
+                ..
+            } if *distance > 0 => Some(fuzzy_selectivity(*distance)),
 
             pdb::Query::ParseWithField { .. } => Some(FUZZY_LOW_SELECTIVITY),
 

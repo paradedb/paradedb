@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794444039605,
+  "lastUpdate": 1794462939273,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -58236,6 +58236,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13900708893-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794462935113,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 10.171,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.369,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 10.477,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 10.205,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 11.435,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 12.337,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 17.003,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 20.206,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 22.378,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 10.81,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 14.151,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 14.791,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.893,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 17.755,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 18.229,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 17.327,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 22.71,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 24.074,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.581,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.058,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 4.228,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 5.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 5.355,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 9.352,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 10.758,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 11.222,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13917638972-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -62101,6 +62259,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13900708893-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794462936083,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 97.84748734781502,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 96.23870991010115,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 57.786402034347404,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 86.87421758989001,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 59.04102643967223,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 54.112011027813985,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 326.44235343426527,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 233.55785503781433,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 113.61351271280438,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13917638972-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -78269,6 +78495,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13900708893-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794462939262,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.4166666666666667,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4595.3515625,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "13917638972-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -81783,6 +82042,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13900708893-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794462936883,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 4533.65,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 5253.53,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 9315.48,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 5740.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 7816.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 10086.15,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 776.54,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1201.52,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 2718.77,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13917638972-buffers"
       }
     ],
     "benchmarker hackernews (latency)": [
@@ -83983,6 +84310,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13900708893-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794462937707,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 1.0487451737451738,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 1.107266435986159,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.9941377077109782,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 0.907184622622488,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.984220965229267,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "13917638972-router"
       }
     ],
     "benchmarker cohere-1m (router detail)": [
@@ -84053,6 +84433,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13900708893-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794462938472,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 16084.89,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 16890.58,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.1162173,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 30996.94,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 34077.45,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.18653354,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 112001.92,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 100193.96,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 0.44379036,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13917638972-router-detail"
       }
     ]
   }

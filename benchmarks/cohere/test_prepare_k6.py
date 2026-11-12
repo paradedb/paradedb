@@ -37,7 +37,10 @@ def reports(dataset="cohere", engine="pg_search"):
                     "query": query,
                     "k": neighbors,
                     "sweep": {"min": 1, "max": 4096, "tolerance": 0.000001},
-                    "session": {"cohere.titles_10pct": "year", "jit": "off"},
+                    "session": {"cohere.titles_10pct": "year", "jit": "off"}
+                    | (
+                        {"vchordrq.prefilter": "off"} if engine == "vectorchord" else {}
+                    ),
                 },
             },
             "data": {
@@ -203,35 +206,64 @@ class OperatingPointsTest(unittest.TestCase):
 
     def test_vectorchord_profile_handoff_and_full_validation(self):
         """Preserve VectorChord probes and reject pilot-only recall selections."""
-        profile = Path(__file__).resolve().parents[1] / "hn" / "28m-vectorchord.toml"
-        config = tomllib.loads(profile.read_text())
-        inputs = reports("hn", "vectorchord")
-        for report in inputs:
-            report["config"]["search"] |= config["search"]
-            report["data"]["fast_search"] = True
-            for result in report["data"]["variants"].values():
-                point = result["points"][0]
-                point["query_vectors"] = 100
-                point["metrics"]["recall"]["samples"] = 100
-                point["metrics"]["buffers"]["queries_measured"] = 10
-        points = operating_points(inputs, "hn")
-        for point in points:
-            self.assertEqual(point["param"], VCHORD_PROBES)
-            self.assertEqual(point["backend"], "postgres")
-            self.assertEqual(point["index_name"], "hn_items_vchordrq_idx")
-            self.assertEqual(point["session"], config["search"]["session"])
-        self.assertIn("| probes |", summary(points))
-        result = next(iter(inputs[0]["data"]["variants"].values()))
-        result["points"][0]["query_vectors"] = 25
-        with self.assertRaisesRegex(ValueError, "full 100-vector validation"):
-            operating_points(inputs, "hn")
-        result["points"][0]["query_vectors"] = 100
-        for value in ("0", "100.5", "80001", "nan"):
-            for selected in result["targets"].values():
-                selected["value"] = value
-            result["points"][0]["value"] = value
-            with self.assertRaisesRegex(ValueError, "invalid selected point"):
+        for filename, prefilter in (
+            ("28m-vectorchord.toml", "off"),
+            ("28m-vectorchord-prefilter.toml", "on"),
+        ):
+            profile = Path(__file__).resolve().parents[1] / "hn" / filename
+            config = tomllib.loads(profile.read_text())
+            self.assertEqual(
+                config["search"]["session"]["vchordrq.prefilter"], prefilter
+            )
+            inputs = reports("hn", "vectorchord")
+            for report in inputs:
+                report["config"]["search"] |= config["search"]
+                report["data"]["fast_search"] = True
+                for result in report["data"]["variants"].values():
+                    point = result["points"][0]
+                    point["query_vectors"] = 100
+                    point["metrics"]["recall"]["samples"] = 100
+                    point["metrics"]["buffers"]["queries_measured"] = 10
+            points = operating_points(inputs, "hn")
+            for point in points:
+                self.assertEqual(point["param"], VCHORD_PROBES)
+                self.assertEqual(point["backend"], "postgres")
+                self.assertEqual(point["index_name"], "hn_items_vchordrq_idx")
+                self.assertEqual(point["session"], config["search"]["session"])
+            self.assertIn("| probes |", summary(points))
+            result = next(iter(inputs[0]["data"]["variants"].values()))
+            result["points"][0]["query_vectors"] = 25
+            with self.assertRaisesRegex(ValueError, "full 100-vector validation"):
                 operating_points(inputs, "hn")
+            result["points"][0]["query_vectors"] = 100
+            for value in ("0", "100.5", "80001", "nan"):
+                for selected in result["targets"].values():
+                    selected["value"] = value
+                result["points"][0]["value"] = value
+                with self.assertRaisesRegex(ValueError, "invalid selected point"):
+                    operating_points(inputs, "hn")
+
+    def test_vectorchord_profiles_only_change_prefilter(self):
+        """Keep index, resource, and recall settings identical between filter modes."""
+        directory = Path(__file__).resolve().parents[1] / "hn"
+        off = tomllib.loads((directory / "28m-vectorchord.toml").read_text())
+        on = tomllib.loads((directory / "28m-vectorchord-prefilter.toml").read_text())
+        self.assertEqual(off["search"]["session"].pop("vchordrq.prefilter"), "off")
+        self.assertEqual(on["search"]["session"].pop("vchordrq.prefilter"), "on")
+        self.assertEqual(off, on)
+
+    def test_vectorchord_refuses_implicit_or_mixed_filter_modes(self):
+        """Do not silently publish a default or mix sweep modes in k6."""
+        for value in (None, "true", "unexpected"):
+            inputs = reports("hn", "vectorchord")
+            for report in inputs:
+                report["config"]["search"]["session"]["vchordrq.prefilter"] = value
+            with self.assertRaisesRegex(ValueError, "explicit prefilter"):
+                operating_points(inputs, "hn")
+        inputs = reports("hn", "vectorchord")
+        inputs[0]["config"]["search"]["session"]["vchordrq.prefilter"] = "on"
+        with self.assertRaisesRegex(ValueError, "same dataset, index, and session"):
+            operating_points(inputs, "hn")
 
     def test_hn_paradedb_sweep_keeps_configured_bounds(self):
         """Use valid integer work budgets through the HN recall-to-k6 handoff."""

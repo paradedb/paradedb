@@ -1,7 +1,13 @@
 """Keep PRISM ANN results distinct from PostgreSQL exact search."""
 
+import json
+import runpy
+import tempfile
 import unittest
 from functools import partial
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from verify_plans import verify_ann
 
@@ -108,6 +114,92 @@ class VectorChordPlanTest(unittest.TestCase):
                     "hn_items_vchordrq_idx",
                     ["by"],
                     "vchordrq",
+                )
+
+    def test_prefilter_verifies_the_database_setting_before_labeling(self):
+        """The same residual Filter can represent either mode; check the live GUC."""
+        script = Path(__file__).with_name("verify_plans.py")
+        plan = [
+            {
+                "Plan": {
+                    "Node Type": "Index Scan",
+                    "Index Name": "hn_items_vchordrq_idx",
+                    "Order By": "emb <=> '[1,2,3]'::vector",
+                    "Filter": "(by = 'DanBC'::text)",
+                }
+            }
+        ]
+        for expected, actual in (
+            ("on", "on"),
+            ("off", "off"),
+            ("on", "off"),
+            ("off", "on"),
+        ):
+            with (
+                self.subTest(expected=expected, actual=actual),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                directory = Path(temporary)
+                point = {
+                    "name": "author@r90",
+                    "reached": True,
+                    "engine": "vectorchord",
+                    "session": {"vchordrq.prefilter": expected},
+                    "param": "vchordrq.probes",
+                    "probe": "64",
+                    "dimensions": 3,
+                    "index_name": "hn_items_vchordrq_idx",
+                    "filter_fields": ["by"],
+                    "sql": "SELECT id FROM hn_items ORDER BY emb <=> $1 LIMIT 10",
+                }
+                (directory / "operating_points.json").write_text(json.dumps([point]))
+                (directory / "query_vectors.json").write_text(json.dumps(["[1,2,3]"]))
+                settings = {"vchordrq.prefilter": actual}
+                result = SimpleNamespace(
+                    stdout=json.dumps(settings) + "\n" + json.dumps(plan)
+                )
+                with (
+                    patch("sys.argv", [str(script), str(directory)]),
+                    patch.dict(
+                        "os.environ", {"PARADEDB_URL": "postgresql://test"}, clear=True
+                    ),
+                    patch("subprocess.run", return_value=result) as run,
+                ):
+                    if actual != expected:
+                        with self.assertRaisesRegex(
+                            ValueError, "differs from the recall sweep"
+                        ):
+                            runpy.run_path(str(script), run_name="__main__")
+                        self.assertEqual(
+                            json.loads(
+                                (directory / "operating_points.json").read_text()
+                            ),
+                            [point],
+                        )
+                        continue
+                    runpy.run_path(str(script), run_name="__main__")
+                self.assertIn(
+                    f"SET vchordrq.prefilter = '{expected}'",
+                    run.call_args.kwargs["input"],
+                )
+                self.assertIn(
+                    "current_setting('vchordrq.prefilter')",
+                    run.call_args.kwargs["input"],
+                )
+                mode = (
+                    "vchordrq-prefilter" if expected == "on" else "vchordrq-postfilter"
+                )
+                measured = json.loads(
+                    (directory / "operating_points.json").read_text()
+                )[0]
+                self.assertEqual(measured["plan_mode"], mode)
+                self.assertEqual(measured["name"], f"author@r90-{mode}")
+                self.assertEqual(measured["session"], point["session"])
+                self.assertEqual(
+                    json.loads(
+                        (directory / "plans/author@r90-settings.json").read_text()
+                    ),
+                    settings,
                 )
 
 

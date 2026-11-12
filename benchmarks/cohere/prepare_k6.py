@@ -51,6 +51,12 @@ def validated_config(report, dataset, config):
             "Expected a pdbench probe search report with "
             f"{DIMENSIONS[dataset]}-dimensional query vectors"
         )
+    if current.get("engine") == "vectorchord" and current["search"]["session"].get(
+        "vchordrq.prefilter"
+    ) not in ("on", "off"):
+        raise ValueError(
+            "VectorChord requires an explicit prefilter setting: on or off"
+        )
     if report["data"]["query_vectors"] != 100:
         raise ValueError("CI requires all 100 query vectors and strict recall targets")
     return current

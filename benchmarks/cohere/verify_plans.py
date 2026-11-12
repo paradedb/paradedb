@@ -24,7 +24,7 @@ def setting_driven_field(expression, required):
     return match["field"] if match and match["field"] in required else None
 
 
-def verify_ann(plan, index_name, fields, access_method):
+def verify_ann(plan, index_name, fields, access_method, prefilter=False):
     """Require a cosine ANN scan and every PostgreSQL filter predicate."""
     pending = [plan[0]["Plan"]]
     nodes = []
@@ -49,7 +49,10 @@ def verify_ann(plan, index_name, fields, access_method):
         and "<=>" in node.get("Order By", "")
     ]
     if scans:
-        return f"{access_method}-postfilter" if fields else access_method
+        if prefilter and access_method != "vchordrq":
+            raise ValueError("Prefilter mode requires VectorChord")
+        filter_mode = "prefilter" if prefilter else "postfilter"
+        return f"{access_method}-{filter_mode}" if fields else access_method
     raise ValueError(f"Expected a cosine {access_method} scan on {index_name}")
 
 
@@ -126,7 +129,14 @@ if __name__ == "__main__":
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()
         )
+        capture = (
+            "SELECT json_build_object('vchordrq.prefilter', "
+            "current_setting('vchordrq.prefilter'));"
+            if point.get("engine") == "vectorchord"
+            else ""
+        )
         sql = f"""{settings}
+{capture}
 PREPARE vector_ci(vector({point["dimensions"]})) AS {point["sql"].rstrip(";")};
 EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
 """
@@ -143,15 +153,31 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
             text=True,
             check=True,
         )
+        plan_text = result.stdout
+        prefilter_enabled = False
+        if point.get("engine") == "vectorchord":
+            settings_text, plan_text = plan_text.split("\n", 1)
+            actual = json.loads(settings_text)
+            expected = session.get("vchordrq.prefilter")
+            if (
+                expected not in ("on", "off")
+                or actual.get("vchordrq.prefilter") != expected
+            ):
+                raise ValueError(
+                    "VectorChord prefilter setting differs from the recall sweep"
+                )
+            (output / f"{point['name']}-settings.json").write_text(settings_text + "\n")
+            prefilter_enabled = expected == "on"
         path = output / f"{point['name']}.json"
-        path.write_text(result.stdout)
-        executed_plan = json.loads(result.stdout)
+        path.write_text(plan_text)
+        executed_plan = json.loads(plan_text)
         if point.get("engine") in ("pg_vectorsearch", "vectorchord"):
             mode = verify_ann(
                 executed_plan,
                 point["index_name"],
                 point["filter_fields"],
                 "prism" if point["engine"] == "pg_vectorsearch" else "vchordrq",
+                prefilter=prefilter_enabled,
             )
             point["plan_mode"] = mode
             plan_modes.append(f"| `{point['name']}` | `{mode}` |")

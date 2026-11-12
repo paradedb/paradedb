@@ -46,6 +46,7 @@ max_parallel_workers_per_gather = "8"
 jit = "off"
 plan_cache_mode = "force_custom_plan"
 work_mem = "1GB"
+"vchordrq.prefilter" = "off"
 "vchordrq.epsilon" = "1.9"
 "vchordrq.max_scan_tuples" = "-1"
 

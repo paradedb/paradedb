@@ -15,6 +15,15 @@ const session = {
   ...point.session,
   [point.param || "paradedb.vector_cluster_max_probe"]: point.probe,
 };
+if (point.engine === "vectorchord") {
+  const prefilter = session["vchordrq.prefilter"];
+  if (!["on", "off"].includes(prefilter))
+    throw new Error("VectorChord requires an explicit prefilter setting");
+  const mode =
+    prefilter === "on" ? "vchordrq-prefilter" : "vchordrq-postfilter";
+  if (point.plan_mode !== mode)
+    throw new Error("VectorChord filter mode differs from its verified plan");
+}
 const settings = Object.entries(session)
   .map(([key, value]) => `-c ${key}=${value}`)
   .join(" ");

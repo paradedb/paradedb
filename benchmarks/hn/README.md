@@ -122,10 +122,18 @@ python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 
 ## VectorChord
 
-Apply `benchmark-hn-vectorchord`, or dispatch this workflow with
-`engine: vectorchord`, to run the same HN snapshot, six predicates, and published
-100-vector ground truth with VectorChord. Results and recall hints are isolated
-under `hackernews-vector-28m-vectorchord` and the selected engine revision/profile.
+Two VectorChord variants use the same HN snapshot, six predicates, and published
+100-vector ground truth:
+
+| Dispatch engine         | PR label                             | Profile                          | `vchordrq.prefilter` |
+| ----------------------- | ------------------------------------ | -------------------------------- | -------------------- |
+| `vectorchord`           | `benchmark-hn-vectorchord`           | `28m-vectorchord.toml`           | `off`                |
+| `vectorchord-prefilter` | `benchmark-hn-vectorchord-prefilter` | `28m-vectorchord-prefilter.toml` | `on`                 |
+
+The profiles differ only in this session setting. It applies to every predicate
+throughout the recall sweep and is carried into every k6 connection. Results use
+`hackernews-vector-28m-vectorchord` and `hackernews-vector-28m-vectorchord-prefilter`,
+respectively; recall hints are isolated by the profile hash.
 
 The workflow builds VectorChord 1.1.1 at
 `f9b5e234c44cee69b266b8431f92b7deed4e99d3` against the benchmark's PostgreSQL 18,
@@ -145,8 +153,18 @@ five-minute statement timeout. Cached probe values are only starting hints and
 must be revalidated. Budget exhaustion is reported separately from unreachable
 recall. The job has a 24-hour timeout.
 
-PostgreSQL applies the unchanged timestamp and exact-author filters. Executed
-plans must use the ordered VectorChord index and retain every filter; k6 series
-are marked `vchordrq-postfilter`. As with HN PRISM, short neighbor counts remain
-diagnostic after the strict recall gate, while query errors fail k6. The existing
-warmup, timing, and R90/R95/R99 targets are unchanged.
+Both variants retain the unchanged timestamp and exact-author predicates and
+require an ordered VectorChord index scan. With prefilter enabled, VectorChord
+checks these predicates before exact-distance reranking; no scalar filter index
+is added. PostgreSQL still displays a `Filter`, so the plan verifier also records
+and checks the actual `vchordrq.prefilter` value in the EXPLAIN session. k6 series
+are marked `vchordrq-prefilter` or `vchordrq-postfilter` and reject mismatched
+session settings. As with HN PRISM, short neighbor counts remain diagnostic after
+the strict recall gate, while query errors fail k6. The existing warmup, timing,
+and R90/R95/R99 targets are unchanged.
+
+All HN engines use the `paradedb` service from the pinned pdbench Compose file: 64 CPUs
+(cores 0–63), 128 GiB memory, 64 GiB shared memory, 32 GiB shared buffers,
+1 GiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
+The workflow verifies runtime settings and saves the resolved Compose, container
+limits, and PostgreSQL settings in the diagnostics artifact.

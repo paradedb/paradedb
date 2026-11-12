@@ -10,7 +10,8 @@ on:
       engine:
         description: "Vector index to benchmark"
         type: choice
-        options: [pg_search, pg_vectorsearch, vectorchord]
+        options:
+          [pg_search, pg_vectorsearch, vectorchord, vectorchord-prefilter]
         default: pg_search
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
@@ -34,14 +35,16 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: HN vector 28m (${{ matrix.engine }})
+    name: HN vector 28m (${{ matrix.engine }}${{ matrix.engine == 'vectorchord' && format(', prefilter {0}', matrix.prefilter) || '' }})
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["benchmark-hn-vector", "benchmark-hn-pg_vectorsearch", "benchmark-hn-vectorchord"]'), github.event.label.name)
+      contains(fromJSON('["benchmark-hn-vector", "benchmark-hn-pg_vectorsearch", "benchmark-hn-vectorchord", "benchmark-hn-vectorchord-prefilter"]'), github.event.label.name)
     strategy:
       matrix:
         engine: >-
-          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-hn-pg_vectorsearch') && '["pg_vectorsearch"]' || (inputs.engine == 'vectorchord' || github.event.label.name == 'benchmark-hn-vectorchord') && '["vectorchord"]' || '["pg_search"]') }}
+          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-hn-pg_vectorsearch') && '["pg_vectorsearch"]' || (startsWith(inputs.engine, 'vectorchord') || startsWith(github.event.label.name, 'benchmark-hn-vectorchord')) && '["vectorchord"]' || '["pg_search"]') }}
+        prefilter: >-
+          ${{ fromJSON((inputs.engine == 'vectorchord-prefilter' || github.event.label.name == 'benchmark-hn-vectorchord-prefilter') && '["on"]' || '["off"]') }}
     timeout-minutes: ${{ matrix.engine != 'pg_search' && 1440 || 720 }}
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -56,9 +59,10 @@ jobs:
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+      VECTORCHORD_PREFILTER: ${{ matrix.prefilter }}
       VECTORCHORD_REF: f9b5e234c44cee69b266b8431f92b7deed4e99d3
-      RESULTS_DATASET: hackernews-vector-28m${{ matrix.engine == 'pg_vectorsearch' && '-pg-vectorsearch' || matrix.engine == 'vectorchord' && '-vectorchord' || '' }}
-      HN_CONFIG: benchmarks/hn/${{ matrix.engine == 'pg_vectorsearch' && '28m-pgvectorsearch' || matrix.engine == 'vectorchord' && '28m-vectorchord' || '28m' }}.toml
+      RESULTS_DATASET: hackernews-vector-28m${{ matrix.engine == 'pg_vectorsearch' && '-pg-vectorsearch' || matrix.engine == 'vectorchord' && (matrix.prefilter == 'on' && '-vectorchord-prefilter' || '-vectorchord') || '' }}
+      HN_CONFIG: benchmarks/hn/${{ matrix.engine == 'pg_vectorsearch' && '28m-pgvectorsearch' || matrix.engine == 'vectorchord' && (matrix.prefilter == 'on' && '28m-vectorchord-prefilter' || '28m-vectorchord') || '28m' }}.toml
 
     steps:
       - name: Remove benchmark label
@@ -106,7 +110,9 @@ jobs:
           cp "$HN_CONFIG" benchmark-artifacts/config.toml
 
       - name: Test vector benchmark helpers
-        run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
+          node --test benchmarks/cohere/k6/*.test.cjs
 
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
@@ -143,6 +149,27 @@ jobs:
         uses: ./.github/actions/setup-vectorchord
         with:
           ref: ${{ env.VECTORCHORD_REF }}
+
+      - name: Verify benchmark runtime
+        uses: ./.github/actions/verify-vector-benchmark-runtime
+
+      - name: Verify VectorChord filter mode
+        if: matrix.engine == 'vectorchord'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path(os.environ["HN_CONFIG"]).read_text())
+          assert config["search"]["session"]["vchordrq.prefilter"] == os.environ["VECTORCHORD_PREFILTER"]
+          PY
+          PGOPTIONS="-c vchordrq.prefilter=$VECTORCHORD_PREFILTER" \
+            psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+              -c "SELECT json_build_object('vchordrq.prefilter', current_setting('vchordrq.prefilter'))" \
+            > benchmark-artifacts/vectorchord-filter-settings.json
+          jq -e --arg expected "$VECTORCHORD_PREFILTER" \
+            '."vchordrq.prefilter" == $expected' benchmark-artifacts/vectorchord-filter-settings.json
 
       - name: Install pdbench toolchain
         run: rustup toolchain install 1.97.1 --profile minimal
@@ -328,7 +355,7 @@ jobs:
               printf 'HN uses one global PRISM index with PostgreSQL post-filtering and no scalar filter indexes. Sequential scans, bitmap scans, and sorts are disabled; executed plans must use PRISM. k6 series are marked prism-postfilter. work_mem is 256 MiB.\n\n'
             elif [[ "$BENCHMARK_ENGINE" == vectorchord ]]; then
               printf 'VectorChord revision: %s. One global cosine vchordrq index, 80,000 lists, residual quantization, spherical centroids, and integer probes 1..80000.\n\n' "$VECTORCHORD_REF"
-              printf 'Partitioning uses eight threads, hierarchical k-means in 100 dimensions, and sampling_factor=64. epsilon=1.9; max_scan_tuples=-1. PostgreSQL applies the unchanged filters; executed plans must use vchordrq. k6 series are marked vchordrq-postfilter.\n\n'
+              printf 'Partitioning uses eight threads, hierarchical k-means in 100 dimensions, and sampling_factor=64. epsilon=1.9; max_scan_tuples=-1. vchordrq.prefilter=%s throughout the sweep and k6 for all six predicates. Executed plans must use vchordrq; result names identify prefilter or postfilter mode.\n\n' "$VECTORCHORD_PREFILTER"
             else
               printf 'Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: `%s`.\n\n' "$TANTIVY_SHA"
             fi
@@ -350,7 +377,7 @@ jobs:
           dataset: hackernews-vector-${{ env.HN_SIZE }}
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","vectorchord_prefilter":"${{ matrix.engine == 'vectorchord' && matrix.prefilter || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
         run: |
           set -euo pipefail
           shopt -s nullglob

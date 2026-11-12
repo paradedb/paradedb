@@ -264,7 +264,7 @@ jobs:
 
           The heap has 28,736,557 rows and 24,138,153 non-null 1,536-dimensional embeddings. Uses query IDs 0–99 from the 1,000 published held-out queries. Fixture checksums, holdout exclusion, and scalar predicate pushdown are verified. Published boundary-tie diagnostics are retained; strict ID recall may leave targets unreached on tied vectors.
 
-          Probe fractions are selected independently for each workload at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 0.005 and searches from 0.0001 to 1.0.
+          Integer probe-work budgets are selected independently for each workload at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 100 and searches from 1 to 100,000.
 
           Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 

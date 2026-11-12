@@ -119,3 +119,34 @@ Run local checks with Python 3.11+ and `duckdb==2.0.0` installed:
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 ```
+
+## VectorChord
+
+Apply `benchmark-hn-vectorchord`, or dispatch this workflow with
+`engine: vectorchord`, to run the same HN snapshot, six predicates, and published
+100-vector ground truth with VectorChord. Results and recall hints are isolated
+under `hackernews-vector-28m-vectorchord` and the selected engine revision/profile.
+
+The workflow builds VectorChord 1.1.1 at
+`f9b5e234c44cee69b266b8431f92b7deed4e99d3` against the benchmark's PostgreSQL 18,
+preloads it, and builds one global `vchordrq` cosine index. The profile uses
+80,000 lists, residual quantization, spherical centroids, eight partitioning
+threads and eight requested parallel build workers. Following VectorChord's
+[indexing](https://docs.vectorchord.ai/vectorchord/usage/indexing.html) and
+[partitioning guidance](https://docs.vectorchord.ai/vectorchord/usage/partitioning-tuning.html),
+partitioning uses hierarchical k-means in 100 dimensions with a sampling factor
+of 64. It sweeps integer `vchordrq.probes` from 1 to 80,000, starting at 64, with
+`epsilon=1.9` and unlimited `max_scan_tuples=-1`.
+
+The fast sweep uses the same HN limits as PRISM: 25-vector pilots without warmups
+or candidate EXPLAIN, strict validation on all 100 vectors, 10 diagnostic queries
+per selected setting, 64 evaluations, a three-hour per-shape budget, and a
+five-minute statement timeout. Cached probe values are only starting hints and
+must be revalidated. Budget exhaustion is reported separately from unreachable
+recall. The job has a 24-hour timeout.
+
+PostgreSQL applies the unchanged timestamp and exact-author filters. Executed
+plans must use the ordered VectorChord index and retain every filter; k6 series
+are marked `vchordrq-postfilter`. As with HN PRISM, short neighbor counts remain
+diagnostic after the strict recall gate, while query errors fail k6. The existing
+warmup, timing, and R90/R95/R99 targets are unchanged.

@@ -22,6 +22,12 @@ DIMENSIONS = {"cohere": 1024, "msmarco": 1024, "hn": 1536}
 TARGETS = (0.9, 0.95, 0.99)
 PROBE = "paradedb.vector_cluster_max_probe"
 NPROBE = "prism.nprobe"
+VCHORD_PROBES = "vchordrq.probes"
+ENGINES = {
+    "pg_search": (PROBE, "paradedb", None),
+    "pg_vectorsearch": (NPROBE, "pg_vectorsearch", "prism"),
+    "vectorchord": (VCHORD_PROBES, "postgres", "vchordrq"),
+}
 
 
 def validated_config(report, dataset, config):
@@ -33,9 +39,7 @@ def validated_config(report, dataset, config):
         raise ValueError(
             "Recall sweeps must use the same dataset, index, and session settings"
         )
-    param = {"pg_search": PROBE, "pg_vectorsearch": NPROBE}.get(
-        current.get("engine", "pg_search")
-    )
+    param = ENGINES.get(current.get("engine", "pg_search"), (None, None, None))[0]
     if (
         report["kind"] != "search"
         or param is None
@@ -59,9 +63,9 @@ def selected_metrics(selected, measured, sweep, param, target):
     value = float(selected["value"])
     if not sweep.get("min", 1) <= value <= sweep.get("max", 100_000):
         raise ValueError(f"invalid selected point for {target}: outside sweep range")
-    if param == NPROBE and not value.is_integer():
+    if param in (NPROBE, VCHORD_PROBES) and not value.is_integer():
         raise ValueError(
-            f"invalid selected point for {target}: PRISM requires an integer"
+            f"invalid selected point for {target}: {param} requires an integer"
         )
     metrics = measured[selected["value"]]
     if (
@@ -74,6 +78,7 @@ def selected_metrics(selected, measured, sweep, param, target):
 
 def operating_points(reports, dataset="cohere"):
     """Validate and export pdbench selections without choosing new probes."""
+    # pylint: disable=too-many-locals
     points = []
     seen = set()
     config = None
@@ -81,6 +86,8 @@ def operating_points(reports, dataset="cohere"):
     for report in reports:
         config = validated_config(report, dataset, config)
         param = report["data"]["sweep_param"]
+        engine = config.get("engine", "pg_search")
+        _, backend, index_suffix = ENGINES[engine]
         for query, result in report["data"]["variants"].items():
             if query not in SUITES[dataset] or query in seen:
                 raise ValueError(f"Unexpected or duplicate query: {query}")
@@ -115,7 +122,7 @@ def operating_points(reports, dataset="cohere"):
                         "neighbors": neighbors,
                         "require_full_neighbors": not (
                             dataset == "hn"
-                            and config.get("engine") == "pg_vectorsearch"
+                            and engine in ("pg_vectorsearch", "vectorchord")
                         ),
                         "dimensions": DIMENSIONS[dataset],
                         "filter_fields": HN_FILTER_FIELDS[query]
@@ -131,12 +138,10 @@ def operating_points(reports, dataset="cohere"):
                         .get("reason"),
                         "probe": selected["value"] if selected else None,
                         "param": param,
-                        "engine": config.get("engine", "pg_search"),
-                        "backend": "pg_vectorsearch"
-                        if config.get("engine") == "pg_vectorsearch"
-                        else "paradedb",
-                        "index_name": f"{config['dataset']['table']}_prism_idx"
-                        if config.get("engine") == "pg_vectorsearch"
+                        "engine": engine,
+                        "backend": backend,
+                        "index_name": f"{config['dataset']['table']}_{index_suffix}_idx"
+                        if index_suffix
                         else None,
                         "recall": selected["recall"]
                         if selected
@@ -156,7 +161,7 @@ def operating_points(reports, dataset="cohere"):
 
 def summary(points):
     """Render recall and buffer diagnostics for the shared publisher."""
-    parameter = "nprobe" if points[0]["param"] == NPROBE else "max_probe"
+    parameter = points[0]["param"].rsplit(".", 1)[-1].removeprefix("vector_cluster_")
     lines = [
         # GitHub renders Markdown inside <details> only with a blank line after the summary.
         "<details><summary>Operating points</summary>",
@@ -203,7 +208,7 @@ def summary(points):
     )
     if any(point.get("require_full_neighbors") is False for point in points):
         lines.append(
-            "HN pg_vectorsearch reports short result counts without failing k6. "
+            f"HN {points[0]['engine']} reports short result counts without failing k6. "
             "Query errors still fail the run; the 100-vector recall gate remains strict.\n"
         )
     lines.append("</details>\n")

@@ -8,10 +8,12 @@ from pathlib import Path
 import tomllib
 from prepare_k6 import (
     DIMENSIONS,
+    ENGINES,
     NPROBE,
     PROBE,
     QUERIES,
     SUITES,
+    VCHORD_PROBES,
     operating_points,
     summary,
 )
@@ -39,7 +41,7 @@ def reports(dataset="cohere", engine="pg_search"):
                 },
             },
             "data": {
-                "sweep_param": NPROBE if engine == "pg_vectorsearch" else PROBE,
+                "sweep_param": ENGINES[engine][0],
                 "query_vectors": 100,
                 "variants": {
                     query: {
@@ -180,13 +182,16 @@ class OperatingPointsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid selected point"):
                 operating_points(inputs, "msmarco")
 
-    def test_only_hn_prism_allows_short_results_after_recall_validation(self):
-        """Keep the result-count exception scoped to HN's post-filtered PRISM scan."""
+    def test_only_hn_postfilter_allows_short_results_after_recall_validation(self):
+        """Keep the result-count exception scoped to HN's post-filtered ANN scans."""
         for dataset in SUITES:
-            for engine in ("pg_search", "pg_vectorsearch"):
+            for engine in ENGINES:
                 with self.subTest(dataset=dataset, engine=engine):
                     points = operating_points(reports(dataset, engine), dataset)
-                    relaxed = dataset == "hn" and engine == "pg_vectorsearch"
+                    relaxed = dataset == "hn" and engine in (
+                        "pg_vectorsearch",
+                        "vectorchord",
+                    )
                     self.assertTrue(
                         all(
                             p["require_full_neighbors"] == (not relaxed) for p in points
@@ -195,6 +200,38 @@ class OperatingPointsTest(unittest.TestCase):
                     self.assertEqual(
                         "reports short result counts" in summary(points), relaxed
                     )
+
+    def test_vectorchord_profile_handoff_and_full_validation(self):
+        """Preserve VectorChord probes and reject pilot-only recall selections."""
+        profile = Path(__file__).resolve().parents[1] / "hn" / "28m-vectorchord.toml"
+        config = tomllib.loads(profile.read_text())
+        inputs = reports("hn", "vectorchord")
+        for report in inputs:
+            report["config"]["search"] |= config["search"]
+            report["data"]["fast_search"] = True
+            for result in report["data"]["variants"].values():
+                point = result["points"][0]
+                point["query_vectors"] = 100
+                point["metrics"]["recall"]["samples"] = 100
+                point["metrics"]["buffers"]["queries_measured"] = 10
+        points = operating_points(inputs, "hn")
+        for point in points:
+            self.assertEqual(point["param"], VCHORD_PROBES)
+            self.assertEqual(point["backend"], "postgres")
+            self.assertEqual(point["index_name"], "hn_items_vchordrq_idx")
+            self.assertEqual(point["session"], config["search"]["session"])
+        self.assertIn("| probes |", summary(points))
+        result = next(iter(inputs[0]["data"]["variants"].values()))
+        result["points"][0]["query_vectors"] = 25
+        with self.assertRaisesRegex(ValueError, "full 100-vector validation"):
+            operating_points(inputs, "hn")
+        result["points"][0]["query_vectors"] = 100
+        for value in ("0", "100.5", "80001", "nan"):
+            for selected in result["targets"].values():
+                selected["value"] = value
+            result["points"][0]["value"] = value
+            with self.assertRaisesRegex(ValueError, "invalid selected point"):
+                operating_points(inputs, "hn")
 
     def test_hn_paradedb_sweep_keeps_configured_bounds(self):
         """Use valid integer work budgets through the HN recall-to-k6 handoff."""

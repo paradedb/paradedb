@@ -1,8 +1,11 @@
 """Keep PRISM ANN results distinct from PostgreSQL exact search."""
 
 import unittest
+from functools import partial
 
-from verify_plans import verify_prism
+from verify_plans import verify_ann
+
+verify_prism = partial(verify_ann, access_method="prism")
 
 
 class PrismPlanTest(unittest.TestCase):
@@ -19,7 +22,7 @@ class PrismPlanTest(unittest.TestCase):
         self.assertEqual(verify_prism(plan, "msmarco_prism_idx", []), "prism")
         for key, value in (("Index Name", "other_idx"), ("Order By", "id")):
             changed = [{"Plan": scan | {key: value}}]
-            with self.assertRaisesRegex(ValueError, "Expected a cosine PRISM"):
+            with self.assertRaisesRegex(ValueError, "Expected a cosine prism"):
                 verify_prism(changed, "msmarco_prism_idx", [])
 
     def test_prism_postfilter_requires_the_scalar_predicate(self):
@@ -57,9 +60,9 @@ class PrismPlanTest(unittest.TestCase):
                 "Sort Key": ["(emb <=> '[1,2,3]'::vector)"],
                 "Plans": [scan],
             }
-            with self.assertRaisesRegex(ValueError, "Expected a cosine PRISM"):
+            with self.assertRaisesRegex(ValueError, "Expected a cosine prism"):
                 verify_prism([{"Plan": sort}], "hn_items_prism_idx", ["time"])
-            with self.assertRaisesRegex(ValueError, "Expected a cosine PRISM"):
+            with self.assertRaisesRegex(ValueError, "Expected a cosine prism"):
                 verify_prism([{"Plan": sort}], "hn_items_prism_idx", [])
 
     def test_rejects_paradedb_and_unordered_fallbacks(self):
@@ -70,12 +73,42 @@ class PrismPlanTest(unittest.TestCase):
                 "hn_items_prism_idx",
                 [],
             )
-        with self.assertRaisesRegex(ValueError, "Expected a cosine PRISM"):
+        with self.assertRaisesRegex(ValueError, "Expected a cosine prism"):
             verify_prism(
                 [{"Plan": {"Node Type": "Seq Scan", "Filter": "time > now()"}}],
                 "hn_items_prism_idx",
                 ["time"],
             )
+
+
+class VectorChordPlanTest(unittest.TestCase):
+    """Require the VectorChord scan and its original scalar filter."""
+
+    def test_requires_ordered_vectorchord_index_and_filter(self):
+        """Reject exact scans and missing filters before timing."""
+        scan = {
+            "Node Type": "Index Scan",
+            "Index Name": "hn_items_vchordrq_idx",
+            "Order By": "emb <=> '[1,2,3]'::vector",
+            "Filter": "(\"by\" = 'DanBC'::text)",
+        }
+        self.assertEqual(
+            verify_ann([{"Plan": scan}], "hn_items_vchordrq_idx", ["by"], "vchordrq"),
+            "vchordrq-postfilter",
+        )
+        for key, value in (
+            ("Index Name", "hn_items_prism_idx"),
+            ("Order By", "id"),
+            ("Node Type", "Seq Scan"),
+            ("Filter", "emb IS NOT NULL"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                verify_ann(
+                    [{"Plan": scan | {key: value}}],
+                    "hn_items_vchordrq_idx",
+                    ["by"],
+                    "vchordrq",
+                )
 
 
 if __name__ == "__main__":

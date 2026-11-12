@@ -1,0 +1,346 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+#![allow(unsafe_op_in_unsafe_fn)]
+
+use pgrx::{PgMemoryContexts, pg_sys};
+use std::cell::RefCell;
+
+#[derive(Default)]
+struct RecentBuffers {
+    key: Option<[u32; 4]>,
+    context: pg_sys::MemoryContext,
+    buffers: &'static mut [pg_sys::Buffer],
+}
+
+thread_local! {
+    static RECENT: RefCell<RecentBuffers> = RefCell::new(RecentBuffers::default());
+}
+
+pub(super) unsafe fn read(
+    rel: pg_sys::Relation,
+    fork: pg_sys::ForkNumber::Type,
+    block: pg_sys::BlockNumber,
+) -> pg_sys::Buffer {
+    pg_sys::submodules::thread_check::check_active_thread();
+    #[cfg(feature = "pg15")]
+    let locator = (*rel).rd_node;
+    #[cfg(not(feature = "pg15"))]
+    let locator = (*rel).rd_locator;
+    #[cfg(feature = "pg15")]
+    let file = locator.relNode.to_u32();
+    #[cfg(not(feature = "pg15"))]
+    let file = locator.relNumber.to_u32();
+    #[cfg(feature = "pg15")]
+    let key = [
+        locator.spcNode.to_u32(),
+        locator.dbNode.to_u32(),
+        file,
+        fork as u32,
+    ];
+    #[cfg(not(feature = "pg15"))]
+    let key = [
+        locator.spcOid.to_u32(),
+        locator.dbOid.to_u32(),
+        file,
+        fork as u32,
+    ];
+
+    RECENT.with_borrow_mut(|cache| {
+        if cache.key != Some(key) {
+            let blocks = pg_sys::RelationGetNumberOfBlocksInFork(rel, fork) as usize;
+            // Keep growth headroom; blocks beyond PostgreSQL's allocation limit use normal reads.
+            let capacity = (blocks + blocks / 8 + 1024)
+                .min(pg_sys::MaxAllocSize / size_of::<pg_sys::Buffer>());
+            if cache.context.is_null() {
+                cache.context = pg_sys::AllocSetContextCreateExtended(
+                    pg_sys::CacheMemoryContext,
+                    c"pg_search recent buffers".as_ptr(),
+                    pg_sys::ALLOCSET_SMALL_MINSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_INITSIZE as usize,
+                    pg_sys::ALLOCSET_SMALL_MAXSIZE as usize,
+                );
+            }
+            // Detach the old allocation before resetting, including on allocation failure.
+            cache.key = None;
+            cache.buffers = &mut [];
+            pg_sys::MemoryContextReset(cache.context);
+            cache.buffers = PgMemoryContexts::For(cache.context).palloc0_slice(capacity);
+            // These unlocked tags are only hints. ReadRecentBuffer revalidates them before pinning.
+            for id in 0..pg_sys::NBuffers {
+                let descriptor =
+                    std::ptr::addr_of!((*pg_sys::BufferDescriptors.add(id as usize)).bufferdesc);
+                let tag = std::ptr::addr_of!((*descriptor).tag).read_volatile();
+                #[cfg(feature = "pg15")]
+                let tag_key = [
+                    tag.rnode.spcNode.to_u32(),
+                    tag.rnode.dbNode.to_u32(),
+                    tag.rnode.relNode.to_u32(),
+                    tag.forkNum as u32,
+                ];
+                #[cfg(not(feature = "pg15"))]
+                let tag_key = [
+                    tag.spcOid.to_u32(),
+                    tag.dbOid.to_u32(),
+                    tag.relNumber.to_u32(),
+                    tag.forkNum as u32,
+                ];
+                if tag_key == key
+                    && let Some(slot) = cache.buffers.get_mut(tag.blockNum as usize)
+                {
+                    *slot = id + 1;
+                }
+            }
+            cache.key = Some(key);
+        }
+        let slot = cache.buffers.get_mut(block as usize);
+        if let Some(buffer) = slot.as_deref()
+            && *buffer != pg_sys::InvalidBuffer as pg_sys::Buffer
+            && pg_sys::ReadRecentBuffer(locator, fork, block, *buffer)
+        {
+            // ReadRecentBuffer updates pgBufferUsage, but not the other read accounting.
+            pgrx::pgstat_count_buffer_read!(rel);
+            pgrx::pgstat_count_buffer_hit!(rel);
+            #[cfg(any(feature = "pg16", feature = "pg17"))]
+            pg_sys::pgstat_count_io_op(
+                pg_sys::IOObject::IOOBJECT_RELATION,
+                pg_sys::IOContext::IOCONTEXT_NORMAL,
+                pg_sys::IOOp::IOOP_HIT,
+            );
+            #[cfg(feature = "pg18")]
+            pg_sys::pgstat_count_io_op(
+                pg_sys::IOObject::IOOBJECT_RELATION,
+                pg_sys::IOContext::IOCONTEXT_NORMAL,
+                pg_sys::IOOp::IOOP_HIT,
+                1,
+                0,
+            );
+            if pg_sys::VacuumCostActive {
+                pg_sys::VacuumCostBalance += pg_sys::VacuumCostPageHit;
+            }
+            return *buffer;
+        }
+        let buffer = pg_sys::ReadBufferExtended(
+            rel,
+            fork,
+            block,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            std::ptr::null_mut(),
+        );
+        if let Some(slot) = slot {
+            *slot = buffer;
+        }
+        buffer
+    })
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::postgres::storage::utils::RelationBufferAccess;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_recent_buffer_hints() {
+        Spi::run("SET paradedb.recent_buffers = off").unwrap();
+        Spi::run("CREATE TABLE recent_heap AS SELECT 1 AS id").unwrap();
+        Spi::run("CREATE TABLE recent_hints (id INT)").unwrap();
+        Spi::run("CREATE INDEX recent_hints_a ON recent_hints USING paradedb (id)").unwrap();
+        Spi::run("CREATE TABLE recent_other (id INT)").unwrap();
+        Spi::run("CREATE INDEX recent_hints_b ON recent_other USING paradedb (id)").unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_hints_a'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let a = PgSearchRelation::open(oid);
+        let access = RelationBufferAccess::open(&a);
+        let resident = access.get_buffer(1, None);
+        RECENT.with_borrow_mut(|cache| cache.key = None);
+        Spi::run("SET paradedb.recent_buffers = on").unwrap();
+        let first = access.get_buffer(0, None);
+        pg_sys::ReleaseBuffer(first);
+        assert_eq!(RECENT.with_borrow(|cache| cache.buffers[0]), first);
+        assert_eq!(RECENT.with_borrow(|cache| cache.buffers[1]), resident);
+        pg_sys::ReleaseBuffer(resident);
+        let hint_bytes = RECENT.with_borrow(|cache| {
+            assert!(pg_sys::MemoryContextGetParent(cache.context) == pg_sys::CacheMemoryContext);
+            assert_eq!(
+                pg_sys::GetMemoryChunkContext(cache.buffers.as_ptr().cast_mut().cast()),
+                cache.context
+            );
+            std::mem::size_of_val(cache.buffers) as i64
+        });
+        let context_bytes = Spi::get_one::<i64>(
+            "SELECT sum(used_bytes)::bigint FROM pg_backend_memory_contexts
+             WHERE name = 'pg_search recent buffers'",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(context_bytes >= hint_bytes);
+        let relation_counts = || {
+            let stats = (*a.as_ptr()).pgstat_info;
+            assert!(!stats.is_null());
+            #[cfg(feature = "pg15")]
+            {
+                (
+                    (*stats).t_counts.t_blocks_fetched,
+                    (*stats).t_counts.t_blocks_hit,
+                )
+            }
+            #[cfg(not(feature = "pg15"))]
+            {
+                ((*stats).counts.blocks_fetched, (*stats).counts.blocks_hit)
+            }
+        };
+        let counts_before = relation_counts();
+        let before = pg_sys::pgBufferUsage.shared_blks_hit;
+        let again = access.get_buffer(0, None);
+        assert_eq!(again, first);
+        let after = pg_sys::pgBufferUsage.shared_blks_hit;
+        assert_eq!(after, before + 1);
+        assert_eq!(
+            relation_counts(),
+            (counts_before.0 + 1, counts_before.1 + 1)
+        );
+        pg_sys::ReleaseBuffer(again);
+        let different = access.get_buffer(1, None);
+        pg_sys::ReleaseBuffer(different);
+        RECENT.with_borrow_mut(|cache| cache.buffers[0] = different);
+        let repaired = access.get_buffer(0, None);
+        assert_eq!(pg_sys::BufferGetBlockNumber(repaired), 0);
+        assert_eq!(repaired, first);
+        pg_sys::ReleaseBuffer(repaired);
+        let key = RECENT.with_borrow(|cache| cache.key);
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_heap'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let heap = PgSearchRelation::open(oid);
+        let heap_access = RelationBufferAccess::open(&heap);
+        let hints = RECENT.with_borrow(|cache| cache.buffers.as_ptr());
+        for _ in 0..10 {
+            let heap_buffer = heap_access.get_buffer(0, None);
+            assert_eq!(pg_sys::BufferGetBlockNumber(heap_buffer), 0);
+            pg_sys::ReleaseBuffer(heap_buffer);
+            RECENT.with_borrow(|cache| {
+                assert_eq!(cache.key, key);
+                assert_eq!(cache.buffers.as_ptr(), hints);
+                assert_eq!(cache.buffers[0], first);
+            });
+            pg_sys::ReleaseBuffer(access.get_buffer(0, None));
+        }
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_hints_b'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let b = PgSearchRelation::open(oid);
+        let other = RelationBufferAccess::open(&b).get_buffer(0, None);
+        assert_ne!(RECENT.with_borrow(|cache| cache.key), key);
+        pg_sys::ReleaseBuffer(other);
+        let key = RECENT.with_borrow(|cache| cache.key);
+        Spi::run("SET paradedb.recent_buffers = off").unwrap();
+        let bypassed = access.get_buffer(0, None);
+        assert_eq!(pg_sys::BufferGetBlockNumber(bypassed), 0);
+        assert_eq!(RECENT.with_borrow(|cache| cache.key), key);
+        pg_sys::ReleaseBuffer(bypassed);
+        Spi::run("SET paradedb.recent_buffers = on").unwrap();
+        let other_access = RelationBufferAccess::open(&b);
+        for _ in 0..10 {
+            pg_sys::ReleaseBuffer(access.get_buffer(0, None));
+            pg_sys::ReleaseBuffer(other_access.get_buffer(0, None));
+        }
+        assert_eq!(
+            Spi::get_one::<i64>(
+                "SELECT sum(used_bytes)::bigint FROM pg_backend_memory_contexts
+                 WHERE name = 'pg_search recent buffers'",
+            )
+            .unwrap(),
+            Some(context_bytes)
+        );
+    }
+
+    #[pg_test]
+    unsafe fn test_recent_buffer_fallbacks() {
+        Spi::run(
+            "SET paradedb.recent_buffers = on;
+             CREATE UNLOGGED TABLE recent_forks AS SELECT 1 AS id;
+             CREATE INDEX recent_forks_idx ON recent_forks (id);
+             CREATE TEMP TABLE recent_temp AS SELECT 1 AS id;
+             CREATE INDEX recent_temp_idx ON recent_temp (id);",
+        )
+        .unwrap();
+        let oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_forks_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let mut rel = PgSearchRelation::open(oid);
+        let access = RelationBufferAccess::open(&rel);
+        let first = access.get_buffer(0, None);
+        pg_sys::ReleaseBuffer(first);
+        let key = RECENT.with_borrow(|cache| cache.key);
+        rel.set_fork_number(pg_sys::ForkNumber::INIT_FORKNUM);
+        let init = access.get_buffer(0, None);
+        assert_ne!(first, init);
+        assert_ne!(RECENT.with_borrow(|cache| cache.key), key);
+        pg_sys::ReleaseBuffer(init);
+        rel.set_fork_number(pg_sys::ForkNumber::MAIN_FORKNUM);
+        pg_sys::ReleaseBuffer(access.get_buffer(0, None));
+        assert_eq!(RECENT.with_borrow(|cache| cache.key), key);
+
+        RECENT.with_borrow_mut(|cache| cache.buffers[0] = pg_sys::InvalidBuffer as pg_sys::Buffer);
+        let strategy = pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKREAD);
+        let buffer =
+            access.get_buffer_extended(0, strategy, pg_sys::ReadBufferMode::RBM_NORMAL, None);
+        pg_sys::ReleaseBuffer(buffer);
+        pg_sys::FreeAccessStrategy(strategy);
+        let buffer = access.get_buffer_extended(
+            0,
+            std::ptr::null_mut(),
+            pg_sys::ReadBufferMode::RBM_NORMAL_NO_LOG,
+            None,
+        );
+        pg_sys::ReleaseBuffer(buffer);
+        assert_eq!(
+            RECENT.with_borrow(|cache| cache.buffers[0]),
+            pg_sys::InvalidBuffer as pg_sys::Buffer
+        );
+        let locked = access.get_buffer_conditional(0).unwrap();
+        assert_eq!(RECENT.with_borrow(|cache| cache.buffers[0]), locked);
+        pg_sys::UnlockReleaseBuffer(locked);
+
+        RECENT.with_borrow_mut(|cache| {
+            cache.buffers = &mut std::mem::take(&mut cache.buffers)[..1];
+        });
+        let beyond = access.get_buffer(1, None);
+        assert_eq!(pg_sys::BufferGetBlockNumber(beyond), 1);
+        pg_sys::ReleaseBuffer(beyond);
+        assert_eq!(RECENT.with_borrow(|cache| cache.buffers.len()), 1);
+
+        let temp_oid = Spi::get_one::<pg_sys::Oid>("SELECT 'recent_temp_idx'::regclass::oid")
+            .unwrap()
+            .unwrap();
+        let temp = PgSearchRelation::open(temp_oid);
+        let buffer = RelationBufferAccess::open(&temp).get_buffer(0, None);
+        assert!(buffer < 0);
+        pg_sys::ReleaseBuffer(buffer);
+        assert_eq!(RECENT.with_borrow(|cache| cache.key), key);
+        drop(access);
+        drop(rel);
+        Spi::run("REINDEX INDEX recent_forks_idx").unwrap();
+        let rewritten = PgSearchRelation::open(oid);
+        pg_sys::ReleaseBuffer(RelationBufferAccess::open(&rewritten).get_buffer(0, None));
+        assert_ne!(RECENT.with_borrow(|cache| cache.key), key);
+    }
+}

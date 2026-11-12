@@ -383,6 +383,7 @@ jobs:
             --vectors benchmark-artifacts/query_vectors.json \
             --output benchmark-artifacts/router/measurements.json
 
+      # Daily main runs benchmark their own head; manual runs can benchmark another commit.
       - name: Find mainline router-quality baseline
         if: env.ROUTER_QUALITY == 'true'
         id: router_baseline
@@ -393,7 +394,7 @@ jobs:
             const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
               workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
-              branch: 'main', event: 'push', status: 'success', per_page: 100,
+              branch: 'main', event: 'schedule', status: 'success', per_page: 100,
             });
             for await (const { data: runs } of pages) {
               for (const run of runs) {
@@ -411,7 +412,7 @@ jobs:
                 return;
               }
             }
-            core.info(`No successful main push has an unexpired ${name} artifact.`);
+            core.info(`No successful daily main run has an unexpired ${name} artifact.`);
 
       - name: Download mainline router-quality baseline
         if: steps.router_baseline.outputs.run_id != ''

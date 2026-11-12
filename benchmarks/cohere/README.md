@@ -229,7 +229,8 @@ arm reports.
   adaptive-on vectors probed and Router routing time, without alerts. Neither
   adds rows to the PR comment's results table.
 - `router_quality.json`, every number above with the commit and config
-  fingerprint; the next run on main reads it as the baseline.
+  fingerprint; later runs read the latest successful daily main run's file as
+  the baseline.
 
 Only Unfiltered rows flag. Either Ratio above 1.15 turns bold with ⚠️ at r90,
 r95 and r99. With a main baseline it must also exceed main's by more than 0.15,

@@ -12,7 +12,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "d8c42a466e72ff4e39910d3f95a98c50577d0002"
+        default: "46b6c65ea0dd99d8a9cd4ba52b7f86185ddd8f9f"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -40,7 +40,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'd8c42a466e72ff4e39910d3f95a98c50577d0002' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '46b6c65ea0dd99d8a9cd4ba52b7f86185ddd8f9f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       HN_CONFIG: benchmarks/hn/28m.toml
@@ -288,7 +288,7 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              taskset -c 16-19 "$root/benchmarker/k6" run --out dashboard=json,html \
+              taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \

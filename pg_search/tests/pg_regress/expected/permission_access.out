@@ -63,7 +63,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
 ] $$;
 -- Audit every regclass overload, including functions that do not read an index.
 -- A new signature must be classified and its access/lock policy covered explicitly.
--- Exceptions: with_index constructs query input; deprecated bgmerger_state,
+-- Exceptions: with_index and expand_with_index construct query input; deprecated bgmerger_state,
 -- reset_bgworker_state and both force_merge overloads read no index data.
 -- SQL signatures cannot distinguish IndexOid from pgrx's implicitly locking PgRelation;
 -- the lock-order tests independently check that argument decoding takes no index lock.
@@ -81,6 +81,7 @@ ORDER BY 1;
  paradedb.background_layer_sizes(index regclass)
  paradedb.bgmerger_state(index regclass)
  paradedb.combined_layer_sizes(index regclass)
+ paradedb.expand_with_index(query text, index regclass)
  paradedb.find_ctid(index regclass, ctid tid)
  paradedb.force_merge(_index regclass, _oversized_layer_size_bytes bigint)
  paradedb.force_merge(_index regclass, _oversized_layer_size_pretty text)
@@ -108,7 +109,7 @@ ORDER BY 1;
  pdb.index_segments(index regclass)
  pdb.synonym_expansion(index regclass, input text)
  pdb.verify_index(index regclass, heapallindexed boolean, sample_rate double precision, report_progress boolean, "verbose" boolean, on_error_stop boolean, segment_ids integer[])
-(31 rows)
+(32 rows)
 
 SET ROLE permission_access_reader;
 SELECT permission_access.assert_denied(permission_access.read_queries()) AS no_grant_denials;

@@ -113,7 +113,7 @@ WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms WHERE shop
 ORDER BY id;
 SET plan_cache_mode = force_generic_plan;
 EXECUTE no_rules('sofa');
-WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because the text to expand is not known when the query is planned. To disable this warning: SET paradedb.planner_warnings = 'off'
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
  id 
 ----
   2
@@ -278,8 +278,8 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
 (5 rows)
 
 DELETE FROM products WHERE id = 10;
--- A prepared statement reads the index when its plan has the text. A generic plan has no text, so
--- it runs the subquery.
+-- A prepared statement reads the index with both kinds of plan. A generic plan has no text, so
+-- it gives the parameter to the index when the query runs.
 PREPARE sofa_query(text) AS SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms) ORDER BY id;
 SET plan_cache_mode = force_custom_plan;
@@ -309,22 +309,18 @@ EXECUTE sofa_query('sofa');
 
 SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF) EXECUTE sofa_query('sofa');
-WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because the text to expand is not known when the query is planned. To disable this warning: SET paradedb.planner_warnings = 'off'
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: products.id
-   InitPlan 1
-     ->  Aggregate
-           ->  Seq Scan on shop_synonyms
+   Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_idx
          Exec Method: ColumnarExecState
          Columnar: id
          Scores: false
-         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('products_idx'::regclass, paradedb.match_disjunction_search_query_input('description'::paradedb.fieldname, $1))"}}}
-(12 rows)
+         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('products_idx'::regclass, paradedb.match_disjunction_search_query_input('description'::paradedb.fieldname, paradedb.expand_with_index($1, 'shop_synonyms_idx'::regclass)))"}}}
+(9 rows)
 
 EXECUTE sofa_query('sofa');
  id 
@@ -379,6 +375,22 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
   9
 (5 rows)
 
+-- A generic plan has no value for a parameter in the filter, so it can't pick a partial index.
+PREPARE outlet_query(text) AS SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = $1)
+ORDER BY id;
+SET plan_cache_mode = force_generic_plan;
+EXECUTE outlet_query('outlet');
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because the filter on "shop_synonyms" has a parameter with no value at plan time. To disable this warning: SET paradedb.planner_warnings = 'off'
+ id 
+----
+  2
+  8
+  9
+(3 rows)
+
+RESET plan_cache_mode;
+DEALLOCATE outlet_query;
 DROP INDEX outlet_synonyms_idx;
 DELETE FROM shop_synonyms WHERE shop = 'outlet';
 CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);

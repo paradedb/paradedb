@@ -135,8 +135,11 @@ with the same `WHERE`. The index also has to use the tokenizer of the field you 
 If no synonym index fits, the query still expands. It reads the rules that the subquery returns on every query, and
 matches them with the tokenizer of the field you search. That is fine for a small set, and a warning tells you why no index
 is used. Set `paradedb.planner_warnings` to `error` to catch it in your tests, or to `off` to hide it. The same happens
-when row security on the rules table applies to you, and in a generic plan of a prepared statement, which has no text when
-the query is planned.
+when row security on the rules table applies to you.
+
+In a prepared statement, the text to expand can be a parameter. Write the `WHERE` of a partial index with its values in the
+query, and not as parameters. After a few runs, Postgres can plan a prepared statement once for every value, and that plan
+can't tell which partial index holds the rules.
 
 Postgres checks your rights on the rules table, as for any query. Row security applies too, so each role expands with the
 rules it can see.

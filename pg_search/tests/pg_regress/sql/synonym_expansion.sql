@@ -89,14 +89,6 @@ SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
 RESET debug_parallel_query;
 
--- A generic plan has no text at plan time, so it runs the subquery.
-PREPARE sofa_query(text) AS SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms) ORDER BY id;
-SET plan_cache_mode = force_generic_plan;
-EXECUTE sofa_query('sofa');
-RESET plan_cache_mode;
-DEALLOCATE sofa_query;
-
 -- The setting caps the alternatives, and the typed word stays.
 SET paradedb.synonyms_max_alternatives = 2;
 SELECT id FROM products

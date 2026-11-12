@@ -22,10 +22,24 @@
 use super::pdb_query_typoid;
 use crate::api::FieldName;
 use crate::nodecast;
+use crate::postgres::access::IndexOid;
+use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::pdb_query::{pdb, synonym_index_of_column};
-use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_sys};
+use pgrx::{IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
+
+/// The query that the planner puts in place of a `pdb.expand` subquery. A function call, and not
+/// a constant, gives a prepared statement the synonym index when its text is a parameter.
+#[pg_extern(immutable, parallel_safe, strict)]
+pub fn expand_with_index(query: String, index: IndexOid) -> pdb::Query {
+    pdb::Query::UnclassifiedString {
+        string: query,
+        fuzzy_data: None,
+        slop_data: None,
+        synonyms: Some(pdb::SynonymRules::Index(index.oid())),
+    }
+}
 
 /// Replaces the `pdb.expand` subquery in `rhs` with a query on a synonym index of its table, for
 /// a match on `field` of the text index `index`. `None` leaves the subquery to run as written.
@@ -51,7 +65,7 @@ pub(super) unsafe fn read_synonym_index(
             })
             .ok()
     })?;
-    // A cast around the subquery is immutable, so it becomes a constant with the query.
+    // The call and a cast around it are immutable, so a constant text gives a constant query.
     Some(pg_sys::eval_const_expressions(root, replaced))
 }
 
@@ -93,8 +107,8 @@ unsafe fn expand_call(subquery: *mut pg_sys::Query) -> Option<*mut pg_sys::Aggre
     ((*aggref).aggfnoid == expand).then_some(aggref)
 }
 
-/// The constant query that reads a synonym index in place of the subquery, or the reason why the
-/// subquery reads its rules itself.
+/// The call of `expand_with_index` that reads a synonym index in place of the subquery, or the
+/// reason why the subquery reads its rules itself.
 unsafe fn synonym_index_query(
     root: *mut pg_sys::PlannerInfo,
     subquery: *mut pg_sys::Query,
@@ -111,26 +125,44 @@ unsafe fn synonym_index_query(
         field,
     )
     .ok_or_else(|| {
-        format!(
-            "\"{}\" has no synonym index for these rules with the tokenizer of field `{field}`",
-            rules.table.name()
-        )
+        let name = rules.table.name();
+        // No partial index can be chosen for a filter value that only a later run gives.
+        if rules.quals.cast::<pg_sys::Node>().contains_param() {
+            format!("the filter on \"{name}\" has a parameter with no value at plan time")
+        } else {
+            format!(
+                "\"{name}\" has no synonym index for these rules with the tokenizer of field \
+                 `{field}`"
+            )
+        }
     })?;
-    let query = pdb::Query::UnclassifiedString {
-        string: rules.text,
-        fuzzy_data: None,
-        slop_data: None,
-        synonyms: Some(pdb::SynonymRules::Index(synonym_index)),
-    };
-    let query = query.into_datum().ok_or("the query value has no datum")?;
-    Ok(pg_sys::makeConst(
+
+    let expand_with_index = direct_function_call::<pg_sys::Oid>(
+        pg_sys::regprocedurein,
+        &[c"paradedb.expand_with_index(text, regclass)".into_datum()],
+    )
+    .ok_or("`paradedb.expand_with_index` does not exist")?;
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(rules.text);
+    args.push(
+        pg_sys::makeConst(
+            pg_sys::REGCLASSOID,
+            -1,
+            pg_sys::Oid::INVALID,
+            size_of::<pg_sys::Oid>() as _,
+            synonym_index.into_datum().ok_or("the index has no oid")?,
+            false,
+            true,
+        )
+        .cast(),
+    );
+    Ok(pg_sys::makeFuncExpr(
+        expand_with_index,
         pdb_query_typoid(),
-        -1,
+        args.into_pg(),
         pg_sys::Oid::INVALID,
-        -1,
-        query,
-        false,
-        false,
+        pg_sys::Oid::INVALID,
+        pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
     )
     .cast())
 }
@@ -142,7 +174,8 @@ struct TableRules {
     attno: usize,
     /// The `WHERE` as an implicit `AND` list.
     quals: *mut pg_sys::List,
-    text: String,
+    /// The text to expand, a constant or a parameter of the statement.
+    text: *mut pg_sys::Node,
 }
 
 unsafe fn rules_of_one_table(
@@ -221,11 +254,15 @@ unsafe fn rules_of_one_table(
         return Err(format!("the role has no `SELECT` on all of \"{name}\""));
     }
 
-    // A generic plan has no value for a parameter, so its subquery runs as written.
+    // Any other text can read a row of the subquery or of the outer query.
     let text = pg_sys::eval_const_expressions(root, (*text).expr.cast());
-    let text = nodecast!(Const, text)
-        .and_then(|text| String::from_datum((*text).constvalue, (*text).constisnull))
-        .ok_or("the text to expand is not known when the query is planned")?;
+    let value = without_relabel(text);
+    let known = nodecast!(Const, value).is_some_and(|text| !(*text).constisnull)
+        || nodecast!(Param, value)
+            .is_some_and(|text| (*text).paramkind == pg_sys::ParamKind::PARAM_EXTERN);
+    if !known {
+        return Err("the text to expand is not a constant or a parameter".into());
+    }
 
     let quals = (*query.jointree).quals;
     let quals = if quals.is_null() {

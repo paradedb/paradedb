@@ -129,8 +129,8 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE 
 ORDER BY id;
 DELETE FROM products WHERE id = 10;
 
--- A prepared statement reads the index when its plan has the text. A generic plan has no text, so
--- it runs the subquery.
+-- A prepared statement reads the index with both kinds of plan. A generic plan has no text, so
+-- it gives the parameter to the index when the query runs.
 PREPARE sofa_query(text) AS SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms) ORDER BY id;
 SET plan_cache_mode = force_custom_plan;
@@ -155,6 +155,14 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE 
 ORDER BY id;
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+-- A generic plan has no value for a parameter in the filter, so it can't pick a partial index.
+PREPARE outlet_query(text) AS SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = $1)
+ORDER BY id;
+SET plan_cache_mode = force_generic_plan;
+EXECUTE outlet_query('outlet');
+RESET plan_cache_mode;
+DEALLOCATE outlet_query;
 DROP INDEX outlet_synonyms_idx;
 DELETE FROM shop_synonyms WHERE shop = 'outlet';
 CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);

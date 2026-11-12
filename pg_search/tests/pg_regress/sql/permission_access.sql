@@ -60,7 +60,7 @@ LANGUAGE sql IMMUTABLE AS $$ SELECT ARRAY[
 
 -- Audit every regclass overload, including functions that do not read an index.
 -- A new signature must be classified and its access/lock policy covered explicitly.
--- Exceptions: with_index constructs query input; deprecated bgmerger_state,
+-- Exceptions: with_index and expand_with_index construct query input; deprecated bgmerger_state,
 -- reset_bgworker_state and both force_merge overloads read no index data.
 -- SQL signatures cannot distinguish IndexOid from pgrx's implicitly locking PgRelation;
 -- the lock-order tests independently check that argument decoding takes no index lock.

@@ -37,6 +37,9 @@ runs:
       shell: bash
       env:
         INPUTS_PG_VERSION: ${{ inputs.pg_version }}
+        # Fresh benchmark installs need the generated schema, not an upgrade version
+        # that differs from the release library and disables mutable sweeping.
+        PGRX_NO_ASSEMBLE_UNRELEASED: "true"
       run: >-
         cargo pgrx install -p pg_search --sudo --release
         --pg-config "/usr/lib/postgresql/${INPUTS_PG_VERSION}/bin/pg_config"

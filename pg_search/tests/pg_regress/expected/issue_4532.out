@@ -5,12 +5,14 @@ DROP TABLE IF EXISTS departments CASCADE;
 DROP TABLE IF EXISTS companies CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS regions CASCADE;
+-- Omit PRIMARY KEY on regions.id and companies.id so PG 18.7+ keeps these as
+-- Semi joins rather than reducing unique-RHS Semi joins to Inner.
 CREATE TABLE regions (
-    id INTEGER PRIMARY KEY,
+    id INTEGER,
     name TEXT
 );
 CREATE TABLE companies (
-    id INTEGER PRIMARY KEY,
+    id INTEGER,
     region_id INTEGER,
     name TEXT
 );
@@ -274,17 +276,17 @@ LIMIT 10;
                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Relation Tree: p INNER c
+   Relation Tree: p SEMI c
    Join Cond: p.company_id = c.id
    Limit: 10
    Order By: p.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, c], pruned=[c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@1)], projection=[ctid_0@2, id@4, ctid_1@1]
+     :     VisibilityFilterExec: tables=[p]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, query={"with_index":{"query":{"match":{"field":"name","value":"Acme","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :           PgSearchScan: table=c, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Acme","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
 (14 rows)
@@ -331,7 +333,7 @@ LIMIT 10;
                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
-   Relation Tree: p SEMI ((c INNER r) SEMI d)
+   Relation Tree: p SEMI ((c SEMI r) SEMI d)
    Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
    Limit: 10
    Order By: p.id asc
@@ -342,15 +344,15 @@ LIMIT 10;
      :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gadget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"gizmo","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"boring","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
-     :         VisibilityFilterExec: tables=[c, r], pruned=[c, r]
-     :           HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
-     :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@2, ctid_1@4, ctid_2@1]
-     :               CooperativeExec
-     :                 PgSearchScan: table=r, segments=1, query={"with_index":{"query":{"match":{"field":"name","value":"America","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :               CooperativeExec
-     :                 PgSearchScan: table=c, segments=1, dynamic_filters=2, query="all"
+     :         VisibilityFilterExec: tables=[c], pruned=[c]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
      :             CooperativeExec
-     :               PgSearchScan: table=d, segments=1, dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"Engineering","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, region_id@1)], projection=[id@0, ctid_1@2]
+     :               CooperativeExec
+     :                 PgSearchScan: table=r, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"name","value":"America","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :               CooperativeExec
+     :                 PgSearchScan: table=c, segments=1, dynamic_filters=3, query="all"
 (21 rows)
 
 SELECT p.id, p.description

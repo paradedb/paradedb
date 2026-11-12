@@ -276,6 +276,107 @@ LIMIT 50;
 (15 rows)
 
 -- ============================================================
+-- Test 6b: Non-preserved joins alongside LEFT JOIN LATERAL
+-- ============================================================
+-- Even when the query contains a LEFT JOIN LATERAL and top-level WHERE
+-- quals only reference the BM25 table (for example after PG 18.7 strips
+-- redundant IS NULL quals on an anti-join, or via NOT EXISTS / INNER JOIN,
+-- or when the BM25 table sits on the nullable RHS of a LEFT JOIN), BaseScan
+-- must not push LIMIT into the non-preserved or inner BM25 scan.
+SELECT 'anti_is_null' AS shape, count(*) AS cnt FROM (
+    SELECT i.id
+    FROM lp_items i
+    LEFT JOIN lp_categories c ON c.id = 2 AND i.category_id = 999
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+    ) lat ON true
+    WHERE i.description ||| 'searchable' AND c.id IS NULL
+    ORDER BY paradedb.score(i.id) DESC
+    LIMIT 50
+) sub
+UNION ALL
+SELECT 'anti_not_exists' AS shape, count(*) AS cnt FROM (
+    SELECT i.id
+    FROM lp_items i
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+    ) lat ON true
+    WHERE i.description ||| 'searchable'
+      AND NOT EXISTS (
+          SELECT 1 FROM lp_categories c WHERE c.id = 2 AND i.category_id = 999
+      )
+    ORDER BY paradedb.score(i.id) DESC
+    LIMIT 50
+) sub
+UNION ALL
+SELECT 'inner_join' AS shape, count(*) AS cnt FROM (
+    SELECT i.id
+    FROM lp_items i
+    JOIN lp_left_table l ON l.id = i.id
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+    ) lat ON true
+    WHERE i.description ||| 'searchable'
+    ORDER BY paradedb.score(i.id) DESC
+    LIMIT 50
+) sub
+UNION ALL
+SELECT 'nullable_rhs' AS shape, count(matched_item_id) AS cnt FROM (
+    SELECT i.id AS matched_item_id
+    FROM lp_left_table l
+    LEFT JOIN lp_items i ON i.fk = l.id + 900 AND i.description ||| 'searchable'
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = l.status LIMIT 1
+    ) lat ON true
+    LIMIT 50
+) sub;
+      shape      | cnt 
+-----------------+-----
+ anti_is_null    |  50
+ anti_not_exists |  50
+ inner_join      |  50
+ nullable_rhs    |  50
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM lp_items i
+LEFT JOIN LATERAL (
+    SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+) lat ON true
+WHERE i.description ||| 'searchable'
+  AND NOT EXISTS (
+      SELECT 1 FROM lp_categories c WHERE c.id = 2 AND i.category_id = 999
+  )
+ORDER BY paradedb.score(i.id) DESC
+LIMIT 50;
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (paradedb.score(i.id)) DESC
+         ->  Nested Loop Left Join
+               ->  Nested Loop Anti Join
+                     Join Filter: (i.category_id = 999)
+                     ->  Custom Scan (ParadeDB Base Scan) on lp_items i
+                           Table: lp_items
+                           Index: lp_items_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"searchable","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                     ->  Materialize
+                           ->  Seq Scan on lp_categories c
+                                 Filter: (id = 2)
+               ->  Memoize
+                     Cache Key: i.status
+                     Cache Mode: binary
+                     ->  Subquery Scan on lat
+                           ->  Limit
+                                 ->  Seq Scan on lp_active_statuses
+                                       Filter: (s = i.status)
+(22 rows)
+
+-- ============================================================
 -- Test 7: RLS-injected SubPlan (subquery-based policy)
 -- ============================================================
 -- Row-level security adds a SubPlan to baserestrictinfo that can't

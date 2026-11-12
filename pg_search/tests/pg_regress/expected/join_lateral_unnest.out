@@ -714,7 +714,6 @@ LEFT JOIN LATERAL unnest(b.tags) AS t ON true
 WHERE p.title ||| 'Smart' AND b.product_id IS NULL
 ORDER BY p.id, t
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: jlu_products)
                                                                                                                         QUERY PLAN                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
@@ -744,7 +743,6 @@ LEFT JOIN LATERAL unnest(b.tags) AS t ON true
 WHERE p.title ||| 'Smart' AND b.product_id IS NULL
 ORDER BY p.id, t
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.planner_warnings = 'off' (table: jlu_products)
  id |        title        | tag 
 ----+---------------------+-----
   8 | Smart Solar Charger | 

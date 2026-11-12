@@ -8,8 +8,8 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO OFF;
 SET paradedb.enable_join_custom_scan = on;
--- Setup tables
-CREATE TABLE suppliers_4531 (id INTEGER PRIMARY KEY, name TEXT);
+-- Setup tables (omit PRIMARY KEY on suppliers_4531.id so PG 18.7+ keeps Test 2 as Semi)
+CREATE TABLE suppliers_4531 (id INTEGER, name TEXT);
 CREATE TABLE products_4531 (
     id INTEGER PRIMARY KEY,
     name TEXT,
@@ -84,17 +84,17 @@ ORDER BY p.id DESC LIMIT 10;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: p.id
-   Relation Tree: p INNER s
+   Relation Tree: p SEMI s
    Join Cond: p.supplier_id = s.id
    Limit: 10
    Order By: p.id desc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
      :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[p, s], pruned=[s]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, supplier_id@1)], projection=[ctid_0@2, id@4, ctid_1@1]
+     :     VisibilityFilterExec: tables=[p]
+     :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, supplier_id@1)], projection=[ctid_0@0, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=s, segments=1, query="all"
+     :           PgSearchScan: table=s, segments=1, visibility=eager, query="all"
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"description","value":"widget","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (15 rows)

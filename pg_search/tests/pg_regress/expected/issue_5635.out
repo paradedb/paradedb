@@ -18,8 +18,9 @@ SET enable_indexscan to OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS issue5635_files CASCADE;
 DROP TABLE IF EXISTS issue5635_documents CASCADE;
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps the `IN (SELECT ...)` as a Semi join.
 CREATE TABLE issue5635_documents (
-    id TEXT PRIMARY KEY,
+    id TEXT,
     category TEXT
 );
 INSERT INTO issue5635_documents (id, category) VALUES
@@ -60,25 +61,26 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan)
    Output: f.id, f.title
-   Relation Tree: f INNER d
+   Relation Tree: f SEMI d
    Join Cond: f.document_id = d.id
    Limit: 3
    Order By: f.title asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[NULL as col_1, title@1 as col_2, ctid_0@0 as ctid_0]
      :   TantivyDecodeExec: decode=[title]
-     :     SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3
-     :       VisibilityFilterExec: tables=[f, d], pruned=[d]
-     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, document_id@1)], projection=[ctid_0@2, title@4, ctid_1@1]
-     :           CooperativeExec
-     :             PgSearchScan: table=d, segments=1, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :           CooperativeExec
-     :             PgSearchScan: table=f, segments=1, fetch=[title], dynamic_filters=2, query="all"
-(16 rows)
+     :     TantivyFetchExec: fetch=[title]
+     :       SegmentedTopKExec: expr=[title@1 ASC NULLS LAST], k=3
+     :         VisibilityFilterExec: tables=[f]
+     :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, document_id@1)], projection=[ctid_0@0, title@2]
+     :             CooperativeExec
+     :               PgSearchScan: table=d, segments=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"category","value":"PROJECT_ALPHA","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :             CooperativeExec
+     :               PgSearchScan: table=f, segments=1, dynamic_filters=2, query="all"
+(17 rows)
 
 SELECT f.id, f.title
 FROM issue5635_files f

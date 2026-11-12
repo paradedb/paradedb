@@ -2544,10 +2544,12 @@ impl SearchIndexReader {
                     .expect("vector ORDER BY query vector was never resolved")
                     .to_vec();
                 let max_scan_levels = gucs::vector_max_scan_levels();
+                let mut params = probe_params();
+                params.filter_match_fraction = Some(self.estimate_vector_match_fraction());
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_probe_params(probe_params())
+                    .with_probe_params(params)
                     .with_max_scan_levels(max_scan_levels);
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     collector = collector.with_shared_threshold(std::sync::Arc::new(

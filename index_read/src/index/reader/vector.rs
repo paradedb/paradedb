@@ -207,6 +207,17 @@ impl VectorFilterWeight {
 }
 
 impl tantivy::query::Weight for VectorFilterWeight {
+    fn candidate_filter(
+        &self,
+        reader: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Option<tantivy::query::CandidateFilter>> {
+        if self.visible_docs.contains_key(&reader.segment_id()) {
+            Ok(None)
+        } else {
+            self.get(reader).candidate_filter(reader)
+        }
+    }
+
     fn scorer(
         &self,
         reader: &tantivy::SegmentReader,

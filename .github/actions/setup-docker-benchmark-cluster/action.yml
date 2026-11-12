@@ -1,5 +1,5 @@
 name: Set Up Docker Benchmark Cluster
-description: Build ParadeDB, restore a benchmark heap, and start the shared Docker configuration
+description: Restore a benchmark heap and start a source-built or supplied PostgreSQL image
 
 inputs:
   ref:
@@ -10,9 +10,13 @@ inputs:
     required: false
     default: "paradedb/paradedb:latest-pg18"
   image_tag:
-    description: "Tag for the built image"
+    description: "Image to run; also the output tag when building pg_search"
     required: false
     default: "paradedb-source:ci"
+  build_from_source:
+    description: "Build pg_search; false uses an already-built image_tag"
+    required: false
+    default: "true"
   snapshot_format:
     description: "Heap snapshot format: pgbackrest or zst"
     required: false
@@ -34,7 +38,7 @@ inputs:
 
 outputs:
   commit_sha:
-    description: "Commit SHA of pg_search ref"
+    description: "Commit SHA of pg_search ref (empty when build_from_source is false)"
     value: ${{ steps.build_image.outputs.commit_sha }}
 
 runs:
@@ -42,6 +46,7 @@ runs:
   steps:
     - name: Build ParadeDB Image
       id: build_image
+      if: inputs.build_from_source == 'true'
       uses: ./.github/actions/build-paradedb-image
       with:
         ref: ${{ inputs.ref }}

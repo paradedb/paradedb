@@ -1,0 +1,1624 @@
+-- Per-opclass coverage for vector ORDER BY pushdown.
+--
+-- For each pgvector opclass (vector_l2_ops, vector_cosine_ops,
+-- vector_ip_ops):
+--   1. Build a BM25 index that names the opclass on the vector column.
+--   2. EXPLAIN three queries — one per distance operator (<->, <=>, <#>).
+--      The matching operator must push down through TopK; the other two
+--      must fall back to a regular sort with the planner emitting the
+--      "vector metric / opclass mismatch" warning.
+--   3. Run each query to verify the actual ordering.
+--
+-- We use COSTS OFF for stable EXPLAIN diffs, and a 5-row corpus where
+-- the K=2 ordering is unambiguous under all three metrics.
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE vsp (
+    id    int PRIMARY KEY,
+    label text,
+    vec   vector(3)
+);
+INSERT INTO vsp VALUES
+    (1, 'east wind',  '[1,    0,   0]'),
+    (2, 'east gate',  '[0.9,  0,   0.1]'),
+    (3, 'north wind', '[0,    1,   0]'),
+    (4, 'up draft',   '[0,    0,   1]'),
+    (5, 'mid point',  '[0.7,  0.7, 0]');
+-- ============================================================
+-- vector_l2_ops
+-- ============================================================
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_l2_ops);
+-- match: <-> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <-> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- mismatch: <=> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((vec <=> '[1,0,0]'::vector))
+         ->  Custom Scan (ParadeDB Base Scan) on vsp
+               Table: vsp
+               Index: vsp_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- mismatch: <#> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((vec <#> '[1,0,0]'::vector))
+         ->  Custom Scan (ParadeDB Base Scan) on vsp
+               Table: vsp
+               Index: vsp_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_l2_ops opclass (L2). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <-> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- vector_cosine_ops
+-- ============================================================
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_cosine_ops);
+-- mismatch: <-> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((vec <-> '[1,0,0]'::vector))
+         ->  Custom Scan (ParadeDB Base Scan) on vsp
+               Table: vsp
+               Index: vsp_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- match: <=> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- mismatch: <#> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((vec <#> '[1,0,0]'::vector))
+         ->  Custom Scan (ParadeDB Base Scan) on vsp
+               Table: vsp
+               Index: vsp_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <#> (InnerProduct) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_ip_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- vector_ip_ops
+-- ============================================================
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_ip_ops);
+-- mismatch: <-> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((vec <-> '[1,0,0]'::vector))
+         ->  Custom Scan (ParadeDB Base Scan) on vsp
+               Table: vsp
+               Index: vsp_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- mismatch: <=> falls back, planner warns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((vec <=> '[1,0,0]'::vector))
+         ->  Custom Scan (ParadeDB Base Scan) on vsp
+               Table: vsp
+               Index: vsp_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+WARNING:  Query has LIMIT 2 but is not using Top K scan (using Normal instead). Reason: ORDER BY uses the <=> (Cosine) operator but the index attribute was built with the vector_ip_ops opclass (InnerProduct). This may cause poor performance on large datasets. Remedies: Either change the ORDER BY operator to <#> (matching the index opclass), or rebuild the index with the vector_cosine_ops opclass on the vector column.. To disable this warning: SET paradedb.planner_warnings = 'off' (table: vsp)
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- match: <#> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <#> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <#> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- Runtime query-vector operand (not a Const, not a Param)
+-- ============================================================
+-- A stable, Var-free operand such as current_setting(...)::vector must push
+-- down through TopK (evaluated once at execution start), and must reflect the
+-- GUC's current value rather than a stale plan-time fold.
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_cosine_ops);
+SET vsp.q = '[1,0,0]';
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+-- ... and returns the same ranking as the equivalent literal
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- changing the GUC changes the ranking (proves no stale plan-time fold)
+SET vsp.q = '[0,0,1]';
+SELECT id FROM vsp WHERE id @@@ pdb.all()
+    ORDER BY vec <=> current_setting('vsp.q')::vector LIMIT 2;
+ id 
+----
+  4
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- Parameterized query-vector operand (`<=> $1`)
+-- ============================================================
+-- A bound Param must push down through TopK and be resolved from the
+-- executor's parameter list at execution time. force_generic_plan keeps the
+-- Param unfolded in the plan; a custom plan would inline it as a Const and
+-- never exercise this path.
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_cosine_ops);
+SET plan_cache_mode = force_generic_plan;
+PREPARE vsp_p(vector) AS
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> $1 LIMIT 2;
+-- pushes down (Custom Scan / TopKScanExecState), not a Sort fallback
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) EXECUTE vsp_p('[1,0,0]');
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+-- ... and returns the same ranking as the equivalent literal
+EXECUTE vsp_p('[1,0,0]');
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- re-executing the same generic plan with a different vector must re-resolve
+-- the Param, not reuse the previous execution's vector
+EXECUTE vsp_p('[0,0,1]');
+ id 
+----
+  4
+  2
+(2 rows)
+
+EXECUTE vsp_p('[1,0,0]');
+ id 
+----
+  1
+  2
+(2 rows)
+
+DEALLOCATE vsp_p;
+RESET plan_cache_mode;
+DROP INDEX vsp_idx;
+-- ============================================================
+-- USING paradedb access method
+-- ============================================================
+-- Opclasses are declared per access method: the `paradedb` AM accepts the
+-- same three opclasses as `bm25`, with vector_l2_ops as its DEFAULT too.
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_cosine_ops);
+-- match: <=> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_ip_ops);
+DROP INDEX vsp_idx;
+-- a bare vector column resolves to vector_l2_ops, the AM default
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec);
+SELECT opc.opcname
+FROM pg_index i
+JOIN unnest(i.indclass) WITH ORDINALITY AS c(opcoid, ord) ON true
+JOIN pg_opclass opc ON opc.oid = c.opcoid
+WHERE i.indexrelid = 'vsp_idx'::regclass AND opc.opcname LIKE 'vector%';
+    opcname    
+---------------
+ vector_l2_ops
+(1 row)
+
+-- match: <-> pushes down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <-> vector asc
+            TopK Limit: 2
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id FROM vsp WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- Search operators (=== / &&& / ||| / ###) with vector ORDER BY
+-- ============================================================
+-- The predicate doesn't have to be `@@@ pdb.all()`: the search operators
+-- combined with a vector ORDER BY must still push down through TopK,
+-- ranking only the rows the predicate matches.
+CREATE INDEX vsp_idx ON vsp
+    USING paradedb (id, label, vec vector_cosine_ops);
+-- === (term): rows 1 and 3 contain 'wind'; ranked 1 then 3 by distance
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label === 'wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"label","value":"wind"}}}}
+(9 rows)
+
+SELECT id FROM vsp WHERE label === 'wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  3
+(2 rows)
+
+-- &&& (all terms): only row 1 has both 'east' and 'wind'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label &&& 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"east wind","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(9 rows)
+
+SELECT id FROM vsp WHERE label &&& 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+(1 row)
+
+-- ||| (any term): rows 1, 2, 3 match 'gate' or 'wind'; top-2 are 1 then 2
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label ||| 'gate wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"label","value":"gate wind","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT id FROM vsp WHERE label ||| 'gate wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- ### (phrase): only row 1 contains the phrase 'east wind'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp WHERE label ### 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp
+         Table: vsp
+         Index: vsp_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <=> vector asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"label","phrase":"east wind","slop":null}}}}
+(9 rows)
+
+SELECT id FROM vsp WHERE label ### 'east wind' ORDER BY vec <=> '[1,0,0]' LIMIT 2;
+ id 
+----
+  1
+(1 row)
+
+DROP INDEX vsp_idx;
+-- ============================================================
+-- Tiebreaking: secondary ORDER BY keys after vector distance
+-- ============================================================
+-- Rows 1-4 are exact duplicates of the query vector, so their distances tie
+-- and the secondary key decides both the ordering and which rows survive the
+-- top-K heap when LIMIT is smaller than the tie group.
+CREATE TABLE vsp_tie (
+    id  int PRIMARY KEY,
+    cat text,
+    vec vector(3)
+);
+INSERT INTO vsp_tie VALUES
+    (1, 'b', '[1,0,0]'),
+    (2, 'a', '[1,0,0]'),
+    (3, 'b', '[1,0,0]'),
+    (4, 'a', '[1,0,0]'),
+    (5, 'x', '[0,1,0]'),
+    (6, 'y', '[0,0.9,0.1]');
+CREATE INDEX vsp_tie_idx ON vsp_tie
+    USING paradedb (id, (cat::pdb.literal), vec vector_l2_ops);
+-- pushes down: both pathkeys are absorbed by the TopK scan (no Sort node)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 3;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp_tie
+         Table: vsp_tie
+         Index: vsp_tie_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <-> vector asc, id asc
+            TopK Limit: 3
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+-- LIMIT 3 < the 4-way tie: the three lowest ids must win the heap
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 3;
+ id 
+----
+  1
+  2
+  3
+(3 rows)
+
+-- descending tiebreak
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id DESC LIMIT 3;
+ id 
+----
+  4
+  3
+  2
+(3 rows)
+
+-- OFFSET pagination across the tie is deterministic and non-overlapping
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 2 OFFSET 2;
+ id 
+----
+  3
+  4
+(2 rows)
+
+-- LIMIT past the tie group: farther rows are ordered by distance, not tiebreak
+SELECT id FROM vsp_tie WHERE id @@@ pdb.all() ORDER BY vec <-> '[1,0,0]', id LIMIT 6;
+ id 
+----
+  1
+  2
+  3
+  4
+  6
+  5
+(6 rows)
+
+-- two tiebreak keys: cat ASC then id DESC within equal distance
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, cat FROM vsp_tie WHERE id @@@ pdb.all()
+    ORDER BY vec <-> '[1,0,0]', cat, id DESC LIMIT 4;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on vsp_tie
+         Table: vsp_tie
+         Index: vsp_tie_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: vec <-> vector asc, cat asc, id desc
+            TopK Limit: 4
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(10 rows)
+
+SELECT id, cat FROM vsp_tie WHERE id @@@ pdb.all()
+    ORDER BY vec <-> '[1,0,0]', cat, id DESC LIMIT 4;
+ id | cat 
+----+-----
+  4 | a
+  2 | a
+  3 | b
+  1 | b
+(4 rows)
+
+DROP TABLE vsp_tie;
+-- ============================================================
+-- Join / semi-join with vector ORDER BY
+-- ============================================================
+-- Parent table holds scalar/JSONB filters; child table holds chunks and
+-- embeddings linked by parent_id. Both IN (semi-join) and JOIN shapes should
+-- rank matching child rows by vector distance.
+CREATE TABLE vsp_parents (
+    id       int PRIMARY KEY,
+    category text NOT NULL,
+    metadata jsonb NOT NULL
+);
+CREATE TABLE vsp_children (
+    id        int PRIMARY KEY,
+    parent_id int NOT NULL,
+    vec       vector(3) NOT NULL
+);
+INSERT INTO vsp_parents VALUES
+    (1, 'alpha', '{"score": 10}'),
+    (2, 'alpha', '{"score": 20}'),
+    (3, 'beta',  '{"score": 20}'),
+    (4, 'alpha', '{"score": 30}');
+INSERT INTO vsp_children VALUES
+    (10, 1, '[1,   0,   0]'),
+    (11, 1, '[0,   1,   0]'),
+    (20, 2, '[0.9, 0.1, 0]'),
+    (21, 2, '[0,   0,   1]'),
+    (30, 3, '[1,   0,   0]'),
+    (40, 4, '[0.8, 0.2, 0]');
+CREATE INDEX vsp_parents_idx ON vsp_parents
+    USING paradedb (id, (category::pdb.literal), (metadata::pdb.literal));
+CREATE INDEX vsp_children_idx ON vsp_children
+    USING paradedb (id, parent_id, vec vector_cosine_ops);
+ANALYZE vsp_parents, vsp_children;
+-- Semi-join (`IN (SELECT ...)`) under HashJoinExec (Regime 2)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c SEMI p
+   Join Cond: c.parent_id = p.id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
+(13 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+-- Semi-join (`EXISTS`) and duplicate build-key deduplication
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND EXISTS (
+    SELECT 1 FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+      AND p.id = c.parent_id
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+SELECT c1.id, c1.parent_id
+FROM vsp_children c1
+WHERE c1.id @@@ pdb.all()
+  AND c1.parent_id IN (
+    SELECT c2.parent_id FROM vsp_children c2
+    WHERE c2.id @@@ pdb.all()
+      AND c2.parent_id IN (1, 2)
+  )
+ORDER BY c1.vec <=> '[1,0,0]'::vector, c1.id
+LIMIT 3;
+ id | parent_id 
+----+-----------
+ 10 |         1
+ 20 |         2
+ 11 |         1
+(3 rows)
+
+SET paradedb.rank_join_min_rows = 0;
+SELECT c1.id, c1.parent_id
+FROM vsp_children c1
+WHERE c1.id @@@ pdb.all()
+  AND c1.parent_id IN (
+    SELECT c2.parent_id FROM vsp_children c2
+    WHERE c2.id @@@ pdb.all()
+      AND c2.parent_id IN (1, 2)
+  )
+ORDER BY c1.vec <=> '[1,0,0]'::vector, c1.id
+LIMIT 3;
+ id | parent_id 
+----+-----------
+ 10 |         1
+ 20 |         2
+ 11 |         1
+(3 rows)
+
+RESET paradedb.rank_join_min_rows;
+-- Inner join (`JOIN`) under HashJoinExec (Regime 2), projecting distance and tie-breaker `DESC`
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id, p.category, round((c.vec <=> '[1,0,0]'::vector)::numeric, 4) AS dist
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
+LIMIT 2;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id desc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=108.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
+(14 rows)
+
+SELECT c.id, c.parent_id, p.category, round((c.vec <=> '[1,0,0]'::vector)::numeric, 4) AS dist
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id DESC
+LIMIT 2;
+ id | parent_id | category |  dist  
+----+-----------+----------+--------
+ 20 |         2 | alpha    | 0.0061
+ 40 |         4 | alpha    | 0.0299
+(2 rows)
+
+-- OFFSET and prepared / runtime-expression query vectors in joins
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2 OFFSET 1;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+PREPARE vsp_join_prep(vector) AS
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> $1, c.id
+LIMIT 2;
+EXECUTE vsp_join_prep('[1,0,0]'::vector);
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+DEALLOCATE vsp_join_prep;
+SELECT set_config('vsp.join_qvec', '[1,0,0]', false);
+ set_config 
+------------
+ [1,0,0]
+(1 row)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> current_setting('vsp.join_qvec')::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+-- Regime 1 (`RankJoinExec`) for Semi-join and Inner join, plus selectivity threshold GUC
+SET paradedb.rank_join_min_rows = 0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c SEMI p
+   Join Cond: c.parent_id = p.id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
+     :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       RankJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, lazy_sort=8, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
+     :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c, p], pruned=[p], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@1], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, lazy_sort=8, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+-- Threshold GUC (`paradedb.rank_join_unscored_selectivity_threshold`) switches between
+-- `RankJoinExec` and `HashJoinExec` when `rank_join_min_rows > 0`
+SET paradedb.rank_join_min_rows = 1;
+SET paradedb.rank_join_unscored_selectivity_threshold = 0.0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = 'beta'
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                               QUERY PLAN                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
+     :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c, p], pruned=[p], metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@1], metrics=[output_rows=1, output_bytes=36.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"category","value":"beta"}}]}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, lazy_sort=16, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=6, output_bytes=168.0 B, output_batches=1, queries=1]
+(14 rows)
+
+SET paradedb.rank_join_unscored_selectivity_threshold = 0.99;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = 'beta'
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, build_mem_used=20.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=1, avg_fanout=100% (1/1), probe_hit_rate=100% (1/1)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"category","value":"beta"}}]}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=1]
+(14 rows)
+
+RESET paradedb.rank_join_min_rows;
+RESET paradedb.rank_join_unscored_selectivity_threshold;
+-- Cross-table OR filter (`ScanMode::Tagged`) + residual filter with vector ORDER BY
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Join Predicate: ((c:{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}) AND heap:((c.id + p.id) > 0))
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
+     :     FilterExec: pdb_eval_expr_opexpr_73f5eb39(id@2, parent_id@1) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
+     :       VisibilityFilterExec: tables=[c], metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, ctids_fetched=6, ctids_lazy=0]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, lazy_sort=24, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=6]
+(16 rows)
+
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id | category 
+----+-----------+----------
+ 30 |         3 | beta
+ 20 |         2 | alpha
+(2 rows)
+
+SET paradedb.rank_join_min_rows = 0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Join Predicate: ((c:{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}) AND heap:((c.id + p.id) > 0))
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
+     :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c, p], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
+     :       RankJoinExec: mode=CollectLeft, on=[(parent_id@1, id@1)], order=[pdb.vector_score(c)@3 DESC NULLS LAST, id@2 ASC NULLS LAST], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@0, parent_id@1, id@2, pdb.vector_score(c)@3, ctid_1@5], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :         FilterExec: pdb_eval_expr_opexpr_73f5eb39(id@2, parent_id@1) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
+     :           CooperativeExec
+     :             PgSearchScan: table=c, segments=1, lazy_sort=10, tag_0={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, queries=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=4]
+(16 rows)
+
+SELECT c.id, c.parent_id, p.category
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
+  AND c.id + p.id > 0
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id | category 
+----+-----------+----------
+ 30 |         3 | beta
+ 20 |         2 | alpha
+(2 rows)
+
+RESET paradedb.rank_join_min_rows;
+-- ============================================================
+-- LazySort edge cases in vector-ordered joins
+-- ============================================================
+-- Edge Case 1: High-density build key set where `InListPushdown` declines
+SET paradedb.term_set_bitset_max_density_multi = 0.0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+RESET paradedb.term_set_bitset_max_density_multi;
+-- Edge Case 2: Build distinct-key count exceeding `hash_join_inlist_pushdown_max_distinct_values`
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, queries=1, rows_pruned=2, rows_scanned=4]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+-- Edge Case 3: Sparse join where total matching rows < K (exhausts LazySort cleanly)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{beta}')
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 10;
+ id | parent_id 
+----+-----------
+ 30 |         3
+(1 row)
+
+-- Edge Case 4: Anti-correlated parent filter with tiny initial window forcing multiple
+-- LazySort window expansions (both HashJoinExec with InList disabled and RankJoinExec)
+SET paradedb.limit_fetch_multiplier = 1;
+SET paradedb.topk_retry_scale_factor = 2;
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 1
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=1, metrics=[output_rows=1, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, queries=2, rows_pruned=3, rows_scanned=6]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+ id | parent_id 
+----+-----------
+ 20 |         2
+(1 row)
+
+SET paradedb.rank_join_min_rows = 0;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=1.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 1
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=24.0 B, output_batches=1]
+     :   GlobalLimitExec: skip=0, fetch=1, metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c, p], pruned=[p], metrics=[output_rows=1, output_bytes=28.0 B, output_batches=1, ctids_fetched=1, ctids_lazy=0]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@0, parent_id@1)], order=[pdb.vector_score(c)@2 DESC NULLS LAST, id@3 ASC NULLS LAST], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5, ctid_1@1], metrics=[output_rows=1, output_bytes=36.0 B, output_batches=1]
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=1, lazy_sort=0, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, ra_queries=1, rows_pruned=0, rows_scanned=2]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, lazy_sort=4, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, queries=1]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 1;
+ id | parent_id 
+----+-----------
+ 20 |         2
+(1 row)
+
+RESET paradedb.limit_fetch_multiplier;
+RESET paradedb.topk_retry_scale_factor;
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.rank_join_min_rows;
+-- Edge Case 5: Residual non-equi join filter (`c.id > p.id * 10`) and MVCC dead-tuple filtering
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id AND c.id > p.id * 10
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 11 |         1
+ 21 |         2
+(2 rows)
+
+BEGIN;
+DELETE FROM vsp_children WHERE id = 20;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=3]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 40 |         4
+ 21 |         2
+(2 rows)
+
+ROLLBACK;
+-- ============================================================
+-- Planner decline warnings for unsupported vector join shapes
+-- ============================================================
+SET paradedb.ForceCustomScan = false;
+-- 1. Wrong distance metric (<-> L2 on cosine index)
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <-> '[1,0,0]'::vector, c.id
+LIMIT 2;
+WARNING:  JoinScan not used: ORDER BY uses the <-> (L2) operator but the index attribute was built with the vector_cosine_ops opclass (Cosine). Either change the ORDER BY operator to <=> (matching the index opclass), or rebuild the index with the vector_l2_ops opclass on the vector column. (tables: c, p)
+ id 
+----
+ 10
+ 30
+(2 rows)
+
+-- 2. Descending vector distance
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector DESC, c.id
+LIMIT 2;
+WARNING:  JoinScan not used: vector distance ORDER BY only supports ascending (ASC) order (tables: c, p)
+ id 
+----
+ 11
+ 21
+(2 rows)
+
+-- 3. Vector distance not in primary ORDER BY position
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.id, c.vec <=> '[1,0,0]'::vector
+LIMIT 2;
+WARNING:  JoinScan not used: vector distance ORDER BY can only be the primary sort key (tables: c, p)
+ id 
+----
+ 10
+ 11
+(2 rows)
+
+-- 4. Missing LIMIT on vector-ordered join
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c, p)
+ id 
+----
+ 10
+ 30
+ 20
+ 40
+ 11
+ 21
+(6 rows)
+
+-- 5. DISTINCT with vector ORDER BY
+SELECT DISTINCT c.id, c.vec <=> '[1,0,0]'::vector
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+WARNING:  JoinScan not used: DISTINCT columns must be columnar indexed (tables: c, p)
+ id | ?column? 
+----+----------
+ 10 |        0
+ 30 |        0
+(2 rows)
+
+-- 6. Cross-table tie-breaker (tie-breaker on p instead of c)
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, p.category
+LIMIT 2;
+WARNING:  JoinScan not used: tie-breaker columns for vector distance ORDER BY must belong to the same table as the vector column (tables: c, p)
+ id 
+----
+ 10
+ 30
+(2 rows)
+
+-- 7. Tie-breaker using pdb.score(c.id)
+SELECT c.id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, pdb.score(c.id) DESC
+LIMIT 2;
+WARNING:  JoinScan not used: pdb.score() on the same table as a vector distance ORDER BY is not supported (tables: c, p)
+ id 
+----
+ 10
+ 30
+(2 rows)
+
+-- 8. Conflicting pdb.score(c.id) projection on the vector-ordered table
+SELECT c.id, pdb.score(c.id)
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all() AND p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+WARNING:  JoinScan not used: pdb.score() on the same table as a vector distance ORDER BY is not supported (tables: c, p)
+ id | score 
+----+-------
+ 10 |     1
+ 30 |     1
+(2 rows)
+
+-- 9. Non-preserved join spine (LEFT JOIN where vector table is on the nullable right side)
+SELECT p.id, c.id
+FROM vsp_parents p
+LEFT JOIN vsp_children c ON p.id = c.parent_id AND c.id @@@ pdb.all()
+WHERE p.id @@@ pdb.all()
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+WARNING:  JoinScan not used: vector distance ORDER BY is only supported on the preserved side of INNER and SEMI equi-joins (tables: c, p)
+ id | id 
+----+----
+  1 | 10
+  3 | 30
+(2 rows)
+
+RESET paradedb.ForceCustomScan;
+-- Edge Case 6: IVF segment (>= 200 rows) where matching child rows (22) exceed initial
+-- LazySort window under HashJoinExec (exercises InList pushdown on IVF and verifies whether
+-- HashJoinExec stops after the first LazySort window satisfies LIMIT K rather than pulling
+-- additional expanding windows to fill an 8192-row batch).
+INSERT INTO vsp_children
+SELECT 100 + i, 1, '[1, 0, 0]'::vector
+FROM generate_series(1, 250) i;
+INSERT INTO vsp_children
+SELECT 400 + i, 4, '[0.5, 0.866, 0]'::vector
+FROM generate_series(1, 20) i;
+REINDEX INDEX vsp_children_idx;
+ANALYZE vsp_children;
+-- 6a. Semi-join (`IN (SELECT ...)`) with 22 matching child rows and LIMIT 2
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c SEMI p
+   Join Cond: c.parent_id = p.id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@0 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@2 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, parent_id@1)], projection=[id@3, parent_id@1, ctid_0@0], fetch=2, metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1, build_mem_used=28.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=16.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=4]
+(13 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+WHERE c.id @@@ pdb.all()
+  AND c.parent_id IN (
+    SELECT p.id FROM vsp_parents p
+    WHERE p.id @@@ pdb.all()
+      AND p.category = ANY('{alpha}')
+      AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+  )
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+-- 6b. Inner join (`JOIN`) with 22 matching child rows and LIMIT 2
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 2
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=96.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=112.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=4, avg_fanout=100% (4/4), probe_hit_rate=100% (4/4)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=4, output_bytes=112.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=4]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 2;
+ id | parent_id 
+----+-----------
+ 20 |         2
+ 40 |         4
+(2 rows)
+
+DROP TABLE vsp_children, vsp_parents;
+DROP TABLE vsp;

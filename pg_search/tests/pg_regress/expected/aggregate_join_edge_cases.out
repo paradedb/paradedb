@@ -1,0 +1,515 @@
+-- =====================================================================
+-- Edge case tests for aggregate-on-join via DataFusion backend
+-- =====================================================================
+-- Tests: non-unique join keys, 3+ table outer joins, mixed join types
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
+CREATE TABLE ec_products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    price FLOAT,
+    metadata JSONB
+);
+CREATE TABLE ec_reviews (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    rating INTEGER,
+    reviewer TEXT
+);
+CREATE TABLE ec_suppliers (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    supplier_name TEXT
+);
+INSERT INTO ec_products (description, category, price, metadata) VALUES
+    ('Laptop computer', 'Electronics', 999.99, '{"brand": "TechCorp"}'),
+    ('Desktop monitor', 'Electronics', 499.99, '{"brand": "ViewSonic"}'),
+    ('Running shoes', 'Sports', 89.99, '{"brand": "Speedy"}'),
+    ('Tennis racket', 'Sports', 149.99, '{"brand": "Smash"}'),
+    ('Winter jacket', 'Clothing', 129.99, '{"brand": "Warmth"}');
+INSERT INTO ec_reviews (category, rating, reviewer) VALUES
+    ('Electronics', 5, 'alice'),
+    ('Electronics', 4, 'bob'),
+    ('Electronics', 3, 'cloe'),
+    ('Sports', 4, 'alice'),
+    ('Sports', 5, 'bob'),
+    ('Clothing', 3, 'cloe'),
+    ('Clothing', 4, 'alice');
+INSERT INTO ec_suppliers (category, supplier_name) VALUES
+    ('Electronics', 'TechCorp'),
+    ('Electronics', 'ChipMakers'),
+    ('Sports', 'AthletePro'),
+    ('Clothing', 'FashionInc'),
+    ('Clothing', 'StyleHouse');
+CREATE INDEX ec_products_idx ON ec_products
+USING paradedb (id, description, (category::pdb.unicode_words('columnar=true')), price, (metadata::pdb.literal_normalized));
+CREATE INDEX ec_reviews_idx ON ec_reviews
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), rating, (reviewer::pdb.unicode_words('columnar=true')));
+CREATE INDEX ec_suppliers_idx ON ec_suppliers
+USING paradedb (id, (category::pdb.unicode_words('columnar=true')), (supplier_name::pdb.unicode_words('columnar=true')));
+-- =====================================================================
+-- Test 1: Non-unique join key — JOIN on category (many-to-many)
+-- Expected: fan-out produces more rows than either table alone
+-- =====================================================================
+-- Test 1a: COUNT(*) with non-unique key (category)
+-- 2 Electronics products × 3 Electronics reviews = 6
+-- 2 Sports products × 2 Sports reviews = 4
+-- 1 Clothing product × 2 Clothing reviews = 2
+-- Total: 12 matched rows
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket');
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*))
+   Backend: DataFusion
+   Indexes: ec_products_idx (p), ec_reviews_idx (r)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+     :     CooperativeExec
+     :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(12 rows)
+
+SELECT COUNT(*)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket');
+ count 
+-------
+    12
+(1 row)
+
+-- Test 1b: GROUP BY with non-unique key
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r)
+         Group By: category
+         Aggregates: COUNT(*), SUM(rating), AVG(rating)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1, avg(r_1.rating) as agg_2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=1, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :     CooperativeExec
+           :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | sum | avg 
+-------------+-------+-----+-----
+ Clothing    |     2 |   7 | 3.5
+ Electronics |     6 |  24 |   4
+ Sports      |     4 |  18 | 4.5
+(3 rows)
+
+-- Test 1c: Parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | sum |        avg         
+-------------+-------+-----+--------------------
+ Clothing    |     2 |   7 | 3.5000000000000000
+ Electronics |     6 |  24 | 4.0000000000000000
+ Sports      |     4 |  18 | 4.5000000000000000
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 1d: Non-unique key with MIN/MAX
+SELECT p.category, MIN(r.rating), MAX(r.rating), MIN(p.price), MAX(p.price)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | min | max |  min   |  max   
+-------------+-----+-----+--------+--------
+ Clothing    |   3 |   4 | 129.99 | 129.99
+ Electronics |   3 |   5 | 499.99 | 999.99
+ Sports      |   4 |   5 |  89.99 | 149.99
+(3 rows)
+
+-- Test 1e: LEFT JOIN with non-unique key — all products, even unmatched
+-- If we add a product with category 'Books' (no reviews), LEFT JOIN should include it
+INSERT INTO ec_products (description, category, price, metadata) VALUES
+    ('Science fiction novel', 'Books', 19.99, '{"brand": "PublisherX"}');
+-- Re-index is automatic on INSERT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM ec_products p
+LEFT JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (count(r.rating))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, (count(*)), (count(r.rating))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(rating)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :     CooperativeExec
+           :       PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM ec_products p
+LEFT JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count 
+-------------+-------+-------
+ Books       |     1 |     0
+ Clothing    |     2 |     2
+ Electronics |     6 |     6
+ Sports      |     4 |     4
+(4 rows)
+
+-- Parity for LEFT JOIN non-unique
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM ec_products p
+LEFT JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count 
+-------------+-------+-------
+ Books       |     1 |     0
+ Clothing    |     2 |     2
+ Electronics |     6 |     6
+ Sports      |     4 |     4
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 2: 3-table join with non-unique keys
+-- products × reviews × suppliers all joined on category
+-- =====================================================================
+-- Test 2a: 3-table INNER join on non-unique category
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(*), SUM(r.rating)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+JOIN ec_suppliers s ON p.category = s.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: category
+         Aggregates: COUNT(*), SUM(rating)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_1.rating) as agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@1)], projection=[category@0, rating@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+SELECT p.category, COUNT(*), SUM(r.rating)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+JOIN ec_suppliers s ON p.category = s.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | sum 
+-------------+-------+-----
+ Clothing    |     4 |  14
+ Electronics |    12 |  48
+ Sports      |     4 |  18
+(3 rows)
+
+-- Test 2b: Parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(r.rating)
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+JOIN ec_suppliers s ON p.category = s.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | sum 
+-------------+-------+-----
+ Clothing    |     4 |  14
+ Electronics |    12 |  48
+ Sports      |     4 |  18
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 3: 3-table LEFT JOIN — should use DataFusion backend
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
+FROM ec_products p
+LEFT JOIN ec_reviews r ON p.category = r.category
+LEFT JOIN ec_suppliers s ON p.category = s.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: category
+         Aggregates: COUNT(*), COUNT(rating), COUNT(supplier_name)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, count(r_1.rating) as agg_1, count(s_2.supplier_name) as agg_2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1, supplier_name@2]
+           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@1)], projection=[category@0, rating@1]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: table=s, segments=1, eager=[supplier_name], dynamic_filters=1, visibility=eager, query="all"
+(17 rows)
+
+SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
+FROM ec_products p
+LEFT JOIN ec_reviews r ON p.category = r.category
+LEFT JOIN ec_suppliers s ON p.category = s.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count | count 
+-------------+-------+-------+-------
+ Books       |     1 |     0 |     0
+ Clothing    |     4 |     4 |     4
+ Electronics |    12 |    12 |    12
+ Sports      |     4 |     4 |     4
+(4 rows)
+
+-- Parity for 3-table LEFT JOIN
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
+FROM ec_products p
+LEFT JOIN ec_reviews r ON p.category = r.category
+LEFT JOIN ec_suppliers s ON p.category = s.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count | count 
+-------------+-------+-------+-------
+ Books       |     1 |     0 |     0
+ Clothing    |     4 |     4 |     4
+ Electronics |    12 |    12 |    12
+ Sports      |     4 |     4 |     4
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 4: FULL OUTER JOIN with non-unique keys (2-table)
+-- =====================================================================
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count 
+-------------+-------+-------
+ Books       |     1 |     0
+ Clothing    |     2 |     2
+ Electronics |     6 |     6
+ Sports      |     4 |     4
+(4 rows)
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count 
+-------------+-------+-------
+ Books       |     1 |     0
+ Clothing    |     2 |     2
+ Electronics |     6 |     6
+ Sports      |     4 |     4
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 5: Join with JSONB field and GROUP BY
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.metadata -> 'brand'
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY 1
+ORDER BY 1;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((p.metadata -> 'brand'::text))
+   Sort Key: ((p.metadata -> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((p.metadata -> 'brand'::text))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r)
+         Group By: metadata.brand
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
+           :   TantivyDecodeExec: decode=[metadata.brand]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(category@1, category@0)], projection=[metadata.brand@0]
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, fetch=[metadata.brand], visibility=eager, query={"boolean":{"should":[{"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"jacket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"monitor","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"racket","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"novel","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}}
+           :       CooperativeExec
+           :         PgSearchScan: table=r, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT p.metadata -> 'brand'
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY 1
+ORDER BY 1;
+  ?column?   
+-------------
+ "Smash"
+ "Speedy"
+ "TechCorp"
+ "ViewSonic"
+ "Warmth"
+(5 rows)
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.metadata -> 'brand'
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE (p.description ||| 'laptop' OR p.description ||| 'shoes' OR p.description ||| 'jacket' OR p.description ||| 'monitor' OR p.description ||| 'racket' OR p.description ||| 'novel')
+GROUP BY 1
+ORDER BY 1;
+  ?column?   
+-------------
+ "Smash"
+ "Speedy"
+ "TechCorp"
+ "ViewSonic"
+ "Warmth"
+(5 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 6: Complex 3-table join (FULL + LEFT) with JSONB aggregation
+-- Adapted from user query: FULL JOIN, LEFT JOIN, and JSONB GROUP BY
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description ||| 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
+   Sort Key: ((p.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: metadata.brand
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
+           :   CooperativeExec
+           :     PgSearchScan: table=p, segments=2, eager=[metadata.brand], visibility=eager, query={"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(12 rows)
+
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description ||| 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+ brand_text | brand_json 
+------------+------------
+ TechCorp   | "TechCorp"
+(1 row)
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description ||| 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+ brand_text | brand_json 
+------------+------------
+ TechCorp   | "TechCorp"
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Clean up
+-- =====================================================================
+DROP TABLE ec_suppliers;
+DROP TABLE ec_reviews;
+DROP TABLE ec_products;

@@ -1,0 +1,542 @@
+-- A prepared statement whose plan PostgreSQL caches and runs again. The
+-- Aggregate Scan must leave the cached plan in a state that the next run can
+-- use.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CREATE TABLE prepared_agg_sales (
+    id SERIAL PRIMARY KEY,
+    region TEXT NOT NULL,
+    rating INTEGER NOT NULL,
+    amount FLOAT8 NOT NULL,
+    tags TEXT[] NOT NULL
+);
+INSERT INTO prepared_agg_sales (region, rating, amount, tags)
+SELECT
+    (ARRAY['east', 'north', 'west'])[(g % 3) + 1],
+    (g % 4) + 1,
+    g,
+    CASE WHEN g % 2 = 0 THEN ARRAY['new', 'sale'] ELSE ARRAY['new'] END
+FROM generate_series(1, 60) g;
+CREATE INDEX prepared_agg_sales_idx ON prepared_agg_sales
+USING paradedb (id, (region::pdb.literal), rating, amount, (tags::pdb.literal));
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- SECTION 1: No parameter -> PostgreSQL caches the plan on the first run
+-- =====================================================================
+\echo 'Test 1.1: GROUP BY'
+Test 1.1: GROUP BY
+PREPARE prepared_agg_group AS
+SELECT region, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_group;
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
+   Output: region, pdb.agg_fn('COUNT(*)'::text)
+   Index: prepared_agg_sales_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: region
+     Aggregate Definition: {"grouped":{"terms":{"field":"region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+EXECUTE prepared_agg_group;
+ region | count 
+--------+-------
+ east   |    20
+ north  |    20
+ west   |    20
+(3 rows)
+
+EXECUTE prepared_agg_group;
+ region | count 
+--------+-------
+ east   |    20
+ north  |    20
+ west   |    20
+(3 rows)
+
+EXECUTE prepared_agg_group;
+ region | count 
+--------+-------
+ east   |    20
+ north  |    20
+ west   |    20
+(3 rows)
+
+\echo 'Test 1.2: aggregate in an expression'
+Test 1.2: aggregate in an expression
+PREPARE prepared_agg_wrapped AS
+SELECT region, COALESCE(SUM(amount), 0) + 1 AS total, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_wrapped;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
+   Output: region, (COALESCE(pdb.agg_fn('SUM'::text), '0'::double precision) + '1'::double precision), pdb.agg_fn('COUNT(*)'::text)
+   Index: prepared_agg_sales_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: SUM(amount), COUNT(*)
+     Group By: region
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"amount","missing":null,"none_if_no_match":true}}},"terms":{"field":"region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+EXECUTE prepared_agg_wrapped;
+ region | total | count 
+--------+-------+-------
+ east   |   631 |    20
+ north  |   591 |    20
+ west   |   611 |    20
+(3 rows)
+
+EXECUTE prepared_agg_wrapped;
+ region | total | count 
+--------+-------+-------
+ east   |   631 |    20
+ north  |   591 |    20
+ west   |   611 |    20
+(3 rows)
+
+EXECUTE prepared_agg_wrapped;
+ region | total | count 
+--------+-------+-------
+ east   |   631 |    20
+ north  |   591 |    20
+ west   |   611 |    20
+(3 rows)
+
+\echo 'Test 1.3: ORDER BY an aggregate'
+Test 1.3: ORDER BY an aggregate
+PREPARE prepared_agg_order AS
+SELECT rating, COUNT(*), MAX(amount)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY rating
+ORDER BY MAX(amount) DESC, rating;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_order;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: rating, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('MAX'::text))
+   Sort Key: (pdb.agg_fn('MAX'::text)) DESC, prepared_agg_sales.rating
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
+         Output: rating, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('MAX'::text)
+         Index: prepared_agg_sales_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*), MAX(amount)
+           Group By: rating
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"max":{"field":"amount","missing":null}}},"terms":{"field":"rating","segment_size":65000,"size":65000}}}
+(10 rows)
+
+EXECUTE prepared_agg_order;
+ rating | count | max 
+--------+-------+-----
+      1 |    15 |  60
+      4 |    15 |  59
+      3 |    15 |  58
+      2 |    15 |  57
+(4 rows)
+
+EXECUTE prepared_agg_order;
+ rating | count | max 
+--------+-------+-----
+      1 |    15 |  60
+      4 |    15 |  59
+      3 |    15 |  58
+      2 |    15 |  57
+(4 rows)
+
+EXECUTE prepared_agg_order;
+ rating | count | max 
+--------+-------+-----
+      1 |    15 |  60
+      4 |    15 |  59
+      3 |    15 |  58
+      2 |    15 |  57
+(4 rows)
+
+\echo 'Test 1.4: no GROUP BY, ORDER BY the aggregate'
+Test 1.4: no GROUP BY, ORDER BY the aggregate
+PREPARE prepared_agg_scalar AS
+SELECT COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+ORDER BY COUNT(*);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_scalar;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Sort
+   Output: (pdb.agg_fn('COUNT(*)'::text))
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
+         Output: pdb.agg_fn('COUNT(*)'::text)
+         Index: prepared_agg_sales_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Aggregate Definition: {"0":{"filter":"*"}}
+(9 rows)
+
+EXECUTE prepared_agg_scalar;
+ count 
+-------
+    60
+(1 row)
+
+EXECUTE prepared_agg_scalar;
+ count 
+-------
+    60
+(1 row)
+
+EXECUTE prepared_agg_scalar;
+ count 
+-------
+    60
+(1 row)
+
+\echo 'Test 1.5: pdb.agg()'
+Test 1.5: pdb.agg()
+PREPARE prepared_agg_custom AS
+SELECT region, pdb.agg('{"avg": {"field": "amount"}}'::jsonb)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+EXECUTE prepared_agg_custom;
+ region |       agg       
+--------+-----------------
+ east   | {"value": 31.5}
+ north  | {"value": 29.5}
+ west   | {"value": 30.5}
+(3 rows)
+
+EXECUTE prepared_agg_custom;
+ region |       agg       
+--------+-----------------
+ east   | {"value": 31.5}
+ north  | {"value": 29.5}
+ west   | {"value": 30.5}
+(3 rows)
+
+EXECUTE prepared_agg_custom;
+ region |       agg       
+--------+-----------------
+ east   | {"value": 31.5}
+ north  | {"value": 29.5}
+ west   | {"value": 30.5}
+(3 rows)
+
+\echo 'Test 1.6: UNNEST in the GROUP BY'
+Test 1.6: UNNEST in the GROUP BY
+PREPARE prepared_agg_unnest AS
+SELECT UNNEST(tags) AS tag, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY tag
+ORDER BY tag;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_unnest;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (pdb.agg_fn('UNNEST'::text)), (pdb.agg_fn('COUNT(*)'::text))
+   Sort Key: (pdb.agg_fn('UNNEST'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
+         Output: pdb.agg_fn('UNNEST'::text), pdb.agg_fn('COUNT(*)'::text)
+         Index: prepared_agg_sales_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: tags
+           Aggregate Definition: {"grouped":{"terms":{"field":"tags","segment_size":65000,"size":65000}}}
+(10 rows)
+
+EXECUTE prepared_agg_unnest;
+ tag  | count 
+------+-------
+ new  |    60
+ sale |    30
+(2 rows)
+
+EXECUTE prepared_agg_unnest;
+ tag  | count 
+------+-------
+ new  |    60
+ sale |    30
+(2 rows)
+
+EXECUTE prepared_agg_unnest;
+ tag  | count 
+------+-------
+ new  |    60
+ sale |    30
+(2 rows)
+
+-- =====================================================================
+-- SECTION 2: Parameters
+-- =====================================================================
+\echo 'Test 2.1: generic plan'
+Test 2.1: generic plan
+SET plan_cache_mode = force_generic_plan;
+PREPARE prepared_agg_param(int) AS
+SELECT region, COUNT(*), SUM(amount)
+FROM prepared_agg_sales
+WHERE rating = $1 AND id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE prepared_agg_param(1);
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.prepared_agg_sales
+   Output: region, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Index: prepared_agg_sales_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('rating'::paradedb.fieldname, '='::text, $1)"}}}]}}
+     Applies to Aggregates: COUNT(*), SUM(amount)
+     Group By: region
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"amount","missing":null,"none_if_no_match":true}}},"terms":{"field":"region","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+EXECUTE prepared_agg_param(1);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 180
+ north  |     5 | 140
+ west   |     5 | 160
+(3 rows)
+
+EXECUTE prepared_agg_param(2);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 165
+ north  |     5 | 125
+ west   |     5 | 145
+(3 rows)
+
+EXECUTE prepared_agg_param(99);
+ region | count | sum 
+--------+-------+-----
+(0 rows)
+
+EXECUTE prepared_agg_param(1);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 180
+ north  |     5 | 140
+ west   |     5 | 160
+(3 rows)
+
+RESET plan_cache_mode;
+\echo 'Test 2.2: default plan cache mode, more runs than PostgreSQL makes custom plans for'
+Test 2.2: default plan cache mode, more runs than PostgreSQL makes custom plans for
+PREPARE prepared_agg_default(int) AS
+SELECT region, COUNT(*), SUM(amount)
+FROM prepared_agg_sales
+WHERE rating = $1 AND id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+EXECUTE prepared_agg_default(1);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 180
+ north  |     5 | 140
+ west   |     5 | 160
+(3 rows)
+
+EXECUTE prepared_agg_default(2);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 165
+ north  |     5 | 125
+ west   |     5 | 145
+(3 rows)
+
+EXECUTE prepared_agg_default(3);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 150
+ north  |     5 | 170
+ west   |     5 | 130
+(3 rows)
+
+EXECUTE prepared_agg_default(4);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 135
+ north  |     5 | 155
+ west   |     5 | 175
+(3 rows)
+
+EXECUTE prepared_agg_default(1);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 180
+ north  |     5 | 140
+ west   |     5 | 160
+(3 rows)
+
+EXECUTE prepared_agg_default(2);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 165
+ north  |     5 | 125
+ west   |     5 | 145
+(3 rows)
+
+EXECUTE prepared_agg_default(3);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 150
+ north  |     5 | 170
+ west   |     5 | 130
+(3 rows)
+
+EXECUTE prepared_agg_default(4);
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 135
+ north  |     5 | 155
+ west   |     5 | 175
+(3 rows)
+
+-- =====================================================================
+-- SECTION 3: A statement in a function
+-- =====================================================================
+-- PL/pgSQL caches the plan of each statement. The function calls itself in
+-- its loop, so the plan runs again while an earlier run is still open.
+CREATE FUNCTION prepared_agg_walk(depth int) RETURNS SETOF text
+LANGUAGE plpgsql AS $$
+DECLARE
+    row record;
+BEGIN
+    FOR row IN
+        SELECT region, COUNT(*) AS count
+        FROM prepared_agg_sales
+        WHERE id @@@ pdb.all()
+        GROUP BY region
+        ORDER BY region
+    LOOP
+        RETURN NEXT depth || ':' || row.region || ':' || row.count;
+        IF depth < 1 AND row.region = 'east' THEN
+            RETURN QUERY SELECT prepared_agg_walk(depth + 1);
+        END IF;
+    END LOOP;
+END;
+$$;
+SELECT prepared_agg_walk(0);
+ prepared_agg_walk 
+-------------------
+ 0:east:20
+ 1:east:20
+ 1:north:20
+ 1:west:20
+ 0:north:20
+ 0:west:20
+(6 rows)
+
+SELECT prepared_agg_walk(0);
+ prepared_agg_walk 
+-------------------
+ 0:east:20
+ 1:east:20
+ 1:north:20
+ 1:west:20
+ 0:north:20
+ 0:west:20
+(6 rows)
+
+DROP FUNCTION prepared_agg_walk(int);
+-- =====================================================================
+-- SECTION 4: Same results from PostgreSQL
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT region, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+ region | count 
+--------+-------
+ east   |    20
+ north  |    20
+ west   |    20
+(3 rows)
+
+SELECT region, COALESCE(SUM(amount), 0) + 1 AS total, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+ region | total | count 
+--------+-------+-------
+ east   |   631 |    20
+ north  |   591 |    20
+ west   |   611 |    20
+(3 rows)
+
+SELECT rating, COUNT(*), MAX(amount)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY rating
+ORDER BY MAX(amount) DESC, rating;
+ rating | count | max 
+--------+-------+-----
+      1 |    15 |  60
+      4 |    15 |  59
+      3 |    15 |  58
+      2 |    15 |  57
+(4 rows)
+
+SELECT region, COUNT(*), SUM(amount)
+FROM prepared_agg_sales
+WHERE rating = 1 AND id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 180
+ north  |     5 | 140
+ west   |     5 | 160
+(3 rows)
+
+SELECT region, COUNT(*), SUM(amount)
+FROM prepared_agg_sales
+WHERE rating = 2 AND id @@@ pdb.all()
+GROUP BY region
+ORDER BY region;
+ region | count | sum 
+--------+-------+-----
+ east   |     5 | 165
+ north  |     5 | 125
+ west   |     5 | 145
+(3 rows)
+
+SELECT UNNEST(tags) AS tag, COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all()
+GROUP BY tag
+ORDER BY tag;
+ tag  | count 
+------+-------
+ new  |    60
+ sale |    30
+(2 rows)
+
+SELECT COUNT(*)
+FROM prepared_agg_sales
+WHERE id @@@ pdb.all();
+ count 
+-------
+    60
+(1 row)
+
+DEALLOCATE ALL;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE prepared_agg_sales;

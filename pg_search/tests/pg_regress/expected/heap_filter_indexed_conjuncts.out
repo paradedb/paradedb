@@ -1,0 +1,233 @@
+-- A predicate the index cannot answer (here a UDF over non-indexed columns) runs as a heap
+-- filter inside the Tantivy query. It must only be evaluated on the rows the indexed predicates
+-- matched, in every scan type. The UDF counts its evaluations in a sequence to make that visible.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO off;
+DROP TABLE IF EXISTS hfic_items CASCADE;
+DROP TABLE IF EXISTS hfic_orders CASCADE;
+CREATE TABLE hfic_items (
+    id serial PRIMARY KEY,
+    category text,
+    lat double precision,
+    lng double precision
+);
+-- 100 of the 1000 rows are in category 'a' (every tenth id).
+INSERT INTO hfic_items (category, lat, lng)
+SELECT CASE WHEN g % 10 = 0 THEN 'a' ELSE 'b' END, g, g
+FROM generate_series(1, 1000) g;
+CREATE INDEX hfic_items_idx ON hfic_items
+USING bm25 (id, category) WITH (target_segment_count = 1);
+CREATE TABLE hfic_orders (
+    id serial PRIMARY KEY,
+    item_id int,
+    note text
+);
+INSERT INTO hfic_orders (item_id, note)
+SELECT g, 'order' FROM generate_series(1, 1000) g;
+CREATE INDEX hfic_orders_idx ON hfic_orders
+USING bm25 (id, item_id, note) WITH (target_segment_count = 1);
+CREATE SEQUENCE hfic_calls1;
+CREATE SEQUENCE hfic_calls2;
+-- PARALLEL UNSAFE keeps every evaluation in this backend, where the sequence counts it.
+CREATE FUNCTION hfic_within(lat double precision, lng double precision, lim double precision, counter regclass)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE PARALLEL UNSAFE AS $$
+BEGIN
+    PERFORM nextval(counter);
+    RETURN lat + lng < lim;
+END
+$$;
+CREATE FUNCTION hfic_odd_decade(lat double precision, counter regclass)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE PARALLEL UNSAFE AS $$
+BEGIN
+    PERFORM nextval(counter);
+    RETURN (lat::int / 10) % 2 = 1;
+END
+$$;
+-- The index alone matches 100 rows; `lat + lng < 1000` keeps 49 of them, and
+-- `hfic_odd_decade` keeps every other one (50).
+SELECT count(*) FROM hfic_items WHERE category @@@ 'a';
+ count 
+-------
+   100
+(1 row)
+
+-- Aggregate scan: the heap filter wraps the indexed clause, so the UDF runs once per index
+-- match rather than once per row of the table.
+SET paradedb.enable_aggregate_custom_scan TO on;
+ALTER SEQUENCE hfic_calls1 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(*) FROM hfic_items
+WHERE category @@@ 'a' AND hfic_within(lat, lng, 1000, 'hfic_calls1');
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.hfic_items
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: hfic_items_idx
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"a","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"hfic_within(lat, lng, '1000'::double precision, 'hfic_calls1'::regclass)"}]}}]}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"filter":"*"}}
+(6 rows)
+
+SELECT count(*) FROM hfic_items
+WHERE category @@@ 'a' AND hfic_within(lat, lng, 1000, 'hfic_calls1');
+ count 
+-------
+    49
+(1 row)
+
+SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
+ udf_evaluations 
+-----------------
+             100
+(1 row)
+
+-- Join scan: same for the search side of a join.
+SET paradedb.enable_join_custom_scan TO on;
+ALTER SEQUENCE hfic_calls1 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT i.id, o.id
+FROM hfic_items i JOIN hfic_orders o ON o.item_id = i.id
+WHERE i.category @@@ 'a' AND hfic_within(i.lat, i.lng, 1000, 'hfic_calls1')
+ORDER BY i.id LIMIT 5;
+                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Output: i.id, o.id
+   Relation Tree: i INNER o
+   Join Cond: o.item_id = i.id
+   Limit: 5
+   Order By: o.item_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[i, o]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, item_id@1)]
+     :         CooperativeExec
+     :           PgSearchScan: table=i, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"a","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"hfic_within(lat, lng, '1000'::double precision, 'hfic_calls1'::regclass)"}]}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=o, segments=1, dynamic_filters=1, query="all"
+(15 rows)
+
+SELECT i.id, o.id
+FROM hfic_items i JOIN hfic_orders o ON o.item_id = i.id
+WHERE i.category @@@ 'a' AND hfic_within(i.lat, i.lng, 1000, 'hfic_calls1')
+ORDER BY i.id LIMIT 5;
+ id | id 
+----+----
+ 10 | 10
+ 20 | 20
+ 30 | 30
+ 40 | 40
+ 50 | 50
+(5 rows)
+
+SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
+ udf_evaluations 
+-----------------
+             100
+(1 row)
+
+SET paradedb.enable_join_custom_scan TO off;
+-- A `@@@` whose right-hand side is a parameter is solved at execution time, so the heap filter
+-- cannot wrap it at plan time and the two meet as siblings in the intersection. The `@@@`
+-- clause drives, and the UDF is probed once per row it proposes, plus the leading rows the
+-- scorer walks to position itself on its first accepted row. A rejected probe answers with a
+-- lower bound instead of walking on to the next accepted row.
+SET plan_cache_mode TO force_generic_plan;
+PREPARE hfic_param(text) AS
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ $1 AND hfic_odd_decade(lat, 'hfic_calls1')
+    ORDER BY id
+) s;
+ALTER SEQUENCE hfic_calls1 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXECUTE hfic_param('a');
+                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: count(hfic_items.id)
+   ->  Sort
+         Output: hfic_items.id
+         Sort Key: hfic_items.id
+         ->  Custom Scan (ParadeDB Base Scan) on public.hfic_items
+               Output: hfic_items.id
+               Table: hfic_items
+               Index: hfic_items_idx
+               Worker Selection: Row-capped
+               Exec Method: ColumnarExecState
+               Columnar: id
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('hfic_items_idx'::regclass, paradedb.parse_with_field('category'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","always_filters":[{"heap_filter":"hfic_odd_decade(lat, 'hfic_calls1'::regclass)"}]}}]}}
+(14 rows)
+
+EXECUTE hfic_param('a');
+ count 
+-------
+    50
+(1 row)
+
+SELECT pg_sequence_last_value('hfic_calls1') AS udf_evaluations;
+ udf_evaluations 
+-----------------
+             109
+(1 row)
+
+DEALLOCATE hfic_param;
+RESET plan_cache_mode;
+-- Base scan with two heap filters: the second wraps the first, so the index is read once, the
+-- first UDF runs once per index match and the second only on the rows the first accepted.
+ALTER SEQUENCE hfic_calls1 RESTART;
+ALTER SEQUENCE hfic_calls2 RESTART;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ 'a'
+      AND hfic_odd_decade(lat, 'hfic_calls1')
+      AND hfic_within(lat, lng, 2000, 'hfic_calls2')
+    ORDER BY id
+) s;
+                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: count(hfic_items.id)
+   ->  Sort
+         Output: hfic_items.id
+         Sort Key: hfic_items.id
+         ->  Custom Scan (ParadeDB Base Scan) on public.hfic_items
+               Output: hfic_items.id
+               Table: hfic_items
+               Index: hfic_items_idx
+               Worker Selection: Row-capped
+               Exec Method: ColumnarExecState
+               Columnar: id
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"a","lenient":null,"conjunction_mode":null}}}}]}},"always_filters":[{"heap_filter":"hfic_odd_decade(lat, 'hfic_calls1'::regclass)"}]}},"always_filters":[{"heap_filter":"hfic_within(lat, lng, '2000'::double precision, 'hfic_calls2'::regclass)"}]}}]}}
+(14 rows)
+
+SELECT count(id) FROM (
+    SELECT id FROM hfic_items
+    WHERE category @@@ 'a'
+      AND hfic_odd_decade(lat, 'hfic_calls1')
+      AND hfic_within(lat, lng, 2000, 'hfic_calls2')
+    ORDER BY id
+) s;
+ count 
+-------
+    50
+(1 row)
+
+SELECT pg_sequence_last_value('hfic_calls1') AS first_udf_evaluations,
+       pg_sequence_last_value('hfic_calls2') AS second_udf_evaluations;
+ first_udf_evaluations | second_udf_evaluations 
+-----------------------+------------------------
+                   100 |                     50
+(1 row)
+
+DROP FUNCTION hfic_within(double precision, double precision, double precision, regclass);
+DROP FUNCTION hfic_odd_decade(double precision, regclass);
+DROP SEQUENCE hfic_calls1;
+DROP SEQUENCE hfic_calls2;
+DROP TABLE hfic_orders;
+DROP TABLE hfic_items;

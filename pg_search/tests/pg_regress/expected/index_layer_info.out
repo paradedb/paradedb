@@ -1,0 +1,169 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CALL paradedb.create_paradedb_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items_1'
+);
+CALL paradedb.create_paradedb_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items_2'
+);
+CREATE INDEX mock_items_1_idx ON mock_items_1
+USING paradedb (id, description, category);
+CREATE INDEX mock_items_2_idx ON mock_items_2
+USING paradedb (id, description, category);
+SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items_1_idx' OR relname = 'mock_items_2_idx';
+     relname      |    layer_size     
+------------------+-------------------
+ mock_items_1_idx | 10000 MB..
+ mock_items_1_idx | 1000 MB..10000 MB
+ mock_items_1_idx | 100 MB..1000 MB
+ mock_items_1_idx | 10 MB..100 MB
+ mock_items_1_idx | 1024 kB..10 MB
+ mock_items_1_idx | 100 kB..1024 kB
+ mock_items_1_idx | ..100 kB
+ mock_items_2_idx | 10000 MB..
+ mock_items_2_idx | 1000 MB..10000 MB
+ mock_items_2_idx | 100 MB..1000 MB
+ mock_items_2_idx | 10 MB..100 MB
+ mock_items_2_idx | 1024 kB..10 MB
+ mock_items_2_idx | 100 kB..1024 kB
+ mock_items_2_idx | ..100 kB
+(14 rows)
+
+SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
+                    combined_layer_sizes                    
+------------------------------------------------------------
+ {102400,1048576,10485760,104857600,1048576000,10485760000}
+(1 row)
+
+SELECT * FROM paradedb.combined_layer_sizes('mock_items_2_idx');
+                    combined_layer_sizes                    
+------------------------------------------------------------
+ {102400,1048576,10485760,104857600,1048576000,10485760000}
+(1 row)
+
+CALL paradedb.create_paradedb_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items_not_ready'
+);
+CREATE INDEX mock_items_not_ready_idx_ccnew ON mock_items_not_ready
+USING paradedb (id, description, category);
+SET allow_system_table_mods = on;
+UPDATE pg_index
+SET indisvalid = false,
+    indisready = false
+WHERE indexrelid = 'mock_items_not_ready_idx_ccnew'::regclass;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pdb.index_layer_info WHERE relname = 'mock_items_not_ready_idx_ccnew') THEN
+        RAISE EXCEPTION 'pdb.index_layer_info should skip indexes that are not valid and ready';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM paradedb.index_layer_info WHERE relname = 'mock_items_not_ready_idx_ccnew') THEN
+        RAISE EXCEPTION 'paradedb.index_layer_info should skip indexes that are not valid and ready';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM paradedb.index_info('mock_items_not_ready_idx_ccnew', true)) THEN
+        RAISE EXCEPTION 'paradedb.index_info should skip indexes that are not valid and ready';
+    END IF;
+END
+$$;
+UPDATE pg_index
+SET indisvalid = true,
+    indisready = true
+WHERE indexrelid = 'mock_items_not_ready_idx_ccnew'::regclass;
+SET allow_system_table_mods = off;
+ALTER INDEX mock_items_1_idx SET (layer_sizes = '0');
+ALTER INDEX mock_items_1_idx SET (background_layer_sizes = '10kb, 100kb, 1mb, 100mb');
+SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items_1_idx' OR relname = 'mock_items_2_idx';
+     relname      |    layer_size     
+------------------+-------------------
+ mock_items_1_idx | 100 MB..
+ mock_items_1_idx | 1024 kB..100 MB
+ mock_items_1_idx | 100 kB..1024 kB
+ mock_items_1_idx | 10 kB..100 kB
+ mock_items_1_idx | ..10 kB
+ mock_items_2_idx | 10000 MB..
+ mock_items_2_idx | 1000 MB..10000 MB
+ mock_items_2_idx | 100 MB..1000 MB
+ mock_items_2_idx | 10 MB..100 MB
+ mock_items_2_idx | 1024 kB..10 MB
+ mock_items_2_idx | 100 kB..1024 kB
+ mock_items_2_idx | ..100 kB
+(12 rows)
+
+SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
+       combined_layer_sizes       
+----------------------------------
+ {10240,102400,1048576,104857600}
+(1 row)
+
+ALTER INDEX mock_items_1_idx SET (layer_sizes = '10kb, 100kb');
+ALTER INDEX mock_items_1_idx SET (background_layer_sizes = '10kb, 100kb, 1mb, 100mb, 1gb');
+SELECT relname, layer_size FROM pdb.index_layer_info WHERE relname = 'mock_items_1_idx' OR relname = 'mock_items_2_idx';
+     relname      |    layer_size     
+------------------+-------------------
+ mock_items_1_idx | 1024 MB..
+ mock_items_1_idx | 100 MB..1024 MB
+ mock_items_1_idx | 1024 kB..100 MB
+ mock_items_1_idx | 100 kB..1024 kB
+ mock_items_1_idx | 10 kB..100 kB
+ mock_items_1_idx | ..10 kB
+ mock_items_2_idx | 10000 MB..
+ mock_items_2_idx | 1000 MB..10000 MB
+ mock_items_2_idx | 100 MB..1000 MB
+ mock_items_2_idx | 10 MB..100 MB
+ mock_items_2_idx | 1024 kB..10 MB
+ mock_items_2_idx | 100 kB..1024 kB
+ mock_items_2_idx | ..100 kB
+(13 rows)
+
+SELECT * FROM paradedb.combined_layer_sizes('mock_items_1_idx');
+            combined_layer_sizes             
+---------------------------------------------
+ {10240,102400,1048576,104857600,1073741824}
+(1 row)
+
+DROP TABLE mock_items_1;
+DROP TABLE mock_items_2;
+DROP TABLE mock_items_not_ready;
+CREATE TABLE bitmap_size_items AS
+SELECT id, CASE WHEN id % 2 = 0 THEN 'common' ELSE 'other' END AS body
+FROM generate_series(1, 512) AS id;
+CREATE INDEX bitmap_size_idx ON bitmap_size_items
+USING bm25 (id, body) WITH (target_segment_count = 1);
+SELECT bool_and(posting_bitmaps_bytes > 0 AND posting_bitmaps_bytes < byte_size) AS bitmap_size_reported
+FROM paradedb.index_info('bitmap_size_idx');
+ bitmap_size_reported 
+----------------------
+ t
+(1 row)
+
+SELECT sum(posting_bitmaps_bytes) = (
+    SELECT sum((p.contents #>> '{content,Immutable,posting_bitmaps,total_bytes}')::numeric)
+    FROM paradedb.storage_info('bitmap_size_idx') s
+    CROSS JOIN LATERAL paradedb.page_info('bitmap_size_idx', s.block) p
+    WHERE p.visible
+) AS bitmap_size_matches_storage
+FROM paradedb.index_info('bitmap_size_idx');
+ bitmap_size_matches_storage 
+-----------------------------
+ t
+(1 row)
+
+DROP INDEX bitmap_size_idx;
+CREATE INDEX bitmap_size_idx ON bitmap_size_items
+USING bm25 (id, (body::pdb.simple('bitmap_postings=false'))) WITH (target_segment_count = 1);
+SELECT bool_and(posting_bitmaps_bytes IS NULL) AS absent_bitmap_size_is_null
+FROM paradedb.index_info('bitmap_size_idx');
+ absent_bitmap_size_is_null 
+----------------------------
+ t
+(1 row)
+
+DROP TABLE bitmap_size_items;

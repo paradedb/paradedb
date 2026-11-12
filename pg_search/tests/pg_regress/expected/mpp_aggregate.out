@@ -1,0 +1,627 @@
+-- =====================================================================
+-- End-to-end MPP exercise on AggregateScan.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+-- Use the closed chain's default worker count so PG sees enough workers
+-- to actually parallelize (with parallel_workers = 1, PG falls into the
+-- `Single Copy: true` path and never exercises the MPP shuffle).
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+-- Force parallel even on this tiny dataset; otherwise the cost-based
+-- planner picks the serial AggregateScan and MPP never activates.
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+-- =====================================================================
+-- Test data
+-- =====================================================================
+CREATE TABLE mpp_files (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE mpp_pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER,
+    page_text TEXT,
+    size_bytes INTEGER
+);
+CREATE INDEX mpp_files_idx ON mpp_files
+USING paradedb (id, (title::pdb.unicode_words('columnar=true')), content);
+CREATE INDEX mpp_pages_idx ON mpp_pages
+USING paradedb (id, file_id, page_text, size_bytes);
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 100) AS g;
+INSERT INTO mpp_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(101, 200) AS g;
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 500) AS g;
+INSERT INTO mpp_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(501, 1000) AS g;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE mpp_files;
+ANALYZE mpp_pages;
+-- =====================================================================
+-- Pass 1: serial baseline (max_parallel_workers_per_gather = 0)
+--
+-- Scalar COUNT(*) without GROUP BY: PG's planner doesn't parallelize
+-- scalar aggregates on small datasets (no natural Partial+Final split
+-- available), so this only exercises the serial customscan path. The
+-- result is the correctness baseline for pass 2.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 0;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(*)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                                      QUERY PLAN                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*))
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[count(1) as agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     CooperativeExec
+     :       PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(12 rows)
+
+SELECT COUNT(*)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+ count 
+-------
+  1000
+(1 row)
+
+-- GROUP BY: PG can pick a parallel-aggregate plan for this shape.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+                                                                                                                                           QUERY PLAN                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, (count(*)), (sum(p.size_bytes))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: f.title, (count(*)), (sum(p.size_bytes))
+         Backend: DataFusion
+         Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+         Group By: title
+         Aggregates: COUNT(*), SUM(size_bytes)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
+           :       CooperativeExec
+           :         PgSearchScan: table=f, segments=2, eager=[title], dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       CooperativeExec
+           :         PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(16 rows)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   | count |  sum  
+----------+-------+-------
+ file-1   |     5 | 10040
+ file-10  |     5 | 10189
+ file-100 |     5 |  9647
+ file-101 |     5 |  9732
+ file-102 |     5 |  9817
+(5 rows)
+
+-- SELECT DISTINCT routes through the same DataFusion aggregate path as a
+-- GROUP BY with no aggregates. No LIMIT, so JoinScan (which requires one)
+-- stays out and AggregateScan owns the dedup.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
+                                                                                                                               QUERY PLAN                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: f.title
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Group By: title
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[title@0 as title], aggr=[]
+     :   TantivyDecodeExec: decode=[title]
+     :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
+     :       CooperativeExec
+     :         PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(13 rows)
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT f.title
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content ||| 'Section'
+) t;
+ count 
+-------
+   200
+(1 row)
+
+-- Values, not just the cardinality: a shuffle that drops or duplicates a group
+-- while keeping the count right would slip past a COUNT-only check.
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+ORDER BY f.title
+LIMIT 5;
+  title   
+----------
+ file-1
+ file-10
+ file-100
+ file-101
+ file-102
+(5 rows)
+
+-- pdb.agg: scalar terms aggregation over join
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                                                QUERY PLAN                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"terms": {"size": 5, "field": "title", "order": {"_key": "asc"}}}'::jsonb))
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Aggregates: pdb.agg({"terms":{"size":5,"field":"title","order":{"_key":"asc"}}})
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :   AggregateExec: mode=Final, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :     AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
+
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                               agg                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "file-1", "doc_count": 5}, {"key": "file-10", "doc_count": 5}, {"key": "file-100", "doc_count": 5}, {"key": "file-101", "doc_count": 5}, {"key": "file-102", "doc_count": 5}], "sum_other_doc_count": 975}
+(1 row)
+
+-- pdb.agg: terms aggregation with GROUP BY
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, (pdb.agg('{"terms": {"field": "title"}}'::jsonb))
+   ->  Sort
+         Output: f.title, (pdb.agg('{"terms": {"field": "title"}}'::jsonb))
+         Sort Key: f.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: f.title, (pdb.agg('{"terms": {"field": "title"}}'::jsonb))
+               Backend: DataFusion
+               Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+               Group By: title
+               Aggregates: pdb.agg({"terms":{"field":"title"}})
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[title@0 as title, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0]
+                 :   AggregateExec: mode=Final, gby=[title@0 as title, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
+                 :     AggregateExec: mode=Partial, gby=[(title@0 as title, NULL as __pdb_k0), (title@0 as title, title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@0)], projection=[title@0]
+                 :         CooperativeExec
+                 :           PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(20 rows)
+
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   |                                                      agg                                                       
+----------+----------------------------------------------------------------------------------------------------------------
+ file-1   | {"buckets": [{"key": "file-1", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-10  | {"buckets": [{"key": "file-10", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-100 | {"buckets": [{"key": "file-100", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-101 | {"buckets": [{"key": "file-101", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-102 | {"buckets": [{"key": "file-102", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(5 rows)
+
+-- =====================================================================
+-- Pass 2: MPP path (max_parallel_workers_per_gather = 3). Same queries, same expected results.
+--
+-- The scalar COUNT(*) case still falls back to serial — PG won't
+-- parallelize scalar aggregates at this scale even with the parallel-
+-- cost knobs zeroed. The GROUP BY case should flip into a `Gather →
+-- Parallel Custom Scan` shape with `Workers Planned > 0`, exercising
+-- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
+-- =====================================================================
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(*)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (count(*))
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Aggregates: COUNT(*)
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
+     : │   CoalescePartitionsExec
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
+     :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
+     :   │   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :   │     CoalescePartitionsExec
+     :   │       [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :   │     DistributedLeafExec:
+     :   │       t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :   │       t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=2, partitions=4
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     │     t1: PgSearchScan: table=f, segments=2, visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :     └──────────────────────────────────────────────────
+(26 rows)
+
+SELECT COUNT(*)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+ count 
+-------
+  1000
+(1 row)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+                                                                                                                                               QUERY PLAN                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, (count(*)), (sum(p.size_bytes))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: f.title, (count(*)), (sum(p.size_bytes))
+         Backend: DataFusion
+         Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+         Group By: title
+         Aggregates: COUNT(*), SUM(size_bytes)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   │ SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
+           :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[count(1) as agg_0, sum(p_1.size_bytes) as agg_1]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@1)], projection=[title@0, size_bytes@2]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     └──────────────────────────────────────────────────
+           :       ┌───── Stage 1 ── tasks=2, partitions=4
+           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :       │   DistributedLeafExec:
+           :       │     t0: PgSearchScan: table=f, segments=2, eager=[title], dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       │     t1: PgSearchScan: table=f, segments=2, eager=[title], dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       └──────────────────────────────────────────────────
+(34 rows)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   | count |  sum  
+----------+-------+-------
+ file-1   |     5 | 10040
+ file-10  |     5 | 10189
+ file-100 |     5 |  9647
+ file-101 |     5 |  9732
+ file-102 |     5 |  9817
+(5 rows)
+
+-- DISTINCT under MPP: a GROUP BY with no aggregates, partitioned by the
+-- group key across workers. Same expected count as the serial baseline.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: f, p)
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: f.title
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Group By: title
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
+     : │   [Stage 4] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 4 ── tasks=2, partitions=3
+     :   │ AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[]
+     :   │   [Stage 3] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 3 ── tasks=2, partitions=6
+     :     │ RepartitionExec: partitioning=Hash([title@0], 6), input_partitions=3
+     :     │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[]
+     :     │     TantivyDecodeExec: decode=[title]
+     :     │       HashJoinExec: mode=Partitioned, join_type=LeftSemi, on=[(id@1, file_id@0)], projection=[title@0]
+     :     │         [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     │         [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=6
+     :       │ RepartitionExec: partitioning=Hash([id@1], 6), input_partitions=1
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │     t1: PgSearchScan: table=f, segments=2, fetch=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       └──────────────────────────────────────────────────
+     :       ┌───── Stage 2 ── tasks=2, partitions=6
+     :       │ RepartitionExec: partitioning=Hash([file_id@0], 6), input_partitions=1
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :       │     t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :       └──────────────────────────────────────────────────
+(34 rows)
+
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT f.title
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content ||| 'Section'
+) t;
+ count 
+-------
+   200
+(1 row)
+
+-- Values, not just the cardinality: a shuffle that drops or duplicates a group
+-- while keeping the count right would slip past a COUNT-only check.
+SELECT DISTINCT f.title
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+ORDER BY f.title
+LIMIT 5;
+  title   
+----------
+ file-1
+ file-10
+ file-100
+ file-101
+ file-102
+(5 rows)
+
+-- pdb.agg: scalar terms aggregation under MPP
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: (pdb.agg('{"terms": {"size": 5, "field": "title", "order": {"_key": "asc"}}}'::jsonb))
+   Backend: DataFusion
+   Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+   Aggregates: pdb.agg({"terms":{"size":5,"field":"title","order":{"_key":"asc"}}})
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ CoalescePartitionsExec
+     : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 3 ── tasks=2, partitions=3
+     :   │ ProjectionExec: expr=[__grouping_id@1 as __grouping_id, __pdb_k0@0 as __pdb_k0, __pdb_m0@2 as __pdb_m0]
+     :   │   AggregateExec: mode=FinalPartitioned, gby=[__pdb_k0@0 as __pdb_k0, __grouping_id@1 as __grouping_id], aggr=[count(1) as __pdb_m0]
+     :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 2 ── tasks=2, partitions=6
+     :     │ RepartitionExec: partitioning=Hash([__pdb_k0@0, __grouping_id@1], 6), input_partitions=1
+     :     │   AggregateExec: mode=Partial, gby=[(NULL as __pdb_k0), (title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+     :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1]
+     :     │       CoalescePartitionsExec
+     :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :     │       DistributedLeafExec:
+     :     │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :     │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+     :     └──────────────────────────────────────────────────
+     :       ┌───── Stage 1 ── tasks=2, partitions=4
+     :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :       │   DistributedLeafExec:
+     :       │     t0: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       │     t1: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :       └──────────────────────────────────────────────────
+(31 rows)
+
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                               agg                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "file-1", "doc_count": 5}, {"key": "file-10", "doc_count": 5}, {"key": "file-100", "doc_count": 5}, {"key": "file-101", "doc_count": 5}, {"key": "file-102", "doc_count": 5}], "sum_other_doc_count": 975}
+(1 row)
+
+-- pdb.agg: terms aggregation with GROUP BY under MPP
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+                                                                                                                                         QUERY PLAN                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.title, (pdb.agg('{"terms": {"field": "title"}}'::jsonb))
+   ->  Sort
+         Output: f.title, (pdb.agg('{"terms": {"field": "title"}}'::jsonb))
+         Sort Key: f.title
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: f.title, (pdb.agg('{"terms": {"field": "title"}}'::jsonb))
+               Backend: DataFusion
+               Indexes: mpp_files_idx (f), mpp_pages_idx (p)
+               Group By: title
+               Aggregates: pdb.agg({"terms":{"field":"title"}})
+               DataFusion Physical Plan: 
+                 : ┌───── DistributedExec
+                 : │ CoalescePartitionsExec
+                 : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+                 : └──────────────────────────────────────────────────
+                 :   ┌───── Stage 3 ── tasks=2, partitions=3
+                 :   │ ProjectionExec: expr=[title@0 as title, __grouping_id@2 as __grouping_id, __pdb_k0@1 as __pdb_k0, __pdb_m0@3 as __pdb_m0]
+                 :   │   AggregateExec: mode=FinalPartitioned, gby=[title@0 as title, __pdb_k0@1 as __pdb_k0, __grouping_id@2 as __grouping_id], aggr=[count(1) as __pdb_m0]
+                 :   │     [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+                 :   └──────────────────────────────────────────────────
+                 :     ┌───── Stage 2 ── tasks=2, partitions=6
+                 :     │ RepartitionExec: partitioning=Hash([title@0, __pdb_k0@1, __grouping_id@2], 6), input_partitions=1
+                 :     │   AggregateExec: mode=Partial, gby=[(title@0 as title, NULL as __pdb_k0), (title@0 as title, title@0 as __pdb_k0)], aggr=[count(1) as __pdb_m0]
+                 :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, file_id@0)], projection=[title@0]
+                 :     │       CoalescePartitionsExec
+                 :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+                 :     │       DistributedLeafExec:
+                 :     │         t0: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+                 :     │         t1: PgSearchScan: table=p, segments=2, dynamic_filters=1, visibility=eager, query="all"
+                 :     └──────────────────────────────────────────────────
+                 :       ┌───── Stage 1 ── tasks=2, partitions=4
+                 :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+                 :       │   DistributedLeafExec:
+                 :       │     t0: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :       │     t1: PgSearchScan: table=f, segments=2, eager=[title], visibility=eager, query={"with_index":{"query":{"match":{"field":"content","value":"Section","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :       └──────────────────────────────────────────────────
+(37 rows)
+
+SELECT f.title, pdb.agg('{"terms": {"field": "title"}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   |                                                      agg                                                       
+----------+----------------------------------------------------------------------------------------------------------------
+ file-1   | {"buckets": [{"key": "file-1", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-10  | {"buckets": [{"key": "file-10", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-100 | {"buckets": [{"key": "file-100", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-101 | {"buckets": [{"key": "file-101", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ file-102 | {"buckets": [{"key": "file-102", "doc_count": 5}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(5 rows)
+
+-- =====================================================================
+-- Pass 3: the size gate falls back to serial execution for the aggregate
+-- path too, and the results match the serial baseline.
+-- =====================================================================
+SET paradedb.mpp_min_rows TO 1000000000;
+CREATE OR REPLACE FUNCTION mpp_agg_explain_analyze_lines(q text) RETURNS SETOF text AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN EXECUTE 'EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) ' || q LOOP
+    RETURN NEXT r."QUERY PLAN";
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+SELECT count(*) = 0 AS gated_no_distributed_exec
+FROM mpp_agg_explain_analyze_lines(
+  $$SELECT f.title, COUNT(*), SUM(p.size_bytes)
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content ||| 'Section'
+    GROUP BY f.title
+    ORDER BY f.title
+    LIMIT 5$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ gated_no_distributed_exec 
+---------------------------
+ t
+(1 row)
+
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
+  title   | count |  sum  
+----------+-------+-------
+ file-1   |     5 | 10040
+ file-10  |     5 | 10189
+ file-100 |     5 |  9647
+ file-101 |     5 |  9732
+ file-102 |     5 |  9817
+(5 rows)
+
+SELECT count(*) = 0 AS gated_no_distributed_exec_pdb_agg
+FROM mpp_agg_explain_analyze_lines(
+  $$SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+    FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+    WHERE f.content ||| 'Section'$$
+) AS line
+WHERE line LIKE '%DistributedExec%';
+ gated_no_distributed_exec_pdb_agg 
+-----------------------------------
+ t
+(1 row)
+
+SELECT pdb.agg('{"terms": {"field": "title", "order": {"_key": "asc"}, "size": 5}}')
+FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
+WHERE f.content ||| 'Section';
+                                                                                                               agg                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": "file-1", "doc_count": 5}, {"key": "file-10", "doc_count": 5}, {"key": "file-100", "doc_count": 5}, {"key": "file-101", "doc_count": 5}, {"key": "file-102", "doc_count": 5}], "sum_other_doc_count": 975}
+(1 row)
+
+DROP FUNCTION mpp_agg_explain_analyze_lines(text);
+RESET paradedb.mpp_min_rows;
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+DROP TABLE mpp_pages;
+DROP TABLE mpp_files;

@@ -1,0 +1,99 @@
+-- Test JSON field GROUP BY with aggregate custom scan
+-- Create extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+-- Enable aggregate custom scan
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =========================================
+-- Test 1: Single JSON field GROUP BY
+-- =========================================
+-- Create test table
+CREATE TABLE json_test_single (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB,
+    data JSONB
+);
+-- Insert test data
+INSERT INTO json_test_single (metadata, data) VALUES
+    ('{"category": "electronics", "brand": "Apple", "price": 999}', '{"color": "silver", "stock": 10}'),
+    ('{"category": "electronics", "brand": "Samsung", "price": 799}', '{"color": "black", "stock": 15}'),
+    ('{"category": "electronics", "brand": "Apple", "price": 1299}', '{"color": "gold", "stock": 5}'),
+    ('{"category": "clothing", "brand": "Nike", "price": 89}', '{"size": "M", "stock": 20}'),
+    ('{"category": "clothing", "brand": "Adidas", "price": 79}', '{"size": "L", "stock": 25}'),
+    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}'),
+    ('{"category": "clothing", "brand": "Puma", "price": 99}', '{"size": "S", "stock": 30}');
+-- Create BM25 index
+CREATE INDEX idx_json_single ON json_test_single
+USING paradedb (id, (metadata::pdb.unicode_words('columnar=true')), (data::pdb.unicode_words('columnar=true')));
+-- GROUP BY ... ORDER BY ... LIMIT pushed down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_single
+WHERE id @@@ paradedb.exists('metadata.category')
+GROUP BY metadata->>'category'
+ORDER BY 1
+LIMIT 5;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: ((metadata ->> 'category'::text)), (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
+         Output: (metadata ->> 'category'::text), pdb.agg_fn('COUNT(*)'::text)
+         Index: idx_json_single
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata.category
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_single
+WHERE id @@@ paradedb.exists('metadata.category')
+GROUP BY metadata->>'category'
+ORDER BY 1
+LIMIT 5;
+  category   | count 
+-------------+-------
+ clothing    |     4
+ electronics |     3
+(2 rows)
+
+-- Ordering by count is pushed down to DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_single
+WHERE id @@@ paradedb.exists('metadata.category')
+GROUP BY metadata->>'category'
+ORDER BY 2
+LIMIT 5;
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: ((metadata ->> 'category'::text)), (count(*))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((metadata ->> 'category'::text)), (count(*))
+         Backend: DataFusion
+         Indexes: idx_json_single (json_test_single)
+         Group By: metadata.category
+         Aggregates: COUNT(*)
+         DataFusion Physical Plan: 
+           : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :   AggregateExec: mode=Single, gby=[metadata.category@0 as metadata.category], aggr=[count(1) as agg_0]
+           :     CooperativeExec
+           :       PgSearchScan: table=json_test_single, segments=1, eager=[metadata.category], visibility=eager, query={"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+(13 rows)
+
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_single
+WHERE id @@@ paradedb.exists('metadata.category')
+GROUP BY metadata->>'category'
+ORDER BY 2
+LIMIT 5;
+  category   | count 
+-------------+-------
+ electronics |     3
+ clothing    |     4
+(2 rows)
+
+DROP TABLE json_test_single CASCADE;

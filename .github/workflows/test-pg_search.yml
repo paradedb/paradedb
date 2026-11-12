@@ -161,6 +161,12 @@ jobs:
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus
 
+          # PostgreSQL 15.20 exports have_createdb_privilege(), and Citus 13 defines a copy for PG 15.
+          perl -0pi -e '
+            s/(static inline bool\nhave_createdb_privilege\(void\)\n\{.*?\n\}\n)/#if PG_VERSION_NUM < 150020\n$1#endif\n/s
+              or die "have_createdb_privilege() not found\n"
+          ' src/include/pg_version_compat.h
+
           PG_CONFIG="${{ steps.postgres-system.outputs.pg_config || steps.postgres-pgrx.outputs.pg_config }}"
 
           PG_CONFIG="${PG_CONFIG}" ./configure --without-libcurl

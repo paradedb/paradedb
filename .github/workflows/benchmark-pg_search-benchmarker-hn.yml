@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: ${{ matrix.engine != 'pg_search' && 1440 || 720 }}
     runs-on:
       - runs-on=${{ github.run_id }}
-      - spot=${{ matrix.engine != 'vectorchord' }}
+      - spot=${{ !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot') }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64

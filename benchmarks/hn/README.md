@@ -15,6 +15,12 @@ gh workflow run benchmark-pg_search-benchmarker-hn.yml \
   --repo paradedb/paradedb --ref main
 ```
 
+For on-demand runners, apply `benchmark-nonspot` to the PR **before** adding
+the benchmark trigger label. This applies to every engine in this workflow.
+The modifier stays on the PR for subsequent runs; remove it to use Spot again.
+It does not start a benchmark by itself or change an already queued or running
+job. Scheduled and manual runs use Spot because they have no PR labels.
+
 The optional `commit` input benchmarks another revision using this workflow's
 benchmark code. Only scheduled and manual main runs without that override update
 the rolling baseline, under `benchmarker hackernews-vector-28m`.

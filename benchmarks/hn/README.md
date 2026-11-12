@@ -1,5 +1,9 @@
 # Hacker News vector CI
 
+Recall selection uses the shared [operating-point cache](../../.github/actions/cache-vector-tuning/README.md).
+Cached values are revalidated on every run; missing or failing targets are retuned.
+Manual runs can set `tuning` to `refresh` or `required` to force retuning or forbid sweeps.
+
 The HN workflow restores the existing PostgreSQL 18 heap from
 `s3://paradedb-benchmark/snapshots/hackernews/vector/v1/28m/39152428323-1/pg_backrest/`,
 stanza `bench`, backup `20261018-214625F`. No copy or snapshot generation is

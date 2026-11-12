@@ -1,5 +1,9 @@
 # Cohere vector CI
 
+Recall selection uses the shared [operating-point cache](../../.github/actions/cache-vector-tuning/README.md).
+Cached values are revalidated on every run; missing or failing targets are retuned.
+Manual runs can set `tuning` to `refresh` or `required` to force retuning or forbid sweeps.
+
 Cohere restores its existing pgBackRest heap snapshots into a source-built
 ParadeDB Docker image. `paradedb/pdbench` selects recall operating points;
 `paradedb/benchmarker` measures search latency and throughput.

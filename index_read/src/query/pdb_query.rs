@@ -23,6 +23,7 @@ use crate::index::synonym_index::{
 };
 use crate::postgres::catalog::OidExt;
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::is_datetime_type;
@@ -2369,15 +2370,24 @@ fn expand_match(
     expand_with_index(&index, tokens)
 }
 
-/// The synonym index on column `attno` (from zero) of `table` that `holds_rules` accepts, and
-/// that `expand_match` accepts for a query on `field` of the text index `index`.
+/// The synonym index on the column at `column_index` (from zero) of `table` that `holds_rules`
+/// accepts, and that `expand_match` accepts for a query on `field` of the text index `index`.
 pub fn synonym_index_of_column(
     table: &PgSearchRelation,
-    attno: usize,
+    column_index: usize,
     holds_rules: impl Fn(&PgSearchRelation) -> bool,
     index: &PgSearchRelation,
     field: &FieldName,
 ) -> Option<pg_sys::Oid> {
+    // The index of a partitioned table has no storage to read a schema from. Each of its leaves
+    // has its definition.
+    let leaf;
+    let index = if is_partitioned_index(index.oid()) {
+        leaf = leaf_partition_indexes(index).next()?;
+        &leaf
+    } else {
+        index
+    };
     let schema = index.schema().ok()?;
     let search_field = schema.search_field(field.root())?;
     let query_tokenizer = query_tokenizer(&search_field, &schema)?;
@@ -2396,7 +2406,7 @@ pub fn synonym_index_of_column(
                     .attributes()
                     .get(&rule_field)
                     .and_then(|attribute| attribute.source.heap_attno())
-                    == Some(attno)
+                    == Some(column_index)
             });
             reads_column
                 && rule_tokenizer(candidate).as_ref() == Some(&query_tokenizer)

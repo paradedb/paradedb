@@ -774,11 +774,16 @@ impl SuiteRunner {
         self.alive.load(Ordering::Relaxed)
     }
 
-    /// Ends all job threads
-    pub fn terminate(&self) {
+    /// Stop scheduling work without waiting for database connections.
+    pub fn request_stop(&self) {
         self.alive.store(false, Ordering::Relaxed);
         self.paused.store(false, Ordering::Relaxed);
-        for runner in self.runners() {
+    }
+
+    /// Ends all job threads
+    pub fn terminate(&self) {
+        self.request_stop();
+        for runner in self.runners().chain(self.monitor_runners()) {
             runner.cancel_query();
         }
     }

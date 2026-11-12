@@ -161,11 +161,29 @@ pub fn run(
         }
     }
 
-    suite_runner.terminate();
+    let terminate_start = std::time::Instant::now();
+    let shutdown_timeout = std::time::Duration::from_secs(60);
+    suite_runner.request_stop();
 
     let finished = Arc::new(AtomicBool::new(false));
+    // A failed cancellation connection must not prevent other jobs from being canceled
+    // or stop the main thread from enforcing the shutdown deadline.
+    for runner in suite_runner.runners().chain(suite_runner.monitor_runners()) {
+        let finished = finished.clone();
+        std::thread::spawn(move || {
+            while terminate_start.elapsed() < shutdown_timeout
+                && !finished.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                if runner.running() {
+                    runner.cancel_query();
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        });
+    }
     {
         let finished = finished.clone();
+        let suite_runner = suite_runner.clone();
         std::thread::spawn(move || {
             let errors = suite_runner
                 .wait_for_finish()
@@ -198,8 +216,7 @@ pub fn run(
         })
     };
 
-    let terminate_start = std::time::Instant::now();
-    while terminate_start.elapsed() < std::time::Duration::from_secs(60) {
+    while terminate_start.elapsed() < shutdown_timeout {
         if finished.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
@@ -207,6 +224,11 @@ pub fn run(
     }
 
     if !finished.load(std::sync::atomic::Ordering::Relaxed) {
+        for runner in suite_runner.runners().chain(suite_runner.monitor_runners()) {
+            if runner.running() {
+                eprintln!("job still running at shutdown timeout: {}", runner.title());
+            }
+        }
         eprintln!("suite did not finish after 60 seconds");
         std::process::exit(1);
     }

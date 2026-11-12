@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794493626194,
+  "lastUpdate": 1794502066235,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -86770,6 +86770,299 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13922472179-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794502063055,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 32.226,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 46.584,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 55.206,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 35.243,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 44.441,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 52.839,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 70.422,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 105.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 113.519,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 33.857,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 57.984,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 65.934,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 39.362,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 55.569,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 63.815,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 50.854,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 63.077,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 68.02,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 32.469,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 52.404,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 61.269,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 36.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 53.285,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 63.071,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 48.637,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 62.149,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 70.264,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.666,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.788,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.672,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.709,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.649,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.686,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.762,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 18.101,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 18.924,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 19.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 18.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 19.612,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 20.459,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 12.352,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 12.698,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 13.954,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 19.834,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 22.69,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 23.364,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 37.229,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 40.978,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 41.851,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 95.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 109.693,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 110.595,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13965035445-latency"
       }
     ],
     "benchmarker hackernews-vector-28m (throughput)": [
@@ -86885,6 +87178,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13922472179-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794502064293,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 29.103681670344518,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 27.5154827945375,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 13.244449007120533,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 26.43961552940113,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 24.735171408841783,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 20.191485407418533,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 27.903751392698805,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 25.67923066725331,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 20.697612554502058,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 269.811042747658,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 269.9963877436405,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 271.65954264624014,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 56.01977674777593,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 52.967323487439366,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 80.33081325708419,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 51.2522222176078,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 28.230012886306216,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 10.201953265573714,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13965035445-throughput"
       }
     ],
     "benchmarker hackernews-vector-28m (buffers)": [
@@ -87000,6 +87406,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13922472179-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794502065211,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 18977.66,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 23186.96,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 68779.85,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 17298.73,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 20496.12,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 32070.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 18966.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 21692.18,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 30529.4,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1274.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1274.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1274.56,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 8869.89,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 9499.08,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7235.31,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 7936.2,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 15926.35,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 48497.79,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13965035445-buffers"
       }
     ],
     "benchmarker hackernews-vector-28m (index build)": [
@@ -87040,6 +87559,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13922472179-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794502066220,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 21.716666666666665,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162329.828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 47.651710510253906,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13965035445-index"
       }
     ]
   }

@@ -39,6 +39,23 @@ refresh the baseline; subsequent PRs compare with it. Diagnostics retain
 extension/tool revisions, configuration, the verified query hash, segment
 statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
 
+For memory time series, download the `msmarco-113m-diagnostics` artifact:
+
+- Build samples are in `benchmark-artifacts/load/*/*_load/points.jsonl`.
+  Select records with `type == "Point"` and `metric == "container_memory_usage"`;
+  `time` is a UTC timestamp and `value` is bytes. The samples cover the entire
+  finalize step, including index creation and `VACUUM ANALYZE`.
+- Query samples are in `benchmarker/results/<operating-point>.json` under
+  `containers.paradedb.memory`. Each sample has `time` in Unix milliseconds
+  and `value` in bytes; subtract the dashboard's top-level `startTime` for
+  elapsed milliseconds. A dedicated collector covers both warmup and
+  measurement; the HTML dashboard also displays memory and CPU usage.
+
+These two memory series use the same definition: usage including page cache on
+cgroup v2, or usage minus cache on cgroup v1. The build's separate
+`container_memory` series excludes inactive page cache and supplies the published
+peak build metric.
+
 Run the shared handoff tests locally with:
 
 ```sh

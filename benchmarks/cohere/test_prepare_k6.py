@@ -5,7 +5,8 @@ import json
 import unittest
 from pathlib import Path
 
-from prepare_k6 import PROBE, QUERIES, SUITES, operating_points, summary
+import tomllib
+from prepare_k6 import DIMENSIONS, PROBE, QUERIES, SUITES, operating_points, summary
 from verify_plans import verify
 
 
@@ -15,7 +16,7 @@ def reports(dataset="cohere"):
         {
             "kind": "search",
             "config": {
-                "dataset": {"name": dataset, "size": "1m", "dims": 1024},
+                "dataset": {"name": dataset, "size": "1m", "dims": DIMENSIONS[dataset]},
                 "search": {
                     "query": query,
                     "k": neighbors,
@@ -29,7 +30,8 @@ def reports(dataset="cohere"):
                 "variants": {
                     query: {
                         "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
-                        f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
+                        f"current_setting('{dataset}.qvec')::vector({DIMENSIONS[dataset]}) "
+                        f"LIMIT {neighbors}",
                         "targets": {
                             "0.9": {"value": "100", "recall": 0.96},
                             "0.95": {"value": "100", "recall": 0.96},
@@ -58,6 +60,28 @@ def reports(dataset="cohere"):
 class OperatingPointsTest(unittest.TestCase):
     """Protect recall labels, session settings, and filter pushdown."""
 
+    def test_hn_paradedb_sweep_keeps_configured_bounds(self):
+        """Use valid integer work budgets through the HN recall-to-k6 handoff."""
+        profile = Path(__file__).resolve().parents[1] / "hn" / "28m.toml"
+        sweep = tomllib.loads(profile.read_text())["search"]["sweep"]
+        self.assertTrue(sweep["integer"])
+        self.assertLessEqual(1, sweep["min"])
+        self.assertLessEqual(sweep["min"], sweep["start"])
+        self.assertLessEqual(sweep["start"], sweep["max"])
+        self.assertLessEqual(sweep["max"], 100_000)
+        for value in (sweep["min"], sweep["start"], sweep["max"]):
+            self.assertTrue(float(value).is_integer())
+            inputs = reports("hn")
+            for report in inputs:
+                report["config"]["search"]["sweep"] = sweep
+                for result in report["data"]["variants"].values():
+                    for selected in result["targets"].values():
+                        selected["value"] = str(value)
+                    result["points"][0]["value"] = str(value)
+            points = operating_points(inputs, dataset="hn")
+            self.assertEqual(points[0]["probe"], str(value))
+            self.assertEqual(points[0]["filter_fields"], ["time"])
+
     def test_exports_exact_selected_settings_and_buffers_without_changing_inputs(self):
         """Preserve reported settings and identify unreached targets."""
         inputs = reports()
@@ -76,6 +100,19 @@ class OperatingPointsTest(unittest.TestCase):
                 self.assertEqual(point["recall"], 0.96)
         self.assertIn("Not reached", summary(points))
         self.assertEqual(inputs, original)
+
+    def test_summary_collapses_the_table_and_its_paragraph(self):
+        """Keep the table and paragraph inside one details block that GitHub renders."""
+        text = summary(operating_points(reports()))
+        self.assertTrue(
+            text.startswith(
+                "<details><summary>Operating points</summary>\n\n| Workload / recall target |"
+            )
+        )
+        self.assertTrue(text.endswith("results.\n\n</details>\n"))
+        self.assertEqual((text.count("<details>"), text.count("</details>")), (1, 1))
+        self.assertIn("\n\npdbench selects max_probe separately", text)
+        self.assertEqual(text.count("| `knn_top10_"), 9)
 
     def test_refuses_below_target_point_even_when_pdbench_labels_it_selected(self):
         """Reject a below-target selection rather than relabeling it."""
@@ -185,12 +222,16 @@ class OperatingPointsTest(unittest.TestCase):
         expression = json.loads(scan["Tantivy Query"])["postgres_expression"]["expr"]
         setting_driven = expression["expr_desc"]
         for desc in (
-            setting_driven.replace("current_setting('cohere.titles_10pct'::text)", "'year'::text"),
+            setting_driven.replace(
+                "current_setting('cohere.titles_10pct'::text)", "'year'::text"
+            ),
             setting_driven.replace("parse_with_field", "parse"),
             "upper(" + setting_driven + ")",
         ):
             expression["expr_desc"] = desc
-            scan["Tantivy Query"] = json.dumps({"postgres_expression": {"expr": expression}})
+            scan["Tantivy Query"] = json.dumps(
+                {"postgres_expression": {"expr": expression}}
+            )
             with self.assertRaisesRegex(ValueError, "unresolved expression"):
                 verify(plan, filtered=True, neighbors=10, fields=["text"])
         expression["expr_desc"] = setting_driven

@@ -21,8 +21,12 @@ use crate::api::{CTID_FIELD_NAME, HashSet};
 use crate::index::directory::utils::load_index_settings;
 use crate::index::set_ivf_clusterer;
 use crate::index::setup_tokenizers;
+use crate::index::synonym_index::{
+    is_synonym_index_relation, refuse_synonym_rule_columns, register_rule_tokenizer,
+    validate_synonym_index,
+};
 use crate::postgres::catalog::OidExt;
-use crate::postgres::options::{BM25IndexOptions, IndexType};
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
 use crate::schema::SearchIndexSchema;
@@ -30,13 +34,26 @@ use pgrx::pg_sys::WalLevel::WAL_LEVEL_REPLICA;
 use pgrx::{PgList, PgTupleDesc, name_data_to_str, pg_sys};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::ptr::NonNull;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, OnceLock};
 use tantivy::TantivyError;
 use tantivy::directory::RamDirectory;
 use tantivy::index::{Index, IndexSettings, Order};
+use tantivy::tokenizer::TokenizerManager;
+
+/// What a `paradedb` index is for. A synonym index holds the rules that expand the queries on
+/// other indexes, so no scan reads it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum IndexType {
+    Search,
+    Synonym,
+}
+
+/// High enough that the planner picks any other path for a query on a synonym index's table.
+const SYNONYM_INDEX_SCAN_COST: f64 = 1.0e10;
 
 #[derive(Debug, Clone)]
 pub enum SchemaError {
@@ -61,6 +78,7 @@ struct PgSearchRelationInner {
     lockmode: Option<pg_sys::LOCKMODE>,
     schema: parking_lot::Mutex<Option<Result<SearchIndexSchema, SchemaError>>>,
     options: BM25IndexOptions,
+    index_type: OnceLock<IndexType>,
     is_create_index: AtomicBool,
     fork_number: AtomicI32,
     need_wal: parking_lot::Mutex<Option<bool>>,
@@ -83,6 +101,7 @@ impl PgSearchRelationInner {
             lockmode,
             schema: parking_lot::Mutex::new(None),
             options: unsafe { BM25IndexOptions::from_relation(relation.as_ptr()) },
+            index_type: OnceLock::new(),
             is_create_index: AtomicBool::new(false),
             fork_number: AtomicI32::new(pg_sys::ForkNumber::MAIN_FORKNUM),
             need_wal: parking_lot::Mutex::new(None),
@@ -463,8 +482,101 @@ impl PgSearchRelation {
         }
     }
 
-    pub fn index_type(&self) -> IndexType {
-        self.options().index_type()
+    fn index_type(&self) -> IndexType {
+        let inner = self.0.as_ref().unwrap();
+        *inner.index_type.get_or_init(|| {
+            // SAFETY: the relation is open, and the check runs only for an index.
+            if !self.rd_index.is_null() && unsafe { is_synonym_index_relation(self.as_ptr()) } {
+                IndexType::Synonym
+            } else {
+                IndexType::Search
+            }
+        })
+    }
+
+    /// The valid `USING paradedb` index of this table that scans read, or [`None`].
+    ///
+    /// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
+    /// or a failed `REINDEX`). When more than one valid ParadeDB index exists on the relation
+    /// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-ParadeDB-index
+    /// check), the highest-OID one is chosen so that the index added most recently wins.
+    pub fn bm25_index(&self) -> Option<PgSearchRelation> {
+        self.indices(pg_sys::AccessShareLock as _)
+            .filter(|index| unsafe {
+                pg_sys::get_index_isvalid(index.oid())
+                    && (*index.rd_rel).relam.is_paradedb_am()
+                    && index.index_type() == IndexType::Search
+            })
+            .max_by_key(|index| index.oid().to_u32())
+    }
+
+    /// Raises an ERROR when `heap` already has a ParadeDB index and this index is a second one.
+    /// A synonym index serves no query on its table, so a table can hold several of them, such as
+    /// a partial index per set or one per tokenizer.
+    pub fn refuse_second_index(&self, heap: &PgSearchRelation) {
+        if self.index_type() != IndexType::Search {
+            return;
+        }
+        for existing_index in heap.indices(pg_sys::AccessShareLock as _) {
+            if existing_index.oid() == self.oid() {
+                // the index we're about to build already exists on the table.
+                continue;
+            }
+
+            let rd_rel = unsafe { &*existing_index.rd_rel };
+            if rd_rel.relam.is_paradedb_am() && existing_index.index_type() == IndexType::Search {
+                panic!("a relation may only have one ParadeDB index");
+            }
+        }
+    }
+
+    /// The cost of a scan of an index that no scan can read, or `None` for any other index. The
+    /// rule field of a synonym index holds the keys of rules, so it can't answer a query on its
+    /// own table.
+    pub fn unusable_scan_cost(&self) -> Option<f64> {
+        match self.index_type() {
+            IndexType::Search => None,
+            IndexType::Synonym => Some(SYNONYM_INDEX_SCAN_COST),
+        }
+    }
+
+    /// Registers the tokenizers that the kind of this index adds to those of its fields.
+    pub fn register_type_tokenizers(&self, manager: &TokenizerManager) {
+        match self.index_type() {
+            IndexType::Search => {}
+            IndexType::Synonym => register_rule_tokenizer(self.options(), manager),
+        }
+    }
+
+    /// Raises an ERROR when the columns or the options do not fit the kind of this index.
+    pub fn validate_index_type(&self) {
+        match self.index_type() {
+            IndexType::Search => refuse_synonym_rule_columns(self.options()),
+            IndexType::Synonym => validate_synonym_index(self.options()),
+        }
+    }
+
+    pub fn target_segment_count(&self) -> usize {
+        self.explicit_target_segment_count()
+            .unwrap_or_else(|| self.options().default_target_segment_count())
+    }
+
+    /// The target the user asked for, by GUC or reloption, or `None` when the default applies.
+    pub fn explicit_target_segment_count(&self) -> Option<usize> {
+        match self.index_type() {
+            IndexType::Search => self.options().explicit_target_segment_count(),
+            // An expansion looks a token up in every segment of a synonym index, so its merges
+            // fold it back to one.
+            IndexType::Synonym => Some(1),
+        }
+    }
+
+    pub fn mutable_segment_rows(&self) -> Option<NonZeroUsize> {
+        match self.index_type() {
+            IndexType::Search => self.options().mutable_segment_rows(),
+            // A lookup reads the terms of the rule field, and a mutable segment holds only ctids.
+            IndexType::Synonym => None,
+        }
     }
 
     pub fn schema(&self) -> Result<SearchIndexSchema, SchemaError> {
@@ -496,7 +608,8 @@ impl PgSearchRelation {
         })?;
         // Throwaway materializations do not need the stats plugin.
         let mut index = Index::create(directory, tantivy_schema, settings)?;
-        set_ivf_clusterer(&mut index, self.options());
+        let memory_limit = (unsafe { pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+        set_ivf_clusterer(&mut index, self.options(), memory_limit);
         setup_tokenizers(self, &mut index)?;
         Ok(index)
     }

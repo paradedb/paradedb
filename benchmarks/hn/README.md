@@ -53,14 +53,15 @@ ParadeDB, rejecting residual PostgreSQL filters and heap filtering.
 
 The runner, cluster settings, pinned pdbench and Benchmarker revisions, and k6
 script match MS MARCO. Each run builds eight segments with a 0.32 training sample
-ratio and quantized routing, then independently sweeps max_probe to R90/R95/R99
-for each workload. Reached points run with one VU, 10 seconds of warmup, and
+ratio and quantized routing, then independently sweeps integer max_probe work
+budgets from 1 to 100,000, starting at 100, to reach R90/R95/R99 for each workload.
+Reached points run with one VU, 10 seconds of warmup, and
 50 seconds of measurement. Published boundary-tie diagnostics are retained:
 strict ID recall can leave targets unreached when multiple vectors tie at the
 top-10 boundary. Those points have no latency or QPS measurement.
 
 The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, workers, and peak summed RSS. Diagnostics retain manifests, verified
+index size, and peak container memory during the build. Diagnostics retain manifests, verified
 fixtures, configuration, tool revisions, plans, pdbench reports, k6 dashboards,
 and database logs.
 

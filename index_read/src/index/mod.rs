@@ -36,6 +36,8 @@ use tantivy::Index;
 pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
     let indexrel = directory.indexrel().clone();
     let mut index = Index::open(directory)?;
-    set_ivf_clusterer(&mut index, indexrel.options());
+    let memory_limit =
+        (unsafe { pgrx::pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+    set_ivf_clusterer(&mut index, indexrel.options(), memory_limit);
     Ok(index)
 }

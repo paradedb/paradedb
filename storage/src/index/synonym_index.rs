@@ -22,7 +22,8 @@
 use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::catalog::synonym_rule_typoid;
-use crate::postgres::options::{BM25IndexOptions, IndexType};
+use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use pgrx::{PgList, pg_sys};
@@ -99,13 +100,13 @@ pub fn rule_field_options(config: SearchFieldConfig) -> TextOptions {
 
 /// Refuses a `pdb.synonym_rule` column in a search index. A document of a synonym index is one
 /// rule, so a rule column next to other columns would mix rules with other fields.
-pub fn refuse_synonym_rule_columns(options: &BM25IndexOptions) {
+pub(crate) fn refuse_synonym_rule_columns(options: &BM25IndexOptions) {
     if let Some(column) = options.synonym_rule_columns().first() {
         panic!("the `pdb.synonym_rule` column `{column}` must be the only column of its index");
     }
 }
 
-pub fn validate_synonym_index(options: &BM25IndexOptions) {
+pub(crate) fn validate_synonym_index(options: &BM25IndexOptions) {
     let rule_field = options
         .synonym_rule_field()
         .expect("a synonym index has a rule field");
@@ -118,7 +119,7 @@ pub fn validate_synonym_index(options: &BM25IndexOptions) {
     }
 }
 
-pub fn register_rule_tokenizer(options: &BM25IndexOptions, manager: &TokenizerManager) {
+pub(crate) fn register_rule_tokenizer(options: &BM25IndexOptions, manager: &TokenizerManager) {
     let Some(field) = options.synonym_rule_field() else {
         return;
     };
@@ -132,6 +133,14 @@ pub fn register_rule_tokenizer(options: &BM25IndexOptions, manager: &TokenizerMa
             SynonymRuleTokenizer::new(analyzer),
         );
     }
+}
+
+/// A key matches only the tokens of the tokenizer that analyzed it, so a query compares its
+/// tokenizer with this one.
+pub fn rule_tokenizer(index: &PgSearchRelation) -> Option<SearchTokenizer> {
+    let options = index.options();
+    let field = options.synonym_rule_field()?;
+    options.field_config_or_default(&field).tokenizer().cloned()
 }
 
 /// Raises an ERROR when `rule` is not a Solr rule, or when the analyzer drops a word of one of
@@ -156,9 +165,6 @@ pub struct RuleCheck {
 impl RuleCheck {
     /// `None` for a search index.
     pub fn for_index(schema: &SearchIndexSchema, options: &BM25IndexOptions) -> Option<Self> {
-        if options.index_type() == IndexType::Search {
-            return None;
-        }
         let name = options.synonym_rule_field()?;
         let field = schema.search_field(name.as_ref())?.field();
         Some(Self {

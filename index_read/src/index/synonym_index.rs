@@ -19,17 +19,58 @@ pub use storage::index::synonym_index::*;
 
 use std::sync::Arc;
 
+use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::access::{IndexAccess, IndexOid};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::ActiveSnapshotGuard;
 use anyhow::anyhow;
 use pgrx::{FromDatum, pg_sys};
-use tantivy::synonyms::{
-    CompiledRule, DEFAULT_MAX_RULES_PER_KEY, KeyDocs, SegmentSynonyms, SynonymSource,
-};
+use tantivy::synonyms::{CompiledRule, Expansion, KeyDocs, SegmentSynonyms, SynonymSource, expand};
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy::{DocId, SegmentOrdinal, SegmentReader};
+
+/// The role that runs the query names the index, so its rights on the rules table are checked.
+pub fn open_synonym_index(index: pg_sys::Oid) -> anyhow::Result<IndexAccess> {
+    let index = IndexOid::from(index).read();
+    let name = index.name();
+    if unsafe { pg_sys::get_rel_relkind(index.oid()) } as u8 == pg_sys::RELKIND_PARTITIONED_INDEX {
+        return Err(anyhow!(
+            "synonym index \"{name}\" cannot be a partitioned index"
+        ));
+    }
+    if index.options().synonym_rule_field().is_none() {
+        return Err(anyhow!("\"{name}\" is not a synonym index"));
+    }
+    if !unsafe { (*index.rd_index).indisvalid } {
+        return Err(anyhow!("synonym index \"{name}\" is not valid"));
+    }
+    // A `DROP` or a `TRUNCATE` must wait for a transaction that expanded with these rules, so both
+    // locks stay until the transaction ends.
+    unsafe {
+        pg_sys::LockRelationOid(index.heap().oid(), pg_sys::AccessShareLock as _);
+        pg_sys::LockRelationOid(index.oid(), pg_sys::AccessShareLock as _);
+    }
+    Ok(index)
+}
+
+pub fn expand_with_index(index: &IndexAccess, tokens: &[String]) -> anyhow::Result<Vec<Expansion>> {
+    let _snapshot = ActiveSnapshotGuard::ensure();
+    let reader = SearchIndexReader::empty(index, MvccSatisfies::Snapshot)?;
+    let mut source =
+        unsafe { HeapRuleSource::open(index, index.heap(), &reader, pg_sys::GetActiveSnapshot())? };
+    let expansions = expand(tokens, &mut source);
+    source.close();
+    let mut expansions = expansions?;
+    let max_alternatives = gucs::synonyms_max_alternatives();
+    for expansion in &mut expansions {
+        expansion.cap(max_alternatives);
+    }
+    Ok(expansions)
+}
 
 /// The rules of a synonym index, read through its table. A matched document's rule text comes
 /// from its heap row, fetched under the snapshot, and the same fetch says whether the rule is
@@ -41,6 +82,7 @@ pub struct HeapRuleSource {
     slot: *mut pg_sys::TupleTableSlot,
     attnum: i32,
     analyzer: TextAnalyzer,
+    max_rules_per_key: usize,
 }
 
 impl HeapRuleSource {
@@ -93,6 +135,7 @@ impl HeapRuleSource {
             slot,
             attnum: attno as i32 + 1,
             analyzer: rule_analyzer(options, &rule_field),
+            max_rules_per_key: gucs::synonyms_max_rules_per_key(),
         })
     }
 
@@ -106,11 +149,7 @@ impl SynonymSource for HeapRuleSource {
     fn token_keys(&mut self, token: &str) -> tantivy::Result<Vec<Arc<[KeyDocs]>>> {
         self.segments
             .iter()
-            .map(|(synonyms, _)| {
-                Ok(synonyms
-                    .token_keys(token, DEFAULT_MAX_RULES_PER_KEY)?
-                    .into())
-            })
+            .map(|(synonyms, _)| Ok(synonyms.token_keys(token, self.max_rules_per_key)?.into()))
             .collect()
     }
 

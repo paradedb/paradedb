@@ -131,11 +131,13 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
             num_rows: count,
         })
     };
+    // The ctid map has no version footer of its own, so its column keeps the v2 layout.
     serialize_column_mappable_to_u64(
         index,
         &Replayable(boundaries().map(|(_, doc)| u64::from(doc))),
         &[CodecType::BlockwiseLinearV2],
         out.for_field(field),
+        Version::V2,
     )?;
     Ok(())
 }

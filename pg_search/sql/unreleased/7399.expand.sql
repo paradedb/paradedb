@@ -1,3 +1,7 @@
+-- depends-on: 7347
+DROP FUNCTION IF EXISTS pdb.with_synonyms(pdb.query, regclass);
+DROP FUNCTION IF EXISTS pdb.with_synonyms(text, regclass);
+
 CREATE FUNCTION pdb."expand_agg_expand_agg_state"(
     "this" internal,
     "query" TEXT,

@@ -105,6 +105,14 @@ EXPLAIN (COSTS OFF)
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
 
+-- An ORM can add `LIMIT 1` to a scalar subquery. The aggregate returns one row, so the index is
+-- still read. `LIMIT 0` returns no row, so that subquery runs as written and matches nothing.
+EXPLAIN (COSTS OFF)
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 1);
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 0);
+
 -- A group scores as one term, and the index gives the scores that the rules give.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products
 WHERE description ||| (SELECT pdb.expand('couch', rule) FROM shop_synonyms)

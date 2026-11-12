@@ -27,7 +27,7 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::planner_warnings::add_planner_warning;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::pdb_query::{pdb, synonym_index_of_column};
-use pgrx::{IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
+use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
 
 /// The planner calls this function in place of a `pdb.expand` subquery that a synonym index
 /// holds. The text of a prepared statement can be a parameter, which has a value only at run time.
@@ -198,7 +198,7 @@ unsafe fn rules_of_one_table(
         && query.distinctClause.is_null()
         && query.sortClause.is_null()
         && query.limitOffset.is_null()
-        && query.limitCount.is_null()
+        && keeps_one_row(root, query.limitCount)
         && query.setOperations.is_null()
         && !query.jointree.is_null()
         && (*expand).agglevelsup == 0
@@ -276,6 +276,19 @@ unsafe fn rules_of_one_table(
         attno: (*rule).varattno as usize - 1,
         quals,
         text,
+    })
+}
+
+/// An aggregate with no `GROUP BY` returns one row, so a `LIMIT` of one row or more changes
+/// nothing. An ORM can add `LIMIT 1` to a scalar subquery.
+unsafe fn keeps_one_row(root: *mut pg_sys::PlannerInfo, limit: *mut pg_sys::Node) -> bool {
+    if limit.is_null() {
+        return true;
+    }
+    let limit = pg_sys::eval_const_expressions(root, limit);
+    nodecast!(Const, limit).is_some_and(|limit| {
+        (*limit).constisnull
+            || i64::from_datum((*limit).constvalue, false).is_some_and(|rows| rows >= 1)
     })
 }
 

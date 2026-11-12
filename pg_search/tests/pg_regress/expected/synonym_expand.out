@@ -198,6 +198,30 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
    Synonyms: shop_synonyms_idx
 (8 rows)
 
+-- An ORM can add `LIMIT 1` to a scalar subquery. The aggregate returns one row, so the index is
+-- still read. `LIMIT 0` returns no row, so that subquery runs as written and matches nothing.
+EXPLAIN (COSTS OFF)
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 1);
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on products
+   Table: products
+   Index: products_idx
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+   Synonyms: shop_synonyms_idx
+(8 rows)
+
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 0);
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because it does more than read the rules of one table. To disable this warning: SET paradedb.planner_warnings = 'off'
+ id 
+----
+(0 rows)
+
 -- A group scores as one term, and the index gives the scores that the rules give.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products
 WHERE description ||| (SELECT pdb.expand('couch', rule) FROM shop_synonyms)

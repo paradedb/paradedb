@@ -92,6 +92,7 @@ pub struct DocsEstimate {
     pub total_docs: u64,
     pub query_cost: u64,
     pub uses_fast_fields: bool,
+    pub vector_matches: usize,
 }
 
 /// A count-only summary of the pruning proof for this reader's segment snapshot.
@@ -940,17 +941,23 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+    pub fn estimate_vector_matches(&self) -> f64 {
+        self.candidate_segment_readers()
+            .map(|(_, reader)| {
+                self.query.estimate_docs(reader).ok().flatten().map_or(
+                    f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                    |estimate| estimate.live_docs(reader) as f64,
+                )
+            })
+            .sum()
+    }
+
     pub fn estimate_vector_match_fraction(&self) -> f64 {
-        let (matches, docs) =
-            self.candidate_segment_readers()
-                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
-                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
-                        |estimate| estimate.live_docs(reader) as f64,
-                    );
-                    (matches + estimated, docs + u64::from(reader.num_docs()))
-                });
-        matches / docs.max(1) as f64
+        let docs = self
+            .candidate_segment_readers()
+            .map(|(_, reader)| u64::from(reader.num_docs()))
+            .sum::<u64>();
+        self.estimate_vector_matches() / docs.max(1) as f64
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -1003,8 +1010,7 @@ impl SearchIndexReader {
                 .quantization_layers()
                 .is_some()
             && self.weight().uses_fast_fields()
-            && self.total_docs() as f64 * match_fraction
-                > budget.filter_materialization_limit() as f64
+            && self.estimate_vector_matches() >= tantivy::vector::MIN_LATE_FILTER_MATCHES as f64
         {
             1.0
         } else {
@@ -2564,7 +2570,9 @@ impl SearchIndexReader {
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
                     .with_probe_params(tantivy::vector::ProbeParams {
-                        filter_match_fraction: Some(self.estimate_vector_match_fraction()),
+                        estimated_filter_matches: Some(
+                            self.estimate_vector_matches().ceil() as usize
+                        ),
                         ..probe_params()
                     })
                     .with_max_scan_levels(max_scan_levels);
@@ -2957,6 +2965,7 @@ impl SearchIndexReader {
                 total_docs: 0,
                 query_cost: 0,
                 uses_fast_fields: false,
+                vector_matches: 0,
             };
         }
 
@@ -2976,6 +2985,7 @@ impl SearchIndexReader {
                 total_docs,
                 query_cost: 0,
                 uses_fast_fields: false,
+                vector_matches: 0,
             };
         };
 
@@ -2994,6 +3004,7 @@ impl SearchIndexReader {
             total_docs,
             query_cost: scale_largest_segment_estimate(cost, segment_doc_proportion),
             uses_fast_fields: self.weight().uses_fast_fields(),
+            vector_matches: self.estimate_vector_matches().ceil() as usize,
         }
     }
 

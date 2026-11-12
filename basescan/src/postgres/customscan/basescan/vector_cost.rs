@@ -30,7 +30,7 @@ impl WorkerPathPolicy {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn for_vector_topk(
         query: &SearchQueryInput,
-        uses_fast_fields: Option<bool>,
+        filter: Option<crate::api::operator::VectorFilterEstimate>,
         vectors: f64,
         selectivity: f64,
         field: &FieldName,
@@ -59,36 +59,21 @@ impl WorkerPathPolicy {
         let row_bytes = layers.as_ref().map_or(full_row_bytes, |layers| {
             (dimensions * usize::from(layers[0])).div_ceil(u8::BITS as usize) as f64
         });
-        let average_cluster_size =
-            options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio());
-        let clusters = (vectors / average_cluster_size).max(1.0);
-        let replication = if layers.is_some() && options.vector_router_quantization() {
-            options.replication()
-        } else {
-            1
-        };
-        let average = average_cluster_size * f64::from(replication);
-        let x = (gucs::vector_fixed_probe_cost_rows()
-            / (gucs::vector_fixed_probe_cost_rows() + average))
-            .min(0.5);
-        let cap = (gucs::vector_cluster_max_probe() as f64).min(clusters) * average / (1.0 - x);
-        let column_filter = uses_fast_fields.unwrap_or_else(|| !query.is_text_only());
-        let late = column_filter
-            && layers.is_some()
-            && gucs::vector_max_scan_levels() > 0
-            && stats.matches > cap;
-        // TODO: Account for column materialization when estimating eager filter work.
-        if column_filter && !late {
-            return Self::ParallelOnly { nworkers, reason };
+        let column_filter = filter
+            .map(|filter| filter.uses_fast_fields)
+            .unwrap_or_else(|| !query.is_text_only());
+        if column_filter {
+            let late = layers.is_some()
+                && gucs::vector_max_scan_levels() > 0
+                && filter.is_some_and(|filter| {
+                    filter.matches >= tantivy::vector::MIN_LATE_FILTER_MATCHES
+                });
+            return if late {
+                Self::SerialOnly { reason }
+            } else {
+                Self::ParallelOnly { nworkers, reason }
+            };
         }
-        let stats = if late {
-            VectorSearchStats {
-                matches: vectors,
-                ..stats
-            }
-        } else {
-            stats
-        };
         let work = VectorWork::estimate(
             &stats,
             options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio()),

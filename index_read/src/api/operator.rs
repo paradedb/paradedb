@@ -86,6 +86,7 @@ fn open_and_estimate_docs(
                 total_docs: total_rows.ceil() as u64,
                 query_cost: (estimate.query_cost as f64 * scale).ceil() as u64,
                 uses_fast_fields: estimate.uses_fast_fields,
+                vector_matches: (estimate.vector_matches as f64 * scale).ceil() as usize,
             },
             segment_count,
         ));
@@ -119,11 +120,17 @@ fn leaf_heap_rows(index_oid: pg_sys::Oid) -> Option<f64> {
         .flatten()
 }
 
+#[derive(Clone, Copy)]
+pub struct VectorFilterEstimate {
+    pub matches: usize,
+    pub uses_fast_fields: bool,
+}
+
 pub struct SelectivityAndCost {
     pub selectivity: Option<f64>,
     pub query_cost: Option<u64>,
     pub segment_count: Option<usize>,
-    pub uses_fast_fields: Option<bool>,
+    pub vector_filter: Option<VectorFilterEstimate>,
 }
 
 /// One index open, all planning answers: selectivity (matching/total docs), the
@@ -157,7 +164,7 @@ pub fn estimate_selectivity_and_cost(
             selectivity: Some(selectivity),
             query_cost: cost,
             segment_count: None,
-            uses_fast_fields: None,
+            vector_filter: None,
         };
     }
 
@@ -168,7 +175,7 @@ pub fn estimate_selectivity_and_cost(
             selectivity: None,
             query_cost: None,
             segment_count: None,
-            uses_fast_fields: None,
+            vector_filter: None,
         };
     };
 
@@ -179,7 +186,10 @@ pub fn estimate_selectivity_and_cost(
         selectivity,
         query_cost: Some(estimate.query_cost),
         segment_count: Some(segment_count),
-        uses_fast_fields: Some(estimate.uses_fast_fields),
+        vector_filter: Some(VectorFilterEstimate {
+            matches: estimate.vector_matches,
+            uses_fast_fields: estimate.uses_fast_fields,
+        }),
     }
 }
 

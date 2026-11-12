@@ -10,7 +10,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "6ad13aed213d86feca4e4596867c930eac8c82a6"
+        default: "84870e98944750a1f711011b750ac93a35750abb"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -39,7 +39,7 @@ jobs:
     env:
       HN_SIZE: 28m
       pg_version: "18"
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '6ad13aed213d86feca4e4596867c930eac8c82a6' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '84870e98944750a1f711011b750ac93a35750abb' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1

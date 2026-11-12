@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794470879556,
+  "lastUpdate": 1794470908081,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -183043,6 +183043,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13837374321-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794470904787,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 130.21128898666007,
+            "unit": "median tps",
+            "extra": "avg tps: 128.30167191126534, max tps: 137.0943154391838, count: 59071"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 547.2900556401469,
+            "unit": "median tps",
+            "extra": "avg tps: 560.0496330147371, max tps: 4530.979654948891, count: 59071"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3106.8859291577705,
+            "unit": "median tps",
+            "extra": "avg tps: 3089.3979374975083, max tps: 3311.1495791305433, count: 59071"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 157.04085998827307,
+            "unit": "median tps",
+            "extra": "avg tps: 155.15800399282622, max tps: 169.93962298032508, count: 59071"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 270.25186786200396,
+            "unit": "median tps",
+            "extra": "avg tps: 376.36407502619943, max tps: 2704.791593159699, count: 118142"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 28.313783959014206,
+            "unit": "median tps",
+            "extra": "avg tps: 27.794979007875888, max tps: 48.39711419623355, count: 59071"
+          }
+        ],
+        "publication_id": "13925480335-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -232690,6 +232749,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13837374321-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "ad1df4ae7e767fc87fc709f1b7cc0502a64b5353",
+          "message": "fix: estimate range selectivity for vector routing (#7396)\n\nRange filters previously had no statistics estimate, so parallel vector\nrouting treated their match fraction as zero and requested excessive\ncluster candidates. This change estimates numeric and timestamp range\nfilters from each segment's existing min/max statistics assuming a\nuniform distribution, and defaults unknown match fractions to 1%.\n\nCanonical bounds stay alongside the Tantivy range query and reuse the\nexisting Boolean estimator and `.stats` reader. Inclusive/exclusive\nendpoints and constant fields are handled; missing or unsupported\nstatistics fall back to 1%. Nullable and multivalued fields remain\nunknown when min/max cannot determine their document counts. Known-empty\nestimates remain zero. The index format is unchanged.\n\nThis branch includes the merged per-worker memory fix from #7398. The HN\nbenchmark's fractional probe configuration is fixed separately in #7408.\n\nValidation:\n\n- Five focused estimator tests passed, including synonym coverage and\nPostgreSQL tests for numeric/timestamp bounds, floats, constants, large\nintegers, nullable fields, Boolean wrappers, missing statistics, and the\n1% fallback.\n- Existing PostgreSQL planner-estimation test passed.\n- Repository commit hooks passed; Rust changes previously passed\nworkspace Clippy, check, documentation, and formatting checks.\n- The HN run on `6f63a5f75` successfully built and verified the\neight-segment index, then failed on the old fractional probe setting.\nFull benchmark results require the separate fix in #7408.",
+          "timestamp": "2026-11-12T04:34:42Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ad1df4ae7e767fc87fc709f1b7cc0502a64b5353"
+        },
+        "date": 1794470907964,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.720819,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.654875019658931, max cpu: 38.43844, count: 59071"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 48.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.78417259526671, max mem: 48.7890625, count: 59071"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.340342455410926, max cpu: 36.536633, count: 59071"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 30.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.86745816210577, max mem: 30.87109375, count: 59071"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8331213539547635, max cpu: 18.390804, count: 59071"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 44.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.474515638490125, max mem: 46.62109375, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2529,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2519.8168305936924, max block_count: 2529.0, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1152455622891404, max cpu: 4.591105, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.865700941451813, max mem: 28.9765625, count: 59071"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.369182847759475, max segment_count: 36.0, count: 59071"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.425626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.807209048723479, max cpu: 32.26116, count: 59071"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 59.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.1421339759569, max mem: 59.20703125, count: 59071"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.3859325765731745, max cpu: 41.10371, count: 118142"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 45.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.865812003510605, max mem: 53.671875, count: 118142"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.155937,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.424894095403216, max cpu: 18.832762, count: 59071"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 43.66404464542669, max mem: 44.73046875, count: 59071"
+          }
+        ],
+        "publication_id": "13925480335-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

@@ -112,9 +112,8 @@ where
     /// Resolve at execution time using the executor's parameter list.
     ///
     /// `Static(v)` returns `Some(v.clone())`.
-    /// `Param { param_id }` reads `estate.es_param_list_info` the way
-    /// `ExecEvalParamExtern` does: through its `paramFetch` hook when set
-    /// (PL/pgSQL's list has no `params` array), else from `params[param_id - 1]`.
+    /// `Param { param_id }` reads the parameter from `estate.es_param_list_info`
+    /// with [`fetch_extern_param`].
     /// Returns `None` if the parameter is null or out of range.
     pub fn resolve(&self, estate: *mut pg_sys::EState) -> Option<T> {
         match self {
@@ -123,24 +122,8 @@ where
                 if estate.is_null() {
                     return None;
                 }
-                let param_list_info = unsafe { (*estate).es_param_list_info };
-                if param_list_info.is_null() {
-                    return None;
-                }
-                let param_list = unsafe { &*param_list_info };
-                let num_params = param_list.numParams as usize;
-                let idx = (*param_id - 1) as usize;
-                if idx >= num_params {
-                    return None;
-                }
-                let mut workspace = pg_sys::ParamExternData::default();
-                let param_data = match param_list.paramFetch {
-                    Some(fetch) => unsafe {
-                        &*fetch(param_list_info, *param_id, false, &mut workspace)
-                    },
-                    None => unsafe { &param_list.params.as_slice(num_params)[idx] },
-                };
-                unsafe { T::from_datum(param_data.value, param_data.isnull) }
+                let param = fetch_extern_param(unsafe { (*estate).es_param_list_info }, *param_id)?;
+                unsafe { T::from_datum(param.value, param.isnull) }
             }
         }
     }
@@ -204,6 +187,34 @@ impl<T: Clone + Hash> Hash for ParameterizedValue<T> {
                 1u8.hash(state);
                 param_id.hash(state);
             }
+        }
+    }
+}
+
+/// Read extern parameter `param_id` from `param_list` the way PostgreSQL's
+/// `ExecEvalParamExtern` does: through the list's `paramFetch` hook when it
+/// has one, else from its `params` array. PL/pgSQL's list has the hook and no
+/// `params` array. Returns `None` if the list is null, `param_id` is out of
+/// range, or the hook returns no parameter.
+pub fn fetch_extern_param(
+    param_list: pg_sys::ParamListInfo,
+    param_id: i32,
+) -> Option<pg_sys::ParamExternData> {
+    if param_list.is_null() {
+        return None;
+    }
+    let num_params = unsafe { (*param_list).numParams };
+    if param_id < 1 || param_id > num_params {
+        return None;
+    }
+    match unsafe { (*param_list).paramFetch } {
+        Some(fetch) => {
+            let mut workspace = pg_sys::ParamExternData::default();
+            unsafe { fetch(param_list, param_id, false, &mut workspace).as_ref() }.copied()
+        }
+        None => {
+            let params = unsafe { (*param_list).params.as_slice(num_params as usize) };
+            Some(params[(param_id - 1) as usize])
         }
     }
 }

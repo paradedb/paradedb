@@ -400,6 +400,9 @@ pub struct JoinScanState {
     pub window_agg_ctx: Option<pg_sys::MemoryContext>,
     /// The cache of pdb.agg() window function json datums
     pub window_agg_datums: RefCell<HashMap<WindowAggIndex, Option<pg_sys::Datum>>>,
+
+    /// The memory context that the current row's whole-row values live in. Reset for each row.
+    pub whole_row_ctx: Option<pg_sys::MemoryContext>,
 }
 
 impl JoinScanState {

@@ -1714,6 +1714,15 @@ impl CustomScan for JoinScan {
                 );
                 assert!(state.custom_state_mut().window_agg_ctx.is_none());
                 state.custom_state_mut().window_agg_ctx = Some(window_agg_ctx);
+
+                let whole_row_ctx = pg_sys::AllocSetContextCreateExtended(
+                    (*estate).es_query_cxt,
+                    c"ParadeDB Join Scan whole-row values".as_ptr(),
+                    pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+                    pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+                );
+                state.custom_state_mut().whole_row_ctx = Some(whole_row_ctx);
             }
             // MPP: mark one launch attempt for the first exec call. The existing logical plan is
             // resolved and rebaked at execution time before it is deserialized to build the
@@ -2856,8 +2865,13 @@ impl JoinScan {
         // Get the target tuple descriptor from the target slot
         let target_tupdesc = (*target_slot).tts_tupleDescriptor;
         let natts = (*target_tupdesc).natts as usize;
-        // Clear the target slot
+        // Clear the target slot, and free the whole-row values of its previous row
         pg_sys::ExecClearTuple(target_slot);
+        let whole_row_ctx = state
+            .custom_state()
+            .whole_row_ctx
+            .expect("should have been initialized in begin_scan");
+        pg_sys::MemoryContextReset(whole_row_ctx);
 
         // Fill the target slot based on the output column mapping
         let datums = (*target_slot).tts_values;
@@ -2917,14 +2931,23 @@ impl JoinScan {
                     }
                     let rel_state = state.custom_state().relations.get(plan_position)?;
                     let source_slot = rel_state.fetch_slot;
-                    if *original_attno == 0
-                        || *original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16
-                    {
+                    if *original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16 {
                         *nulls.add(i) = true;
                         continue;
                     }
                     let mut is_null = false;
-                    *datums.add(i) = if *original_attno < 0 {
+                    *datums.add(i) = if *original_attno == 0 {
+                        // A whole-row reference: build the composite the way Postgres'
+                        // ExecEvalWholeRowVar does, which inlines out-of-line TOAST values.
+                        let tuple = PgMemoryContexts::For(whole_row_ctx).switch_to(|_| {
+                            pg_sys::toast_build_flattened_tuple(
+                                (*source_slot).tts_tupleDescriptor,
+                                (*source_slot).tts_values,
+                                (*source_slot).tts_isnull,
+                            )
+                        });
+                        pg_sys::Datum::from((*tuple).t_data)
+                    } else if *original_attno < 0 {
                         pg_sys::slot_getsysattr(source_slot, *original_attno as i32, &mut is_null)
                     } else {
                         pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null)

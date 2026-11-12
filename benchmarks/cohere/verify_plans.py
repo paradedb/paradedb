@@ -24,8 +24,8 @@ def setting_driven_field(expression, required):
     return match["field"] if match and match["field"] in required else None
 
 
-def verify_prism(plan, index_name, fields):
-    """Require a cosine PRISM scan and every PostgreSQL filter predicate."""
+def verify_ann(plan, index_name, fields, access_method):
+    """Require a cosine ANN scan and every PostgreSQL filter predicate."""
     pending = [plan[0]["Plan"]]
     nodes = []
     while pending:
@@ -33,7 +33,7 @@ def verify_prism(plan, index_name, fields):
         nodes.append(node)
         pending.extend(node.get("Plans", []))
     if any(node.get("Custom Plan Provider") for node in nodes):
-        raise ValueError("Expected pg_vectorsearch or PostgreSQL, found a custom scan")
+        raise ValueError("Expected a PostgreSQL index scan, found a custom scan")
     predicates = " ".join(
         str(node.get(key, ""))
         for node in nodes
@@ -41,16 +41,16 @@ def verify_prism(plan, index_name, fields):
     )
     if any(not re.search(rf"\b{re.escape(field)}\b", predicates) for field in fields):
         raise ValueError("Expected every HN predicate in the PostgreSQL plan")
-    prism = [
+    scans = [
         node
         for node in nodes
         if node.get("Node Type") == "Index Scan"
         and node.get("Index Name") == index_name
         and "<=>" in node.get("Order By", "")
     ]
-    if prism:
-        return "prism-postfilter" if fields else "prism"
-    raise ValueError(f"Expected a cosine PRISM scan on {index_name}")
+    if scans:
+        return f"{access_method}-postfilter" if fields else access_method
+    raise ValueError(f"Expected a cosine {access_method} scan on {index_name}")
 
 
 def verify(plan, filtered, neighbors=None, fields=None):
@@ -146,9 +146,12 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
         path = output / f"{point['name']}.json"
         path.write_text(result.stdout)
         executed_plan = json.loads(result.stdout)
-        if point.get("engine") == "pg_vectorsearch":
-            mode = verify_prism(
-                executed_plan, point["index_name"], point["filter_fields"]
+        if point.get("engine") in ("pg_vectorsearch", "vectorchord"):
+            mode = verify_ann(
+                executed_plan,
+                point["index_name"],
+                point["filter_fields"],
+                "prism" if point["engine"] == "pg_vectorsearch" else "vchordrq",
             )
             point["plan_mode"] = mode
             plan_modes.append(f"| `{point['name']}` | `{mode}` |")

@@ -1,7 +1,8 @@
 # MS MARCO vector CI
 
-The MS MARCO workflow benchmarks ParadeDB, pg_vectorsearch, and VectorChord in
-separate matrix jobs. Each restores the same PostgreSQL 18 heap backup
+Separate MS MARCO workflows benchmark ParadeDB, pg_vectorsearch, and VectorChord
+using one shared implementation in `.github/workflows/benchmark-msmarco.yml`.
+Each restores the same PostgreSQL 18 heap backup
 `20261102-224214F`: 113,520,750 rows with 1,024-dimensional vectors. Every job has
 its own `c8gd.metal-24xl` runner and a 64-CPU / 128-GiB database container; k6 runs
 on separate cores (64–67).
@@ -41,17 +42,25 @@ CI removes the label when the run starts; reapply it to rerun. Each label starts
 only its selected engine. The generic `benchmarks` and Cohere labels do not
 trigger this large dataset.
 
-Scheduled runs execute all three engines daily on main. Manual runs also execute
-all three engines:
+Each extension has its own workflow and runs daily on main. Manual dispatch runs
+only the selected workflow's extension:
+
+| Extension       | Workflow                                      |
+| --------------- | --------------------------------------------- |
+| pg_search       | `benchmark-pg_search-benchmarker-msmarco.yml` |
+| pg_vectorsearch | `benchmark-msmarco-pg-vectorsearch.yml`       |
+| VectorChord     | `benchmark-msmarco-vectorchord.yml`           |
+
+For example, to run only VectorChord:
 
 ```sh
-gh workflow run benchmark-pg_search-benchmarker-msmarco.yml \
+gh workflow run benchmark-msmarco-vectorchord.yml \
   --repo paradedb/paradedb --ref main
 ```
 
 The optional `commit` input benchmarks another pg_search revision using the
 workflow's benchmark code. The `pdbench_ref` input overrides the pinned tool
-revision, which must support all three engines. Only scheduled and manual main
+revision, which must support the selected engine. Only scheduled and manual main
 runs without a `commit` override update the rolling baselines.
 
 ## Measurements and reports

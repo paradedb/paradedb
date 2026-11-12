@@ -1,0 +1,36 @@
+name: Benchmark MS MARCO vector (vectorchord)
+
+on:
+  schedule:
+    - cron: "30 17 * * *" # Daily at 17:30 UTC.
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
+        default: ""
+      pdbench_ref:
+        description: "pdbench ref (empty uses the shared workflow's pin)"
+        default: ""
+      benchmarker_ref:
+        description: "benchmarker ref (empty uses the shared workflow's pin)"
+        default: ""
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  benchmark:
+    name: MS MARCO vectorchord
+    if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-msmarco-vectorchord'
+    uses: ./.github/workflows/benchmark-msmarco.yml
+    with:
+      engine: vectorchord
+      commit: ${{ inputs.commit || '' }}
+      pdbench_ref: ${{ inputs.pdbench_ref || '' }}
+      benchmarker_ref: ${{ inputs.benchmarker_ref || '' }}
+    secrets: inherit

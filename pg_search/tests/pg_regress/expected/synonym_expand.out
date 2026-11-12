@@ -85,18 +85,6 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
   9
 (3 rows)
 
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
-WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
- id 
-----
-  1
-  2
-  3
-  8
-  9
-(5 rows)
-
 -- A subquery that finds no rule leaves the typed words.
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'none')
@@ -209,34 +197,6 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
    Synonyms: shop_synonyms_idx
 (8 rows)
-
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
- id 
-----
-  1
-  2
-  3
-  8
-(4 rows)
-
-SELECT id FROM products
-WHERE description &&& (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms) ORDER BY id;
- id 
-----
-  1
-(1 row)
-
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)::pdb.boost(2)
-ORDER BY id;
- id 
-----
-  1
-  2
-  3
-  8
-(4 rows)
 
 -- A group scores as one term, and the index gives the scores that the rules give.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products

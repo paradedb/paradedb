@@ -29,8 +29,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::query::pdb_query::{pdb, synonym_index_of_column};
 use pgrx::{IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
 
-/// The query that the planner puts in place of a `pdb.expand` subquery. A function call, and not
-/// a constant, gives a prepared statement the synonym index when its text is a parameter.
+/// The planner calls this function in place of a `pdb.expand` subquery that a synonym index
+/// holds. The text of a prepared statement can be a parameter, which has a value only at run time.
 #[pg_extern(immutable, parallel_safe, strict)]
 pub fn expand_with_index(query: String, index: IndexOid) -> pdb::Query {
     pdb::Query::UnclassifiedString {
@@ -126,7 +126,7 @@ unsafe fn synonym_index_query(
     )
     .ok_or_else(|| {
         let name = rules.table.name();
-        // No partial index can be chosen for a filter value that only a later run gives.
+        // A generic plan has no value for the parameter, so no partial index can be chosen.
         if rules.quals.cast::<pg_sys::Node>().contains_param() {
             format!("the filter on \"{name}\" has a parameter with no value at plan time")
         } else {

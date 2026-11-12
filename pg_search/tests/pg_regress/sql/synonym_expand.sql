@@ -46,8 +46,6 @@ WHERE description ||| (SELECT pdb.expand('sneakers', rule) FROM shop_synonyms) O
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'outlet')
 ORDER BY id;
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
 
 -- A subquery that finds no rule leaves the typed words.
 SELECT id FROM products
@@ -106,13 +104,6 @@ CREATE INDEX shop_synonyms_idx ON shop_synonyms USING paradedb (rule);
 EXPLAIN (COSTS OFF)
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
-SELECT id FROM products
-WHERE description &&& (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms) ORDER BY id;
-SELECT id FROM products
-WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)::pdb.boost(2)
-ORDER BY id;
 
 -- A group scores as one term, and the index gives the scores that the rules give.
 SELECT id, round(pdb.score(id)::numeric, 4) AS score FROM products

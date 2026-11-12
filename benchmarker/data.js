@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794502066235,
+  "lastUpdate": 1794518607633,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -84916,6 +84916,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13926655349-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794518604157,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 10.426,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 15.214,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 16.971,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 27.731,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 37.771,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 41.543,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 70.899,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 627.679,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 668.694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 5.409,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 7.043,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 7.506,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 9.146,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 14.397,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 15.384,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "13983924968-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -85201,6 +85299,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13926655349-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794518605550,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 93.44938832676442,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 39.81469785547414,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 6.849579009152502,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 182.4564839875749,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 107.15301580046341,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "13983924968-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -85486,6 +85632,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13926655349-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794518606572,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2477.98,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 7024.43,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 51543.66,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1164.73,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2466.68,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "13983924968-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -85741,6 +85935,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13926655349-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72",
+          "message": "feat: choose parallelism from work for filtered vector queries (#7360)\n\nVector TopK queries with posting-list filters currently parallelize even\nwhen their estimated work is too small to pay for worker startup. Use a\nsimple work estimate to choose serial execution or the maximum useful\nworker count for those filters. Unfiltered vector TopK queries stay\nserial; non-text filters use the available workers.\n\nThe model estimates vector bytes read and scored plus filter document\nIDs, subtracts extra upfront routing work, and enables parallelism only\nwhen the estimated savings exceed 64 MiB. It uses the existing filter\nselectivity, table row estimate, and cached index options; it adds no\nindex opens or segment sampling to planning. The vector worker policy\ncalls `SearchQueryInput::is_text_only()` on the resolved filter,\nincluding parsed term queries, before applying the model. A TODO records\nthat column-filter evaluation work still needs separate costing.\n\nExecution and dependency versions match main. This PR only changes\nworker selection; it does not add cooperative scanning.\n\nValidation:\n- Planner regression covers posting-list filters staying serial, SQL and\nparsed ranges and heap filters choosing parallel plans, disabled\nworkers, and a large-work posting-list query becoming parallel. It\nincludes a setting-driven parsed filter matching the Cohere query shape.\n- Cost-model tests cover probe budgets, vector width, selective reads,\nreplication, routing overhead, worker participation, and work caps.\n- PostgreSQL 18 planner regression passed on the rebased commit; all\nnine cost-model unit tests passed.\n- Full-workspace Clippy with warnings denied, `cargo check`, `cargo\ndoc`, formatting, and the remaining pre-commit hooks passed.",
+          "timestamp": "2026-11-12T07:48:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7b433b9ab98d866a7fc0b7f9dbd25c8aed265e72"
+        },
+        "date": 1794518607618,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 199.91666666666666,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 508969.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 127.95689010620117,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "13983924968-index"
       }
     ],
     "benchmarker cohere-10m (router)": [

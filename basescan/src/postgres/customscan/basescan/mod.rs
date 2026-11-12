@@ -21,6 +21,7 @@ mod cost;
 pub mod exec_methods;
 pub mod parallel;
 pub mod privdat;
+mod vector_cost;
 pub use planner::postgres::customscan::basescan::{missing_scan_error, projections};
 mod scan_state;
 pub mod telemetry;
@@ -1303,7 +1304,22 @@ impl CustomScan for BaseScan {
 
                 // Decide the policy first: its reason gates the path cost below.
                 let policy = if let Some(strategy) = vector_filter_strategy {
-                    WorkerPathPolicy::for_vector_topk(strategy, available_workers(segment_count))
+                    let work = vector_field.as_ref().and_then(|field| {
+                        vector_cost::VectorWork::for_query(
+                            strategy,
+                            estimation_query.resolve(&query).unwrap_or(&query),
+                            (*rel).tuples.max(1.0),
+                            selectivity,
+                            field,
+                            source_context.indexrel().unwrap().options(),
+                        )
+                    });
+                    WorkerPathPolicy::for_vector_topk(
+                        strategy,
+                        available_workers(segment_count),
+                        work,
+                        parallel_leader_participates,
+                    )
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
                         prunability: topk_can_prune_for_method(&method, root, &quals),

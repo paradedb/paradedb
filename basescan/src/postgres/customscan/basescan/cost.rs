@@ -45,6 +45,7 @@
 //! Blind spots: `fraction` is exact for sorted scans, approximate for unsorted; a write-heavy
 //! index's mutable-segment open cost and phrase `size_hint` under-counts are not modeled.
 
+use super::vector_cost::VectorWork;
 use super::*;
 use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
@@ -82,15 +83,22 @@ pub(super) enum WorkerPathPolicy {
 }
 
 impl WorkerPathPolicy {
-    pub(super) fn for_vector_topk(strategy: VectorFilterStrategy, workers: usize) -> Self {
+    pub(super) fn for_vector_topk(
+        strategy: VectorFilterStrategy,
+        workers: usize,
+        work: Option<VectorWork>,
+        leader_participates: bool,
+    ) -> Self {
         let reason = WorkerDecisionReason::VectorWork;
         match (strategy, NonZeroUsize::new(workers)) {
-            (
-                VectorFilterStrategy::Pre {
-                    is_text_only: false,
-                },
-                Some(nworkers),
-            ) => Self::ParallelOnly { nworkers, reason },
+            (VectorFilterStrategy::Pre { is_text_only }, Some(nworkers))
+                if !is_text_only
+                    || work.is_some_and(|work| {
+                        work.parallel_wins(parallel_divisor(nworkers, leader_participates))
+                    }) =>
+            {
+                Self::ParallelOnly { nworkers, reason }
+            }
             _ => Self::SerialOnly { reason },
         }
     }
@@ -542,7 +550,7 @@ mod vector_filter_tests {
                 let restored = serde_json::from_str(&serialized).unwrap();
                 assert_eq!(
                     matches!(
-                        WorkerPathPolicy::for_vector_topk(restored, workers),
+                        WorkerPathPolicy::for_vector_topk(restored, workers, None, true),
                         WorkerPathPolicy::ParallelOnly { .. }
                     ),
                     parallel

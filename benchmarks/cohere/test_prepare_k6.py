@@ -5,7 +5,9 @@ import json
 import unittest
 from pathlib import Path
 
+import tomllib
 from prepare_k6 import (
+    DIMENSIONS,
     PROBE,
     QUERIES,
     SUITES,
@@ -22,7 +24,7 @@ def reports(dataset="cohere"):
         {
             "kind": "search",
             "config": {
-                "dataset": {"name": dataset, "size": "1m", "dims": 1024},
+                "dataset": {"name": dataset, "size": "1m", "dims": DIMENSIONS[dataset]},
                 "search": {
                     "query": query,
                     "k": neighbors,
@@ -36,7 +38,8 @@ def reports(dataset="cohere"):
                 "variants": {
                     query: {
                         "query": f"SELECT _id FROM {dataset} ORDER BY emb <=> "
-                        f"current_setting('{dataset}.qvec')::vector(1024) LIMIT {neighbors}",
+                        f"current_setting('{dataset}.qvec')::vector({DIMENSIONS[dataset]}) "
+                        f"LIMIT {neighbors}",
                         "targets": {
                             "0.9": {"value": "100", "recall": 0.96},
                             "0.95": {"value": "100", "recall": 0.96},
@@ -64,6 +67,28 @@ def reports(dataset="cohere"):
 
 class OperatingPointsTest(unittest.TestCase):
     """Protect recall labels, session settings, and filter pushdown."""
+
+    def test_hn_paradedb_sweep_keeps_configured_bounds(self):
+        """Use valid integer work budgets through the HN recall-to-k6 handoff."""
+        profile = Path(__file__).resolve().parents[1] / "hn" / "28m.toml"
+        sweep = tomllib.loads(profile.read_text())["search"]["sweep"]
+        self.assertTrue(sweep["integer"])
+        self.assertLessEqual(1, sweep["min"])
+        self.assertLessEqual(sweep["min"], sweep["start"])
+        self.assertLessEqual(sweep["start"], sweep["max"])
+        self.assertLessEqual(sweep["max"], 100_000)
+        for value in (sweep["min"], sweep["start"], sweep["max"]):
+            self.assertTrue(float(value).is_integer())
+            inputs = reports("hn")
+            for report in inputs:
+                report["config"]["search"]["sweep"] = sweep
+                for result in report["data"]["variants"].values():
+                    for selected in result["targets"].values():
+                        selected["value"] = str(value)
+                    result["points"][0]["value"] = str(value)
+            points = operating_points(inputs, dataset="hn")
+            self.assertEqual(points[0]["probe"], str(value))
+            self.assertEqual(points[0]["filter_fields"], ["time"])
 
     def test_exports_exact_selected_settings_and_buffers_without_changing_inputs(self):
         """Preserve reported settings and identify unreached targets."""

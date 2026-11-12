@@ -283,7 +283,7 @@ jobs:
 
           Uses heap backup \`20261102-224214F\`, eight index segments, a 0.32 training sample ratio, and quantized vector routing.
 
-          Probe fractions are selected independently for top-10 and top-100 at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 0.005 and searches from 0.0001 to 1.0.
+          Integer probe-work budgets are selected independently for top-10 and top-100 at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 100 and searches from 1 to 100,000.
 
           Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 

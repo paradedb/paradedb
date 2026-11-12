@@ -1269,7 +1269,7 @@ impl CustomScan for BaseScan {
                 // Decide the policy first: its reason gates the path cost below.
                 let policy = if let Some(field) = vector_field.as_ref() {
                     WorkerPathPolicy::for_vector_topk(
-                        &query,
+                        estimation_query.resolve(&query).unwrap_or(&query),
                         (*rel).tuples.max(1.0),
                         selectivity,
                         field,

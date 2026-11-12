@@ -45,6 +45,11 @@ impl WorkerPathPolicy {
         let Some(nworkers) = NonZeroUsize::new(workers) else {
             return Self::SerialOnly { reason };
         };
+        // TODO: Posting list filters are currently cheap, but column filters are expensive.
+        // Model column filter evaluation cost before estimating their work.
+        if !query.is_text_only() {
+            return Self::ParallelOnly { nworkers, reason };
+        }
         let Some(SearchFieldType::Vector(_, dimensions, _)) = options.get_field_type(field) else {
             return Self::SerialOnly { reason };
         };

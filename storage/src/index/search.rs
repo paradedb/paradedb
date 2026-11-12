@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::synonym_index::register_rule_tokenizer;
-use crate::postgres::options::IndexType;
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::SearchFieldConfig;
 use anyhow::Result;
@@ -37,10 +35,7 @@ use tokenizers::{
 pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
     let tokenizers = collect_search_tokenizers(index_relation)?;
     let manager = create_tokenizer_manager(tokenizers);
-    match index_relation.index_type() {
-        IndexType::Search => {}
-        IndexType::Synonym => register_rule_tokenizer(index_relation.options(), &manager),
-    }
+    index_relation.register_type_tokenizers(&manager);
     index.set_tokenizers(manager);
     index.set_fast_field_tokenizers(create_normalizer_manager());
     Ok(())
@@ -58,10 +53,7 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
 pub fn register_tokenizers(index_relation: &PgSearchRelation, index: &Index) -> Result<()> {
     let tokenizers = collect_search_tokenizers(index_relation)?;
     register_tokenizers_into(index.tokenizers(), tokenizers);
-    match index_relation.index_type() {
-        IndexType::Search => {}
-        IndexType::Synonym => register_rule_tokenizer(index_relation.options(), index.tokenizers()),
-    }
+    index_relation.register_type_tokenizers(index.tokenizers());
     register_normalizers_into(index.fast_field_tokenizer());
     Ok(())
 }

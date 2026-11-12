@@ -200,7 +200,7 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
             index_options.background_layer_sizes(),
             segment_cnt,
             index_byte_size,
-            index_options.target_segment_count(),
+            index.target_segment_count(),
         )
     }
 }
@@ -333,7 +333,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     }
 
     let layer_sizes = IndexLayerSizes::from(index);
-    let target_segment_count = index.options().target_segment_count();
+    let target_segment_count = index.target_segment_count();
     let metadata = MetaPage::open(index);
     let merge_pins = metadata.pin_merge();
     let merge_lock = metadata.acquire_merge_lock();
@@ -972,7 +972,7 @@ mod tests {
         let selected = backpressure(
             &candidates,
             layers.visible_segment_count,
-            index.options().target_segment_count(),
+            index.target_segment_count(),
         )
         .unwrap()
         .clone();

@@ -84,6 +84,8 @@ use tantivy::{
 /// `SearchIndexReader::search_top_k_in_segments`.
 pub const MAX_TOPK_FEATURES: usize = 5;
 
+const DEFAULT_VECTOR_MATCH_FRACTION: f64 = 0.01;
+
 #[derive(Debug, Clone, Copy)]
 pub struct DocsEstimate {
     pub matching_docs: usize,
@@ -940,16 +942,14 @@ impl SearchIndexReader {
     pub fn estimate_vector_match_fraction(&self) -> f64 {
         let (matches, docs) =
             self.candidate_segment_readers()
-                .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self
-                        .query
-                        .estimate_docs(reader)
-                        .ok()
-                        .flatten()
-                        .map_or(0, |estimate| estimate.live_docs(reader));
+                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
+                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
+                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                        |estimate| estimate.live_docs(reader) as f64,
+                    );
                     (matches + estimated, docs + u64::from(reader.num_docs()))
                 });
-        matches as f64 / docs.max(1) as f64
+        matches / docs.max(1) as f64
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -3860,6 +3860,206 @@ mod tests {
             }
             assert_eq!(calls.load(Relaxed), 2);
         }
+    }
+
+    #[pg_test]
+    fn vector_match_fraction_uses_range_statistics() {
+        let (index, _) = segmented_index_fixture("vector_range_estimate", 1, false);
+        let range = range_query("id", 9, 10);
+        for query in [
+            range.clone(),
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, range.clone()],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            },
+            SearchQueryInput::ConstScore {
+                query: Box::new(range),
+                score: 1.0,
+            },
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
+            assert_eq!(reader.search().count(), 2);
+        }
+        for (query, expected) in [
+            (SearchQueryInput::All, 1.0),
+            (SearchQueryInput::Empty, 0.0),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::Regex {
+                        pattern: "sil.*".into(),
+                    },
+                },
+                0.01,
+            ),
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), expected);
+        }
+        let (mutable, _) = segmented_index_fixture("vector_range_without_stats", 0, true);
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let reader = open_snapshot_reader(&mutable, range_query("id", 1, 5), false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.01);
+        drop(reader);
+        unsafe { pg_sys::PopActiveSnapshot() };
+
+        Spi::run(
+            "CREATE TABLE vector_date_estimate AS
+             SELECT g AS id, TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time
+             FROM generate_series(1, 100) g;
+             ALTER TABLE vector_date_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX vector_date_estimate_idx ON vector_date_estimate
+             USING paradedb (id, time) WITH (target_segment_count = 1);",
+        ).unwrap();
+        let index = open_index("vector_date_estimate_idx");
+        let query = SearchQueryInput::FieldedQuery {
+            field: "time".into(),
+            query: pdb::Query::Range {
+                lower_bound: std::ops::Bound::Included(PdbOwnedValue::Date(
+                    crate::postgres::datetime::PostgresDateTime::try_from_raw(91).unwrap(),
+                )),
+                upper_bound: std::ops::Bound::Unbounded,
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.1);
+        assert_eq!(reader.search().count(), 10);
+    }
+
+    #[pg_test]
+    fn uniform_range_estimates_numeric_and_timestamp_bounds() {
+        use crate::postgres::datetime::PostgresDateTime;
+
+        Spi::run(
+            "CREATE TABLE range_bounds_estimate AS
+             SELECT g AS id, g::oid AS unsigned,
+                    TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time,
+                    9223372036854775707::bigint + g AS wide
+             FROM generate_series(1, 100) g;
+             ALTER TABLE range_bounds_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX range_bounds_estimate_idx ON range_bounds_estimate
+             USING paradedb (id, unsigned, time, wide) WITH (target_segment_count = 1);",
+        )
+        .unwrap();
+        let index = open_index("range_bounds_estimate_idx");
+        for (field, value) in [
+            ("id", PdbOwnedValue::I64 as fn(i64) -> PdbOwnedValue),
+            ("unsigned", |value| PdbOwnedValue::U64(value as u64)),
+            ("time", |value| {
+                PdbOwnedValue::Date(PostgresDateTime::try_from_raw(value).unwrap())
+            }),
+            ("wide", |value| PdbOwnedValue::I64(i64::MAX - 100 + value)),
+        ] {
+            for (lower, upper, expected) in [
+                (Bound::Included(91), Bound::Unbounded, 10),
+                (Bound::Excluded(90), Bound::Unbounded, 10),
+                (Bound::Unbounded, Bound::Included(10), 10),
+                (Bound::Unbounded, Bound::Excluded(11), 10),
+                (Bound::Included(100), Bound::Included(100), 1),
+                (Bound::Included(20), Bound::Excluded(20), 0),
+                (Bound::Included(90), Bound::Included(10), 0),
+                (Bound::Excluded(100), Bound::Unbounded, 0),
+                (Bound::Unbounded, Bound::Excluded(1), 0),
+                (Bound::Unbounded, Bound::Unbounded, 100),
+            ] {
+                let query = SearchQueryInput::FieldedQuery {
+                    field: field.into(),
+                    query: pdb::Query::Range {
+                        lower_bound: lower.map(value),
+                        upper_bound: upper.map(value),
+                    },
+                };
+                let reader = open_snapshot_reader(&index, query, false);
+                let segment = reader.searcher.segment_reader(0);
+                let estimate = reader.query.estimate_docs(segment).unwrap().unwrap();
+                assert_eq!(estimate.live_docs(segment), expected, "{field}");
+            }
+        }
+    }
+
+    #[pg_test]
+    fn uniform_range_estimates_float_constant_and_unknown_fields() {
+        Spi::run(
+            "CREATE TABLE range_float_estimate AS
+             SELECT g AS id, (g - 1) * 100.0 / 99 AS score,
+                    CASE WHEN g > 1 THEN (g - 1) * 100.0 / 99 END AS nullable,
+                    100.0::float8 AS constant, 'NaN'::float8 AS nonfinite, 'a'::text AS name
+             FROM generate_series(1, 100) g;
+             ALTER TABLE range_float_estimate ALTER COLUMN score TYPE float8;
+             ALTER TABLE range_float_estimate ALTER COLUMN nullable TYPE float8;
+             ALTER TABLE range_float_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX range_float_estimate_idx ON range_float_estimate
+             USING paradedb (id, score, nullable, constant, nonfinite, (name::pdb.literal))
+             WITH (target_segment_count = 1);",
+        )
+        .unwrap();
+        let index = open_index("range_float_estimate_idx");
+        for (field, lower, upper, expected) in [
+            ("score", Bound::Included(90.0), Bound::Unbounded, Some(10)),
+            ("nullable", Bound::Included(90.0), Bound::Unbounded, None),
+            ("nonfinite", Bound::Unbounded, Bound::Unbounded, None),
+            (
+                "constant",
+                Bound::Included(90.0),
+                Bound::Unbounded,
+                Some(100),
+            ),
+            (
+                "constant",
+                Bound::Included(100.0),
+                Bound::Included(100.0),
+                Some(100),
+            ),
+            (
+                "constant",
+                Bound::Excluded(100.0),
+                Bound::Unbounded,
+                Some(0),
+            ),
+            (
+                "constant",
+                Bound::Unbounded,
+                Bound::Excluded(100.0),
+                Some(0),
+            ),
+        ] {
+            let query = SearchQueryInput::FieldedQuery {
+                field: field.into(),
+                query: pdb::Query::Range {
+                    lower_bound: lower.map(PdbOwnedValue::F64),
+                    upper_bound: upper.map(PdbOwnedValue::F64),
+                },
+            };
+            let reader = open_snapshot_reader(&index, query, false);
+            let segment = reader.searcher.segment_reader(0);
+            assert_eq!(
+                reader
+                    .query
+                    .estimate_docs(segment)
+                    .unwrap()
+                    .map(|estimate| estimate.live_docs(segment)),
+                expected,
+                "{field}",
+            );
+        }
+        let query = SearchQueryInput::FieldedQuery {
+            field: "name".into(),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("a".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("z".into())),
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        assert!(
+            reader
+                .query
+                .estimate_docs(reader.searcher.segment_reader(0))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[pg_test]

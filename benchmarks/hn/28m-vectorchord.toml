@@ -24,7 +24,7 @@ options = """
 residual_quantization = true
 build.pin = 2
 [build.internal]
-lists = [80000]
+lists = [30000]
 spherical_centroids = true
 build_threads = 8
 sampling_factor = 64
@@ -54,7 +54,7 @@ work_mem = "256MB"
 param = "vchordrq.probes"
 integer = true
 min = 1
-max = 80000
+max = 30000
 start = 64
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001

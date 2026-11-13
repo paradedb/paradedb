@@ -163,12 +163,13 @@ respectively; recall hints are isolated by the profile hash.
 The workflow builds VectorChord 1.1.1 at
 `f9b5e234c44cee69b266b8431f92b7deed4e99d3` against the benchmark's PostgreSQL 18,
 preloads it, and builds one global `vchordrq` cosine index. The profile uses
-80,000 lists, residual quantization, spherical centroids, eight partitioning
+30,000 lists, residual quantization, spherical centroids, eight partitioning
 threads and eight requested parallel build workers. Following VectorChord's
 [indexing](https://docs.vectorchord.ai/vectorchord/usage/indexing.html) and
 [partitioning guidance](https://docs.vectorchord.ai/vectorchord/usage/partitioning-tuning.html),
 partitioning uses hierarchical k-means in 100 dimensions with a sampling factor
-of 64. It sweeps integer `vchordrq.probes` from 1 to 80,000, starting at 64, with
+of 64. For 28.7 million rows, 30,000 lists falls within the documented range
+of four to eight times the square root of the row count. It sweeps integer `vchordrq.probes` from 1 to 30,000, starting at 64, with
 `epsilon=1.9` and unlimited `max_scan_tuples=-1`.
 
 The fast sweep uses the same HN limits as PRISM: 25-vector pilots without warmups
@@ -189,7 +190,7 @@ the strict recall gate, while query errors fail k6. The existing warmup, timing,
 and R90/R95/R99 targets are unchanged.
 
 All HN engines use the `paradedb` service from the pinned pdbench Compose file: 64 CPUs
-(cores 0–63), 128 GiB memory, 64 GiB shared memory, 32 GiB shared buffers,
-1 GiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
+(cores 0–63), 32 GiB memory, 16 GiB shared memory, 8 GiB shared buffers,
+256 MiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
 The workflow verifies runtime settings and saves the resolved Compose, container
 limits, and PostgreSQL settings in the diagnostics artifact.

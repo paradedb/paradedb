@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed the Join Scan returning `NULL` for a whole-row reference in the select list, such as `SELECT s.id, s FROM s JOIN e ON ...`. Matched rows now return the source's row, as PostgreSQL does; unmatched outer-join rows still return `NULL`.

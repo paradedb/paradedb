@@ -20,7 +20,7 @@ if [ -e "$output/perf.data" ]; then
   echo "Refusing to overwrite $output/perf.data" >&2
   exit 1
 fi
-docker top "$container" -eo pid,comm > "$output/processes.txt"
+docker top "$container" -eo pid,comm >"$output/processes.txt"
 pids="$(awk 'NR > 1 && ($2 == "postgres" || $2 == "postmaster") {print $1}' "$output/processes.txt" | paste -sd, -)"
 if [ -z "$pids" ]; then
   echo "No PostgreSQL processes in $container" >&2
@@ -34,8 +34,10 @@ symfs="/proc/$container_pid/root"
   perf version
   docker inspect --format 'container={{.Name}} image={{.Config.Image}} image_id={{.Image}}' "$container"
   printf 'pids=%s\nevent=cpu-clock:u\nfrequency=%s\nstack_bytes=%s\n' "$pids" "$sample_frequency" "$stack_bytes"
-  printf 'command: '; printf '%q ' "$@"; printf '\n'
-} > "$output/metadata.txt"
+  printf 'command: '
+  printf '%q ' "$@"
+  printf '\n'
+} >"$output/metadata.txt"
 
 control_dir="$(mktemp -d)"
 mkfifo "$control_dir/control" "$control_dir/ack"
@@ -63,18 +65,17 @@ cleanup() {
     record_status=$?
     cat "$output/record.log"
     if [ "$status" -eq 0 ]; then status=$record_status; fi
-    sudo -n chown "$(id -u):$(id -g)" "$output/perf.data"
     report_status=0
     if [ -s "$output/perf.data" ]; then
       run_perf report --stdio --stdio-color never --header \
         --symfs "$symfs" --input "$output/perf.data" \
         --sort dso,symbol --show-nr-samples --no-children --call-graph none \
-        > "$output/report.txt" 2> "$output/report.log" || report_status=$?
+        >"$output/report.txt" 2>"$output/report.log" || report_status=$?
       run_perf report --stdio --stdio-color never --header \
         --symfs "$symfs" --input "$output/perf.data" \
         --sort comm,dso,symbol --show-nr-samples --children \
         --call-graph "graph,$callgraph_min_percent,caller" \
-        > "$output/report-callgraph.txt" 2>> "$output/report.log" || report_status=$?
+        >"$output/report-callgraph.txt" 2>>"$output/report.log" || report_status=$?
       echo "::group::PostgreSQL perf report: $output"
       cat "$output/report.txt" "$output/report-callgraph.txt" "$output/report.log"
       echo '::endgroup::'
@@ -82,6 +83,7 @@ cleanup() {
       echo "perf produced no profile: $output/perf.data" >&2
       report_status=1
     fi
+    sudo -n chown "$(id -u):$(id -g)" "$output/perf.data"
     if [ "$status" -eq 0 ]; then status=$report_status; fi
   fi
   exec 3>&-
@@ -98,7 +100,7 @@ run_perf record --output "$output/perf.data" \
   --event cpu-clock:u --freq "$sample_frequency" \
   --call-graph "dwarf,$stack_bytes" --inherit --namespaces --pid "$pids" \
   --delay=-1 --control="fifo:$control_dir/control,$control_dir/ack" \
-  > "$output/record.log" 2>&1 &
+  >"$output/record.log" 2>&1 &
 perf_pid=$!
 printf 'enable\n' >&3
 if ! read -r -t "$startup_timeout_seconds" -u 4 ack || [ "$ack" != ack ]; then

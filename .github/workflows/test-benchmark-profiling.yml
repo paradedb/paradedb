@@ -43,7 +43,7 @@ jobs:
               -c 'SELECT sum(i) FROM generate_series(1, 10000000) AS i;'
           test -s profiles/smoke/report.txt
           test -s profiles/smoke/report-callgraph.txt
-          sudo perf script --input profiles/smoke/perf.data --fields pid --hide-call-graph \
+          perf script --input profiles/smoke/perf.data --fields pid --hide-call-graph \
             | tee profiles/smoke/sample-pids.txt > /dev/null
           python3 - <<'PYTHON'
           from pathlib import Path

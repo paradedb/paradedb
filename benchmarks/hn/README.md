@@ -71,3 +71,44 @@ Run local checks with Python 3.11+ and `duckdb==2.0.0` installed:
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 ```
+
+## pg_vectorsearch
+
+Apply `benchmark-hn-pg_vectorsearch` to run the pinned PRISM engine, or manually
+dispatch `benchmark-hn-pg-vectorsearch.yml`. The label is removed when the job
+starts. This separate workflow uses the same Docker configuration as pg_search,
+with pg_vectorsearch commit `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`.
+The fixed probes come from
+[sweep 43100831368](https://github.com/paradedb/paradedb/actions/runs/43100831368)
+and their recall is remeasured under the shared container settings.
+
+CI uses the following fixed nprobe values from that sweep. Targets that were
+not reached use the maximum, 4096.
+
+| Workload               |  R90 |  R95 |  R99 |
+| ---------------------- | ---: | ---: | ---: |
+| `range_10pct`          |  108 |  546 | 4096 |
+| `range_1pct`           |  193 | 4096 | 4096 |
+| `range_0.1pct`         | 4096 | 4096 | 4096 |
+| `single_term_0.1pct`   | 4096 | 4096 | 4096 |
+| `single_term_0.01pct`  | 4096 | 4096 | 4096 |
+| `single_term_0.001pct` | 4096 | 4096 | 4096 |
+
+`pg_vectorsearch-probes.json` is the source of these settings. `pdbench search
+--probe` measures each distinct workload/nprobe pair once over all 100 query
+vectors, without a recall sweep. All 18 workload/target points run through k6,
+even when the current recall is below target. Reports retain actual recall,
+buffer counts, and short result counts; query errors still fail the run.
+
+The exact-author and timestamp predicates and ground truth match the ParadeDB
+workloads. PRISM retrieves candidates and PostgreSQL applies the scalar filters.
+The EXPLAIN gate requires the cosine PRISM index scan and the scalar predicates;
+sequential scans, B-tree scans, and ParadeDB scans are rejected. Results use the
+separate `hackernews-vector-28m-pg-vectorsearch` dataset and `prism-postfilter`
+workload names. Manual main runs without a `commit` override update its baseline.
+
+All HN engines use the `paradedb` service from the pinned pdbench Compose file: 64 CPUs
+(cores 0–63), 128 GiB memory, 64 GiB shared memory, 32 GiB shared buffers,
+1 GiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
+The workflow verifies runtime settings and saves the resolved Compose, container
+limits, and PostgreSQL settings in the diagnostics artifact.

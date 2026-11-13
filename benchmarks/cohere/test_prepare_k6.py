@@ -6,7 +6,15 @@ import unittest
 from pathlib import Path
 
 import tomllib
-from prepare_k6 import DIMENSIONS, PROBE, QUERIES, SUITES, operating_points, summary
+from prepare_k6 import (
+    DIMENSIONS,
+    PROBE,
+    QUERIES,
+    SUITES,
+    fixed_operating_points,
+    operating_points,
+    summary,
+)
 from verify_plans import verify
 
 
@@ -247,6 +255,86 @@ class OperatingPointsTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "heap filtering"):
             verify(plan, filtered=True, neighbors=10, fields=["text"])
+
+
+class FixedOperatingPointsTest(unittest.TestCase):
+    """Keep fixed HN probes measurable without overstating achieved recall."""
+
+    def setUp(self):
+        path = Path(__file__).parents[1] / "hn" / "pg_vectorsearch-probes.json"
+        self.probes = json.loads(path.read_text())["nprobe"]
+        self.inputs = []
+        for report in reports("hn"):
+            report["config"]["engine"] = "pg_vectorsearch"
+            report["config"]["dataset"]["dims"] = 1536
+            report["data"]["sweep_param"] = "prism.nprobe"
+            query = report["config"]["search"]["query"]
+            for probe in sorted(set(self.probes[query].values())):
+                fixed = copy.deepcopy(report)
+                fixed["data"]["fixed_probe"] = probe
+                result = fixed["data"]["variants"][query]
+                result["query"] = result["query"].replace("1024", "1536")
+                result["targets"] = {}
+                point = result["points"][0]
+                point["value"] = str(probe)
+                point["metrics"]["recall"].update(samples=100, recall=0.8)
+                self.inputs.append(fixed)
+
+    def test_all_missed_targets_still_have_the_pinned_probe_and_measurements(self):
+        """An entirely below-target run must still produce all 18 k6 inputs."""
+        original = copy.deepcopy(self.inputs)
+        points = fixed_operating_points(self.inputs, self.probes)
+        self.assertEqual(len(self.inputs), 9)
+        self.assertEqual(len(points), 18)
+        for point in points:
+            self.assertTrue(point["fixed_probe"])
+            self.assertFalse(point["reached"])
+            self.assertFalse(point["require_full_neighbors"])
+            self.assertEqual(
+                point["probe"], self.probes[point["query"]][str(point["target"])]
+            )
+            self.assertEqual(point["recall"], 0.8)
+            self.assertEqual(point["buffers"]["shared_hit_mean"], 1234.5)
+            self.assertEqual(point["param"], "prism.nprobe")
+            self.assertIn("$1::vector(1536)", point["sql"])
+        self.assertEqual(self.inputs, original)
+        text = summary(points)
+        self.assertIn("`4096` (target missed)", text)
+        self.assertIn("80.0%", text)
+        self.assertNotIn("Unreached targets have no latency", text)
+
+    def test_reached_uses_current_recall_without_changing_the_pinned_probe(self):
+        """A recall change must not start a new search or alter the pinned setting."""
+        for report in self.inputs:
+            for result in report["data"]["variants"].values():
+                result["points"][0]["metrics"]["recall"]["recall"] = 0.95
+        points = fixed_operating_points(self.inputs, self.probes)
+        self.assertEqual(sum(point["reached"] for point in points), 12)
+        self.assertTrue(
+            all(point["probe"] == 4096 for point in points if point["target"] == 0.99)
+        )
+
+    def test_rejects_missing_duplicate_or_partial_measurements(self):
+        """Do not publish partial fixed-probe validation as a complete run."""
+        with self.assertRaisesRegex(ValueError, "Missing fixed probe"):
+            fixed_operating_points(self.inputs[:-1], self.probes)
+        with self.assertRaisesRegex(ValueError, "duplicate fixed probe"):
+            fixed_operating_points(self.inputs + self.inputs[:1], self.probes)
+        result = next(iter(self.inputs[0]["data"]["variants"].values()))
+        result["points"][0]["metrics"]["recall"]["samples"] = 25
+        with self.assertRaisesRegex(ValueError, "all 100 query vectors"):
+            fixed_operating_points(self.inputs, self.probes)
+
+    def test_rejects_invalid_probe_maps_and_mixed_sessions(self):
+        """Fail before exporting out-of-range probes or inconsistent measurements."""
+        for value in (0, 4097, 1.5, True):
+            probes = copy.deepcopy(self.probes)
+            probes["range_10pct"]["0.9"] = value
+            with self.assertRaisesRegex(ValueError, "integer nprobe"):
+                fixed_operating_points(self.inputs, probes)
+        self.inputs[-1]["config"]["search"]["session"]["jit"] = "on"
+        with self.assertRaisesRegex(ValueError, "same dataset, index, and session"):
+            fixed_operating_points(self.inputs, self.probes)
 
 
 if __name__ == "__main__":

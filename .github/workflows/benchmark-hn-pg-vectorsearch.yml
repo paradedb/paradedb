@@ -1,0 +1,333 @@
+name: Benchmark HN vector (pg_vectorsearch)
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
+        default: ""
+      pdbench_ref:
+        description: "pdbench ref"
+        default: "84870e98944750a1f711011b750ac93a35750abb"
+      benchmarker_ref:
+        description: "benchmarker ref"
+        default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  hn:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      id-token: write
+    name: HN vector 28m (pg_vectorsearch)
+    if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-hn-pg_vectorsearch'
+    timeout-minutes: 720
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - retry=when-interrupted
+      - family=c8gd.metal-24xl
+      - image=ubuntu26-full-arm64
+      - extras=s3-cache+git-cache+apt-cache
+    env:
+      HN_SIZE: 28m
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '84870e98944750a1f711011b750ac93a35750abb' }}
+      BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
+      BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
+      PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+      RESULTS_DATASET: hackernews-vector-28m-pg-vectorsearch
+      HN_CONFIG: benchmarks/hn/28m-pgvectorsearch.toml
+      HN_PROBES: benchmarks/hn/pg_vectorsearch-probes.json
+
+    steps:
+      - name: Remove benchmark label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BENCHMARK_LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$BENCHMARK_LABEL" || true
+
+      - name: Checkout extension to benchmark
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          persist-credentials: false
+
+      - name: Record benchmark commit
+        id: commit_info
+        run: |
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout benchmark workflow for backfills
+        if: inputs.commit != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: benchmark-workflow
+          persist-credentials: false
+
+      - name: Use this workflow's benchmark code for backfills
+        if: inputs.commit != ''
+        run: |
+          rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
+          rsync -a benchmark-workflow/.github/actions/ .github/actions/
+          rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
+          cp benchmark-workflow/docker/Dockerfile.source docker/Dockerfile.source
+
+      - name: Record benchmark configuration
+        run: |
+          mkdir -p benchmark-artifacts
+          git rev-parse HEAD > benchmark-artifacts/extension-commit.txt
+          echo "$GITHUB_SHA" > benchmark-artifacts/workflow-commit.txt
+          cp "$HN_CONFIG" benchmark-artifacts/config.toml
+          cp "$HN_PROBES" benchmark-artifacts/fixed-probes.json
+
+      - name: Test vector benchmark helpers
+        run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
+
+      - name: Configure RunsOn caching
+        uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
+
+      - name: Create pdbench checkout token
+        id: pdbench_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: paradedb
+          repositories: pdbench,pg_vectorsearch
+          permission-contents: read
+
+      - name: Checkout pdbench
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: paradedb/pdbench
+          ref: ${{ env.PDBENCH_REF }}
+          path: pdbench
+          token: ${{ steps.pdbench_token.outputs.token }}
+          persist-credentials: false
+
+      - name: Set up Docker benchmark cluster
+        uses: ./.github/actions/setup-docker-benchmark-cluster
+        with:
+          ref: ${{ env.BENCHMARK_REF }}
+          dataset: hackernews/vector
+          size: ${{ env.HN_SIZE }}/39152428323-1
+          backup: "20261018-214625F"
+          compose_file: pdbench/datasets/hn/docker-compose.yml
+
+      - name: Set up pg_vectorsearch
+        uses: ./.github/actions/setup-pg-vectorsearch
+        with:
+          ref: ${{ env.PG_VECTORSEARCH_REF }}
+          github_token: ${{ steps.pdbench_token.outputs.token }}
+
+      - name: Verify benchmark runtime
+        uses: ./.github/actions/verify-vector-benchmark-runtime
+
+      - name: Install pdbench toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Cache pdbench build
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: pdbench -> target
+
+      - name: Build pdbench
+        working-directory: pdbench
+        run: |
+          rm -rf target/duckdb-sources
+          cargo +1.97.1 build --locked --release -p pdbench --target-dir target -j 16
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+
+      - name: Set up Benchmarker
+        uses: ./.github/actions/setup-benchmarker
+        with:
+          ref: ${{ env.BENCHMARKER_REF }}
+
+      - name: Install fixture reader
+        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+        with:
+          packages: python3-venv
+
+      - name: Verify published HN fixtures
+        run: |
+          set -euo pipefail
+          python3 -m venv .hn-fixtures
+          .hn-fixtures/bin/pip install --only-binary=:all: duckdb==2.0.0
+          .hn-fixtures/bin/python benchmarks/hn/prepare.py --output benchmark-artifacts/fixtures
+
+      - name: Verify restored heap and import ground truth
+        run: |
+          set -euo pipefail
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -f benchmark-artifacts/fixtures/verify_heap.sql \
+            | tee benchmark-artifacts/heap-validation.log
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
+            -f benchmark-artifacts/fixtures/import_ground_truth.sql
+
+      - name: Build selected vector index
+        run: |
+          set -euo pipefail
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;' \
+            -c 'ALTER TABLE hn_items SET (parallel_workers = 8);'
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c "SELECT name, setting, unit FROM pg_settings
+                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                               'max_worker_processes', 'max_parallel_maintenance_workers',
+                               'parallel_leader_participation')
+                ORDER BY name;" \
+            | tee benchmark-artifacts/index-build-settings.log
+          pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
+            --assets-dir benchmarks/hn/assets --runs-dir benchmark-artifacts/search \
+            --set dataset.s3_base_path=benchmark-artifacts/fixtures \
+            --force-rebuild \
+            | tee benchmark-artifacts/index-build.log
+          profile="$(basename "$HN_CONFIG" .toml)"
+          jq '.data | [
+            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
+            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers}
+          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+            -c 'VACUUM (ANALYZE) hn_items;' \
+            | tee benchmark-artifacts/index-vacuum.log
+
+      - name: Verify PRISM index and parallel build
+        run: |
+          set -euo pipefail
+          profile="$(basename "$HN_CONFIG" .toml)"
+          jq -e '.data.index.access_method == "prism" and .data.metrics.workers.max_parallel_workers > 0' \
+            benchmark-artifacts/search/"$profile"/*_build.json
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_agg(s) FROM prism_index_settings('hn_items_prism_idx') AS s" \
+            > benchmark-artifacts/prism-settings.json
+
+      - name: Measure recall at fixed nprobe values
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r query probe; do
+            pdbench search --url "$PARADEDB_URL" --config "$HN_CONFIG" \
+              --assets-dir benchmarks/hn/assets --runs-dir "benchmark-artifacts/search/$query/$probe" \
+              --set dataset.s3_base_path=benchmark-artifacts/fixtures \
+              --query "$query" --probe "$probe" --no-compare --html
+          done < <(jq -r '.nprobe | to_entries[] | .key as $query | [.value[]] | unique[] | [$query, .] | @tsv' "$HN_PROBES")
+
+      - name: Prepare k6 operating points
+        run: |
+          set -euo pipefail
+          python3 benchmarks/cohere/prepare_k6.py --dataset hn --runs benchmark-artifacts/search \
+            --fixed-probes "$HN_PROBES" --output benchmark-artifacts
+          jq '[.[] | select(.buffers.shared_hit_mean != null)
+            | {name: (.name + " shared hits/query"), unit: "hits/query", value: .buffers.shared_hit_mean}
+          ]' benchmark-artifacts/operating_points.json > benchmark-artifacts/buffer-metrics.json
+          psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+            -c 'SELECT json_agg(emb::text ORDER BY id) FROM (SELECT id, emb FROM pdbench_queries ORDER BY id LIMIT 100) AS queries' \
+            > benchmark-artifacts/query_vectors.json
+          .hn-fixtures/bin/python benchmarks/hn/prepare.py --output benchmark-artifacts/fixtures \
+            --verify-vectors benchmark-artifacts/query_vectors.json
+          cat benchmark-artifacts/operating_points.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            git -C pdbench rev-parse HEAD
+            git -C benchmarker rev-parse HEAD
+          } > benchmark-artifacts/tool-commits.txt
+          {
+            cat <<CONTEXT
+          HN vector 28m, pg_vectorsearch at fixed nprobe values from [sweep 43100831368](https://github.com/paradedb/paradedb/actions/runs/43100831368).
+
+          pg_vectorsearch: \`$PG_VECTORSEARCH_REF\`; pg_search source: \`$BENCHMARK_REF\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
+
+          Six filtered top-10 workloads use the published exact-author and timestamp predicates and ground truth. PRISM retrieves candidates and PostgreSQL applies the scalar filters; EXPLAIN verifies that execution path. Uses heap backup \`20261018-214625F\` and query IDs 0–99.
+
+          Recall is measured once per distinct workload/nprobe pair without a sweep. All R90/R95/R99 points are timed, including 4096 fallbacks for targets missed in the reference sweep. Current recall and short result counts remain visible. All engines use the shared pg_search Docker service: 64 CPUs on cores 0-63, 128 GiB RAM, 64 GiB shared memory, 32 GiB shared buffers, 1 GiB work_mem, eight build/query workers, 16 parallel workers and a 32-process pool. k6 runs on cores 64-67. The reference probes are remeasured under these settings.
+
+          CONTEXT
+            cat benchmark-artifacts/operating_points.md
+          } > benchmark-artifacts/result-context.md
+
+      - name: Verify k6 vector query plans
+        run: |
+          python3 benchmarks/cohere/verify_plans.py benchmark-artifacts
+
+      - name: Measure selected operating points with k6
+        env:
+          BENCHMARKER_META: >-
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"pg_vectorsearch","pg_vectorsearch":"${{ env.PG_VECTORSEARCH_REF }}"}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          root="$PWD"
+          mkdir -p benchmarker/results
+          while IFS= read -r point; do
+            (
+              cd benchmarker/results
+              taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
+                -e PARADEDB_URL="$PARADEDB_URL" \
+                -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
+                -e OPERATING_POINT="$point" \
+                -e QUERY_VECTORS="$root/benchmark-artifacts/query_vectors.json" \
+                "$root/benchmarks/cohere/k6/search.js"
+            )
+            jsons=(benchmarker/results/dashboard_*.json)
+            htmls=(benchmarker/results/dashboard_*.html)
+            test "${#jsons[@]}" -eq 1 && test "${#htmls[@]}" -eq 1
+            mv "${jsons[0]}" "benchmarker/results/${point}.json"
+            mv "${htmls[0]}" "benchmarker/results/${point}.html"
+          done < <(jq -r '.[] | .name' benchmark-artifacts/operating_points.json)
+
+      - name: Stage Benchmarker results
+        uses: ./.github/actions/stage-benchmark-results
+        with:
+          benchmark_type: benchmarker
+          metadata: >-
+            {"dataset":"${{ env.RESULTS_DATASET }}",
+             "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
+             "publish_baseline":"${{ github.ref == 'refs/heads/main' && inputs.commit == '' }}",
+             "context_file":"benchmark-artifacts/result-context.md",
+             "buffer_metrics_file":"benchmark-artifacts/buffer-metrics.json",
+             "index_metrics_file":"benchmark-artifacts/index-metrics.json"}
+
+      - name: Save database log
+        if: always()
+        run: |
+          mkdir -p benchmark-artifacts
+          docker logs paradedb > benchmark-artifacts/postgres.log 2>&1 || true
+
+      - name: Upload index, recall, and buffer diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ env.RESULTS_DATASET }}-diagnostics
+          path: |
+            benchmark-artifacts/
+            benchmarker/results/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Database logs
+        if: failure() || cancelled()
+        run: docker logs --tail 200 paradedb
+
+      - name: Stop database
+        if: always()
+        run: docker stop --time 600 paradedb
+
+  publish-results:
+    name: Publish Benchmark Results
+    needs: hn
+    if: always() && !cancelled() && (needs.hn.result == 'success' || needs.hn.result == 'failure')
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/publish-benchmark-results.yml
+    secrets: inherit

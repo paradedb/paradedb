@@ -18,8 +18,39 @@ SETTING_DRIVEN_FIELD = re.compile(
 
 def setting_driven_field(expression, required):
     """The required field a `postgres_expression` searches, or None for any other expression."""
-    match = SETTING_DRIVEN_FIELD.fullmatch(str(expression.get("expr", {}).get("expr_desc", "")))
+    match = SETTING_DRIVEN_FIELD.fullmatch(
+        str(expression.get("expr", {}).get("expr_desc", ""))
+    )
     return match["field"] if match and match["field"] in required else None
+
+
+def verify_prism(plan, index_name, fields):
+    """Require a cosine PRISM scan and every PostgreSQL filter predicate."""
+    pending = [plan[0]["Plan"]]
+    nodes = []
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        pending.extend(node.get("Plans", []))
+    if any(node.get("Custom Plan Provider") for node in nodes):
+        raise ValueError("Expected pg_vectorsearch or PostgreSQL, found a custom scan")
+    predicates = " ".join(
+        str(node.get(key, ""))
+        for node in nodes
+        for key in ("Filter", "Index Cond", "Recheck Cond")
+    )
+    if any(not re.search(rf"\b{re.escape(field)}\b", predicates) for field in fields):
+        raise ValueError("Expected every HN predicate in the PostgreSQL plan")
+    prism = [
+        node
+        for node in nodes
+        if node.get("Node Type") == "Index Scan"
+        and node.get("Index Name") == index_name
+        and "<=>" in node.get("Order By", "")
+    ]
+    if prism:
+        return "prism-postfilter" if fields else "prism"
+    raise ValueError(f"Expected a cosine PRISM scan on {index_name}")
 
 
 def verify(plan, filtered, neighbors=None, fields=None):
@@ -37,17 +68,15 @@ def verify(plan, filtered, neighbors=None, fields=None):
     matching = []
     for scan in scans:
         query = scan.get("Tantivy Query", '"all"')
-        if isinstance(query, str):
-            query = json.loads(query)
-        pending = [query]
+        pending = [json.loads(query) if isinstance(query, str) else query]
         indexed_fields = set()
         while pending:
             part = pending.pop()
             if isinstance(part, dict):
-                expression = part.get("postgres_expression")
                 field = (
-                    setting_driven_field(expression, required)
-                    if isinstance(expression, dict) and len(part) == 1
+                    setting_driven_field(part["postgres_expression"], required)
+                    if isinstance(part.get("postgres_expression"), dict)
+                    and len(part) == 1
                     else None
                 )
                 if field is not None:
@@ -88,10 +117,10 @@ if __name__ == "__main__":
     output = args.directory / "plans"
     output.mkdir(exist_ok=True)
     for point in points:
-        if not point["reached"]:
+        if not (point["reached"] or point.get("fixed_probe")):
             continue
         session = point["session"] | {
-            "paradedb.vector_cluster_max_probe": point["probe"]
+            point.get("param", "paradedb.vector_cluster_max_probe"): point["probe"]
         }
         settings = "\n".join(
             f"SET {key} = '{value}';" for key, value in session.items()
@@ -115,10 +144,15 @@ EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE vector_ci('{vector}');
         )
         path = output / f"{point['name']}.json"
         path.write_text(result.stdout)
-        verify(
-            json.loads(result.stdout),
-            not point["query"].endswith("_unfiltered"),
-            point["neighbors"],
-            point["filter_fields"],
-        )
+        if point.get("engine") == "pg_vectorsearch":
+            verify_prism(
+                json.loads(result.stdout), point["index_name"], point["filter_fields"]
+            )
+        else:
+            verify(
+                json.loads(result.stdout),
+                not point["query"].endswith("_unfiltered"),
+                point["neighbors"],
+                point["filter_fields"],
+            )
         print(f"Verified {point['name']}: {path}")

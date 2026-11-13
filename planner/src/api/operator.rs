@@ -41,6 +41,7 @@ use pgrx::{PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
 pub unsafe fn tantivy_field_name_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
+    error_on_missing_field: bool,
 ) -> Option<(PgSearchRelation, Option<FieldName>)> {
     let (heaprelid, _, targetlist) = find_node_relation(node, root);
     if heaprelid == pg_sys::Oid::INVALID {
@@ -71,7 +72,10 @@ pub unsafe fn tantivy_field_name_from_node(
     if field_name.is_none() {
         let var = nodecast!(Var, node)?;
         if (*var).varattno != 0 {
-            if let Some(field_var) = nodecast!(Var, field_node)
+            // Typed SearchQueryInput calls can execute without an inferred field,
+            // for example `unindexed_column @@@ paradedb.empty()`.
+            if error_on_missing_field
+                && let Some(field_var) = nodecast!(Var, field_node)
                 && let Some(column) = attname_from_var(&heaprel, field_var)
             {
                 ErrorReport::new(

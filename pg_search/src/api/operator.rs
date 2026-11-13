@@ -141,7 +141,11 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
                     && get_expr_result_type(rhs) != searchqueryinput_typoid());
 
         // The LHS must identify a ParadeDB index, optionally with a specific field.
-        let Some((indexrel, field)) = tantivy_field_name_from_node((*request).root, lhs) else {
+        let Some((indexrel, field)) = tantivy_field_name_from_node(
+            (*request).root,
+            lhs,
+            matches!(rhs_rewrite, SimplifyRhs::Rewrite(_)),
+        ) else {
             return Self::unsupported();
         };
 

@@ -158,6 +158,9 @@ jobs:
         with:
           ref: ${{ env.BENCHMARKER_REF }}
 
+      - name: Set up host profiling
+        uses: ./.github/actions/setup-perf
+
       - name: Refresh pg_search and build index
         run: |
           set -euo pipefail
@@ -344,7 +347,9 @@ jobs:
           while IFS= read -r point; do
             (
               cd benchmarker/results
-              taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
+              bash "$root/.github/scripts/profile-postgres.sh" paradedb \
+                "$root/benchmark-artifacts/perf/paradedb/$point" -- \
+                taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
                 -e PARADEDB_URL="$PARADEDB_URL" \
                 -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
                 -e OPERATING_POINT="$point" \
@@ -357,6 +362,23 @@ jobs:
             mv "${jsons[0]}" "benchmarker/results/${point}.json"
             mv "${htmls[0]}" "benchmarker/results/${point}.html"
           done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
+
+      - name: Upload PostgreSQL profiles
+        if: always()
+        id: perf_profiles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cohere-${{ matrix.size }}-perf
+          path: benchmark-artifacts/perf/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Link PostgreSQL profiles
+        if: always() && steps.perf_profiles.outputs.artifact-url != ''
+        env:
+          PROFILES_URL: ${{ steps.perf_profiles.outputs.artifact-url }}
+        run: |
+          echo "PostgreSQL CPU profiles (text reports and raw perf.data for each k6 run): [cohere-${COHERE_SIZE}-perf]($PROFILES_URL)" >> "$GITHUB_STEP_SUMMARY"
 
       # Router quality runs after k6 so its flat sweeps do not change the cache k6 measures on.
       - name: Write router-quality arm profiles

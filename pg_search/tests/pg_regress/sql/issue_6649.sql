@@ -54,7 +54,14 @@ GROUP BY ctid_0
 ORDER BY ctid_0;
 
 -- Synthetic CTID aliases must also avoid non-grouped aggregate input fields.
-SELECT agg_0, SUM(_ctid_0)
+EXPLAIN (COSTS OFF, TIMING OFF, VERBOSE)
+SELECT agg_0, SUM(_ctid_0), SUM(amount)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+ORDER BY agg_0;
+
+SELECT agg_0, SUM(_ctid_0), SUM(amount)
 FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()
 GROUP BY agg_0
@@ -72,21 +79,45 @@ GROUP BY a.agg_0
 ORDER BY a.agg_0;
 
 -- These group keys overlap with the synthetic columns produced by pdb.agg().
-SELECT __pdb_k0, COUNT(*),
+EXPLAIN (COSTS OFF, TIMING OFF, VERBOSE)
+SELECT __pdb_k0, COUNT(*), SUM(amount),
        pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
 FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()
 GROUP BY __pdb_k0
 ORDER BY __pdb_k0;
 
-SELECT __pdb_m0, COUNT(*),
+SELECT __pdb_k0, COUNT(*), SUM(amount),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY __pdb_k0
+ORDER BY __pdb_k0;
+
+EXPLAIN (COSTS OFF, TIMING OFF, VERBOSE)
+SELECT __pdb_m0, COUNT(*), SUM(amount),
        pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
 FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()
 GROUP BY __pdb_m0
 ORDER BY __pdb_m0;
 
-SELECT __grouping_id, COUNT(*),
+SELECT __pdb_m0, COUNT(*), SUM(amount),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY __pdb_m0
+ORDER BY __pdb_m0;
+
+EXPLAIN (COSTS OFF, TIMING OFF, VERBOSE)
+SELECT __grouping_id, COUNT(*), SUM(amount),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY __grouping_id
+ORDER BY __grouping_id;
+
+SELECT __grouping_id, COUNT(*), SUM(amount),
        pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
 FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()
@@ -94,7 +125,16 @@ GROUP BY __grouping_id
 ORDER BY __grouping_id;
 
 -- HAVING must read the renamed synthetic grouping ID on the scalar-key path.
-SELECT agg_0, COUNT(*),
+EXPLAIN (COSTS OFF, TIMING OFF, VERBOSE)
+SELECT agg_0, COUNT(*), SUM(amount),
+       pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
+FROM issue_6649_internal_names
+WHERE id @@@ paradedb.all()
+GROUP BY agg_0
+HAVING COUNT(*) > 1
+ORDER BY agg_0;
+
+SELECT agg_0, COUNT(*), SUM(amount),
        pdb.agg('{"terms":{"size":10,"field":"category","order":{"_key":"asc"}},"aggs":{"min_agg_0":{"min":{"field":"agg_0"}}}}'::jsonb)
 FROM issue_6649_internal_names
 WHERE id @@@ paradedb.all()

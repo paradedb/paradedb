@@ -2007,7 +2007,7 @@ impl SearchQueryInput {
                 field,
                 query: pdb_query,
             } => {
-                let query = pdb_query.clone().into_tantivy_query(
+                let query = pdb_query.into_tantivy_query(
                     field.clone(),
                     schema,
                     index_created_by_version,

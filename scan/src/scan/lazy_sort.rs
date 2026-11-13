@@ -568,9 +568,12 @@ fn prepare_sa_and_ra(
             // `RA` never scores the base when disjuncts exist (`prepare_ra_lookup_weights`), and
             // `RankJoinExec` bounds `RA`-only partners at `0.0`, so `SA` must not score it either.
             let sa = if has_disjuncts && replace_query {
-                reader.with_disjunctive_sa_queries(true, disjunct_queries)
+                reader
+                    .clone()
+                    .with_disjunctive_sa_queries(true, disjunct_queries)
             } else if has_disjuncts {
                 reader
+                    .clone()
                     .with_constant_score(0.0)
                     .with_disjunctive_sa_queries(false, disjunct_queries)
             } else {

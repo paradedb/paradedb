@@ -68,7 +68,9 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
+use tantivy::query::{
+    ConstScoreQuery, EnableScoring, Explanation, QueryClone, QueryParser, Scorer, Weight,
+};
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
@@ -712,14 +714,14 @@ pub struct SearchIndexReader {
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
     underlying_index: Index,
-    query: Box<dyn Query>,
+    query: Box<SharedQuery>,
     estimate_from_statistics: bool,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     /// The original query, retained for pruning only when a predicate references a field with
     /// segment statistics. This eligibility check needs no segment statistics. Keep the whole
     /// query so mixed Boolean branches retain their original meaning; segment decisions still
     /// happen on demand.
-    pruning_query: Option<SearchQueryInput>,
+    pruning_query: Option<Arc<SearchQueryInput>>,
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
@@ -737,6 +739,23 @@ pub struct SearchIndexReader {
 
     // Keep cleanup admission alive across reader clones.
     _cleanup_lock: Arc<CleanupAdmission>,
+}
+
+#[derive(Clone, Debug)]
+struct SharedQuery(Arc<dyn Query>);
+impl Query for SharedQuery {
+    fn weight(&self, s: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
+        self.0.weight(s)
+    }
+    fn explain(&self, s: &Searcher, d: DocAddress) -> tantivy::Result<Explanation> {
+        self.0.explain(s, d)
+    }
+    fn count(&self, s: &Searcher) -> tantivy::Result<usize> {
+        self.0.count(s)
+    }
+    fn query_terms(&self, f: Field, r: &SegmentReader, v: &mut dyn FnMut(&Term, bool)) {
+        self.0.query_terms(f, r, v)
+    }
 }
 
 /// A queryless snapshot of visible segments used to initialize parallel JoinScan and
@@ -768,7 +787,7 @@ impl Clone for SearchIndexReader {
             schema: self.schema.clone(),
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
-            query: self.query.box_clone(),
+            query: self.query.clone(),
             estimate_from_statistics: self.estimate_from_statistics,
             segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             pruning_query: self.pruning_query.clone(),
@@ -943,7 +962,7 @@ impl SearchIndexReader {
         let (matches, docs) =
             self.candidate_segment_readers()
                 .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
+                    let estimated = self.query.0.estimate_docs(reader).ok().flatten().map_or(
                         f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
                         |estimate| estimate.live_docs(reader) as f64,
                     );
@@ -1261,7 +1280,7 @@ impl SearchIndexReader {
             )
         };
         let pruning_query = SegmentPruner::has_prunable_predicate(&schema, &search_query_input)
-            .then(|| search_query_input.clone());
+            .then(|| Arc::from(search_query_input.clone()));
         let estimate_from_statistics = search_query_input.supports_statistics_estimation();
         let query = search_query_input
             .into_tantivy_query(
@@ -1275,6 +1294,7 @@ impl SearchIndexReader {
                 planstate,
             )
             .unwrap_or_else(|e| panic!("{e}"));
+        let query = Box::new(SharedQuery(Arc::from(query)));
 
         let candidate_segments = (0..searcher.segment_readers().len())
             .map(|_| OnceLock::new())
@@ -1347,26 +1367,33 @@ impl SearchIndexReader {
     }
 
     /// Returns a reader matching the same documents as `self` but scoring each one `score`.
-    pub fn with_constant_score(&self, score: Score) -> Self {
-        let mut clone = self.clone();
-        let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
-        clone.query = Box::new(ConstScoreQuery::new(existing, score));
-        clone
+    pub fn with_constant_score(mut self, score: Score) -> Self {
+        self.query = Box::new(SharedQuery(Arc::from(ConstScoreQuery::new(
+            *self.query,
+            score,
+        ))));
+        self
     }
 
     /// Pruning keeps deciding from the original query input, which stays correct because a
     /// further AND never makes a rejected segment match. The compiled query is kept as is: it may
     /// contain Params resolved with an execution ExprContext.
-    pub fn and_query(&self, additional_query: Box<dyn Query>) -> Self {
-        let mut clone = self.clone();
-        let existing = std::mem::replace(&mut clone.query, Box::new(tantivy::query::EmptyQuery));
-        clone.query = Box::new(tantivy::query::BooleanQuery::new(vec![
-            (tantivy::query::Occur::Must, existing),
+    pub fn inject_and_query(&mut self, additional_query: Box<dyn Query>) {
+        let orig_query = self.query.clone();
+        *self.query = SharedQuery(Arc::from(tantivy::query::BooleanQuery::new(vec![
+            (tantivy::query::Occur::Must, orig_query),
             (tantivy::query::Occur::Must, additional_query),
-        ]));
-        clone.pruning_estimate = OnceLock::new();
-        clone.estimate_from_statistics = false;
-        clone
+        ])));
+        self.pruning_estimate = OnceLock::new();
+        self.estimate_from_statistics = false;
+    }
+
+    /// Pruning keeps deciding from the original query input, which stays correct because a
+    /// further AND never makes a rejected segment match. The compiled query is kept as is: it may
+    /// contain Params resolved with an execution ExprContext.
+    pub fn and_query(mut self, additional_query: Box<dyn Query>) -> Self {
+        self.inject_and_query(additional_query);
+        self
     }
 
     /// Compiles a non-empty slice of `disjunct_queries` into a single `Occur::Should` union query.
@@ -1397,19 +1424,18 @@ impl SearchIndexReader {
     /// constant score, tantivy still prunes the union with Block-Max WAND
     /// (`SpecializedScorer::FilteredTermUnion`).
     pub fn with_disjunctive_sa_queries(
-        &self,
+        mut self,
         replace_query: bool,
         disjunct_queries: &[SearchQueryInput],
     ) -> Self {
         let Some(disjunct_union) = self.make_disjunct_union_query(disjunct_queries) else {
-            return self.clone();
+            return self;
         };
         if replace_query {
-            let mut clone = self.clone();
-            clone.query = disjunct_union;
-            clone.pruning_estimate = OnceLock::new();
-            clone.estimate_from_statistics = false;
-            clone
+            self.query = Box::new(SharedQuery(Arc::from(disjunct_union)));
+            self.pruning_estimate = OnceLock::new();
+            self.estimate_from_statistics = false;
+            self
         } else {
             self.and_query(disjunct_union)
         }
@@ -1419,7 +1445,7 @@ impl SearchIndexReader {
     /// Params, and it is kept as is.
     #[cfg(any(test, feature = "pg_test"))]
     pub fn and_query_input(&self, query: &SearchQueryInput) -> Self {
-        self.and_query(self.make_query(query, None))
+        self.clone().and_query(self.make_query(query, None))
     }
 
     fn pruner(&self) -> SegmentPruner<'_> {
@@ -2960,7 +2986,7 @@ impl SearchIndexReader {
 
         let (count, mut cost) = self
             .estimate_from_statistics
-            .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
+            .then(|| self.query.0.estimate_docs(largest_reader).ok().flatten())
             .flatten()
             .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
             .unwrap_or_else(|| scorer_estimate(self.weight().as_ref(), largest_reader));
@@ -3849,11 +3875,11 @@ mod tests {
         for expected in [false, true] {
             let mut reader = open_snapshot_reader(&index, term_query("title", "silver"), false);
             let calls = Arc::new(AtomicUsize::new(0));
-            reader.query = Box::new(CheckBitmapOptIn {
+            *reader.query = SharedQuery(Arc::new(CheckBitmapOptIn {
                 query: reader.query.box_clone(),
                 expected,
                 calls: Arc::clone(&calls),
-            });
+            }));
             if expected {
                 assert_eq!(reader.collect(Count), 10);
                 assert_eq!(reader.count_matched_docs().unwrap(), 10);
@@ -3977,7 +4003,7 @@ mod tests {
                 };
                 let reader = open_snapshot_reader(&index, query, false);
                 let segment = reader.searcher.segment_reader(0);
-                let estimate = reader.query.estimate_docs(segment).unwrap().unwrap();
+                let estimate = reader.query.0.estimate_docs(segment).unwrap().unwrap();
                 assert_eq!(estimate.live_docs(segment), expected, "{field}");
             }
         }
@@ -4041,6 +4067,7 @@ mod tests {
             assert_eq!(
                 reader
                     .query
+                    .0
                     .estimate_docs(segment)
                     .unwrap()
                     .map(|estimate| estimate.live_docs(segment)),
@@ -4059,6 +4086,7 @@ mod tests {
         assert!(
             reader
                 .query
+                .0
                 .estimate_docs(reader.searcher.segment_reader(0))
                 .unwrap()
                 .is_none()
@@ -4639,7 +4667,7 @@ mod tests {
 
             let make_bounds_query =
                 || Box::new(ConstScoreQuery::new(reader.make_query(&bounds, None), 0.0));
-            let exact = scored_hits(reader.and_query(make_bounds_query()).search());
+            let exact = scored_hits(reader.clone().and_query(make_bounds_query()).search());
             let is_all = matches!(query, SearchQueryInput::All);
             if is_all {
                 assert_eq!(exact.len(), expected_all, "{bounds:?}");
@@ -4652,16 +4680,17 @@ mod tests {
                     .search_segments(segments.included.iter().copied())
                     .chain(
                         reader
+                            .clone()
                             .and_query(make_bounds_query())
                             .search_segments(segments.partially_included.iter().copied()),
                     ),
             );
 
             let calls = Arc::new(AtomicUsize::new(0));
-            reader.query = Box::new(CountPreparation {
+            *reader.query = SharedQuery(Arc::new(CountPreparation {
                 query: reader.query.box_clone(),
                 calls: Arc::clone(&calls),
-            });
+            }));
             let scan = reader.search_segments_with_range_filter(&segments, &bounds);
             assert_eq!(calls.load(Relaxed), 0, "preparation must remain lazy");
             let actual = scored_hits(scan);

@@ -1466,7 +1466,7 @@ pub fn try_dynamic_filter_pushdown(
             .map(|q| (Occur::Must, q))
             .collect();
         let boolean_query = BooleanQuery::new(combined_musts);
-        *reader = reader.and_query(Box::new(boolean_query));
+        reader.inject_and_query(Box::new(boolean_query));
         true
     }
 }

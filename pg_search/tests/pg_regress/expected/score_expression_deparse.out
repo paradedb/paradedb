@@ -1,0 +1,20 @@
+-- Regression for #7264: nested score expressions must deparse without placeholder errors.
+SET max_parallel_workers_per_gather = 0;
+CREATE TABLE score_expression_sa (id bigint PRIMARY KEY, body text);
+INSERT INTO score_expression_sa SELECT i, 'hello world' FROM generate_series(1, 5) i;
+CREATE INDEX score_expression_sa_idx ON score_expression_sa USING bm25 (id, body);
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT count(*) FILTER (WHERE id + pdb.score(id)::bigint > 0)
+FROM score_expression_sa
+WHERE body ||| 'hello';
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on score_expression_sa
+   Index: score_expression_sa_idx
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"body","value":"hello","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"aggs":{"0":{"filter":"*"}},"filter":{"query":{"heap_filter":{"always_filters":[{"heap_filter":"((id + (pdb.score(id))::bigint) > 0)"}],"indexed_query":"all"}},"type":"FilterQuery"}}}
+(5 rows)
+
+RESET max_parallel_workers_per_gather;
+DROP TABLE score_expression_sa;

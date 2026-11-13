@@ -12,7 +12,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "a33c6cd974ba68233e828edd9aa6c7f58eab8120"
+        default: "e3659ccecac9d17500b2d64171decde6b6e65760"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -40,7 +40,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'a33c6cd974ba68233e828edd9aa6c7f58eab8120' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'e3659ccecac9d17500b2d64171decde6b6e65760' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       HN_CONFIG: benchmarks/hn/28m.toml

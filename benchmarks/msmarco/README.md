@@ -102,6 +102,22 @@ Diagnostics retain configuration, extension/tool versions, image IDs for the
 comparison engines, query hashes, index settings, plans, raw pdbench reports,
 k6 dashboards, and database logs.
 
+Memory traces for every engine are included in its diagnostics artifact:
+
+- Build samples: `benchmark-artifacts/load/*/*_load/points.jsonl`, with UTC
+  timestamps and byte values. The published peak uses `container_memory`,
+  which excludes inactive page cache.
+- Query samples: `containers.paradedb.memory` in each
+  `benchmarker/results/<operating-point>.json`, with Unix millisecond timestamps
+  and byte values. A dedicated container collector runs throughout the
+  10-second warmup and 50-second measurement for pg_search, pg_vectorsearch,
+  and VectorChord. The HTML dashboard also displays memory and CPU usage.
+
+The pinned Benchmarker query collector subtracts `cache` when available,
+otherwise it reports full container usage. This differs from the build peak's
+inactive-file subtraction; these are container metrics, not per-query memory
+allocations.
+
 Run the shared handoff tests locally with:
 
 ```sh

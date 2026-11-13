@@ -28,7 +28,7 @@ const backends = db.backends({
     {
       type: backend,
       connection: url,
-      container: "",
+      container: "paradedb",
     },
   ],
 });
@@ -47,6 +47,10 @@ const scenarios = {
     tags: { warmup: "true" },
   },
 };
+export const collectMetrics = backends.addMetricsCollector(
+  scenarios,
+  `${warmup + duration}s`,
+);
 export const options = { scenarios, thresholds: { checks: ["rate==1"] } };
 
 export function search() {

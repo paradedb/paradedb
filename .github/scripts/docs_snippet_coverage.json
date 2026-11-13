@@ -212,6 +212,12 @@
     },
     "reference/tokenizers/synonyms.mdx::fence-008": {
       "setup": [
+        "reference/tokenizers/synonyms.mdx::fence-004",
+        "reference/tokenizers/synonyms.mdx::fence-005"
+      ]
+    },
+    "reference/tokenizers/synonyms.mdx::fence-009": {
+      "setup": [
         "reference/tokenizers/synonyms.mdx::fence-001"
       ]
     },

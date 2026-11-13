@@ -5,7 +5,7 @@ canonical: https://www.paradedb.com/docs/reference/tokenizers/synonyms
 ---
 
 Say your catalog calls them couches, but shoppers type `sofa`. With synonyms, a search for `sofa` also finds the rows that
-say `couch`. You keep the rules in a regular table with an index on it, and a query names that index when it wants the
+say `couch`. You keep the rules in a regular table with an index on it, and a query reads that table when it wants the
 rules. The next query uses whatever you changed. The index you search stays as it is, so there is nothing to rebuild.
 
 ## Creating a Synonym Index
@@ -56,10 +56,10 @@ CREATE INDEX shop_synonyms_en_idx ON shop_synonyms
 USING paradedb ((rule::pdb.simple('stemmer=english')));
 ```
 
-The synonym index must use the tokenizer of the field you search, or the query fails with an error that names both
-tokenizers. The tokenizer has to be written the same way on both, options included, so `pdb.simple` and
-`pdb.simple('lowercase=true')` count as two tokenizers. If you search fields with different tokenizers, create one synonym
-index per tokenizer on the same table.
+A query uses a synonym index only when it has the tokenizer of the field you search. The tokenizer has to be written the
+same way on both, options included, so `pdb.simple` and `pdb.simple('lowercase=true')` count as two tokenizers. If you
+search fields with different tokenizers, create one synonym index per tokenizer on the same table, and each query uses the
+one that fits its field.
 
 ### Several Sets in One Table
 
@@ -71,8 +71,8 @@ CREATE INDEX shop_idx ON synonyms USING paradedb (rule) WHERE set_name = 'shop';
 CREATE INDEX colors_idx ON synonyms USING paradedb (rule) WHERE set_name = 'colors';
 ```
 
-Each query names the set it wants. A synonym index does not count toward the one ParadeDB index a table can have, and a
-query on its table never uses it.
+A query picks a set with the same `WHERE`, as shown below. A synonym index does not count toward the one ParadeDB index a
+table can have, and a query on its table never uses it.
 
 ## Searching with Synonyms
 
@@ -83,14 +83,16 @@ CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category);
 ```
 
-Wrap the text of a [match](/reference/full-text/match) query in `pdb.with_synonyms`, and name the synonym index:
+Give the rules to a [match](/reference/full-text/match) query with a subquery on the rules table. `pdb.expand` takes the
+text you search for and the rule column:
 
 ```sql
 SELECT description FROM mock_items
-WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx');
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
 ```
 
-Any query can use any synonym index, and a query without `pdb.with_synonyms` searches only the words you typed.
+Any query can read any rules table, and a query without the subquery searches only the words you typed. A subquery that
+returns no rule does the same.
 
 Each run of words in your query that matches a rule becomes the group of its alternatives, and a row matches the group if
 it contains any of them. With `&&&`, every group has to match. When rules overlap, the longest match wins, so `running shoes`
@@ -102,29 +104,45 @@ A few things stay exact:
 - A [fuzzy](/reference/full-text/fuzzy) query keeps the words you typed fuzzy, and a prefix query keeps them a prefix, but
   both match the alternatives exactly. A directed rule drops the words you typed, with or without fuzzy, and a group with
   a fuzzy word scores with the best of its alternatives.
-- `pdb.with_synonyms` takes text. A text array, such as `ARRAY['sofa']`, has no tokenizer to match the rules with.
+- `pdb.expand` takes text. A text array, such as `ARRAY['sofa']`, has no tokenizer to match the rules with.
 - Only the match operators, `|||` and `&&&`, expand. With [phrase](/reference/full-text/phrase),
-  [term](/reference/full-text/term) or the [query parser](/reference/full-text/query-parser), `pdb.with_synonyms` is an
-  error.
+  [term](/reference/full-text/term) or the [query parser](/reference/full-text/query-parser), `pdb.expand` is an error.
 
-The fuzzy and boost casts go on the text or on the result:
+The fuzzy and boost casts go on the subquery:
 
 ```sql
 SELECT description FROM mock_items
-WHERE description ||| pdb.with_synonyms('sofa', 'shop_synonyms_idx')::pdb.fuzzy(1);
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)::pdb.fuzzy(1);
 ```
 
 A change to the rules is transactional. Your own transaction sees it right away, and every other session sees it once it
 commits.
 
-### Naming the Synonym Index
+With several sets in one table, the subquery picks a set with the `WHERE` of its partial index:
 
-The second argument is a `regclass`, so the name follows the usual rules. A bare name goes through `search_path`, and a
-name such as `shop.shop_synonyms_idx` names its schema. A view or a prepared statement keeps the index and not its name,
-so it still works after you rename the synonym index.
+```sql
+SELECT description FROM mock_items
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM synonyms WHERE set_name = 'shop');
+```
 
-The role that runs the query needs `SELECT` on the rules table and `USAGE` on its schema. If row security on the rules
-table applies to that role, the query fails.
+### Which Index a Query Uses
+
+The subquery names the table and not an index. The query uses the synonym index on the rule column that holds the rows
+the subquery reads. That is an index on the whole table for a subquery with no `WHERE`, or a partial index for a subquery
+with the same `WHERE`. The index also has to use the tokenizer of the field you search. `EXPLAIN` shows the index on a
+`Synonyms` line.
+
+If no synonym index fits, the query still expands. It reads the rules that the subquery returns on every query, and
+matches them with the tokenizer of the field you search. That is fine for a small set, and a warning tells you why no index
+is used. Set `paradedb.planner_warnings` to `error` to catch it in your tests, or to `off` to hide it. The same happens
+when row security on the rules table applies to you.
+
+In a prepared statement, the text to expand can be a parameter. Write the `WHERE` of a partial index with its values in the
+query, and not as parameters. After a few runs, Postgres can plan a prepared statement once for every value, and that plan
+can't tell which partial index holds the rules.
+
+Postgres checks your rights on the rules table, as for any query. Row security applies too, so each role expands with the
+rules it can see.
 
 ## Scoring
 
@@ -139,7 +157,8 @@ Each alternative is one more term the query has to look up, so a long rule costs
 - `paradedb.synonyms_max_alternatives` (default `32`) caps how many alternatives one run of words expands to, in sorted
   order. The words you typed stay when a rule lists them.
 - `paradedb.synonyms_max_rules_per_key` (default `1024`) caps how many rules one word reads in each segment of the synonym
-  index. A word in more rules reads only the first ones.
+  index. A word in more rules reads only the first ones. Without a synonym index, the cap counts the rules that the
+  subquery returns.
 
 ## Checking an Expansion
 

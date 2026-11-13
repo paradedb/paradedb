@@ -3033,7 +3033,7 @@ fn collect_score_expr(
         let c = extract_positive_numeric_const(unsafe { &*konst })?;
         return Some(ScoreOrderExpr::Constant(c));
     }
-    if let Some(opexpr) = unsafe { nodecast!(OpExpr, T_OpExpr, stripped) } {
+    if let Some(opexpr) = unsafe { nodecast!(OpExpr, stripped) } {
         let opexpr = unsafe { &*opexpr };
         let opno = opexpr.opno;
         let opname_ptr = unsafe { pg_sys::get_opname(opno) };

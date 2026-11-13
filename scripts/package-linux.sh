@@ -5,7 +5,24 @@ set -euo pipefail
 : "${PG_CONFIG:?}" "${PACKAGE_FORMAT:?}" "${PACKAGE_PATH:?}"
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
-pg_major=$("$PG_CONFIG" --version | awk '{split($2, v, "."); print v[1]}')
+read -r pg_major pg_minor < <("$PG_CONFIG" --version | awk '{split($2, v, "."); print v[1], v[2] + 0}')
+# CVE-2026-6460 moved DatumGetHeapTupleHeader into a server C symbol starting in these
+# point releases; pgrx 0.20.0 links against it when built with those headers.
+case "$pg_major" in
+  15) pg_min_minor=20 ;;
+  16) pg_min_minor=16 ;;
+  17) pg_min_minor=12 ;;
+  18) pg_min_minor=7 ;;
+  *)
+    echo "Unsupported PostgreSQL major version: $pg_major" >&2
+    exit 1
+    ;;
+esac
+pg_min_version="${pg_major}.${pg_min_minor}"
+if ((pg_minor < pg_min_minor)); then
+  echo "PostgreSQL ${pg_major}.${pg_minor} is older than required floor ${pg_min_version}" >&2
+  exit 1
+fi
 staged="$root/target/release/pg_search-pg${pg_major}"
 
 package_flags=()
@@ -25,10 +42,16 @@ case "$PACKAGE_FORMAT" in
   deb)
     keep_header="[package.metadata.deb]"
     drop_header="[package.metadata.rpm]"
+    pg_dep_match="\"postgresql-\${PG_MAJOR_VERSION}\""
+    pg_dep_replacement="\"postgresql-\${PG_MAJOR_VERSION} (>= ${pg_min_version})\""
     ;;
   rpm)
     keep_header="[package.metadata.rpm]"
     drop_header="[package.metadata.deb]"
+    # arx-pack passes depends entries to rpm::Dependency::any; parenthesizing as an
+    # RPM 4.12+ rich dependency preserves the >= version constraint in rpm and dnf.
+    pg_dep_match="\"postgresql\${PG_MAJOR_VERSION}-server\""
+    pg_dep_replacement="\"(postgresql\${PG_MAJOR_VERSION}-server >= ${pg_min_version})\""
     ;;
   *)
     echo "Unsupported PACKAGE_FORMAT: $PACKAGE_FORMAT" >&2
@@ -49,15 +72,30 @@ backup=$(mktemp)
 cp pg_search/Cargo.toml "$backup"
 trap 'cp "$backup" pg_search/Cargo.toml; rm -f "$backup"' EXIT
 
-awk -v keep_header="$keep_header" -v drop_header="$drop_header" -v pkg_ver="$pkg_version_override" -v extra_deps="$extra_deps" '
+awk \
+  -v keep_header="$keep_header" \
+  -v drop_header="$drop_header" \
+  -v pkg_ver="$pkg_version_override" \
+  -v pg_dep_match="$pg_dep_match" \
+  -v pg_dep_replacement="$pg_dep_replacement" \
+  -v extra_deps="$extra_deps" '
   BEGIN { skip = 0; in_target = 0 }
   /^\[/ {
     skip = ($0 == drop_header)
     in_target = ($0 == keep_header)
   }
   skip { next }
-  in_target && extra_deps != "" && /^depends = \[.*\]$/ {
-    printf "%s, %s]\n", substr($0, 1, length($0) - 1), extra_deps
+  in_target && /^depends = \[.*\]$/ {
+    idx = index($0, pg_dep_match)
+    if (idx == 0) {
+      print "Expected " pg_dep_match " in depends line: " $0 > "/dev/stderr"
+      exit 1
+    }
+    $0 = substr($0, 1, idx - 1) pg_dep_replacement substr($0, idx + length(pg_dep_match))
+    if (extra_deps != "") {
+      $0 = substr($0, 1, length($0) - 1) ", " extra_deps "]"
+    }
+    print
     next
   }
   {

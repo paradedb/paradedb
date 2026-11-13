@@ -152,7 +152,7 @@ impl OpExpr {
     }
 
     pub unsafe fn from_single(node: *mut pg_sys::Node) -> Option<Self> {
-        nodecast!(OpExpr, T_OpExpr, node).map(OpExpr::Single)
+        nodecast!(OpExpr, node).map(OpExpr::Single)
     }
 
     pub unsafe fn args(&self) -> PgList<pg_sys::Node> {

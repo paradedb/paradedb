@@ -572,7 +572,7 @@ impl BaseScanState {
             let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut *htup);
             let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
 
-            if unsafe { pgrx::type_is_array!(attribute.type_oid().value()).is_true() } {
+            if unsafe { pgrx::type_is_array!(attribute.type_oid().value()) } {
                 // varchar[] and text[] are flattened into a single string
                 // to emulate Tantivy's default behavior for highlighting text arrays
                 Some(

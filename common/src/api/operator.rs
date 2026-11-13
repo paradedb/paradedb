@@ -115,7 +115,7 @@ pub struct SearchPredicate {
 
 impl SearchPredicate {
     pub unsafe fn from_node(node: *mut pg_sys::Node) -> Option<Self> {
-        if let Some(operator) = nodecast!(OpExpr, T_OpExpr, node)
+        if let Some(operator) = nodecast!(OpExpr, node)
             && (*operator).opno == anyelement_query_input_opoid()
         {
             let args = PgList::<pg_sys::Node>::from_pg((*operator).args);

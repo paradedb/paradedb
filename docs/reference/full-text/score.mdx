@@ -175,6 +175,8 @@ await dbContext
 While BM25 scores will be returned as long as `description` is indexed, including `rating` in the ParadeDB index definition will allow results matching
 `rating < 2` to rank higher than those that do not match.
 
+A row-level security policy restricts which rows a user may see and adds nothing to the score. A row scores the same for every user and in every plan, whatever the policy's shape.
+
 ## Joined Scores
 
 First, let's create a second table called `orders` that can be joined with `mock_items`:
@@ -352,3 +354,9 @@ VACUUM mock_items;
 ```
 
 This can be automated with [autovacuum](/operate/performance-tuning/overview).
+
+## Scores and Row-Level Security
+
+BM25 scores are computed from statistics over every row in the index, including rows that a row-level security policy hides from the current role. Row-level security filters which rows a query returns, but not the statistics behind their scores, so a score returned to a restricted role can depend on rows that role cannot read.
+
+If scores must not depend on rows a role cannot read, keep those rows in a separate table with its own ParadeDB index, or do not return scores to that role.

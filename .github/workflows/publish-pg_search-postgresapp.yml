@@ -47,7 +47,10 @@ jobs:
           # which makes Homebrew print a "taps are not trusted" warning on every brew
           # invocation. We don't use it, so untap it to keep the logs clean.
           brew untap aws/tap || true
-          brew install gettext
+          brew install gettext llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+          echo "CLANG_PATH=$(brew --prefix llvm)/bin/clang" >> "$GITHUB_ENV"
           echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
           echo "/usr/bin" >> "$GITHUB_PATH"
           /usr/bin/git --version
@@ -108,11 +111,11 @@ jobs:
 
       # Pull the upstream Postgres.app build assets (Resources/, Scripts/, distribution.xml)
       # so the produced pkg matches what PostgresApp/Extensions ships for other extensions.
-      # See https://github.com/PostgresApp/Extensions/tree/main/pg_search.
+      # See https://github.com/PostgresApp/Extensions/tree/main/pg18/pg_search.
       - name: Fetch Postgres.app Extensions Build Assets
         run: |
           git clone --depth=1 https://github.com/PostgresApp/Extensions.git /tmp/postgresapp-extensions
-          ls -la /tmp/postgresapp-extensions/pg_search
+          ls -la /tmp/postgresapp-extensions/pg${{ matrix.pg_version }}/pg_search
 
       - name: Extract pgrx Version
         id: pgrx
@@ -146,7 +149,11 @@ jobs:
           PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
           # Workaround for inttypes.h not being found under the default sysroot
           export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
-          cargo pgrx package --pg-config $PG_CONFIG
+          PACKAGE_FLAGS=""
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            PACKAGE_FLAGS="--no-assemble-unreleased"
+          fi
+          cargo pgrx package $PACKAGE_FLAGS --pg-config $PG_CONFIG
 
       # Import the Developer ID Application + Installer certificates into a dedicated
       # temporary keychain so codesign/pkgbuild/productbuild can sign with them. The
@@ -192,7 +199,7 @@ jobs:
           PG_MAJOR_VERSION=${{ matrix.pg_version }}
           PREFIX=/Applications/Postgres.app/Contents/Versions/$PG_MAJOR_VERSION
           INSTALL_ROOT="${GITHUB_WORKSPACE}/target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
-          UPSTREAM=/tmp/postgresapp-extensions/pg_search
+          UPSTREAM=/tmp/postgresapp-extensions/pg${{ matrix.pg_version }}/pg_search
 
           if [ ! -d "$INSTALL_ROOT/lib/postgresql" ] || [ ! -d "$INSTALL_ROOT/share/postgresql/extension" ]; then
             echo "Expected pgrx package layout not found under $INSTALL_ROOT"
@@ -209,7 +216,7 @@ jobs:
           mkdir -p "$BUILD/Resources" "$BUILD/Scripts"
 
           # Substitute templated values into the upstream Resources and distribution.xml.
-          # Mirrors the sed pipeline in https://github.com/PostgresApp/Extensions/blob/main/pg_search/build.zsh.
+          # Mirrors the sed pipeline in https://github.com/PostgresApp/Extensions/blob/main/pg18/pg_search/build.zsh.
           for file in "$UPSTREAM"/Resources/*.html "$UPSTREAM"/distribution.xml; do
             base=$(basename "$file")
             case "$file" in

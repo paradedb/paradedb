@@ -14,6 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+#![allow(unsafe_op_in_unsafe_fn)]
 
 use super::{
     PdbQueryRhs, RHSValue, build_pdb_query_funcexpr, build_text_funcexpr, get_expr_result_type,
@@ -30,7 +31,7 @@ use crate::query::proximity::ProximityClause;
 use pgrx::{IntoDatum, PgList, direct_function_call, pg_sys};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum SearchOperator {
+pub(crate) enum SearchOperator {
     Conjunction,
     Disjunction,
     Term,
@@ -74,19 +75,29 @@ impl SearchOperator {
             pdb::Query::ScoreAdjusted { query, score } => (*query, Some(score)),
             query => (query, None),
         };
-        let (mut query, fuzzy_data, slop_data) = match query {
+        let (mut query, fuzzy_data, slop_data, synonyms) = match query {
             pdb::Query::UnclassifiedString {
                 string,
                 fuzzy_data,
                 slop_data,
-            } => (self.text_query(string), fuzzy_data, slop_data),
+                synonyms,
+            } => (self.text_query(string), fuzzy_data, slop_data, synonyms),
             pdb::Query::UnclassifiedArray {
                 array,
                 fuzzy_data,
                 slop_data,
-            } if self != Self::Parse => (self.array_query(array), fuzzy_data, slop_data),
-            query => (query, None, None),
+            } if self != Self::Parse => (self.array_query(array), fuzzy_data, slop_data, None),
+            query => (query, None, None, None),
         };
+        if let Some(rules) = synonyms {
+            let pdb::Query::Match { synonyms, .. } = &mut query else {
+                panic!(
+                    "`pdb.expand` expands the `|||` and `&&&` operators, not `{}`",
+                    self.name()
+                );
+            };
+            *synonyms = Some(rules);
+        }
         if self != Self::Phrase {
             query.apply_fuzzy_data(fuzzy_data);
         }

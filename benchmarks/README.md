@@ -1,6 +1,7 @@
 # ParadeDB Benchmarks
 
 For Cohere vector CI, see [the pdbench and k6 pipeline](cohere/README.md).
+For MS MARCO 113M vector CI, see [the MS MARCO pipeline](msmarco/README.md).
 
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.
 

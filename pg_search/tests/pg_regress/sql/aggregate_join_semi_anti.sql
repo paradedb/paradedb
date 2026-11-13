@@ -360,8 +360,10 @@ CREATE TABLE asa_adv_right (
     id    bigint PRIMARY KEY,
     body  text
 );
+-- Omit PRIMARY KEY on `id` so PG 18.7+ `reduce_unique_semijoins` keeps 7c as a
+-- true Semi join instead of reducing it to Inner.
 CREATE TABLE asa_adv_third (
-    id    bigint PRIMARY KEY
+    id    bigint
 );
 INSERT INTO asa_adv_left (id, fk, label) VALUES
     (1, 1, 'A'),

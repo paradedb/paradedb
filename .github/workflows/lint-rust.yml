@@ -51,15 +51,15 @@ jobs:
       - name: Configure RunsOn Caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
 
-      # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
-      - name: Check impl Drop
-        run: python3 .github/scripts/check_impl_drop.py
-
       - name: Set Up pg_search Toolchain
         uses: ./.github/actions/setup-pg-search-toolchain
         with:
           pg_version: ${{ matrix.pg_version }}
           rust_components: rustfmt, clippy
+
+      # A bare `impl Drop` can abort the backend during an ERROR or at exit (#6479, #6530).
+      - name: Check impl Drop
+        run: python3 .github/scripts/check_impl_drop.py
 
       - name: Check Cargo.lock
         run: cargo metadata --format-version 1 --locked > /dev/null

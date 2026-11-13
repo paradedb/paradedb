@@ -1,0 +1,857 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::fmt::{Display, Formatter};
+use tantivy::Bm25Params;
+use tantivy::schema::{
+    BytesOptions, DateOptions, DateTimePrecision, FacetOptions, IpAddrOptions, JsonObjectOptions,
+    NumericOptions, TextFieldIndexing, TextOptions,
+};
+use tokenizers::{SearchNormalizer, SearchTokenizer};
+
+// Eq intentionally omitted: f32 (k1/b) does not implement Eq.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+// TODO: re-enable this once we are okay with a breaking change
+// #[serde(deny_unknown_fields)]
+pub enum SearchFieldConfig {
+    Text {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default)]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        fieldnorms: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pnorms: bool,
+        #[serde(default = "default_as_true", skip_serializing_if = "is_true")]
+        bitmap_postings: bool,
+        #[serde(default)]
+        tokenizer: SearchTokenizer,
+        #[serde(default)]
+        search_tokenizer: Option<SearchTokenizer>,
+        #[serde(default = "default_as_freqs_and_positions")]
+        record: IndexRecordOption,
+        #[serde(default)]
+        normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
+        #[serde(default)]
+        k1: Option<f32>,
+        #[serde(default)]
+        b: Option<f32>,
+    },
+    Inet {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+    },
+    Json {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default)]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        fieldnorms: bool,
+        #[serde(default = "default_as_true", skip_serializing_if = "is_true")]
+        bitmap_postings: bool,
+        #[serde(default = "default_as_true")]
+        expand_dots: bool,
+        #[serde(default)]
+        tokenizer: SearchTokenizer,
+        #[serde(default)]
+        search_tokenizer: Option<SearchTokenizer>,
+        #[serde(default = "default_as_freqs_and_positions")]
+        record: IndexRecordOption,
+        #[serde(default)]
+        normalizer: SearchNormalizer,
+        #[serde(default)]
+        column: Option<String>,
+        #[serde(default)]
+        k1: Option<f32>,
+        #[serde(default)]
+        b: Option<f32>,
+    },
+    Range {
+        #[serde(default = "default_as_true")]
+        fast: bool,
+    },
+    Numeric {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        /// Scale for NUMERIC(p,s) columns stored as I64 fixed-point.
+        /// None for F64 storage or NumericBytes storage.
+        #[serde(default)]
+        scale: Option<i16>,
+    },
+    Boolean {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+    },
+    Date {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+    },
+    Facet,
+    /// A vector field.
+    Vector {
+        /// Quantization schedule.
+        #[serde(default)]
+        quantization: Option<VectorQuantizationConfig>,
+    },
+}
+
+/// Minimum vector dimension for default or explicitly enabled quantization.
+pub const MIN_QUANTIZATION_DIMENSIONS: usize = 64;
+
+/// A vector field's quantization schedule.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum VectorQuantizationConfig {
+    /// Enables the default schedule when true.
+    Enabled(bool),
+    /// Specifies layer widths in scoring order.
+    Explicit { layers: Vec<u8> },
+}
+
+impl VectorQuantizationConfig {
+    pub fn parse(value: &str) -> Result<Self> {
+        if value.trim() == "0" {
+            return Ok(Self::Enabled(false));
+        }
+        let layers = serde_json::from_str::<Vec<u8>>(value).map_err(|_| {
+            anyhow::anyhow!("quantization must be 0 or an array of layer widths, such as [1,1]")
+        })?;
+        let config = Self::Explicit { layers };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Returns the enabled layer widths.
+    pub fn layers(&self) -> Option<Vec<u8>> {
+        match self {
+            Self::Enabled(false) => None,
+            Self::Enabled(true) => Some(vec![1, 1]),
+            Self::Explicit { layers } => Some(layers.clone()),
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        let Some(layers) = self.layers() else {
+            return Ok(());
+        };
+        if !(1..=3).contains(&layers.len()) {
+            anyhow::bail!("quantization layer count {} must be in 1..=3", layers.len());
+        }
+        for (layer, bits) in layers.into_iter().enumerate() {
+            if !(1..=4).contains(&bits) {
+                anyhow::bail!(
+                    "quantization layer {layer} has {bits} bits; supported range is 1..=4"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SearchFieldConfig {
+    /// The options of the rule field of a synonym index. A lookup needs only the documents of a
+    /// key, and it reads the rule text from the table row, so the field has no column.
+    pub fn set_synonym_rule_options(&mut self) {
+        if let SearchFieldConfig::Text {
+            indexed,
+            fast,
+            fieldnorms,
+            pnorms,
+            record,
+            normalizer,
+            k1,
+            b,
+            ..
+        } = self
+        {
+            *indexed = true;
+            *fast = false;
+            *fieldnorms = false;
+            *pnorms = false;
+            *record = IndexRecordOption::Basic;
+            *normalizer = SearchNormalizer::Raw;
+            *k1 = None;
+            *b = None;
+        }
+    }
+
+    pub fn set_normalizer(&mut self, normalizer: Option<SearchNormalizer>) {
+        if let Some(replacement_normalizer) = normalizer {
+            match self {
+                SearchFieldConfig::Text { normalizer, .. }
+                | SearchFieldConfig::Json { normalizer, .. } => {
+                    *normalizer = replacement_normalizer
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn text_from_json(value: serde_json::Value) -> Result<Self> {
+        let mut config: Self = serde_json::from_value(json!({
+            "Text": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Text {
+                ref tokenizer,
+                ref mut fast,
+                ref mut record,
+                ref mut fieldnorms,
+                ..
+            } => {
+                #[allow(deprecated)]
+                let is_single_token = matches!(
+                    tokenizer,
+                    SearchTokenizer::Keyword
+                        | SearchTokenizer::KeywordDeprecated
+                        | SearchTokenizer::Raw(..)
+                        | SearchTokenizer::LiteralNormalized(..)
+                );
+                if is_single_token {
+                    if value.get("fast").is_none() {
+                        *fast = true;
+                    }
+                    if value.get("record").is_none() {
+                        *record = IndexRecordOption::Basic;
+                    }
+                    if value.get("fieldnorms").is_none() {
+                        *fieldnorms = false;
+                    }
+                }
+                Ok(config)
+            }
+            _ => Err(anyhow::anyhow!("Expected Text configuration")),
+        }
+    }
+
+    pub fn inet_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Inet": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Inet { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Inet configuration")),
+        }
+    }
+
+    pub fn json_from_json(value: serde_json::Value) -> Result<Self> {
+        let mut config: Self = serde_json::from_value(json!({
+            "Json": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Json {
+                ref tokenizer,
+                ref mut fast,
+                ref mut record,
+                ref mut fieldnorms,
+                ..
+            } => {
+                #[allow(deprecated)]
+                let is_single_token = matches!(
+                    tokenizer,
+                    SearchTokenizer::Keyword
+                        | SearchTokenizer::KeywordDeprecated
+                        | SearchTokenizer::Raw(..)
+                        | SearchTokenizer::LiteralNormalized(..)
+                );
+                if is_single_token {
+                    if value.get("fast").is_none() {
+                        *fast = true;
+                    }
+                    if value.get("record").is_none() {
+                        *record = IndexRecordOption::Basic;
+                    }
+                    if value.get("fieldnorms").is_none() {
+                        *fieldnorms = false;
+                    }
+                }
+                Ok(config)
+            }
+            _ => Err(anyhow::anyhow!("Expected Json configuration")),
+        }
+    }
+
+    pub fn range_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Range": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Range { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Range configuration")),
+        }
+    }
+
+    pub fn numeric_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Numeric": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Numeric { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Numeric configuration")),
+        }
+    }
+
+    pub fn boolean_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Boolean": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Boolean { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Boolean configuration")),
+        }
+    }
+
+    pub fn date_from_json(value: serde_json::Value) -> Result<Self> {
+        let config: Self = serde_json::from_value(json!({
+            "Date": value
+        }))?;
+
+        match config {
+            SearchFieldConfig::Date { .. } => Ok(config),
+            _ => Err(anyhow::anyhow!("Expected Date configuration")),
+        }
+    }
+
+    /// Returns the configured quantization layer widths.
+    pub fn quantization_layers(&self) -> Option<Vec<u8>> {
+        match self {
+            SearchFieldConfig::Vector {
+                quantization: Some(quantization),
+                ..
+            } => quantization.layers(),
+            _ => None,
+        }
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        match self {
+            Self::Text { column, .. } | Self::Json { column, .. } => column.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn tokenizer(&self) -> Option<&SearchTokenizer> {
+        match self {
+            Self::Text { tokenizer, .. } | Self::Json { tokenizer, .. } => Some(tokenizer),
+            _ => None,
+        }
+    }
+
+    pub fn search_tokenizer(&self) -> Option<&SearchTokenizer> {
+        match self {
+            Self::Text {
+                search_tokenizer, ..
+            }
+            | Self::Json {
+                search_tokenizer, ..
+            } => search_tokenizer.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+impl SearchFieldConfig {
+    pub fn from_json(value: serde_json::Value) -> Self {
+        serde_json::from_value(value)
+            .expect("value should be a valid SearchFieldConfig representation")
+    }
+
+    pub fn default_text() -> Self {
+        Self::from_json(json!({"Text": {}}))
+    }
+
+    pub fn default_uuid() -> Self {
+        let mut config = Self::from_json(json!({"Text": {}}));
+        if let SearchFieldConfig::Text {
+            ref mut tokenizer,
+            ref mut fast,
+            ref mut record,
+            ref mut fieldnorms,
+            ..
+        } = config
+        {
+            *tokenizer = SearchTokenizer::Keyword;
+            *fast = true;
+            *record = IndexRecordOption::Basic;
+            *fieldnorms = false;
+        }
+        config
+    }
+
+    pub fn default_ltree() -> Self {
+        SearchFieldConfig::Facet
+    }
+
+    pub fn default_inet() -> Self {
+        Self::from_json(json!({"Inet": {}}))
+    }
+
+    pub fn default_numeric() -> Self {
+        Self::from_json(json!({"Numeric": {}}))
+    }
+
+    /// Default config for NUMERIC(p,s) where p <= 18 (stored as I64 fixed-point).
+    pub fn default_numeric64(scale: i16) -> Self {
+        Self::Numeric {
+            indexed: true,
+            fast: true,
+            scale: Some(scale),
+        }
+    }
+
+    /// Default config for NUMERIC with precision > 18 or unlimited (stored as bytes).
+    pub fn default_numeric_bytes(scale: Option<i16>) -> Self {
+        Self::Numeric {
+            indexed: true,
+            fast: true,
+            scale,
+        }
+    }
+
+    pub fn default_boolean() -> Self {
+        Self::from_json(json!({"Boolean": {}}))
+    }
+
+    pub fn default_json() -> Self {
+        Self::from_json(json!({"Json": {}}))
+    }
+
+    pub fn default_date() -> Self {
+        Self::from_json(json!({"Date": {}}))
+    }
+
+    pub fn default_range() -> Self {
+        Self::Range { fast: true }
+    }
+
+    /// Applies the dimension-dependent default to an explicit vector configuration.
+    pub fn resolve_vector_defaults(self, dims: usize) -> Self {
+        match self {
+            Self::Vector { quantization } => Self::Vector {
+                quantization: quantization.or_else(|| default_vector_quantization(dims)),
+            },
+            config => config,
+        }
+    }
+
+    /// Creates the default configuration for a vector field.
+    pub fn default_vector(dims: usize) -> Self {
+        Self::Vector {
+            quantization: default_vector_quantization(dims),
+        }
+    }
+}
+
+fn apply_bm25(mut idx: TextFieldIndexing, k1: Option<f32>, b: Option<f32>) -> TextFieldIndexing {
+    if k1.is_some() || b.is_some() {
+        let d = Bm25Params::default();
+        idx = idx.set_bm25_params(Bm25Params::new(k1.unwrap_or(d.k1()), b.unwrap_or(d.b())));
+    }
+    idx
+}
+
+fn validate_bm25_indexed(indexed: bool, k1: Option<f32>, b: Option<f32>) {
+    if !indexed && (k1.is_some() || b.is_some()) {
+        panic!("BM25 parameters k1/b require an indexed field");
+    }
+}
+
+impl From<SearchFieldConfig> for TextOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut text_options = TextOptions::default();
+        match config {
+            SearchFieldConfig::Text {
+                indexed,
+                fast,
+                fieldnorms,
+                bitmap_postings,
+                pnorms,
+                tokenizer,
+                record,
+                normalizer,
+                k1,
+                b,
+                ..
+            } => {
+                validate_bm25_indexed(indexed, k1, b);
+                assert!(
+                    !pnorms || (indexed && fieldnorms),
+                    "pnorms=true requires indexed=true and fieldnorms=true"
+                );
+                if fast {
+                    text_options = text_options.set_fast(normalizer.name());
+                }
+                if indexed {
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(record.into())
+                        .set_fieldnorms(fieldnorms)
+                        .set_bitmap_postings(bitmap_postings)
+                        .set_pnorms(pnorms)
+                        .set_tokenizer(&tokenizer.name());
+                    let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
+                    text_options = text_options.set_indexing_options(text_field_indexing);
+                }
+            }
+            // NumericBytes fields are stored as decimal-bytes columns.
+            // They don't need tokenization since they're exact values.
+            SearchFieldConfig::Numeric { indexed, fast, .. } => {
+                if fast {
+                    // Use raw normalizer for hex strings (no transformation needed)
+                    text_options = text_options.set_fast("raw");
+                }
+                if indexed {
+                    // Use raw tokenizer (no tokenization) for exact matching
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(tantivy::schema::IndexRecordOption::Basic)
+                        .set_fieldnorms(false)
+                        .set_tokenizer("raw");
+
+                    text_options = text_options.set_indexing_options(text_field_indexing);
+                }
+            }
+            _ => panic!("attempted to convert non-text search field config to tantivy text config"),
+        }
+        text_options
+    }
+}
+
+impl From<SearchFieldConfig> for IpAddrOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut inet_options = IpAddrOptions::default();
+        match config {
+            SearchFieldConfig::Inet { indexed, fast, .. } => {
+                if fast {
+                    inet_options = inet_options.set_fast();
+                }
+                if indexed {
+                    inet_options = inet_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attempted to convert non-numeric search field config to tantivy ip addr config"
+                )
+            }
+        }
+        inet_options
+    }
+}
+
+impl From<SearchFieldConfig> for NumericOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut numeric_options = NumericOptions::default();
+        match config {
+            SearchFieldConfig::Numeric {
+                indexed,
+                fast,
+                scale: _, // Scale is metadata for ParadeDB, not used by Tantivy's NumericOptions
+            }
+            // Following the example of Quickwit, which uses NumericOptions for boolean options.
+            | SearchFieldConfig::Boolean { indexed, fast, .. } => {
+                if fast {
+                    numeric_options = numeric_options.set_fast();
+                }
+                if indexed {
+                    numeric_options = numeric_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attempted to convert non-numeric search field config to tantivy numeric config"
+                )
+            }
+        }
+        numeric_options
+    }
+}
+
+impl From<SearchFieldConfig> for JsonObjectOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut json_options = JsonObjectOptions::default();
+        match config {
+            SearchFieldConfig::Json {
+                indexed,
+                fast,
+                fieldnorms,
+                bitmap_postings,
+                expand_dots,
+                tokenizer,
+                record,
+                normalizer,
+                k1,
+                b,
+                ..
+            } => {
+                validate_bm25_indexed(indexed, k1, b);
+                if fast {
+                    json_options = json_options.set_fast(normalizer.name());
+                }
+                if expand_dots {
+                    json_options = json_options.set_expand_dots_enabled();
+                }
+                if indexed {
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(record.into())
+                        .set_fieldnorms(fieldnorms)
+                        .set_bitmap_postings(bitmap_postings)
+                        .set_tokenizer(&tokenizer.name());
+                    let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
+                    json_options = json_options.set_indexing_options(text_field_indexing);
+                }
+            }
+            SearchFieldConfig::Range { .. } => {
+                // Range must be indexed and fast to be searchable.
+                // Range fields only use exact term matches and bound range queries, so they
+                // do not need term frequencies, positions, or fieldnorms.
+                let text_field_indexing = TextFieldIndexing::default()
+                    .set_index_option(tantivy::schema::IndexRecordOption::Basic)
+                    .set_fieldnorms(false)
+                    .set_tokenizer("raw");
+                json_options = json_options.set_indexing_options(text_field_indexing);
+                json_options = json_options.set_fast("raw");
+            }
+            _ => {
+                panic!("attempted to convert non-json search field config to tantivy json config")
+            }
+        }
+
+        json_options
+    }
+}
+
+impl From<SearchFieldConfig> for DateOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut date_options = DateOptions::default();
+        match config {
+            SearchFieldConfig::Date { indexed, fast, .. } => {
+                if fast {
+                    date_options = date_options
+                        .set_fast()
+                        // Match Postgres' maximum allowed precision of microseconds
+                        .set_precision(DateTimePrecision::Microseconds);
+                }
+                if indexed {
+                    date_options = date_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!("attempted to convert non-date search field config to tantivy date config")
+            }
+        }
+        date_options
+    }
+}
+
+impl From<SearchFieldConfig> for BytesOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut bytes_options = BytesOptions::default();
+        match config {
+            SearchFieldConfig::Numeric {
+                indexed,
+                fast,
+                scale: _, // Scale is metadata for ParadeDB, not used by Tantivy's BytesOptions
+            } => {
+                if fast {
+                    bytes_options = bytes_options.set_fast();
+                }
+                if indexed {
+                    bytes_options = bytes_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attempted to convert non-numeric search field config to tantivy bytes config"
+                )
+            }
+        }
+        bytes_options
+    }
+}
+
+impl From<SearchFieldConfig> for FacetOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        match config {
+            SearchFieldConfig::Facet => FacetOptions::default(),
+            _ => {
+                panic!("attempted to convert non-facet search field config to tantivy facet config")
+            }
+        }
+    }
+}
+
+#[allow(unused)] // used by serde
+pub enum IndexRecordOptionSchema {
+    Basic,
+    WithFreqs,
+    WithFreqsAndPositions,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Ord, PartialOrd, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct IndexRecordOption(tantivy::schema::IndexRecordOption);
+
+#[allow(non_upper_case_globals)]
+impl IndexRecordOption {
+    pub const Basic: IndexRecordOption =
+        IndexRecordOption(tantivy::schema::IndexRecordOption::Basic);
+    pub const WithFreqs: IndexRecordOption =
+        IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqs);
+    pub const WithFreqsAndPositions: IndexRecordOption =
+        IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions);
+}
+
+impl From<tantivy::schema::IndexRecordOption> for IndexRecordOption {
+    #[inline]
+    fn from(value: tantivy::schema::IndexRecordOption) -> Self {
+        Self(value)
+    }
+}
+
+impl From<IndexRecordOption> for tantivy::schema::IndexRecordOption {
+    fn from(value: IndexRecordOption) -> Self {
+        value.0
+    }
+}
+
+impl Display for IndexRecordOption {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            tantivy::schema::IndexRecordOption::Basic => write!(f, "basic"),
+            tantivy::schema::IndexRecordOption::WithFreqs => write!(f, "freq"),
+            tantivy::schema::IndexRecordOption::WithFreqsAndPositions => write!(f, "position"),
+        }
+    }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn default_as_true() -> bool {
+    true
+}
+
+fn default_vector_quantization(dims: usize) -> Option<VectorQuantizationConfig> {
+    Some(VectorQuantizationConfig::Enabled(
+        dims >= MIN_QUANTIZATION_DIMENSIONS,
+    ))
+}
+
+fn default_as_freqs_and_positions() -> IndexRecordOption {
+    IndexRecordOption(tantivy::schema::IndexRecordOption::WithFreqsAndPositions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bitmap_defaults_preserve_opt_out_and_unindexed_fields() {
+        for kind in ["Text", "Json"] {
+            for (mut options, expected) in [
+                (json!({}), Some(true)),
+                (json!({"bitmap_postings": false}), Some(false)),
+                (json!({"bitmap_postings": true}), Some(true)),
+                (json!({"indexed": false, "fast": true}), None),
+            ] {
+                let config = SearchFieldConfig::from_json(json!({kind: options.clone()}));
+                let serialized = serde_json::to_value(&config).unwrap();
+                options.as_object_mut().unwrap().remove("bitmap_postings");
+                if let Some(value) = serialized[kind].get("bitmap_postings") {
+                    options["bitmap_postings"] = value.clone();
+                }
+                let restored = SearchFieldConfig::from_json(json!({kind: options}));
+                assert_eq!(config, restored);
+                let indexing = match kind {
+                    "Text" => TextOptions::from(restored).get_indexing_options().cloned(),
+                    _ => JsonObjectOptions::from(restored)
+                        .get_text_indexing_options()
+                        .cloned(),
+                };
+                assert_eq!(indexing.map(|options| options.bitmap_postings()), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn vector_quantization_defaults_and_schedules() {
+        assert_eq!(
+            SearchFieldConfig::default_vector(MIN_QUANTIZATION_DIMENSIONS).quantization_layers(),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            SearchFieldConfig::default_vector(MIN_QUANTIZATION_DIMENSIONS - 1)
+                .quantization_layers(),
+            None
+        );
+        for (value, expected) in [
+            ("0", None),
+            (" 0 ", None),
+            ("[1,1]", Some(vec![1, 1])),
+            ("[1,4,3]", Some(vec![1, 4, 3])),
+            ("[4,1]", Some(vec![4, 1])),
+            (" [ 2 ] ", Some(vec![2])),
+        ] {
+            assert_eq!(
+                VectorQuantizationConfig::parse(value).unwrap().layers(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn vector_quantization_rejects_invalid_schedules() {
+        for value in [
+            "",
+            "1",
+            "true",
+            "false",
+            "[]",
+            "[0,0]",
+            "[1,0]",
+            "[5]",
+            "[-1]",
+            "[1,1,1,1]",
+            "[1.5]",
+            "[1,]",
+            r#"{"layers":[1,1]}"#,
+        ] {
+            assert!(VectorQuantizationConfig::parse(value).is_err(), "{value}");
+        }
+    }
+}

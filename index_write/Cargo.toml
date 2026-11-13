@@ -1,0 +1,47 @@
+[package]
+name = "index_write"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["pg18"]
+pg15 = ["pgrx/pg15", "index_read/pg15"]
+pg16 = ["pgrx/pg16", "index_read/pg16"]
+pg17 = ["pgrx/pg17", "index_read/pg17"]
+pg18 = ["pgrx/pg18", "index_read/pg18"]
+pg_test = ["index_read/pg_test"]
+
+# Keep this crate focused on Tantivy index building, merging, and vacuum/cleanup. Do NOT add
+# `datafusion` or `arrow-*` here so `index_write` compiles in parallel with `scan` and `planner`.
+[dependencies]
+index_read = { path = "../index_read", default-features = false }
+anyhow.workspace = true
+bytemuck.workspace = true
+dst = { path = "../dst" }
+log.workspace = true
+pgrx.workspace = true
+postcard.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tantivy.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b605bff02aaf76cd633efe5f4747080b31b21421", features = [
+  "accelerate",
+] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b605bff02aaf76cd633efe5f4747080b31b21421", features = [
+  "openblas",
+] }
+
+[dev-dependencies]
+index_read = { path = "../index_read", default-features = false, features = [
+  "pg_test",
+] }
+pgrx-tests.workspace = true

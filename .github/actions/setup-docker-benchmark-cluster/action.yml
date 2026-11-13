@@ -1,0 +1,172 @@
+name: Set Up Docker Benchmark Cluster
+description: Build ParadeDB, restore a benchmark heap, and start the shared Docker configuration
+
+inputs:
+  ref:
+    description: "pg_search commit/ref to build"
+    required: true
+  base_image:
+    description: "Base ParadeDB image"
+    required: false
+    default: "paradedb/paradedb:latest-pg18"
+  image_tag:
+    description: "Tag for the built image"
+    required: false
+    default: "paradedb-source:ci"
+  snapshot_format:
+    description: "Heap snapshot format: pgbackrest or zst"
+    required: false
+    default: "pgbackrest"
+  dataset:
+    description: "Snapshot dataset"
+    required: true
+  size:
+    description: "Snapshot size"
+    required: true
+  backup:
+    description: "Optional pgBackRest backup label"
+    required: false
+    default: ""
+  compose_file:
+    description: "Docker Compose file with the paradedb service. Defaults to the shared S3 configuration"
+    required: false
+    default: ""
+
+outputs:
+  commit_sha:
+    description: "Commit SHA of pg_search ref"
+    value: ${{ steps.build_image.outputs.commit_sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build ParadeDB Image
+      id: build_image
+      uses: ./.github/actions/build-paradedb-image
+      with:
+        ref: ${{ inputs.ref }}
+        base_image: ${{ inputs.base_image }}
+        image_tag: ${{ inputs.image_tag }}
+
+    - name: Set Up Benchmark Toolchain
+      if: inputs.snapshot_format == 'pgbackrest'
+      uses: ./.github/actions/setup-pg-search-toolchain
+      with:
+        pg_version: "18"
+        install_cargo_pgrx: "false"
+        cache_prefix_key: "v2-benchmarks-rust-cache"
+        cache_save: "true"
+
+    - name: Install Benchmark Dependencies
+      if: inputs.snapshot_format == 'pgbackrest'
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+      with:
+        packages: pgbackrest postgresql-client build-essential pkg-config libssl-dev clang lld
+
+    - name: Configure AWS Credentials
+      if: inputs.snapshot_format == 'pgbackrest'
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+      with:
+        role-to-assume: arn:aws:iam::858265286872:role/paradedb-benchmark-read
+        role-session-name: benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+        role-duration-seconds: 21600
+        allowed-account-ids: "858265286872"
+        unset-current-credentials: true
+        aws-region: us-east-1
+
+    - name: Restore pgBackRest Heap
+      if: inputs.snapshot_format == 'pgbackrest'
+      shell: bash
+      working-directory: benchmarks
+      env:
+        DATASET: ${{ inputs.dataset }}
+        SIZE: ${{ inputs.size }}
+        PGBACKREST_SET: ${{ inputs.backup }}
+      run: |
+        set -euo pipefail
+        if [ -z "$PGBACKREST_SET" ]; then unset PGBACKREST_SET; fi
+        cargo run --release -- restore-heap \
+          --dataset "$DATASET" --size "$SIZE" \
+          --pgdata "$RUNNER_TEMP/benchmark-pgdata" --stanza bench \
+          --repo-bucket paradedb-benchmark --repo-path-prefix /snapshots \
+          --repo-region us-east-1 --repo-endpoint s3.us-east-1.amazonaws.com \
+          --repo-s3-key-type shared
+
+    - name: Restore Archived Heap
+      if: inputs.snapshot_format == 'zst'
+      shell: bash
+      env:
+        DATASET: ${{ inputs.dataset }}
+        SIZE: ${{ inputs.size }}
+      run: |
+        set -euo pipefail
+        aws s3 cp "s3://paradedb-benchmark/snapshots/${DATASET}/v1/${SIZE}/zst/heap.tar.zst" \
+          "$RUNNER_TEMP/heap.tar.zst" --no-sign-request
+        mkdir -p "$RUNNER_TEMP/benchmark-pgdata"
+        sudo tar -I zstd -xf "$RUNNER_TEMP/heap.tar.zst" -C "$RUNNER_TEMP/benchmark-pgdata"
+        rm -f "$RUNNER_TEMP/heap.tar.zst"
+
+    - name: Start Database
+      shell: bash
+      env:
+        PARADEDB_IMAGE: ${{ inputs.image_tag }}
+        SNAPSHOT_FORMAT: ${{ inputs.snapshot_format }}
+        PARADEDB_DATA_DIR: ${{ runner.temp }}/benchmark-pgdata
+        COMPOSE_FILE_INPUT: ${{ inputs.compose_file }}
+        # Read by the S3 compose file only. A compose_file sets its own resources.
+        POSTGRES_CPUSET: "0-7"
+        MEMORY: 64g
+        EFFECTIVE_CACHE_SIZE: 48GB
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/benchmark-compose" benchmark-artifacts
+        if [ -n "$COMPOSE_FILE_INPUT" ]; then
+          COMPOSE_FILE="$(realpath "$COMPOSE_FILE_INPUT")"
+        else
+          aws s3 cp s3://paradedb-benchmark/benchmarker/wikipedia/docker-compose.yml \
+            "$RUNNER_TEMP/benchmark-compose/docker-compose.yml" --no-sign-request
+          COMPOSE_FILE="$RUNNER_TEMP/benchmark-compose/docker-compose.yml"
+        fi
+        export COMPOSE_FILE
+        if [ "$SNAPSHOT_FORMAT" = pgbackrest ]; then
+          # Replace pgrx paths, authentication, and ALTER SYSTEM settings from the snapshot.
+          docker run --rm --entrypoint bash \
+            -v "$PARADEDB_DATA_DIR:/restored" "$PARADEDB_IMAGE" -c '
+              set -euo pipefail
+              gosu postgres initdb --no-sync --auth=trust -D /tmp/config
+              cp /tmp/config/postgresql.conf /tmp/config/postgresql.auto.conf /tmp/config/pg_hba.conf /tmp/config/pg_ident.conf /restored/
+              echo "listen_addresses = '\''*'\''" >> /restored/postgresql.conf
+              echo "host all all all trust" >> /restored/pg_hba.conf
+            '
+
+          # The restored cluster's superuser is the runner's OS user. The check allows 300
+          # seconds whichever compose file is in use, as the S3 file does.
+          cat > "$RUNNER_TEMP/benchmark-compose/compose.override.yml" <<YAML
+        services:
+          paradedb:
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $(whoami) -d postgres"]
+              interval: 2s
+              timeout: 5s
+              retries: 150
+        YAML
+          COMPOSE_FILE+=":$RUNNER_TEMP/benchmark-compose/compose.override.yml"
+          db_user="$(whoami)"
+          db_name=postgres
+          url="postgresql://${db_user}@127.0.0.1:5432/postgres"
+        else
+          db_user=postgres
+          db_name=benchmark
+          url=postgresql://postgres:postgres@127.0.0.1:5432/benchmark
+        fi
+        docker compose up -d --wait --wait-timeout 300 paradedb
+        docker exec paradedb psql -X -U "$db_user" -d "$db_name" -v ON_ERROR_STOP=1 -c 'SELECT version();'
+        {
+          echo "COMPOSE_FILE=$COMPOSE_FILE"
+          echo "PARADEDB_IMAGE=$PARADEDB_IMAGE"
+          echo "PARADEDB_DATA_DIR=$PARADEDB_DATA_DIR"
+          echo "POSTGRES_CPUSET=$POSTGRES_CPUSET"
+          echo "MEMORY=$MEMORY"
+          echo "EFFECTIVE_CACHE_SIZE=$EFFECTIVE_CACHE_SIZE"
+          echo "PARADEDB_URL=$url"
+        } >> "$GITHUB_ENV"

@@ -482,10 +482,6 @@ struct SpecShape {
     numeric_metrics: bool,
     /// A `size` may cut any level, not only a lone top level under no group.
     size_anywhere: bool,
-    /// Bucket keys a spec with a `cardinality` metric may have. Every bucket
-    /// carries its own sketch, and the DataFusion aggregate holds them all in
-    /// `work_mem` with no spill.
-    sketch_keys: usize,
     /// Array columns may be used as terms fields.
     allow_arrays: bool,
 }
@@ -516,9 +512,7 @@ impl PdbAggJoinWheres {
 
 /// A join over a prefix of `tables` and a `pdb.agg()` whose fields belong to
 /// those tables. `key_columns` are the join keys; `terms` keys come from the
-/// text and integer columns, metrics from the integer and NUMERIC ones. A join
-/// with a keyless step yields tens of thousands of buckets under several keys,
-/// so `cardinality` keeps to one key there.
+/// text and integer columns, metrics from the integer and NUMERIC ones.
 ///
 /// Generates `Inner` and `Left` joins. To prevent the PostgreSQL planner from
 /// eliminating outer-joined tables that aren't referenced elsewhere, a WHERE
@@ -544,11 +538,6 @@ pub fn arb_pdb_agg_join(
                 allow_outer_aggs: true,
                 numeric_metrics: true,
                 size_anywhere: false,
-                sketch_keys: if join.has_keyless_step() {
-                    1
-                } else {
-                    usize::MAX
-                },
                 allow_arrays: true,
             };
             let agg = arb_pdb_agg(joined.clone(), join.unnested_fields(), shape);
@@ -582,7 +571,6 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
             allow_outer_aggs: false,
             numeric_metrics: false,
             size_anywhere: true,
-            sketch_keys: usize::MAX,
             allow_arrays: false,
         },
     )
@@ -590,11 +578,9 @@ pub fn arb_pdb_agg_single_table() -> impl Strategy<Value = PdbAggExpr> {
 
 /// A `pdb.agg()` for `pdb.agg(...) OVER ()` beside the rows of a join over
 /// `tables`. A window has no SQL group or aggregates beside it.
-/// `has_keyless_step` bounds `cardinality` and `unnested` names the arrays the
-/// join unnests itself, both as in [`arb_pdb_agg_join`].
+/// `unnested` names the arrays the join unnests itself, as in [`arb_pdb_agg_join`].
 pub fn arb_pdb_agg_window(
     tables: Vec<String>,
-    has_keyless_step: bool,
     unnested: Vec<(String, String)>,
 ) -> impl Strategy<Value = PdbAggExpr> {
     arb_pdb_agg(
@@ -605,7 +591,6 @@ pub fn arb_pdb_agg_window(
             allow_outer_aggs: false,
             numeric_metrics: true,
             size_anywhere: false,
-            sketch_keys: if has_keyless_step { 1 } else { usize::MAX },
             allow_arrays: true,
         },
     )
@@ -795,13 +780,6 @@ fn arb_pdb_agg(
                         });
                     }
                 }
-                if usize::from(outer_group.is_some()) + terms.len() > shape.sketch_keys {
-                    for metric in &mut metrics {
-                        if metric.kind == MetricKind::Cardinality {
-                            metric.kind = MetricKind::ValueCount;
-                        }
-                    }
-                }
                 let has_bucket_outer_group = outer_group.is_some() && !combine_across_groups;
                 let size = size.filter(|&(level, _)| {
                     level < terms.len()
@@ -827,44 +805,6 @@ mod tests {
     use super::*;
     use proptest::strategy::{Strategy, ValueTree};
     use proptest::test_runner::TestRunner;
-
-    #[test]
-    fn cardinality_keeps_to_one_key_over_a_keyless_join() {
-        let mut runner = TestRunner::default();
-        let tables = vec![
-            "users".to_string(),
-            "products".to_string(),
-            "orders".to_string(),
-        ];
-        let key_columns = vec![
-            Column::new("id", "BIGINT", "1"),
-            Column::new("age", "INTEGER", "20"),
-        ];
-        let where_columns = vec![
-            Column::new("name", "TEXT", "'bob'").whereable(true),
-            Column::new("color", "VARCHAR", "'blue'").whereable(true),
-        ];
-        let strategy = arb_pdb_agg_join(tables, &key_columns, &where_columns);
-
-        let mut saw_sketch_over_keyless = false;
-        let mut saw_sketch_under_keys = false;
-        for _ in 0..500 {
-            let (join, agg, _wheres) = strategy.new_tree(&mut runner).unwrap().current();
-            let keys = usize::from(agg.outer_group.is_some()) + agg.terms.len();
-            let sketch = agg
-                .metrics
-                .iter()
-                .any(|m| m.kind == MetricKind::Cardinality);
-            if join.has_keyless_step() {
-                assert!(!(sketch && keys > 1), "{join:?} {agg:?}");
-                saw_sketch_over_keyless |= sketch;
-            } else {
-                saw_sketch_under_keys |= sketch && keys > 1;
-            }
-        }
-        assert!(saw_sketch_over_keyless);
-        assert!(saw_sketch_under_keys);
-    }
 
     #[test]
     fn test_arb_pdb_agg_join_generates_left_joins_and_multi_table_wheres() {

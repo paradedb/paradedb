@@ -1,0 +1,236 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use std::ffi::CStr;
+use std::ptr::NonNull;
+
+use pgrx::pg_sys;
+use pgrx::pg_sys::AsPgCStr;
+
+use crate::index::reader::index::SegmentPruningEstimate;
+use crate::postgres::customscan::explain;
+use crate::postgres::customscan::explain::ExplainFormat;
+use crate::query::SearchQueryInput;
+use crate::query::estimate_tree::QueryWithEstimates;
+
+pub trait ExplainSegmentPruning {
+    fn explain(&self, explainer: &mut Explainer);
+}
+
+impl ExplainSegmentPruning for SegmentPruningEstimate {
+    fn explain(&self, explainer: &mut Explainer) {
+        explainer.add_group("Segments", |explainer| {
+            explainer.add_unsigned_integer("Included", self.candidate_segments as u64, None);
+            explainer.add_unsigned_integer("Pruned", self.pruned_segments as u64, None);
+        });
+    }
+}
+
+pub struct Explainer {
+    state: NonNull<pg_sys::ExplainState>,
+}
+
+impl Explainer {
+    pub fn new(state: *mut pg_sys::ExplainState) -> Option<Self> {
+        NonNull::new(state).map(|state| Self { state })
+    }
+
+    pub fn is_verbose(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).verbose }
+    }
+
+    pub fn is_analyze(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).analyze }
+    }
+
+    pub fn is_buffers(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).buffers }
+    }
+
+    pub fn is_costs(&self) -> bool {
+        unsafe { (*self.state.as_ptr()).costs }
+    }
+
+    pub fn add_query(&mut self, query: &SearchQueryInput) {
+        self.add_explainable("Tantivy Query", query);
+        self.add_synonym_indexes(query);
+    }
+
+    /// The query text leaves the synonym indexes out, since it prints no oid.
+    fn add_synonym_indexes(&mut self, query: &SearchQueryInput) {
+        let names: Vec<String> = query
+            .synonym_indexes()
+            .into_iter()
+            .map(|index| unsafe {
+                let name = pg_sys::get_rel_name(index);
+                if name.is_null() {
+                    return index.to_u32().to_string();
+                }
+                CStr::from_ptr(name).to_string_lossy().into_owned()
+            })
+            .collect();
+        if !names.is_empty() {
+            self.add_text("Synonyms", names.join(", "));
+        }
+    }
+
+    /// Add an explainable object to the output
+    pub fn add_explainable<T: ExplainFormat>(&mut self, key: &str, value: &T) {
+        self.add_text(key, value.explain_format());
+    }
+
+    /// Add a query with recursive estimates to the EXPLAIN output
+    pub fn add_query_with_estimates(&mut self, query_tree: &QueryWithEstimates) {
+        self.add_text(
+            "Tantivy Query",
+            explain::format_for_explain_with_estimates(query_tree),
+        );
+        self.add_synonym_indexes(&query_tree.query);
+    }
+
+    /// Deparse a PostgreSQL expression using PostgreSQL's active EXPLAIN context (`deparse_cxt`).
+    pub fn deparse_expr(&self, node: *mut pg_sys::Node) -> Option<String> {
+        use std::panic::AssertUnwindSafe;
+        if node.is_null() {
+            return None;
+        }
+        let es = self.state.as_ptr();
+        let cxt = unsafe { (*es).deparse_cxt };
+        if cxt.is_null() {
+            return None;
+        }
+        pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+            let deparsed = unsafe { pg_sys::deparse_expression(node.cast(), cxt, true, false) };
+            if deparsed.is_null() {
+                None
+            } else {
+                Some(
+                    unsafe { std::ffi::CStr::from_ptr(deparsed) }
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            }
+        }))
+        .catch_others(|_| None)
+        .execute()
+    }
+
+    /// Deserializes a PostgreSQL node from string format and deparses it using the active context.
+    /// Falls back to the raw string if deserialization or deparsing fails.
+    pub fn deparse_serialized(&self, pg_node_string: &str) -> String {
+        let Ok(c_str) = std::ffi::CString::new(pg_node_string) else {
+            return pg_node_string.to_string();
+        };
+        let node = unsafe { pg_sys::stringToNode(c_str.as_ptr().cast_mut()) };
+        if node.is_null() {
+            return pg_node_string.to_string();
+        }
+        self.deparse_expr(node.cast())
+            .unwrap_or_else(|| pg_node_string.to_string())
+    }
+
+    pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {
+        self.add_text(
+            key,
+            serde_json::to_string(&value)
+                .unwrap_or_else(|e| panic!("{key} should serialize to json: {e}")),
+        );
+    }
+
+    pub fn add_text<S: AsRef<str>>(&mut self, key: &str, value: S) {
+        unsafe {
+            pg_sys::ExplainPropertyText(
+                key.as_pg_cstr(),
+                value.as_ref().as_pg_cstr(),
+                self.state.as_ptr(),
+            );
+        }
+    }
+
+    /// Groups related properties in text and structured EXPLAIN formats.
+    pub fn add_group(&mut self, key: &str, properties: impl FnOnce(&mut Self)) {
+        let state = self.state.as_ptr();
+        unsafe {
+            pg_sys::ExplainOpenGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+            if (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT {
+                let header = format!(
+                    "{:indent$}{key}:\n",
+                    "",
+                    indent = 2 * (*state).indent as usize
+                );
+                pg_sys::appendStringInfoString((*state).str_, header.as_pg_cstr());
+                (*state).indent += 1;
+            }
+        }
+        properties(self);
+        unsafe {
+            if (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT {
+                (*state).indent -= 1;
+            }
+            pg_sys::ExplainCloseGroup(key.as_pg_cstr(), key.as_pg_cstr(), true, state);
+        }
+    }
+
+    pub fn add_unsigned_integer_group(
+        &mut self,
+        key: &str,
+        total: u64,
+        properties: impl FnOnce(&mut Self),
+    ) {
+        let state = self.state.as_ptr();
+        if unsafe { (*state).format == pg_sys::ExplainFormat::EXPLAIN_FORMAT_TEXT } {
+            self.add_unsigned_integer(key, total, None);
+            unsafe { (*state).indent += 1 };
+            properties(self);
+            unsafe { (*state).indent -= 1 };
+        } else {
+            self.add_group(key, |explainer| {
+                explainer.add_unsigned_integer("Total", total, None);
+                properties(explainer);
+            });
+        }
+    }
+
+    pub fn add_unsigned_integer(&mut self, key: &str, value: u64, unit: Option<&str>) {
+        unsafe {
+            pg_sys::ExplainPropertyUInteger(
+                key.as_pg_cstr(),
+                unit.as_pg_cstr(),
+                value,
+                self.state.as_ptr(),
+            );
+        }
+    }
+
+    pub fn add_float(&mut self, key: &str, value: f64, digits: i32, unit: Option<&str>) {
+        unsafe {
+            pg_sys::ExplainPropertyFloat(
+                key.as_pg_cstr(),
+                unit.as_pg_cstr(),
+                value,
+                digits,
+                self.state.as_ptr(),
+            );
+        }
+    }
+
+    pub fn add_bool(&mut self, key: &str, value: bool) {
+        unsafe {
+            pg_sys::ExplainPropertyBool(key.as_pg_cstr(), value, self.state.as_ptr());
+        }
+    }
+}

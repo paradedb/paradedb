@@ -10,7 +10,7 @@ name: Benchmark pg_search (Queries)
 # With a size, the comment runs only that dataset size.
 on:
   schedule:
-    - cron: "30 7 * * *" # Daily at 11:30 PM PST (12:30 AM PDT)
+    - cron: "30 9 * * *" # Daily at 09:30 UTC. Space nightly benchmarks two hours apart.
   pull_request:
     types: [labeled]
   issue_comment:

@@ -1,0 +1,263 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use super::spill::{SpillNotify, buffile_disk_manager_mode};
+use crate::gucs;
+use crate::scan::rank_join_exec::RankJoinExec;
+use datafusion::common::DataFusionError;
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
+use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryPool, MemoryReservation};
+use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
+use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
+use datafusion::physical_plan::sorts::sort::SortExec;
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use parking_lot::RwLock;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Consumer names registered by `datafusion-distributed` for in-flight gRPC Flight batch buffers
+/// (`src/protocol/grpc/spawn_select_all.rs` and `src/protocol/grpc/worker_client.rs`).
+const NETWORK_BOUNDARY_CONSUMER: &str = "NetworkBoundary";
+const WORKER_CONNECTION_CONSUMER: &str = "WorkerConnection";
+
+/// Returns `true` if `reservation` belongs to a `datafusion-distributed` transport buffer that is
+/// bounded by `WorkerConnection`'s per-connection buffer budget and HTTP/2 flow-control windows
+/// rather than the operator `work_mem` pool.
+#[inline]
+fn is_excluded_transport_consumer(reservation: &MemoryReservation) -> bool {
+    matches!(
+        reservation.consumer().name(),
+        NETWORK_BOUNDARY_CONSUMER | WORKER_CONNECTION_CONSUMER
+    )
+}
+
+/// Caps DataFusion allocations at PostgreSQL's `work_mem` and reports an overflow as a
+/// query error. A panic here used to abort the backend: on the MPP path the pool runs in
+/// a parallel worker, so the panic took down the whole server instead of failing the one
+/// query.
+///
+/// With `paradedb.spill_to_disk` off (the default), the caller pairs this with a
+/// disabled disk manager, so `try_grow` past the limit aborts the query. With it on,
+/// the caller wires a `BufFile`-backed disk manager instead (`spill.rs`), and this
+/// limit is a backstop for whatever hasn't spilled yet.
+#[derive(Debug)]
+pub struct WorkMemMemoryPool {
+    pool: RwLock<GreedyMemoryPool>,
+    limit: AtomicUsize,
+}
+
+impl WorkMemMemoryPool {
+    pub fn new(limit: usize) -> Self {
+        Self {
+            pool: RwLock::new(GreedyMemoryPool::new(limit)),
+            limit: AtomicUsize::new(limit),
+        }
+    }
+
+    /// Resize the pool budget after an MPP worker stage plan has been decoded.
+    pub fn resize_for_plan(
+        &self,
+        plan: &Arc<dyn ExecutionPlan>,
+        work_mem: usize,
+        hash_mem_multiplier: f64,
+    ) {
+        let limit = estimate_plan_memory(plan, work_mem, hash_mem_multiplier);
+        self.limit.store(limit, Ordering::Relaxed);
+        let mut pool = self.pool.write();
+        debug_assert_eq!(
+            pool.reserved(),
+            0,
+            "WorkMemMemoryPool::resize_for_plan called after reservations were already taken"
+        );
+        *pool = GreedyMemoryPool::new(limit);
+    }
+}
+
+impl std::fmt::Display for WorkMemMemoryPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WorkMemMemoryPool")
+    }
+}
+
+impl MemoryPool for WorkMemMemoryPool {
+    fn name(&self) -> &str {
+        "WorkMemMemoryPool"
+    }
+
+    fn grow(&self, reservation: &MemoryReservation, additional: usize) {
+        // `datafusion-distributed` registers `NetworkBoundary` (`spawn_select_all`) and
+        // `WorkerConnection` (`worker_client`) consumers to track in-flight Flight batches using
+        // infallible `MemoryReservation::grow`/`shrink`.
+        //
+        // Exclude those transport buffers from the pool-wide `GreedyMemoryPool` counter so they
+        // do not consume the operator `work_mem` budget (which `create_memory_pool` sizes only
+        // for sort and join operators) and cause `try_grow` callers (`SortExec`, `HashJoinExec`,
+        // `GroupedHashAggregateStream`, etc.) to spill or fail with `ResourcesExhausted`.
+        //
+        // Note that `MemoryReservation::grow` updates `reservation.size` directly on the
+        // reservation before calling `pool.grow`, so `WorkerConnection`'s per-connection
+        // backpressure check (`memory_reservation.size() >= worker_connection_buffer_budget_bytes`)
+        // still enforces its own byte bound even when the pool ignores the call here.
+        if is_excluded_transport_consumer(reservation) {
+            return;
+        }
+        self.pool.read().grow(reservation, additional);
+    }
+
+    fn shrink(&self, reservation: &MemoryReservation, returned: usize) {
+        // Mirror `grow`: `NetworkBoundary` and `WorkerConnection` are not counted in `self.pool`.
+        if is_excluded_transport_consumer(reservation) {
+            return;
+        }
+        self.pool.read().shrink(reservation, returned);
+    }
+
+    fn try_grow(
+        &self,
+        reservation: &MemoryReservation,
+        additional: usize,
+    ) -> Result<(), DataFusionError> {
+        if is_excluded_transport_consumer(reservation) {
+            return Ok(());
+        }
+        let limit = self.limit.load(Ordering::Relaxed);
+        self.pool.read().try_grow(reservation, additional).map_err(|_| {
+            DataFusionError::ResourcesExhausted(format!(
+                "query exceeded the work_mem limit of {limit} bytes; raise work_mem or enable paradedb.spill_to_disk to run it",
+            ))
+        })
+    }
+
+    fn reserved(&self) -> usize {
+        self.pool.read().reserved()
+    }
+    fn memory_limit(&self) -> datafusion::execution::memory_pool::MemoryLimit {
+        // A bounded pool should say so. DataFusion consults this to keep the
+        // `PartialReduce` fast path off a bounded pool; the spilling aggregate
+        // streams look at `tmp_files_enabled()` instead.
+        datafusion::execution::memory_pool::MemoryLimit::Finite(self.limit.load(Ordering::Relaxed))
+    }
+}
+
+fn estimate_plan_memory(
+    plan: &Arc<dyn ExecutionPlan>,
+    work_mem: usize,
+    hash_mem_multiplier: f64,
+) -> usize {
+    let mut total_memory = 0usize;
+    plan.apply(|node| {
+        let partitions = node.output_partitioning().partition_count();
+        // TODO: Also budget hash `AggregateExec` (`work_mem * hash_mem_multiplier * partitions`)
+        // and `RepartitionExec` per-partition coalescer buffers once `spilling_buffile_*` test
+        // thresholds are adjusted accordingly.
+        if node.is::<HashJoinExec>() || node.is::<RankJoinExec>() {
+            total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
+        } else if node.is::<SortExec>() || node.is::<SortMergeJoinExec>() {
+            total_memory += work_mem * partitions;
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("Failed to traverse plan for estimating memory");
+
+    total_memory.max(work_mem)
+}
+
+/// Returns a memory pool that fails the query with a `ResourcesExhausted` error when the
+/// `work_mem` budget is exceeded, rather than crashing the backend.
+///
+/// Sized for `JoinScan` and `AggregateScan`. The estimate is per-operator: `HashJoinExec`
+/// reserves `work_mem * hash_mem_multiplier`, sorts reserve `work_mem`, each times their
+/// partition count.
+pub fn create_memory_pool(
+    plan: &Arc<dyn ExecutionPlan>,
+    work_mem: usize,
+    hash_mem_multiplier: f64,
+) -> Arc<dyn MemoryPool> {
+    Arc::new(WorkMemMemoryPool::new(estimate_plan_memory(
+        plan,
+        work_mem,
+        hash_mem_multiplier,
+    )))
+}
+
+/// Build the DataFusion `RuntimeEnv` for JoinScan and AggregateScan: the `work_mem` pool,
+/// plus a disk manager gated on `paradedb.spill_to_disk`. Off (default): disabled, so
+/// `try_grow` past `work_mem` errors instead of writing untracked temp files. On: spills
+/// through Postgres's `BufFile`, so files respect `temp_file_limit`/`temp_tablespaces`
+/// and are cleaned up with the transaction.
+pub fn build_runtime_env(
+    memory_pool: Arc<dyn MemoryPool>,
+    on_spill: SpillNotify,
+) -> Arc<RuntimeEnv> {
+    let spill_to_disk =
+        crate::postgres::customscan::mpp::run_on_main_thread(|_| gucs::spill_to_disk());
+    let disk_manager_mode = if spill_to_disk {
+        buffile_disk_manager_mode(on_spill)
+    } else {
+        DiskManagerMode::Disabled
+    };
+    Arc::new(
+        RuntimeEnvBuilder::new()
+            .with_memory_pool(memory_pool)
+            .with_disk_manager_builder(DiskManagerBuilder::default().with_mode(disk_manager_mode))
+            .build()
+            .expect("Failed to create RuntimeEnv"),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::execution::memory_pool::MemoryConsumer;
+
+    #[test]
+    fn try_grow_past_work_mem_errors_instead_of_panicking() {
+        let pool: Arc<dyn MemoryPool> = Arc::new(WorkMemMemoryPool::new(1024));
+        let res = MemoryConsumer::new("test").register(&pool);
+        res.try_grow(512).expect("within budget should succeed");
+        let err = res
+            .try_grow(4096)
+            .expect_err("over budget must return an error, not panic");
+        assert!(matches!(err, DataFusionError::ResourcesExhausted(_)));
+        assert!(err.to_string().contains("work_mem"));
+    }
+
+    #[test]
+    fn grow_is_infallible_past_work_mem() {
+        // The infallible path must not panic even past the limit; only `try_grow` enforces.
+        let pool: Arc<dyn MemoryPool> = Arc::new(WorkMemMemoryPool::new(1024));
+        let res = MemoryConsumer::new("test").register(&pool);
+        res.grow(8192);
+        assert_eq!(pool.reserved(), 8192);
+
+        // Transport consumers are excluded across `grow`, `try_grow`, and `shrink`, while still
+        // tracking their own `MemoryReservation::size()` for per-connection backpressure.
+        for consumer_name in [NETWORK_BOUNDARY_CONSUMER, WORKER_CONNECTION_CONSUMER] {
+            let transport_res = MemoryConsumer::new(consumer_name).register(&pool);
+            transport_res.grow(4096);
+            transport_res
+                .try_grow(4096)
+                .expect("excluded transport consumer try_grow must succeed");
+            assert_eq!(transport_res.size(), 8192);
+            assert_eq!(pool.reserved(), 8192);
+            transport_res.shrink(8192);
+            assert_eq!(transport_res.size(), 0);
+            assert_eq!(pool.reserved(), 8192);
+        }
+    }
+}

@@ -1,0 +1,51 @@
+[dataset]
+name = "msmarco"
+size = "113m"
+table = "msmarco"
+expected_rows = 113520750
+dims = 1024
+vector_field = "emb"
+s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
+
+# Both sections match the paradedb service in pdbench's datasets/msmarco/docker-compose.yml.
+# `pdbench search` checks [postgres.search] before a sweep. CI builds the index with
+# pdbench-load, so [postgres.build] is not checked; the profile format requires it.
+[postgres.build]
+shared_buffers = "32GB"
+maintenance_work_mem = "52428MB"
+max_parallel_maintenance_workers = 8
+
+[postgres.search]
+shared_buffers = "32GB"
+max_parallel_workers = 16
+max_worker_processes = 32
+
+[index]
+training_sample_ratio = 0.32
+target_segment_count = 8
+vector_router_quantization = true
+
+[search]
+queries = 100
+runs = 1
+warmup_runs = 1
+explain_sample = 100
+
+[search.session]
+max_parallel_workers_per_gather = "8"
+jit = "off"
+plan_cache_mode = "force_custom_plan"
+"paradedb.vector_adaptive_probing" = "on"
+"paradedb.vector_router_rerank_factor" = "2"
+"paradedb.vector_router_min_beam_fraction" = "0.5"
+"paradedb.vector_router_aps" = "on"
+
+[search.sweep]
+param = "paradedb.vector_cluster_max_probe"
+min = 1
+max = 100000
+start = 100
+integer = true
+targets = [0.9, 0.95, 0.99]
+tolerance = 0.000001
+max_probes = 20

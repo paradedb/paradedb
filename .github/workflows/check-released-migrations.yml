@@ -1,15 +1,16 @@
 # workflows/check-released-migrations.yml
 #
 # Check Released Migrations & Lint Migration Fragments
-# 1. Fails a PR that edits a pg_search migration script whose target version is
-#    already released (a `vX.Y.Z` tag exists), since such edits never reach users
-#    already on that version. New schema must go on the current upgrade path after
-#    bumping the workspace version -- see RELEASE.md.
-# 2. Lints unreleased migration fragments (pg_search/sql/unreleased/*.sql):
-#    - PRs on main: verifies depends-on declarations and forbids mixing edits to
-#      already-released objects with unreleased objects in the same fragment.
-#    - PRs on stable branches (0.*.x): enforces that fragments are byte-for-byte
-#      identical to origin/main and that any depends-on PRs exist in the branch history.
+# Delegates SQL migration checks to `cargo pgrx migrate check` (and changelog fragment
+# checks to `release.py`) via `scripts/release.sh lint-fragments`:
+# 1. Fails a PR that modifies or deletes an existing `pg_search--*--*.sql` script in
+#    `pg_search/sql/`. New schema changes must be added as migration fragments in
+#    `pg_search/sql/unreleased/` instead -- see RELEASE.md.
+# 2. Lints unreleased fragments (`pg_search/sql/unreleased/*.sql` and changelog `.mdx`):
+#    - Verifies `depends-on` declarations and forbids mixing released and unreleased
+#      objects (or unreleased objects from multiple prerequisites) in one fragment.
+#    - On stable branches (`0.*.x`), enforces that fragments are byte-for-byte identical
+#      to `origin/main` and that all `depends-on` prerequisites exist on the branch.
 #    See CONTRIBUTING.md and pg_search/sql/unreleased/.gitkeep for rules.
 
 name: Check Released Migrations
@@ -25,6 +26,9 @@ on:
       - ".github/workflows/check-released-migrations.yml"
       - ".github/workflows/publish-github-release.yml"
       - "pg_search/sql/**"
+      - "pg_search/Cargo.toml"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
 
 permissions:
   contents: read
@@ -38,29 +42,36 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          fetch-tags: true # Required: the check resolves release tags locally
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2
+        with:
+          rustflags: ""
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install cargo-pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        env:
+          STEP_PGRX_VERSION: ${{ steps.pgrx.outputs.version }}
+        run: cargo install --locked cargo-pgrx --version "$STEP_PGRX_VERSION" --debug
 
       - name: Test Release Scripts
         run: |
           python3 -m pip install PyYAML==6.0.3
           python3 -m unittest discover -s .github/scripts
 
-      - name: Reject Edits to Already-Released Migrations
-        run: |
-          fail=0
-          for f in $(git diff --name-only --diff-filter=AMD \
-              "HEAD^1...HEAD" \
-              -- 'pg_search/sql/pg_search--*--*.sql'); do
-            target="${f##*--}"; target="${target%.sql}"
-            if git rev-parse -q --verify "refs/tags/v$target" >/dev/null; then
-              echo "::error file=$f::Edits released migration (v$target is tagged). Bump workspace.package.version in Cargo.toml and add the change to a new pg_search--<released>--<next>.sql script instead. See RELEASE.md."
-              fail=1
-            fi
-          done
-          exit $fail
-
-      # Validates fragment dependency rules and prevents fragment divergence between
-      # stable release branches and main. See CONTRIBUTING.md for details.
+      # Enforces released-script immutability, fragment dependency rules, and
+      # release-branch fragment identity against origin/main. See CONTRIBUTING.md.
       - name: Lint Migration Fragments
         run: |
           ./scripts/release.sh lint-fragments \

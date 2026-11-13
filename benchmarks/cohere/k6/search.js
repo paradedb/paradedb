@@ -24,7 +24,7 @@ const backends = db.backends({
     {
       type: "paradedb",
       connection: url,
-      container: "",
+      container: "paradedb",
     },
   ],
 });
@@ -43,6 +43,10 @@ const scenarios = {
     tags: { warmup: "true" },
   },
 };
+export const collectMetrics = backends.addMetricsCollector(
+  scenarios,
+  `${warmup + duration}s`,
+);
 export const options = { scenarios, thresholds: { checks: ["rate==1"] } };
 
 export function search() {
@@ -51,6 +55,6 @@ export function search() {
   if (result.deadlineReached) return;
   check(result, {
     "query succeeds": (r) => !r.error,
-    "returns 10 neighbors": (r) => r.hits === 10,
+    [`returns ${point.neighbors} neighbors`]: (r) => r.hits === point.neighbors,
   });
 }

@@ -1296,6 +1296,9 @@ impl CustomScan for BaseScan {
                         parallel_leader_participates,
                         is_join_context,
                         has_grouping,
+                        expands_with_synonyms: &|| {
+                            query.expands_with_synonyms(&source_context.schema().unwrap())
+                        },
                     })
                 };
                 let reason = policy.reason();

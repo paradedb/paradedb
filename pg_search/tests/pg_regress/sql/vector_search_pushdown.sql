@@ -281,8 +281,10 @@ DROP TABLE vsp_tie;
 -- Parent table holds scalar/JSONB filters; child table holds chunks and
 -- embeddings linked by parent_id. Both IN (semi-join) and JOIN shapes should
 -- rank matching child rows by vector distance.
+-- Omit PRIMARY KEY on `vsp_parents.id` so PG 18.7+ keeps the `IN (SELECT ...)`
+-- tests below as true Semi joins alongside the explicit `JOIN` Inner-join tests.
 CREATE TABLE vsp_parents (
-    id       int PRIMARY KEY,
+    id       int NOT NULL,
     category text NOT NULL,
     metadata jsonb NOT NULL
 );

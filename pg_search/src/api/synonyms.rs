@@ -20,8 +20,11 @@ pub mod pdb {
     use crate::index::synonym_index::{expand_with_index, rule_analyzer};
     use crate::postgres::access::IndexOid;
     use crate::postgres::index::is_partitioned_index;
+    use crate::query::pdb_query::pdb;
     use anyhow::{Result, anyhow};
+    use pgrx::aggregate::{Aggregate, ParallelOption};
     use pgrx::prelude::*;
+    use pgrx::{Internal, PgList};
     use tantivy::synonyms::SynonymRule;
 
     /// The check of the `pdb.synonym_rule` domain. It raises instead of returning false, so the
@@ -94,5 +97,94 @@ pub mod pdb {
             })
             .collect::<Vec<_>>();
         Ok(TableIterator::new(rows))
+    }
+
+    /// What `pdb.expand` has read so far.
+    #[derive(Default)]
+    struct ExpandState {
+        query: Option<String>,
+        rules: Vec<String>,
+    }
+
+    #[derive(pgrx::AggregateName, Default)]
+    #[aggregate_name = "expand"]
+    pub struct ExpandAgg;
+
+    /// Makes `|||` and `&&&` expand the tokens of `query` with the rules that the aggregate reads.
+    #[pgrx::pg_aggregate]
+    impl Aggregate<ExpandAgg> for ExpandAgg {
+        const PARALLEL: Option<ParallelOption> = Some(ParallelOption::Safe);
+        type Args = (
+            pgrx::name!(query, Option<String>),
+            pgrx::name!(rule, Option<String>),
+        );
+        type State = Internal;
+        type Finalize = Option<pdb::Query>;
+
+        fn state(
+            mut current: Self::State,
+            (query, rule): Self::Args,
+            _fcinfo: pg_sys::FunctionCallInfo,
+        ) -> Self::State {
+            let state = unsafe { current.get_or_insert_default::<ExpandState>() };
+            match (&state.query, query) {
+                (Some(seen), Some(query)) if *seen != query => {
+                    pgrx::error!("pdb.expand takes one query text, not `{seen}` and `{query}`")
+                }
+                (None, Some(query)) => state.query = Some(query),
+                _ => {}
+            }
+            if let Some(rule) = rule {
+                match SynonymRule::parse(&rule) {
+                    Ok(Some(_)) => state.rules.push(rule),
+                    Ok(None) => {}
+                    Err(err) => pgrx::error!("invalid synonym rule '{rule}': {err}"),
+                }
+            }
+            current
+        }
+
+        fn finalize(
+            mut current: Self::State,
+            _direct_arg: Self::OrderedSetArgs,
+            fcinfo: pg_sys::FunctionCallInfo,
+        ) -> Self::Finalize {
+            // A window frame reads the state of each row and then adds the next row to it, so
+            // the state stays as it is.
+            let state = unsafe { current.get_or_insert_default::<ExpandState>() };
+            let query = match &state.query {
+                Some(query) => query.clone(),
+                None => unsafe { query_without_rules(fcinfo)? },
+            };
+            Some(pdb::Query::UnclassifiedString {
+                string: query,
+                fuzzy_data: None,
+                slop_data: None,
+                synonyms: Some(pdb::SynonymRules::Rules(state.rules.clone())),
+            })
+        }
+    }
+
+    /// The transition function never runs when the subquery finds no rule, so the query text
+    /// comes from the first argument of the call.
+    unsafe fn query_without_rules(fcinfo: pg_sys::FunctionCallInfo) -> Option<String> {
+        unsafe {
+            let aggref = pg_sys::AggGetAggref(fcinfo);
+            if aggref.is_null() {
+                return None;
+            }
+            let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+            let query = (*args.get_ptr(0)?).expr.cast::<pg_sys::Node>();
+            // A column has no value without a row, and a subplan needs a plan node of its own.
+            if pg_sys::contain_var_clause(query) || pg_sys::contain_subplans(query) {
+                return None;
+            }
+            let aggstate = (*fcinfo).context.cast::<pg_sys::AggState>();
+            let expr_state = pg_sys::ExecInitExpr(query.cast(), aggstate.cast());
+            let mut is_null = false;
+            let datum =
+                pg_sys::ExecEvalExpr(expr_state, (*aggstate).ss.ps.ps_ExprContext, &mut is_null);
+            String::from_datum(datum, is_null)
+        }
     }
 }

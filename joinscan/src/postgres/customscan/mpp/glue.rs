@@ -392,11 +392,13 @@ fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcess
     }
 }
 
-/// Shared `ShutdownCustomScan` step for `JoinScan` and `AggregateScan`:
-/// drops `stream` (triggering `EndStreamNotifier` on `DistributedExec` so `c2w_stream` closes and
-/// workers flush their final `TaskMetrics`), shuts down the leader session or quiesces serial
-/// runtime tasks, joins the producer workers so their metrics land before `EXPLAIN ANALYZE`
-/// renders, and emits the spill warning if any operator spilled.
+/// Shared `ShutdownCustomScan` step for `JoinScan` and `AggregateScan`. Postgres also calls it at
+/// the end of every partial `ExecutePlan` (each `FETCH` of a cursor, each batch of a PL/pgSQL `FOR`
+/// loop) and then resumes the scan, so a serial scan keeps its `stream` until `EndCustomScan` or
+/// `ReScanCustomScan` tears it down. An MPP launch drops `stream` (triggering `EndStreamNotifier`
+/// on `DistributedExec` so `c2w_stream` closes and workers flush their final `TaskMetrics`), shuts
+/// down the leader session, and joins the producer workers so their metrics land before
+/// `EXPLAIN ANALYZE` renders. Either way, emits the spill warning if any operator spilled.
 pub fn shutdown_mpp_scan(
     stream: &mut Option<SendableRecordBatchStream>,
     runtime: Option<&PgTokioRuntime>,
@@ -404,11 +406,9 @@ pub fn shutdown_mpp_scan(
     mpp: &mut MppLifecycle,
     spilled: &AtomicBool,
 ) {
-    *stream = None;
     if let Some(leader) = mpp.leader() {
+        *stream = None;
         finish_leader_execution(runtime, physical_plan, leader);
-    } else if let Some(rt) = runtime {
-        rt.quiesce_tasks();
     }
     if let Some(leader) = mpp.leader_mut()
         && let Some(finish) = leader.finish.as_mut()

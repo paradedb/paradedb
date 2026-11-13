@@ -3033,10 +3033,13 @@ impl SearchIndexReader {
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
     /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
-        if (gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
-            || query_input.has_postgres_expressions()
-            || query_input.has_parameters()
-        {
+        let heuristic = gucs::enable_heuristic_selectivity()
+            .then(|| query_input.expensive_selectivity_heuristic())
+            .flatten();
+        if let Some(selectivity) = heuristic {
+            return selectivity.clamp(0.0, 1.0);
+        }
+        if query_input.has_postgres_expressions() || query_input.has_parameters() {
             return query_input.selectivity_heuristic().clamp(0.0, 1.0);
         }
         let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)

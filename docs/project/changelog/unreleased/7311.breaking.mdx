@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+- `edge_ngram` now preserves source word positions when it skips words shorter than `min_gram`. Existing indexes using `edge_ngram` with `min_gram > 1` require `REINDEX` to apply the corrected positions consistently. Without rebuilding, existing documents retain the old positions while new or updated documents use the corrected positions, which can produce inconsistent phrase-query results.

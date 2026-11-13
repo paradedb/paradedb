@@ -15,12 +15,6 @@ gh workflow run benchmark-pg_search-benchmarker-hn.yml \
   --repo paradedb/paradedb --ref main
 ```
 
-For on-demand runners, apply `benchmark-nonspot` to the PR **before** adding
-the benchmark trigger label. This applies to every engine in this workflow.
-The modifier stays on the PR for subsequent runs; remove it to use Spot again.
-It does not start a benchmark by itself or change an already queued or running
-job. Scheduled and manual runs use Spot because they have no PR labels.
-
 The optional `commit` input benchmarks another revision using this workflow's
 benchmark code. Only scheduled and manual main runs without that override update
 the rolling baseline, under `benchmarker hackernews-vector-28m`.
@@ -71,73 +65,6 @@ index size, and peak container memory during the build. Diagnostics retain manif
 fixtures, configuration, tool revisions, plans, pdbench reports, k6 dashboards,
 and database logs.
 
-## pg_vectorsearch
-
-Apply `benchmark-hn-pg_vectorsearch` to run HN with PRISM. Manual runs accept
-`engine: pg_vectorsearch`; scheduled runs continue to use `pg_search`.
-PRISM uses the existing heap and ground truth, the parallel-build memory fix
-at `paradedb/pg_vectorsearch@1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, automatic
-`nlist`, default replication, and an integer `prism.nprobe` sweep from 1 to 4096.
-Results use the separate `hackernews-vector-28m-pg-vectorsearch` history.
-
-The [PRISM tuning guide](https://github.com/timescale/pg_vectorsearch/blob/4899ffb57e7752a766b714621844d0abb4e6cad1/docs/tuning.md#prismquery_limit-guc-query-time)
-describes PostgreSQL post-filtering, selectivity-based candidate inflation, and
-the `work_mem` bound on candidate count. It recommends partial PRISM indexes
-for fixed filters when post-filtering cannot return enough neighbors.
-
-This comparison uses one global PRISM index with PostgreSQL post-filtering and
-no scalar filter indexes. It preserves the published timestamp ranges and exact
-author equality predicates. Sequential scans, bitmap scans, and sorts are
-disabled to select PRISM scans, matching the other pg_vectorsearch profiles.
-`work_mem` is 256 MiB. Per-predicate partial PRISM indexes are not part of this
-comparison.
-
-`EXPLAIN (ANALYZE, VERBOSE, BUFFERS)` records the first query vector at each
-reached operating point. The guard requires an ordered scan of the PRISM index
-and every filter predicate; exact filter-and-sort plans are rejected. HN
-dashboard names include `prism-postfilter` to identify the execution path.
-Unreached recall targets are skipped. For HN pg_vectorsearch, k6 reports the
-fraction of queries returning ten neighbors and the observed result counts,
-but short results do not fail latency measurement. Every query must still
-execute successfully, and selected settings must meet their recall target on
-all 100 vectors. Other dataset/engine combinations retain the strict
-neighbor-count requirement.
-
-The pg_vectorsearch profile uses pdbench fast search: 25 evenly spaced pilot
-vectors per candidate, followed by full 100-vector validation before selecting
-an operating point. Candidate searches have no warmups or EXPLAIN. Selected
-settings receive 10 EXPLAIN diagnostics each, shared across recall targets using
-the same setting; k6 retains its separate warmup and measurement procedure.
-
-Each query shape gets at most 64 pilot/validation evaluations and a 3-hour
-search/diagnostic budget, with a 5-minute statement timeout. The HN pg_vectorsearch
-job has a 24-hour timeout to accommodate all six shapes and setup. Progress is logged
-per query, completed evaluations are checkpointed in the diagnostics artifact,
-and an exhausted budget lets CI continue other shapes. The summary distinguishes
-time/probe budget exhaustion from an unreachable target. Only fully validated
-operating points reach k6. CI restores and saves only prior selected values as
-starting hints, keyed by dataset, engine revision, profile, and query assets;
-pdbench checks its fingerprint and fully revalidates each hint.
-
-Memory traces are retained in the diagnostics artifact:
-
-- pg_search build samples: `benchmark-artifacts/load/*/*_load/points.jsonl`.
-- pg_vectorsearch and VectorChord build samples:
-  `benchmark-artifacts/build-memory/points.jsonl`, with the sampled peak and
-  collector status in `summary.json` alongside it. These samples cover
-  `pdbench build`; the subsequent vacuum is outside this trace.
-- Query samples for every engine: `containers.paradedb.memory` in each
-  `benchmarker/results/<operating-point>.json`, covering warmup and measurement.
-
-The published peak build metric uses `container_memory`: Docker usage minus
-inactive page cache, matching pdbench. The non-ParadeDB build collector also
-exports `container_memory_usage`, matching the pinned Benchmarker query
-collector (usage minus `cache` when available, otherwise full usage). Raw usage
-and inactive-file bytes are retained separately. Build samples use UTC timestamps;
-query samples use Unix milliseconds. A failed build retains the samples already
-collected; missing or interrupted memory collection fails the measurement rather
-than reporting a zero peak.
-
 Run local checks with Python 3.11+ and `duckdb==2.0.0` installed:
 
 ```sh
@@ -145,51 +72,38 @@ python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 ```
 
-## VectorChord
+## Comparison engines
 
-Two VectorChord variants use the same HN snapshot, six predicates, and published
-100-vector ground truth:
+The HN workflow also accepts these engines and PR labels:
 
-| Dispatch engine         | PR label                             | Profile                          | `vchordrq.prefilter` |
-| ----------------------- | ------------------------------------ | -------------------------------- | -------------------- |
-| `vectorchord`           | `benchmark-hn-vectorchord`           | `28m-vectorchord.toml`           | `off`                |
-| `vectorchord-prefilter` | `benchmark-hn-vectorchord-prefilter` | `28m-vectorchord-prefilter.toml` | `on`                 |
+| Dispatch engine         | PR label                             | Index / filter mode              |
+| ----------------------- | ------------------------------------ | -------------------------------- |
+| `pg_vectorsearch`       | `benchmark-hn-pg_vectorsearch`       | PRISM, PostgreSQL post-filtering |
+| `vectorchord`           | `benchmark-hn-vectorchord`           | VectorChord, prefilter off       |
+| `vectorchord-prefilter` | `benchmark-hn-vectorchord-prefilter` | VectorChord, prefilter on        |
 
-The profiles differ only in this session setting. It applies to every predicate
-throughout the recall sweep and is carried into every k6 connection. Results use
-`hackernews-vector-28m-vectorchord` and `hackernews-vector-28m-vectorchord-prefilter`,
-respectively; recall hints are isolated by the profile hash.
+Scheduled runs retain pg_search. Each comparison uses the same heap, six timestamp
+and exact-author predicates, 100 held-out vectors, and Docker resources as
+pg_search. Results and recall hints are separated by engine and filter mode.
 
-The workflow builds VectorChord 1.1.1 at
-`f9b5e234c44cee69b266b8431f92b7deed4e99d3` against the benchmark's PostgreSQL 18,
-preloads it, and builds one global `vchordrq` cosine index. The profile uses
-80,000 lists, residual quantization, spherical centroids, eight partitioning
-threads and eight requested parallel build workers. Following VectorChord's
-[indexing](https://docs.vectorchord.ai/vectorchord/usage/indexing.html) and
-[partitioning guidance](https://docs.vectorchord.ai/vectorchord/usage/partitioning-tuning.html),
-partitioning uses hierarchical k-means in 100 dimensions with a sampling factor
-of 64. It sweeps integer `vchordrq.probes` from 1 to 80,000, starting at 64, with
-`epsilon=1.9` and unlimited `max_scan_tuples=-1`.
+pg_vectorsearch is pinned to `paradedb/pg_vectorsearch@1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`,
+including the parallel-build memory fix. Its global PRISM index uses automatic
+`nlist` and integer `prism.nprobe` from 1 to 4096. VectorChord 1.1.1 is pinned to
+`f9b5e234c44cee69b266b8431f92b7deed4e99d3`. Both VectorChord profiles use one global
+cosine index, 80,000 lists, residual quantization, spherical centroids, hierarchical
+k-means in 100 dimensions, sampling factor 64, and eight build threads. They differ
+only in `vchordrq.prefilter`; integer probes range from 1 to 80,000.
 
-The fast sweep uses the same HN limits as PRISM: 25-vector pilots without warmups
-or candidate EXPLAIN, strict validation on all 100 vectors, 10 diagnostic queries
-per selected setting, 64 evaluations, a three-hour per-shape budget, and a
-five-minute statement timeout. Cached probe values are only starting hints and
-must be revalidated. Budget exhaustion is reported separately from unreachable
-recall. The job has a 24-hour timeout.
+The comparison profiles use 25-vector pilots, full validation on all 100 vectors,
+and 10 diagnostic EXPLAIN queries per selected setting. Each shape gets at most
+64 evaluations, three hours, and a five-minute statement timeout; jobs allow
+24 hours. Cached probes are revalidated starting hints. Only settings passing
+R90/R95/R99 validation reach k6, with its existing warmup and measurement periods.
+Budget exhaustion is reported separately from unreachable recall.
 
-Both variants retain the unchanged timestamp and exact-author predicates and
-require an ordered VectorChord index scan. With prefilter enabled, VectorChord
-checks these predicates before exact-distance reranking; no scalar filter index
-is added. PostgreSQL still displays a `Filter`, so the plan verifier also records
-and checks the actual `vchordrq.prefilter` value in the EXPLAIN session. k6 series
-are marked `vchordrq-prefilter` or `vchordrq-postfilter` and reject mismatched
-session settings. As with HN PRISM, short neighbor counts remain diagnostic after
-the strict recall gate, while query errors fail k6. The existing warmup, timing,
-and R90/R95/R99 targets are unchanged.
-
-All HN engines use the `paradedb` service from the pinned pdbench Compose file: 64 CPUs
-(cores 0–63), 128 GiB memory, 64 GiB shared memory, 32 GiB shared buffers,
-1 GiB `work_mem`, and the same PostgreSQL worker limits. k6 runs on cores 64–67.
-The workflow verifies runtime settings and saves the resolved Compose, container
-limits, and PostgreSQL settings in the diagnostics artifact.
+Executed plans must retain every predicate and use the expected ordered ANN
+index scan. VectorChord's prefilter setting is checked in both EXPLAIN and k6
+sessions. Short result counts remain diagnostic for these HN comparison engines
+after the recall gate; query errors still fail k6. The pg_search checks remain
+unchanged. The shared runtime guard records and verifies container limits and
+PostgreSQL settings before benchmarking.

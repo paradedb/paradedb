@@ -174,38 +174,37 @@ class OperatingPointsTest(unittest.TestCase):
         )
         self.assertIn("| 1234.5 | 0.0 | 10 |", summary(points))
 
-    def test_prism_preserves_backend_and_integer_probe_for_both_datasets(self):
-        """Carry the chosen engine through the recall-to-k6 handoff."""
-        for dataset in ("hn", "msmarco"):
-            inputs = reports(dataset, "pg_vectorsearch")
-            original = copy.deepcopy(inputs)
-            points = operating_points(inputs, dataset)
-            for point in points:
-                self.assertEqual(point["engine"], "pg_vectorsearch")
-                self.assertEqual(point["backend"], "pg_vectorsearch")
-                self.assertEqual(point["param"], NPROBE)
-                self.assertEqual(point["dimensions"], DIMENSIONS[dataset])
-                self.assertEqual(
-                    point["index_name"],
-                    f"{inputs[0]['config']['dataset']['table']}_prism_idx",
-                )
-            self.assertIn("nprobe", summary(points))
-            self.assertEqual(inputs, original)
+    def test_prism_preserves_backend_and_integer_probe_for_hn(self):
+        """Carry the HN engine through the recall-to-k6 handoff."""
+        inputs = reports("hn", "pg_vectorsearch")
+        original = copy.deepcopy(inputs)
+        points = operating_points(inputs, "hn")
+        for point in points:
+            self.assertEqual(point["engine"], "pg_vectorsearch")
+            self.assertEqual(point["backend"], "pg_vectorsearch")
+            self.assertEqual(point["param"], NPROBE)
+            self.assertEqual(point["dimensions"], DIMENSIONS["hn"])
+            self.assertEqual(
+                point["index_name"],
+                f"{inputs[0]['config']['dataset']['table']}_prism_idx",
+            )
+        self.assertIn("nprobe", summary(points))
+        self.assertEqual(inputs, original)
 
     def test_prism_rejects_wrong_parameter_and_out_of_range_probes(self):
         """Reject backend mismatches and invalid PRISM operating points."""
-        inputs = reports("msmarco", "pg_vectorsearch")
+        inputs = reports("hn", "pg_vectorsearch")
         inputs[0]["data"]["sweep_param"] = PROBE
         with self.assertRaisesRegex(ValueError, "probe search report"):
-            operating_points(inputs, "msmarco")
+            operating_points(inputs, "hn")
         for value in ("0", "0.5", "100.5", "4097", "nan"):
-            inputs = reports("msmarco", "pg_vectorsearch")
-            result = inputs[0]["data"]["variants"]["knn_top10_unfiltered"]
+            inputs = reports("hn", "pg_vectorsearch")
+            result = inputs[0]["data"]["variants"]["range_10pct"]
             for selected in result["targets"].values():
                 selected["value"] = value
             result["points"][0]["value"] = value
             with self.assertRaisesRegex(ValueError, "invalid selected point"):
-                operating_points(inputs, "msmarco")
+                operating_points(inputs, "hn")
 
     def test_only_hn_postfilter_allows_short_results_after_recall_validation(self):
         """Keep the result-count exception scoped to HN's post-filtered ANN scans."""

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- A cursor or a PL/pgSQL `FOR` loop that reads a Join Scan no longer starts it over from the first row on every fetch, so such a `FOR` loop ends again. A cursor over a DataFusion Aggregate Scan no longer stops after the first 8192 groups.

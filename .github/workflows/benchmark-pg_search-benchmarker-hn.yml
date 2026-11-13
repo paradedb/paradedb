@@ -277,16 +277,20 @@ jobs:
               {name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
             ]' > benchmark-artifacts/index-metrics.json
           else
-            pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
+            python3 benchmarks/cohere/measure_build_memory.py \
+              --container paradedb --output benchmark-artifacts/build-memory -- \
+              pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
               --assets-dir benchmarks/hn/assets --runs-dir benchmark-artifacts/search \
               --set dataset.s3_base_path=benchmark-artifacts/fixtures \
               --force-rebuild \
-              | tee benchmark-artifacts/index-build.log
+              2>&1 | tee benchmark-artifacts/index-build.log
             profile="$(basename "$HN_CONFIG" .toml)"
-            jq '.data | [
+            peak_bytes="$(jq -er '.peak_container_memory_bytes' benchmark-artifacts/build-memory/summary.json)"
+            jq --argjson peak_bytes "$peak_bytes" '.data | [
               {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
               {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
-              {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers}
+              {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers},
+              {name: (.index.name + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
             ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
             psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
               -c 'VACUUM (ANALYZE) hn_items;' \

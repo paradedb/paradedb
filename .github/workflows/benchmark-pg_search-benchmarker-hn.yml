@@ -12,7 +12,12 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "625852ddcdfb16661cf91260549a2263e125eefa"
+        default: "f2a3b1fb936beeb94ea7d0d5d31250734b91766d"
+      tuning:
+        description: "Validate cached operating points, require them without sweeping, or refresh them"
+        type: choice
+        options: [auto, required, refresh]
+        default: auto
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -40,7 +45,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '625852ddcdfb16661cf91260549a2263e125eefa' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'f2a3b1fb936beeb94ea7d0d5d31250734b91766d' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       HN_CONFIG: benchmarks/hn/28m.toml
@@ -224,7 +229,13 @@ jobs:
           jq -e 'index("target_segment_count=8") != null
             and index("vector_router_quantization=true") != null' benchmark-artifacts/index-options.json
 
-      - name: Sweep max_probe with pdbench
+      - name: Cache vector operating points
+        uses: ./.github/actions/cache-vector-tuning
+        with:
+          suite: hn-pg_search
+          tuning: ${{ inputs.tuning || 'auto' }}
+
+      - name: Select and validate max_probe with pdbench
         run: |
           set -euo pipefail
           for sql in benchmarks/hn/assets/hn/queries/*.sql; do

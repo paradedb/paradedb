@@ -1,5 +1,9 @@
 # MS MARCO vector CI
 
+Recall selection uses the shared [operating-point cache](../../.github/actions/cache-vector-tuning/README.md).
+Cached values are revalidated on every run; missing or failing targets are retuned.
+Manual runs can set `tuning` to `refresh` or `required` to force retuning or forbid sweeps.
+
 The MS MARCO workflow restores the existing 113,520,750-row PostgreSQL 18 heap
 backup `20261102-224214F`, builds pg_search from the requested revision, and
 creates an eight-segment cosine index with a 0.32 training sample ratio and

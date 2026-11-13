@@ -1,0 +1,39 @@
+name: Cache Vector Operating Points
+description: Persist pdbench operating points and revalidate recall before reusing them
+
+inputs:
+  suite:
+    description: "Dataset, size, and engine identifying this vector benchmark suite"
+    required: true
+  tuning:
+    description: "pdbench tuning mode: auto, required, or refresh"
+    default: auto
+  directory:
+    description: "Portable operating-point files, separate from benchmark reports"
+    default: benchmark-artifacts/tuning
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Operating Points
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ inputs.directory }}
+        key: vector-tuning-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          vector-tuning-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.suite }}-
+
+    - name: Configure pdbench Operating Points
+      shell: bash
+      env:
+        TUNING_DIRECTORY: ${{ inputs.directory }}
+        TUNING_MODE: ${{ inputs.tuning }}
+      run: |
+        set -euo pipefail
+        case "$TUNING_MODE" in
+          auto|required|refresh) ;;
+          *) echo "Invalid pdbench tuning mode: $TUNING_MODE" >&2; exit 1 ;;
+        esac
+        mkdir -p "$TUNING_DIRECTORY"
+        echo "PDBENCH_OPERATING_POINTS_DIR=$(realpath "$TUNING_DIRECTORY")" >> "$GITHUB_ENV"
+        echo "PDBENCH_TUNING=$TUNING_MODE" >> "$GITHUB_ENV"

@@ -561,7 +561,7 @@ impl<'a> Page<'a> {
     }
 
     pub fn is_empty(&self) -> bool {
-        unsafe { pgrx::PageIsEmpty!(Pointer::from(self.pg_page)).is_true() }
+        unsafe { pgrx::PageIsEmpty!(Pointer::from(self.pg_page)) }
     }
 
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {

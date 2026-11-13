@@ -205,7 +205,7 @@ pub unsafe fn extract_field_attributes(
                                 {
                                     if let Some(inner_func) = nodecast!(FuncExpr, arg) {
                                         inner_typoid = (*inner_func).funcresulttype;
-                                    } else if let Some(op_expr) = nodecast!(OpExpr, T_OpExpr, arg) {
+                                    } else if let Some(op_expr) = nodecast!(OpExpr, arg) {
                                         inner_typoid = (*op_expr).opresulttype;
                                     }
                                 }

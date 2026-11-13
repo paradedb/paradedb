@@ -28,7 +28,7 @@ image = { version = "0.25.9", optional = true }
 libc = "0.2.190"
 openssl = "0.10.78"
 parking_lot = "0.13.0"
-pgrx-pg-config = "=0.20.0-beta.1"
+pgrx-pg-config = "=0.20.0"
 plotters = { version = "0.3.7", optional = true }
 postgres = "0.19.13"
 postgres-openssl = "0.5.3"

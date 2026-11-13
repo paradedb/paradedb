@@ -119,6 +119,25 @@ operating points reach k6. CI restores and saves only prior selected values as
 starting hints, keyed by dataset, engine revision, profile, and query assets;
 pdbench checks its fingerprint and fully revalidates each hint.
 
+Memory traces are retained in the diagnostics artifact:
+
+- pg_search build samples: `benchmark-artifacts/load/*/*_load/points.jsonl`.
+- pg_vectorsearch and VectorChord build samples:
+  `benchmark-artifacts/build-memory/points.jsonl`, with the sampled peak and
+  collector status in `summary.json` alongside it. These samples cover
+  `pdbench build`; the subsequent vacuum is outside this trace.
+- Query samples for every engine: `containers.paradedb.memory` in each
+  `benchmarker/results/<operating-point>.json`, covering warmup and measurement.
+
+The published peak build metric uses `container_memory`: Docker usage minus
+inactive page cache, matching pdbench. The non-ParadeDB build collector also
+exports `container_memory_usage`, matching the pinned Benchmarker query
+collector (usage minus `cache` when available, otherwise full usage). Raw usage
+and inactive-file bytes are retained separately. Build samples use UTC timestamps;
+query samples use Unix milliseconds. A failed build retains the samples already
+collected; missing or interrupted memory collection fails the measurement rather
+than reporting a zero peak.
+
 Run local checks with Python 3.11+ and `duckdb==2.0.0` installed:
 
 ```sh

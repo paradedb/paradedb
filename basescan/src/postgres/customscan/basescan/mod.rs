@@ -1866,7 +1866,7 @@ impl CustomScan for BaseScan {
                     VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
                         uses_fast_fields: true,
                     }) => "Pre (fast fields)",
-                    VectorFilterPlan::Planned(VectorFilterStrategy::Post) => "Post",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post { .. }) => "Post",
                     VectorFilterPlan::Deferred => "Deferred until execution",
                 },
             );

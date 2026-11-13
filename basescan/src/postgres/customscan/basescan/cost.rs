@@ -549,7 +549,12 @@ mod vector_filter_tests {
                     },
                     workers > 0,
                 ),
-                (VectorFilterStrategy::Post, false),
+                (
+                    VectorFilterStrategy::Post {
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
             ] {
                 let serialized = serde_json::to_string(&strategy).unwrap();
                 let restored = serde_json::from_str(&serialized).unwrap();

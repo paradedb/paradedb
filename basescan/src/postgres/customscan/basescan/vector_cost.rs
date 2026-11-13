@@ -158,7 +158,9 @@ mod tests {
             for leader_participates in [false, true] {
                 for cheap in [false, true] {
                     for strategy in [
-                        VectorFilterStrategy::Post,
+                        VectorFilterStrategy::Post {
+                            estimated_selectivity: 0.1,
+                        },
                         VectorFilterStrategy::Pre {
                             uses_fast_fields: false,
                         },
@@ -173,7 +175,7 @@ mod tests {
                         };
                         let parallel = workers > 0
                             && match strategy {
-                                VectorFilterStrategy::Post => false,
+                                VectorFilterStrategy::Post { .. } => false,
                                 VectorFilterStrategy::Pre { uses_fast_fields } => {
                                     uses_fast_fields || !cheap
                                 }

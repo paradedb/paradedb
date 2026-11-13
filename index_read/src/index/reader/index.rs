@@ -5355,7 +5355,9 @@ mod tests {
         let pre = VectorFilterStrategy::Pre {
             uses_fast_fields: true,
         };
-        let post = VectorFilterStrategy::Post;
+        let post = VectorFilterStrategy::Post {
+            estimated_selectivity: 0.5,
+        };
         for (lo, hi, expected_rows, expected_segments) in [
             (1, 10, 10, 1),
             (11, 20, 10, 1),

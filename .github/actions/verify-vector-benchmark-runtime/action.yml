@@ -32,7 +32,7 @@ runs:
           > benchmark-artifacts/postgres-settings.json
         jq -e 'with_entries(.value = .value.value) |
           .shared_buffers == "8GB" and .effective_cache_size == "24GB"
-          and .maintenance_work_mem == "13107MB" and .work_mem == "256MB"
+          and .maintenance_work_mem == "8GB" and .work_mem == "256MB"
           and .max_parallel_maintenance_workers == "8" and .max_parallel_workers == "16"
           and .max_parallel_workers_per_gather == "8" and .max_worker_processes == "32"
           and .max_connections == "82" and .random_page_cost == "1.1"

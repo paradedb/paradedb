@@ -44,7 +44,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       MSMARCO_SIZE: 113m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'b9ab301b8f990a5508429bc5893c9b016e5cf016' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '7efb97e82c74d25f5f4280a61c02a77abef6c322' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       MSMARCO_CONFIG: ${{ inputs.engine == 'pg_search' && 'benchmarks/msmarco/113m.toml' || format('benchmarks/msmarco/113m-{0}.toml', inputs.engine) }}

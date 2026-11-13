@@ -359,4 +359,4 @@ This can be automated with [autovacuum](/operate/performance-tuning/overview).
 
 BM25 scores are computed from statistics over every row in the index, including rows that a row-level security policy hides from the current role. Row-level security filters which rows a query returns, but not the statistics behind their scores, so a score returned to a restricted role can depend on rows that role cannot read.
 
-If scores must not depend on rows a role cannot read, keep those rows in a separate table with its own BM25 index, or do not return scores to that role.
+If scores must not depend on rows a role cannot read, keep those rows in a separate table with its own ParadeDB index, or do not return scores to that role.

@@ -10,5 +10,3 @@ self-hosted-runner:
     - volume=*
     - spot=false
     - retry=when-interrupted
-    # Hosted label not yet recognized by actionlint.
-    - ubuntu-26.04

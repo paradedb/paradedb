@@ -17,35 +17,12 @@ parallel workers in a 32-process pool. k6 runs on CPUs 64–67. Wikipedia and
 Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.
 
-Each k6 operating-point run also records a host `perf` CPU profile of every
-PostgreSQL process in the database container. Attaching to the postmaster with
-inheritance includes backends, parallel workers, and threads created during the
-run. The profile covers the whole k6 invocation, including its warmup. Sampling
-uses `cpu-clock:u` at 99 Hz with 16 KiB DWARF stacks, so it works on the ARM
-runner without requiring a hardware PMU or frame-pointer builds. These are
-profiled latency/throughput measurements and include sampling overhead.
-
-The `cohere-<size>-perf` artifact (linked in the job summary, retained for 30
-days) contains a directory per backend and operating point with `perf.data`,
-`report.txt` (self time by library/function), `report-callgraph.txt` (inclusive
-caller stacks), recording/report diagnostics, process IDs, image identity,
-and the command. Both reports are printed after each run, including failed
-k6 runs. Reports resolve symbols against the live container filesystem before
-the database stops; unresolved symbols remain visible. Symbol and unwind
-quality depends on the debug/unwind information supplied by each backend's
-binaries. Reopening raw data elsewhere requires the matching binaries.
-
-The helper is independent of pg_search. Future VectorChord/vectorsearch runs
-can use the same wrapper with their database container name and a separate
-output directory:
-
-```bash
-bash .github/scripts/profile-postgres.sh CONTAINER OUTPUT_DIRECTORY -- k6 run SCRIPT
-```
-
-The host needs `perf` (the `setup-perf` action installs Ubuntu 26's `linux-perf`)
-and passwordless `sudo`. A profiler startup or report failure fails the run;
-an existing k6 failure keeps its exit status. Profiles upload even on failure.
+Each k6 run profiles all PostgreSQL processes in the database container, including
+new backends and workers, using host `perf` at 99 Hz with DWARF stacks. Profiles
+include warmup and sampling overhead. Reports print after each run; the
+`cohere-<size>-perf` artifact retains text reports and raw profiles for 30 days.
+Future backends can reuse `.github/scripts/profile-postgres.sh` with their
+container name. Symbol resolution uses the live container before shutdown.
 
 The benchmark index enables `vector_router_quantization = true` in its
 `CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false

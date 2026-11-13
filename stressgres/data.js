@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794557716344,
+  "lastUpdate": 1794557745186,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -183102,6 +183102,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13925480335-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794557742461,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 153.965887369695,
+            "unit": "median tps",
+            "extra": "avg tps: 152.11377912901264, max tps: 161.88565673974517, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 544.8215810605653,
+            "unit": "median tps",
+            "extra": "avg tps: 558.6163879097975, max tps: 5053.531085619624, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3044.5612076998977,
+            "unit": "median tps",
+            "extra": "avg tps: 3052.7829975755462, max tps: 3267.668847086781, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 190.1199004704103,
+            "unit": "median tps",
+            "extra": "avg tps: 188.005425111001, max tps: 211.1278359265868, count: 59068"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 264.2443695555334,
+            "unit": "median tps",
+            "extra": "avg tps: 373.0026095566506, max tps: 2781.332040638164, count: 118136"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.82579501645302,
+            "unit": "median tps",
+            "extra": "avg tps: 29.634307347803787, max tps: 48.75823977683549, count: 59068"
+          }
+        ],
+        "publication_id": "14019591579-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -232868,6 +232927,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13925480335-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794557745075,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.6041565,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.91083120307809, max cpu: 33.68421, count: 59068"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 49.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.20185501244329, max mem: 49.203125, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.377346414600523, max cpu: 37.155296, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.101333090146102, max mem: 31.10546875, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.852530684411738, max cpu: 14.10382, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.11888992083277, max mem: 49.56640625, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2562,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2537.7815907090135, max block_count: 2562.0, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 3.7354085,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2884651270590974, max cpu: 4.5933013, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.551515044101713, max mem: 28.578125, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.515575269181284, max segment_count: 35.0, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.554056754371107, max cpu: 33.68421, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 59.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.68874591572425, max mem: 59.6953125, count: 59068"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6624575,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.444909353726007, max cpu: 41.79971, count: 118136"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 50.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.08116135746089, max mem: 56.828125, count: 118136"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.129815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.265150515648028, max cpu: 18.32061, count: 59068"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 41.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.695159802579234, max mem: 45.35546875, count: 59068"
+          }
+        ],
+        "publication_id": "14019591579-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

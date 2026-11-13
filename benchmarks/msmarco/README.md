@@ -102,22 +102,21 @@ Diagnostics retain configuration, extension/tool versions, image IDs for the
 comparison engines, query hashes, index settings, plans, raw pdbench reports,
 k6 dashboards, and database logs.
 
-For memory time series, download the `msmarco-113m-diagnostics` artifact:
+Memory traces for every engine are included in its diagnostics artifact:
 
-- Build samples are in `benchmark-artifacts/load/*/*_load/points.jsonl`.
-  Select records with `type == "Point"` and `metric == "container_memory_usage"`;
-  `time` is a UTC timestamp and `value` is bytes. The samples cover the entire
-  finalize step, including index creation and `VACUUM ANALYZE`.
-- Query samples are in `benchmarker/results/<operating-point>.json` under
-  `containers.paradedb.memory`. Each sample has `time` in Unix milliseconds
-  and `value` in bytes; subtract the dashboard's top-level `startTime` for
-  elapsed milliseconds. A dedicated collector covers both warmup and
-  measurement; the HTML dashboard also displays memory and CPU usage.
+- Build samples: `benchmark-artifacts/load/*/*_load/points.jsonl`, with UTC
+  timestamps and byte values. The published peak uses `container_memory`,
+  which excludes inactive page cache.
+- Query samples: `containers.paradedb.memory` in each
+  `benchmarker/results/<operating-point>.json`, with Unix millisecond timestamps
+  and byte values. A dedicated container collector runs throughout the
+  10-second warmup and 50-second measurement for pg_search, pg_vectorsearch,
+  and VectorChord. The HTML dashboard also displays memory and CPU usage.
 
-These two memory series use the same definition: usage including page cache on
-cgroup v2, or usage minus cache on cgroup v1. The build's separate
-`container_memory` series excludes inactive page cache and supplies the published
-peak build metric.
+The pinned Benchmarker query collector subtracts `cache` when available,
+otherwise it reports full container usage. This differs from the build peak's
+inactive-file subtraction; these are container metrics, not per-query memory
+allocations.
 
 Run the shared handoff tests locally with:
 

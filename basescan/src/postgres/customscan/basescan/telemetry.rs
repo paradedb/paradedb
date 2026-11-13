@@ -121,6 +121,11 @@ impl ScanTelemetry {
                     name.as_str(),
                     "scan_init_ns"
                         | "non_vector_search_ns"
+                        | "late_filter_ns"
+                        | "late_filter_select_ns"
+                        | "late_filter_doc_ids_ns"
+                        | "late_filter_sort_ns"
+                        | "late_filter_predicate_ns"
                         | "query_prep_ns"
                         | "routing_ns"
                         | "exact_scan_ns"
@@ -298,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn stage_elapsed_includes_non_vector_search() {
+    fn stage_elapsed_includes_filter_stages() {
         let segment_id = SegmentId::from_bytes([1; 16]);
         let mut telemetry = ScanTelemetry::default();
         telemetry.accumulate_segment_info(segment_info(
@@ -306,12 +311,18 @@ mod tests {
             json!({
                 "scan_init_ns": 10,
                 "non_vector_search_ns": 20,
+                "late_filter_ns": 1,
+                "late_filter_select_ns": 2,
+                "late_filter_doc_ids_ns": 3,
+                "late_filter_sort_ns": 4,
+                "late_filter_predicate_ns": 5,
                 "routing_ns": 30,
+                "filter_candidates": 100,
                 "layer0_scored": 100
             }),
         ));
 
-        assert_eq!(telemetry.stage_elapsed_ns(), 60);
+        assert_eq!(telemetry.stage_elapsed_ns(), 75);
     }
 
     #[test]

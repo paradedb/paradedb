@@ -43,6 +43,10 @@ use crate::index::reader::index::SearchIndexReader;
 mod plugin;
 pub(crate) use plugin::register;
 
+/// The ctid map is one column, not a columnar file, so it has no version footer and keeps the
+/// v2 layout. Its column index covers heap blocks, so the index length always fits `u32`.
+const COLUMN_VERSION: Version = Version::V2;
+
 struct Replayable<I>(I);
 
 impl<T, I> Iterable<T> for Replayable<I>
@@ -136,6 +140,7 @@ pub(super) fn write(segment: &Segment, out: &mut CompositeWrite) -> anyhow::Resu
         &Replayable(boundaries().map(|(_, doc)| u64::from(doc))),
         &[CodecType::BlockwiseLinearV2],
         out.for_field(field),
+        COLUMN_VERSION,
     )?;
     Ok(())
 }
@@ -219,7 +224,7 @@ impl BlockToDocIdMap {
             return Ok(Vec::new());
         }
         if self.values.is_none() {
-            let values = open_column_u64(self.file.clone(), Version::V2)?;
+            let values = open_column_u64(self.file.clone(), COLUMN_VERSION)?;
             let count = u64::from(self.last_block) - u64::from(self.first_block) + 2;
             if values.get_cardinality() == Cardinality::Multivalued
                 || u64::from(values.num_docs()) != count

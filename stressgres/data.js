@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794557745186,
+  "lastUpdate": 1794557772256,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -524572,6 +524572,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13926101804-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794557769533,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3827.226638032508,
+            "unit": "median tps",
+            "extra": "avg tps: 3839.9471725938092, max tps: 4414.359679703355, count: 58954"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4471.357828213436,
+            "unit": "median tps",
+            "extra": "avg tps: 4478.451247853452, max tps: 5821.702541938298, count: 58954"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.71055696561419,
+            "unit": "median tps",
+            "extra": "avg tps: 165.7112467995741, max tps: 2992.853681584135, count: 58954"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.065145286495625,
+            "unit": "median tps",
+            "extra": "avg tps: 40.39224996392221, max tps: 575.7903069356177, count: 58954"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.04274509144397,
+            "unit": "median tps",
+            "extra": "avg tps: 40.643180204144905, max tps: 585.1095562643807, count: 58954"
+          }
+        ],
+        "publication_id": "14019394500-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -540070,6 +540123,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13926101804-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794557772148,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.544731365673762, max cpu: 4.873096, count: 58954"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.468056464044, max mem: 21.515625, count: 58954"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.475715406223167, max cpu: 4.68979, count: 58954"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 21.072046903093938, max mem: 21.078125, count: 58954"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.50638271841278, max cpu: 33.0546, count: 58954"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.725683570559248, max mem: 21.73046875, count: 58954"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.02530786715, max document_count: 10002.0, count: 58954"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.029718085287, max document_count: 10002.0, count: 58954"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58954"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.285713,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.584103095115783, max cpu: 39.506172, count: 58954"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 58.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.89281758606286, max mem: 72.49609375, count: 58954"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.250952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.49478247334959, max cpu: 42.32804, count: 58954"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 58.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.00967365710978, max mem: 72.62109375, count: 58954"
+          }
+        ],
+        "publication_id": "14019394500-other"
       }
     ]
   }

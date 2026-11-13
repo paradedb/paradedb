@@ -14,15 +14,13 @@ ParadeDB supports all standard Postgres `JOIN` types, including:
 - `ANTI JOIN`
 - `CROSS JOIN`
 
-ParadeDB optimizes standard `JOIN` queries involving search operations through a feature called **join pushdown**.
+ParadeDB optimizes `JOIN` queries involving search operations through **join pushdown**, focusing on row-reducing ("above-the-fold") workloads such as Top K result sets and [aggregates](/reference/aggregates/limitations#join-support). When join pushdown applies, ParadeDB evaluates search predicates, joins, sorting, limits, or aggregations on index data before touching the Postgres heap.
 
-Our goal is to support and accelerate all `JOIN` queries shaped like Top-K or aggregate queries. Because join pushdown is enabled by default, ParadeDB automatically executes parts of a `JOIN` directly inside the ParadeDB executor for queries that meet the requirements.
-
-If a query does not meet the requirements, ParadeDB falls back to Postgres’s native row-based execution.
+If a query does not meet the pushdown requirements, ParadeDB falls back to Postgres's native row-based execution.
 
 ## Join Pushdown
 
-Join pushdown reduces query latency by answering as much of the query as possible using the index before touching the underlying tables.
+Join pushdown reduces query latency by answering as much of the query as possible using the index before fetching surviving table rows. This page focuses on row-returning Top K joins; for `GROUP BY`, SQL aggregates, and `pdb.agg` across joined tables (which do not require a `LIMIT`), see [Aggregates over Joins](/reference/aggregates/limitations#join-support). For guidance on when to join normalized tables versus denormalizing, see [Schema Modeling](/reference/indexing/schema-modeling).
 
 <Note>
   To disable join pushdown for debugging, run `SET
@@ -31,16 +29,17 @@ Join pushdown reduces query latency by answering as much of the query as possibl
 
 ## Requirements for Join Pushdown
 
-Join pushdown is automatically used when a query meets several conditions. If any of these are not satisfied, Postgres will simply execute the join normally.
+Join pushdown is automatically used when a query meets the following conditions (including queries with non-equi join conditions, `SELECT DISTINCT`, `LATERAL unnest(...)` on indexed array columns, or [`pdb.agg(...) OVER ()`](/reference/aggregates/facets) window facets). If any check fails, Postgres executes the join normally.
 
-| Requirement      | Description                                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ParadeDB indexes | All tables participating in the join must have a ParadeDB index.                                                                                             |
-| Search predicate | The query must contain a ParadeDB operator such as `&&&`, `===`, or a vector distance `ORDER BY` (`<->`, `<=>`, `<#>`).                                      |
-| Indexed fields   | All join keys, filters, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/reference/indexing/columnar). |
-| LIMIT clause     | The query must include a `LIMIT`.                                                                                                                            |
+| Requirement      | Description                                                                                                                                                                                                                                                                                               |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ParadeDB indexes | All tables participating in the join must have a ParadeDB index.                                                                                                                                                                                                                                          |
+| Search predicate | The query must contain a ParadeDB operator such as `&&&`, `===`, or a vector distance `ORDER BY` (`<->`, `<=>`, `<#>`).                                                                                                                                                                                   |
+| Indexed fields   | All join conditions, filters, `SELECT DISTINCT`, and `ORDER BY` columns must be present in the ParadeDB index. Text and JSON fields must be [columnar](/reference/indexing/columnar).                                                                                                                     |
+| Ordering         | Optional `ORDER BY` on indexed columns or [expressions](/reference/indexing/indexing-expressions), [`pdb.score(...)`](/reference/full-text/score#joined-scores) (including positive `+` and `*` combinations; see [Score-Ordered Joins](#score-ordered-joins)), or vector distance (`<->`, `<=>`, `<#>`). |
+| LIMIT clause     | Row-returning joins must include a `LIMIT` ([aggregate joins](/reference/aggregates/limitations#join-support) do not require a `LIMIT`).                                                                                                                                                                  |
 
-If any checks fail (including unsupported `ORDER BY` shapes), ParadeDB will emit a `NOTICE` controlled by `paradedb.planner_warnings` explaining why and fall back to Postgres' native join execution. Vector distance `ORDER BY` currently requires ascending order on `INNER` or `SEMI` joins and excludes rows with a `NULL` vector (matching Base Scan behavior).
+If any checks fail (including unsupported `ORDER BY` shapes), ParadeDB emits a `WARNING` controlled by `paradedb.planner_warnings` explaining why and falls back to Postgres' native join execution. Vector distance `ORDER BY` currently requires ascending order on `INNER` or `SEMI` joins and excludes rows with a `NULL` vector (matching Base Scan behavior).
 
 To demonstrate, let's create a second table called `orders` that can be joined with `mock_items`:
 
@@ -366,6 +365,46 @@ To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Joi
            :             PgSearchScan: segments=1, query="all"
 (18 rows)
 ```
+
+## Score-Ordered Joins
+
+Join pushdown supports ordering by [`pdb.score`](/reference/full-text/score#joined-scores) from a single table or by a monotonic combination of scores across tables using `+`, `*`, and positive constants:
+
+```sql
+SELECT
+  o.order_id,
+  o.customer_name,
+  m.description,
+  2.0 * pdb.score(m.id) + pdb.score(o.order_id) AS score
+FROM orders o
+INNER JOIN mock_items m
+  ON o.product_id = m.id
+WHERE o.customer_name ||| 'Johnson'
+  OR m.description ||| 'running shoes'
+ORDER BY score DESC, o.order_id
+LIMIT 5;
+```
+
+Each `pdb.score(...)` call computes a BM25 score against that table's index, and `+` sums the per-table scores in the same way a single-table BM25 query sums its clauses (unmatched `OR` branches contribute `0.0`). See [How Schema Shape Affects BM25 Scoring](/reference/indexing/schema-modeling#how-schema-shape-affects-bm25-scoring) for how corpus statistics behave across tables.
+
+Inside `ParadeDB Join Scan`, ParadeDB chooses between two execution strategies for score-ordered Top K joins:
+
+- `HashJoinExec` + `SortExec`: Used on smaller inputs (below [`paradedb.rank_join_min_rows`](/reference/configuration#query-planning), `10000` estimated matching rows by default) or when scanning and joining in one pass is cheaper, such as two-sided conjunctive (`AND`) joins.
+- `RankJoinExec`: Pulls top-scoring rows incrementally and probes the other side on demand so the join can stop once the Top K scores are established, without scoring every matching row.
+
+`RankJoinExec` applies when all of the following hold:
+
+- The join is an `INNER JOIN` (or a `SEMI JOIN` ordered by the outer table's score).
+- `ORDER BY` sorts descending on `pdb.score(...)` or a positive combination built from `+`, `*`, and positive constants. For cross-table `OR` predicates, the score expression must include a positive additive term for every `OR` branch.
+- `LIMIT` is `1000` or less.
+
+<Note>
+  On small test tables such as `orders` and `mock_items`, run `SET
+  paradedb.rank_join_min_rows = 0;` before `EXPLAIN` if you want to inspect a
+  `RankJoinExec` plan directly. When `RankJoinExec` is not eligible, `EXPLAIN`
+  emits a `RankJoinExec not used` diagnostic controlled by
+  `paradedb.planner_warnings`.
+</Note>
 
 ## Partitioned Joins (Beta)
 

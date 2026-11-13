@@ -49,6 +49,7 @@
               {
                 "group": "Indexing",
                 "pages": [
+                  "reference/indexing/schema-modeling",
                   {
                     "group": "Creating an Index",
                     "pages": [

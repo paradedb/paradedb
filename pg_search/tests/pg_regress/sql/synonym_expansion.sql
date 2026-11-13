@@ -99,6 +99,23 @@ DELETE FROM shop_synonyms WHERE rule = 'sofa, settee';
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('settee', rule) FROM shop_synonyms) ORDER BY id;
 
+-- A backend keeps the rules it read, by segment, and checks the row of each rule on every
+-- query, so an update, a reused ctid after VACUUM or a REINDEX never expands with an old rule.
+INSERT INTO products VALUES (11, 'telly remote'), (12, 'monitor arm');
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+UPDATE shop_synonyms SET rule = 'tv, telly' WHERE rule = 'tv, television';
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+VACUUM shop_synonyms;
+INSERT INTO shop_synonyms VALUES ('tv, monitor');
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+REINDEX INDEX shop_synonyms_idx;
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+DELETE FROM products WHERE id IN (11, 12);
+
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);
 INSERT INTO json_products VALUES (1, '{"seat": "red couch"}'), (2, '{"shoes": "running shoes"}');

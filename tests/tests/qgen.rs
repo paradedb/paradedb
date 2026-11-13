@@ -331,7 +331,6 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
                 .collect::<Vec<_>>();
             let pdb_agg = proptest::option::of(arb_pdb_agg_window(
                 used_tables.clone(),
-                join.has_keyless_step(),
                 join.unnested_fields(),
             ));
             (
@@ -488,7 +487,6 @@ async fn generated_joins_small(database: Db, #[case] churn_on: bool) {
             &pool,
             &setup_sql,
             |query, side, conn| {
-                "SET work_mem TO '16MB';".execute_result(conn)?;
                 let rows = query.fetch_dynamic_result(conn)?;
                 // The document on the candidate's rows against the buckets of the
                 // PostgreSQL `GROUP BY`. With no row there is no document to compare.
@@ -1532,7 +1530,6 @@ async fn generated_pdb_agg_join(database: Db) {
                     &pool,
                     &setup_sql,
                     |query, side, conn| {
-                        "SET work_mem TO '64MB';".execute_result(conn)?;
                         let rows = query.fetch_dynamic_result(conn)?;
                         let mut outer = agg.outer_rows(rows, side.is_candidate())?;
                         if agg.group_limit.is_none() {
@@ -1558,9 +1555,6 @@ async fn generated_pdb_agg_join(database: Db) {
                 &pool,
                 &setup_sql,
                 |query, side, conn| {
-                    // A keyless join under three bucket keys makes tens of thousands of
-                    // buckets, and the DataFusion aggregate cannot spill past `work_mem`.
-                    "SET work_mem TO '64MB';".execute_result(conn)?;
                     let rows = query.fetch_dynamic_result(conn)?;
                     let mut buckets = if agg.combine_across_groups {
                         if rows.is_empty() {

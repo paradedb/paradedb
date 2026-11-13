@@ -22,8 +22,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS issue5635_files CASCADE;
 DROP TABLE IF EXISTS issue5635_documents CASCADE;
 
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps the `IN (SELECT ...)` as a Semi join.
 CREATE TABLE issue5635_documents (
-    id TEXT PRIMARY KEY,
+    id TEXT,
     category TEXT
 );
 

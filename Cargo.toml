@@ -84,8 +84,8 @@ debug-assertions = true
 overflow-checks = true
 
 [workspace.dependencies]
-pgrx = "=0.20.0-beta.1"
-pgrx-tests = "=0.20.0-beta.1"
+pgrx = "=0.20.0"
+pgrx-tests = "=0.20.0"
 
 # Keep the Git revisions for `tantivy`, `tantivy-common`, and the crates.io
 # patches in sync.

@@ -176,7 +176,7 @@ pub trait PgMemoryContextsExt {
     /// std, tokio, tantivy and DataFusion types: there is no `Drop` of ours on them to put
     /// `impl_safe_drop!` on. Our own `Drop`s are checked by `.github/scripts/check_impl_drop.py`.
     ///
-    /// The body mirrors pgrx 0.19.2's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
+    /// The body mirrors pgrx 0.20.0's `leak_and_drop_on_delete` (`memcxt.rs`) plus the
     /// `proc_exit` check; keep it in sync when bumping pgrx.
     fn leak_and_drop_unless_exiting<T>(&mut self, v: T) -> *mut T;
 }
@@ -193,15 +193,16 @@ impl PgMemoryContextsExt for PgMemoryContexts {
             drop(unsafe { Box::from_raw(ptr.cast::<T>()) });
         }
 
-        let leaked = Box::leak(Box::new(v));
         unsafe {
             // SAFETY: the callback struct is plain pointers, all set before it is registered.
             let callback = self.palloc_struct::<pg_sys::MemoryContextCallback>();
+            // Keep Rust ownership until callback allocation succeeds.
+            let leaked = Box::leak(Box::new(v));
             (*callback).func = Some(drop_unless_exiting::<T>);
             (*callback).arg = (leaked as *mut T).cast();
             pg_sys::MemoryContextRegisterResetCallback(self.value(), callback);
+            leaked
         }
-        leaked
     }
 }
 

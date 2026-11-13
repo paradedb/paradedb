@@ -23,6 +23,7 @@ pub mod reader;
 pub use storage::index::{index_settings, search, set_ivf_clusterer};
 pub mod segment_pruning;
 pub mod stats;
+pub(crate) mod synonym_cache;
 pub mod synonym_index;
 pub mod writer;
 

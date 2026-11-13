@@ -23,9 +23,7 @@ Production documentation updates are deployed manually through the
 `Publish ParadeDB (Docs)` GitHub Actions workflow. The workflow asks Mintlify to
 rebuild the configured production branch.
 
-- After Mintlify successfully deploys production docs from `main`,
-  the workflow triggers a Vercel website rebuild, which downloads the published
-  docs and refreshes `/mcp`.
+After Mintlify successfully deploys production docs from `main`, the workflow triggers a Vercel website rebuild, which downloads the published docs and refreshes `/mcp`.
 
 ## Troubleshooting
 

@@ -18,7 +18,7 @@ If you have not had a pull request merged into ParadeDB, wait for explicit maint
 
 New contributors may have only one pull request open at a time. Maintainers may explicitly waive these requirements, including for small corrections or issues intended for beginners. Returning contributors should discuss new features and substantial changes with a maintainer before starting work.
 
-Before asking to work on an issue, check that it is not already assigned and that nobody else is working on it. Maintainers assign issues after approving a contributor. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
+Before claiming an issue, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. Assignment reserves the issue but does not replace the maintainer approval required above. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
 
 ### Development Workflow
 

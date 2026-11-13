@@ -21,7 +21,7 @@ if [ -e "$output/perf.data" ]; then
   exit 1
 fi
 docker top "$container" -eo pid,comm >"$output/processes.txt"
-pids="$(awk 'NR > 1 && ($2 == "postgres" || $2 == "postmaster") {print $1}' "$output/processes.txt" | paste -sd, -)"
+pids="$(awk '$2 == "postgres" {print $1}' "$output/processes.txt" | paste -sd, -)"
 if [ -z "$pids" ]; then
   echo "No PostgreSQL processes in $container" >&2
   exit 1

@@ -1370,24 +1370,18 @@ impl AggregateScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Pin the MPP source manifests and mark one launch attempt for the first execution call.
-    /// Planning remains lazy: the finished physical stages provide the exact dispatch payload
-    /// before DSM allocation, so begin never needs a throwaway logical plan.
+    /// Mark one launch attempt for the first execution call. Planning remains lazy: the
+    /// finished physical stages provide the exact dispatch payload before DSM allocation, so
+    /// begin never needs a throwaway logical plan.
     fn prepare_mpp(state: &mut CustomScanStateWrapper<Self>) {
         // The eligibility gate decides here, before any MPP work: an ineligible query keeps
-        // `MppLifecycle::Inactive`, so exec plans serially and no manifest is pinned.
-        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
-            return;
-        };
-        if !mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
-            return;
-        }
-        Self::ensure_source_manifests(state);
-
+        // `MppLifecycle::Inactive`, so exec plans serially.
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
             return;
         };
-        df_state.mpp = MppLifecycle::Pending;
+        if mpp_eligible(df_state.parallel_mode_ok, &df_state.plan) {
+            df_state.mpp = MppLifecycle::Pending;
+        }
     }
 
     /// Plan-first MPP launch (#5667). Called with the leader's already-built physical plan:
@@ -1398,7 +1392,7 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         physical: &Arc<dyn ExecutionPlan>,
     ) -> Option<crate::postgres::customscan::mpp::glue::MppLeaderState> {
-        // Manifests were captured in `prepare_mpp` (begin); `ensure` is idempotent.
+        // Manifests were pinned at exec; `ensure` is idempotent.
         Self::ensure_source_manifests(state);
 
         // One segment pool per scan occurrence: `build_pdb_aggregate_plan` stamps each cloned
@@ -2249,9 +2243,23 @@ impl AggregateScan {
             } else {
                 create_aggregate_session_context()
             };
-            // Capture before the `df_state` borrow below. `prepare_mpp` pinned the manifests at
-            // begin; the providers build their readers from them, and `launch_mpp` ships their
-            // views to the workers.
+            // Lock before pinning the manifests.
+            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+            for source in state
+                .custom_state()
+                .datafusion_state
+                .as_ref()
+                .expect("DataFusion state must be initialized")
+                .plan
+                .sources()
+            {
+                predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
+                if source.scan_info.indexrelid != pg_sys::InvalidOid {
+                    count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
+                }
+            }
+            // Capture before the `df_state` borrow below. The providers build their readers
+            // from these manifests, and `launch_mpp` ships their views to the workers.
             let mpp_manifests: Vec<SearchIndexManifest> = if is_mpp {
                 Self::ensure_source_manifests(state);
                 state.custom_state().source_manifests.to_vec()
@@ -2266,13 +2274,6 @@ impl AggregateScan {
                     .datafusion_state
                     .as_mut()
                     .expect("DataFusion state must be initialized");
-                let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-                for source in df_state.plan.sources() {
-                    predicate_lock_read_oid(source.scan_info.heaprelid, snapshot);
-                    if source.scan_info.indexrelid != pg_sys::InvalidOid {
-                        count_index_scan(&PgSearchRelation::open(source.scan_info.indexrelid));
-                    }
-                }
                 Self::resolve_threshold_visibility(df_state);
                 Self::build_agg_physical_plan(
                     df_state,

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Under `SERIALIZABLE`, an aggregate that runs with MPP no longer misses an `INSERT` that commits after the query starts but before it reads the index. Both transactions could commit with write skew (#7428).

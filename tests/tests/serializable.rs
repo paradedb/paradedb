@@ -376,3 +376,123 @@ async fn postgres_index_scan_phantom_insert(database: Db) {
     .await;
     assert_eq!(failure.as_deref(), Some(SERIALIZATION_FAILURE));
 }
+
+/// An MPP aggregate used to pin its index view at begin but lock at exec. A write that
+/// committed in between found no lock and was missing from the view (#7428).
+#[rstest]
+#[async_std::test]
+async fn mpp_aggregate_scan_insert_between_begin_and_exec(database: Db) {
+    let mut gate = database.connection().await;
+    run(
+        &mut gate,
+        "CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+         CREATE TABLE authors (id int PRIMARY KEY, name text);
+         CREATE TABLE posts (id int PRIMARY KEY, author_id int, title text);
+         CREATE TABLE flags (id int PRIMARY KEY, v int);
+         CREATE INDEX authors_idx ON authors USING bm25 (id, name);
+         CREATE INDEX posts_idx ON posts USING bm25 (id, author_id, title);
+         -- Two segments per index, so MPP has something to distribute.
+         SET paradedb.global_mutable_segment_rows = 0;
+         INSERT INTO authors VALUES (1, 'a1'), (2, 'a2');
+         INSERT INTO authors VALUES (3, 'a3'), (4, 'a4');
+         INSERT INTO posts VALUES (10, 1, 'rust'), (20, 2, 'rust');
+         INSERT INTO posts VALUES (30, 3, 'rust'), (40, 4, 'rust');
+         INSERT INTO flags VALUES (1, 0);",
+    )
+    .await
+    .expect("setup should succeed");
+
+    let count = "SELECT count(*) FROM posts p JOIN authors a ON p.author_id = a.id \
+                 WHERE p.title ||| 'zig' AND a.id @@@ pdb.all()";
+    let mut reader = database.connection().await;
+    run(
+        &mut reader,
+        "SET paradedb.mpp_min_rows = 0;
+         SET max_parallel_workers_per_gather = 3;
+         SET parallel_setup_cost = 0;
+         SET parallel_tuple_cost = 0;",
+    )
+    .await
+    .expect("settings should apply");
+    // The advisory lock holds the read after the scan has begun and before it executes.
+    let read = format!("SELECT pg_advisory_xact_lock_shared(7428), ({count})");
+
+    // Check that this exact read runs with MPP.
+    run(&mut reader, "BEGIN ISOLATION LEVEL SERIALIZABLE")
+        .await
+        .expect("BEGIN should succeed");
+    let plan: Vec<(String,)> =
+        sqlx::query_as(AssertSqlSafe(format!("EXPLAIN (ANALYZE, VERBOSE) {read}")))
+            .fetch_all(&mut reader)
+            .await
+            .expect("EXPLAIN ANALYZE should succeed");
+    run(&mut reader, "ROLLBACK")
+        .await
+        .expect("ROLLBACK should succeed");
+    let plan = plan
+        .into_iter()
+        .map(|(line,)| line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        plan.contains("ParadeDB Aggregate Scan") && plan.contains("MPP Launch"),
+        "expected the aggregate to run with MPP:\n{plan}"
+    );
+
+    run(&mut gate, "SELECT pg_advisory_lock(7428)")
+        .await
+        .expect("the gate should lock");
+
+    macro_rules! step {
+        ($conn:expr, $sql:expr) => {
+            if let Err(err) = run(&mut $conn, $sql).await {
+                return assert_eq!(sqlstate(&err), SERIALIZATION_FAILURE);
+            }
+        };
+    }
+
+    step!(reader, "BEGIN ISOLATION LEVEL SERIALIZABLE");
+    let read = async_std::task::spawn(async move {
+        let result = run(&mut reader, &read).await;
+        (reader, result)
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let (held,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks
+                            WHERE locktype = 'advisory' AND objid = 7428 AND NOT granted)",
+        )
+        .fetch_one(&mut gate)
+        .await
+        .expect("pg_locks should be readable");
+        if held {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the read never reached the advisory lock"
+        );
+        async_std::task::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // The writer commits; the conflict shows up on the reader.
+    let mut writer = database.connection().await;
+    run(
+        &mut writer,
+        "BEGIN ISOLATION LEVEL SERIALIZABLE;
+         SELECT v FROM flags WHERE id = 1;
+         INSERT INTO posts VALUES (50, 1, 'zig');
+         COMMIT;",
+    )
+    .await
+    .expect("the writer should commit");
+
+    step!(gate, "SELECT pg_advisory_unlock(7428)");
+    let (mut reader, result) = read.await;
+    if let Err(err) = result {
+        return assert_eq!(sqlstate(&err), SERIALIZATION_FAILURE);
+    }
+    step!(reader, "UPDATE flags SET v = 1 WHERE id = 1");
+    step!(reader, "COMMIT");
+    panic!("both transactions committed");
+}

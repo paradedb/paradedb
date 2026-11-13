@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector `ORDER BY` searches cost less per query. The plan carries the query vector once, in a compact form, instead of twice as a list of numbers; per-segment scan statistics are built only when `EXPLAIN ANALYZE` or `paradedb.vector_stats` shows them; and the exact phase scores the most promising candidates first, so fewer of the rest are read and scored. Because that order changes which candidates near the cutoff are dropped, a top-k result can differ in rare cases. The index format is unchanged.

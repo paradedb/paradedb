@@ -64,7 +64,7 @@ python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 
 ## VectorChord comparison profiles
 
-The VectorChord profiles and SQL assets use 100,000 lists for MS MARCO,
+The VectorChord profiles use 100,000 lists for MS MARCO,
 hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
 `build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
 capped at the list count. Both build and search use the shared 32 GiB container

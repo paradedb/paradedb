@@ -74,7 +74,7 @@ python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 
 ## VectorChord comparison profiles
 
-The VectorChord profiles and SQL assets use 30,000 lists for HN,
+The VectorChord profiles use 30,000 lists for HN,
 hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
 `build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
 capped at the list count. Both build and search use the shared 32 GiB container

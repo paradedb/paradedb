@@ -11,8 +11,8 @@ datastore:
   dataset: datasets/msmarco
   table: msmarco
   settings:
-    shared_buffers: 32GB
-    maintenance_work_mem: 52428MB
+    shared_buffers: 8GB
+    maintenance_work_mem: 13107MB
     max_parallel_maintenance_workers: 8
     max_wal_size: 32GB
   vars:

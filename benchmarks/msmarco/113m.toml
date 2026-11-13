@@ -11,12 +11,12 @@ s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
 # `pdbench search` checks [postgres.search] before a sweep. CI builds the index with
 # pdbench-load, so [postgres.build] is not checked; the profile format requires it.
 [postgres.build]
-shared_buffers = "32GB"
-maintenance_work_mem = "52428MB"
+shared_buffers = "8GB"
+maintenance_work_mem = "13107MB"
 max_parallel_maintenance_workers = 8
 
 [postgres.search]
-shared_buffers = "32GB"
+shared_buffers = "8GB"
 max_parallel_workers = 16
 max_worker_processes = 32
 

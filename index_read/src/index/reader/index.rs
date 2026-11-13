@@ -5065,8 +5065,8 @@ mod tests {
                 2,
                 true,
             ),
-            ("AND heap_value = 1", 2, true),
-            ("AND category = 'keep' AND heap_value = 1", 2, true),
+            ("AND heap_value = 1", 2, false),
+            ("AND category = 'keep' AND heap_value = 1", 2, false),
             ("AND category = 'keep'", 0, false),
             ("AND id > 1", 0, false),
             ("AND heap_value = 1", 0, false),
@@ -5085,6 +5085,10 @@ mod tests {
                     assert_eq!(node["Parallel Aware"], parallel, "{plan}");
                     assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
                     if predicate.contains("heap_value") {
+                        assert_eq!(
+                            node["Vector Filtering"], "Deferred until execution",
+                            "{plan}"
+                        );
                         assert!(
                             node["Tantivy Query"].to_string().contains("heap_filter"),
                             "{plan}"

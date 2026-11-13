@@ -60,7 +60,7 @@ impl SpillShape {
             (ExecutionMode::Serial, Self::MultiType) => "16MB",
             (ExecutionMode::Serial, Self::DependentRowValue) => "12MB",
             (ExecutionMode::Serial, Self::SmallBuildJoin) => "10MB",
-            (ExecutionMode::Mpp, Self::MultiType) => "6MB",
+            (ExecutionMode::Mpp, Self::MultiType) => "4MB",
             (ExecutionMode::Mpp, Self::DependentRowValue) => "4MB",
             (ExecutionMode::Mpp, Self::SmallBuildJoin) => "4MB",
         }

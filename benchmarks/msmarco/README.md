@@ -61,3 +61,14 @@ Run the shared handoff tests locally with:
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 ```
+
+## VectorChord comparison profiles
+
+The VectorChord profiles use 100,000 lists for MS MARCO,
+hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
+`build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
+capped at the list count. Both build and search use the shared 32 GiB container
+configuration, with 8 GiB shared buffers and 8 GiB `maintenance_work_mem`.
+
+These profiles accompany the comparison workflows in [PR #7410](https://github.com/paradedb/paradedb/pull/7410);
+the existing pg_search-only workflow remains unchanged.

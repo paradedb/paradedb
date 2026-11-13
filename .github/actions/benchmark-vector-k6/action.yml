@@ -1,0 +1,55 @@
+name: Benchmark Vector Operating Points
+description: Run k6 vector operating points with PostgreSQL CPU and branch-miss profiles
+
+inputs:
+  dataset:
+    description: "Dataset name and size used for the profile artifact"
+    required: true
+  container:
+    description: "Database container to profile"
+    default: "paradedb"
+
+runs:
+  using: composite
+  steps:
+    - name: Install host perf
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+      with:
+        packages: linux-perf
+
+    - name: Measure selected operating points with k6
+      shell: bash
+      env:
+        PROFILE_CONTAINER: ${{ inputs.container }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        root="$PWD"
+        mkdir -p benchmarker/results
+        while IFS= read -r point; do
+          (
+            cd benchmarker/results
+            bash "$root/.github/scripts/profile-postgres.sh" "$PROFILE_CONTAINER" \
+              "$root/benchmark-profiles/$PROFILE_CONTAINER/$point" -- \
+              taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
+              -e PARADEDB_URL="$PARADEDB_URL" \
+              -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
+              -e OPERATING_POINT="$point" \
+              -e QUERY_VECTORS="$root/benchmark-artifacts/query_vectors.json" \
+              "$root/benchmarks/cohere/k6/search.js"
+          )
+          jsons=(benchmarker/results/dashboard_*.json)
+          htmls=(benchmarker/results/dashboard_*.html)
+          test "${#jsons[@]}" -eq 1 && test "${#htmls[@]}" -eq 1
+          mv "${jsons[0]}" "benchmarker/results/${point}.json"
+          mv "${htmls[0]}" "benchmarker/results/${point}.html"
+        done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
+
+    - name: Upload PostgreSQL profiles
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.dataset }}-perf
+        path: benchmark-profiles/
+        retention-days: 30
+        if-no-files-found: warn

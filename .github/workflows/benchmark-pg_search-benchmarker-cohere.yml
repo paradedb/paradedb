@@ -158,11 +158,6 @@ jobs:
         with:
           ref: ${{ env.BENCHMARKER_REF }}
 
-      - name: Install host perf
-        uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
-        with:
-          packages: linux-perf
-
       - name: Refresh pg_search and build index
         run: |
           set -euo pipefail
@@ -338,41 +333,12 @@ jobs:
           if-no-files-found: warn
 
       - name: Measure selected operating points with k6
+        uses: ./.github/actions/benchmark-vector-k6
+        with:
+          dataset: cohere-${{ matrix.size }}
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          root="$PWD"
-          mkdir -p benchmarker/results
-          while IFS= read -r point; do
-            (
-              cd benchmarker/results
-              bash "$root/.github/scripts/profile-postgres.sh" paradedb \
-                "$root/benchmark-artifacts/perf/paradedb/$point" -- \
-                taskset -c 64-67 "$root/benchmarker/k6" run --out dashboard=json,html \
-                -e PARADEDB_URL="$PARADEDB_URL" \
-                -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
-                -e OPERATING_POINT="$point" \
-                -e QUERY_VECTORS="$root/benchmark-artifacts/query_vectors.json" \
-                "$root/benchmarks/cohere/k6/search.js"
-            )
-            jsons=(benchmarker/results/dashboard_*.json)
-            htmls=(benchmarker/results/dashboard_*.html)
-            test "${#jsons[@]}" -eq 1 && test "${#htmls[@]}" -eq 1
-            mv "${jsons[0]}" "benchmarker/results/${point}.json"
-            mv "${htmls[0]}" "benchmarker/results/${point}.html"
-          done < <(jq -r '.[] | select(.reached) | .name' benchmark-artifacts/operating_points.json)
-
-      - name: Upload PostgreSQL profiles
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: cohere-${{ matrix.size }}-perf
-          path: benchmark-artifacts/perf/
-          retention-days: 30
-          if-no-files-found: warn
 
       # Router quality runs after k6 so its flat sweeps do not change the cache k6 measures on.
       - name: Write router-quality arm profiles

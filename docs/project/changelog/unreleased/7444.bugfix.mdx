@@ -2,4 +2,4 @@
 header: stability
 ---
 
-- A cursor or a PL/pgSQL `FOR` loop that reads a Join Scan no longer starts it over from the first row on every fetch, so such a `FOR` loop ends again. A cursor over a DataFusion Aggregate Scan no longer stops after the first 8192 groups.
+- Fixed Join Scans restarting from the first row on each cursor fetch, which could cause PL/pgSQL `FOR` loops to run indefinitely. Fixed cursors over DataFusion Aggregate Scans stopping after the first 8192 groups.

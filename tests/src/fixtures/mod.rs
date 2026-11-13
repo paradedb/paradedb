@@ -70,8 +70,7 @@ pub fn pg_major_version(conn: &mut PgConnection) -> usize {
         .0 as usize
 }
 
-#[fixture]
-pub fn conn(database: Db) -> PgConnection {
+fn init_conn(database: &Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
 
@@ -103,20 +102,15 @@ pub fn conn(database: Db) -> PgConnection {
     })
 }
 
-/// Guard that serializes test cases within a single integration test binary and drops the
-/// current thread's temporary databases before releasing the mutex.
-///
-/// Bind this before any [`Db`] or [`PgConnection`] parameters (or use [`serial_conn`] for
-/// single-connection `#[rstest]` tests) so open connections close before `Drop` cleans up their
-/// databases and unlocks the mutex. Poisoning is ignored so one panicked case does not cascade
-/// to subsequent cases.
-pub struct SerialGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
-
-impl Drop for SerialGuard {
-    fn drop(&mut self) {
-        cleanup_current_thread_databases();
-    }
+#[fixture]
+pub fn conn(database: Db) -> PgConnection {
+    init_conn(&database)
 }
+
+/// Guard that serializes test cases within a single integration test binary.
+///
+/// Poisoning is ignored so one panicked case does not cascade to subsequent cases.
+pub struct SerialGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
 
 #[fixture]
 pub fn serial() -> SerialGuard {
@@ -128,6 +122,7 @@ pub fn serial() -> SerialGuard {
 /// close, and `DROP DATABASE` teardown across cases in the current test binary.
 pub struct SerialConn {
     conn: Option<PgConnection>,
+    database: Option<Db>,
     _serial: SerialGuard,
 }
 
@@ -150,15 +145,20 @@ impl Drop for SerialConn {
         if let Some(conn) = self.conn.take() {
             let _ = block_on(conn.close());
         }
+        if let Some(database) = self.database.take() {
+            database.drop_blocking();
+        }
     }
 }
 
 #[fixture]
 pub fn serial_conn() -> SerialConn {
     let serial = serial();
-    let conn = conn(database());
+    let db = database();
+    let conn = init_conn(&db);
     SerialConn {
         conn: Some(conn),
+        database: Some(db),
         _serial: serial,
     }
 }

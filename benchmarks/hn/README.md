@@ -58,3 +58,14 @@ To check fixtures locally, use Python 3.11+ with `duckdb==2.0.0`:
 ```sh
 python3 benchmarks/hn/prepare.py --output /tmp/hn-fixtures
 ```
+
+## VectorChord comparison profiles
+
+The VectorChord profiles and SQL assets use 30,000 lists for HN,
+hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
+`build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
+capped at the list count. Both build and search use the shared 32 GiB container
+configuration, with 8 GiB shared buffers and 8 GiB `maintenance_work_mem`.
+
+These profiles accompany the comparison workflows in [PR #7361](https://github.com/paradedb/paradedb/pull/7361);
+the existing pg_search-only workflow remains unchanged.

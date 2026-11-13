@@ -41,3 +41,22 @@ runs:
         BUILD
         mkdir -p benchmark-artifacts
         git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
+
+    - name: Restart PostgreSQL after installing build dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Installing server-dev can upgrade PostgreSQL and its shared libraries.
+        # Restart the existing container so its server uses the same binaries.
+        docker restart --time 600 paradedb
+        for attempt in $(seq 1 150); do
+          if pg_isready -d "$PARADEDB_URL"; then
+            break
+          fi
+          sleep 2
+        done
+        # A connection alone does not detect a server/plpgsql library mismatch.
+        psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+          -c 'DO $$ BEGIN PERFORM 1; END $$;' \
+          -c 'SHOW server_version;' \
+          | tee benchmark-artifacts/pg-vectorsearch-postgres-version.txt

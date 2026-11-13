@@ -18,7 +18,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "cff52fd0ae6cdf449f81cfa00462992088c92f75"
+        default: "f7ef319fb75cdc4cc3e02824af46d96c42de977f"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -55,7 +55,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'cff52fd0ae6cdf449f81cfa00462992088c92f75' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'f7ef319fb75cdc4cc3e02824af46d96c42de977f' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}

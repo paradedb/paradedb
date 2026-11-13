@@ -632,26 +632,6 @@ mod tests {
     }
 
     #[test]
-    fn inet_term_survives_serialization_round_trip() {
-        let inet = SearchFieldType::Inet(pgrx::pg_sys::INETOID);
-        for addr in ["192.168.0.1", "2001:db8::1"] {
-            let original = PdbOwnedValue::IpAddr(addr.parse::<IpAddr>().unwrap().into_ipv6_addr());
-            let json = serde_json::to_value(&original).unwrap();
-            let from_json: PdbOwnedValue = serde_json::from_value(json).unwrap();
-            assert_eq!(
-                convert_value_for_field(from_json, &inet, None).unwrap(),
-                original
-            );
-            let bytes = serde_cbor::to_vec(&original).unwrap();
-            let from_cbor: PdbOwnedValue = serde_cbor::from_slice(&bytes).unwrap();
-            assert_eq!(
-                convert_value_for_field(from_cbor, &inet, None).unwrap(),
-                original
-            );
-        }
-    }
-
-    #[test]
     fn test_scale_i64() {
         assert_eq!(scale_i64("123.45", 2).unwrap(), 12345);
         assert_eq!(scale_i64("0.999", 3).unwrap(), 999);

@@ -1045,8 +1045,8 @@ WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
   AND c.id + p.id > 0
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1055,11 +1055,11 @@ LIMIT 2;
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
      : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, parent_id@1)], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_int_add(CAST(id@0 AS Int32), CAST(id@2 AS Int32)) > 0, projection=[ctid_0@3, parent_id@4, id@5, pdb.vector_score(c)@6, ctid_1@0], fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, build_mem_used=144.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=4, input_batches=1, input_rows=6, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"beta","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=4, output_bytes=128.0 B, output_batches=1]
-     :     FilterExec: pdb_eval_expr_opexpr_73f5eb39(id@2, parent_id@1) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
+     :     FilterExec: pdb_int_add(CAST(id@2 AS Int32), CAST(parent_id@1 AS Int32)) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
      :       VisibilityFilterExec: tables=[c], metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, ctids_fetched=6, ctids_lazy=0]
      :         CooperativeExec
      :           PgSearchScan: table=c, segments=1, lazy_sort=24, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, dynamic_filter_pushdown_linear=1, queries=1, rows_pruned=0, rows_scanned=6]
@@ -1087,8 +1087,8 @@ WHERE (c.id @@@ '20'::pdb.query OR p.category @@@ 'beta'::pdb.query)
   AND c.id + p.id > 0
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
-                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
    Relation Tree: c INNER p
    Join Cond: p.id = c.parent_id
@@ -1099,8 +1099,8 @@ LIMIT 2;
      : ProjectionExec: expr=[id@2 as col_1, parent_id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1], metrics=[output_rows=2, output_bytes=64.0 B, output_batches=1]
      :   GlobalLimitExec: skip=0, fetch=2, metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c, p], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1, ctids_fetched=4, ctids_lazy=0]
-     :       RankJoinExec: mode=CollectLeft, on=[(parent_id@1, id@1)], order=[pdb.vector_score(c)@3 DESC NULLS LAST, id@2 ASC NULLS LAST], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_eval_expr_opexpr_73f5eb39(id@0, id@2) > 0, projection=[ctid_0@0, parent_id@1, id@2, pdb.vector_score(c)@3, ctid_1@5], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
-     :         FilterExec: pdb_eval_expr_opexpr_73f5eb39(id@2, parent_id@1) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
+     :       RankJoinExec: mode=CollectLeft, on=[(parent_id@1, id@1)], order=[pdb.vector_score(c)@3 DESC NULLS LAST, id@2 ASC NULLS LAST], filter=(__c_0_tag_0@1 OR __p_1_tag_0@3) AND pdb_int_add(CAST(id@0 AS Int32), CAST(id@2 AS Int32)) > 0, projection=[ctid_0@0, parent_id@1, id@2, pdb.vector_score(c)@3, ctid_1@5], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :         FilterExec: pdb_int_add(CAST(id@2 AS Int32), CAST(parent_id@1 AS Int32)) > 0, metrics=[output_rows=6, output_bytes=224.1 KB, output_batches=1, selectivity=100% (6/6)]
      :           CooperativeExec
      :             PgSearchScan: table=c, segments=1, lazy_sort=10, tag_0={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"20","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=6, output_bytes=232.0 B, output_batches=1, queries=1]
      :         CooperativeExec

@@ -1196,9 +1196,9 @@ SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
 -- 17. Arithmetic OpExpr (`*`) maps natively
 -- =====================================================================
--- `translate_op_expr` now handles `+`, `-`, `*`, `/`, `%` — the `(e.id * 2)`
--- subtree maps directly to `Operator::Multiply`. EXPLAIN should contain a
--- native multiplication (e.g. `id * 2`) and NO `pdb_eval_expr_opexpr_*`.
+-- `translate_op_expr` handles `+`, `-`, `*`, `/`, `%` natively. Integer `(e.id * 2)`
+-- maps to the overflow-checked `pdb_int_mul`, so EXPLAIN should contain
+-- `pdb_int_mul(id, 2)` and NO `pdb_eval_expr_opexpr_*`.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
@@ -1222,7 +1222,7 @@ LIMIT 5;
      :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
      :     VisibilityFilterExec: tables=[i]
      :       NestedLoopJoinExec: join_type=RightAnti, filter=join_proj_push_down_1@1 > id@0, projection=[ctid_0@0, id@1]
-     :         ProjectionExec: expr=[id@0 as id, pdb_eval_expr_opexpr_b2e4dd8d(id@0) as join_proj_push_down_1]
+     :         ProjectionExec: expr=[id@0 as id, pdb_int_mul(id@0, 2) as join_proj_push_down_1]
      :           CooperativeExec
      :             PgSearchScan: table=e, segments=1, visibility=eager, query={"with_index":{"query":"all"}}
      :         CooperativeExec

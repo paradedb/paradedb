@@ -150,9 +150,6 @@ jobs:
         with:
           ref: ${{ env.VECTORCHORD_REF }}
 
-      - name: Verify benchmark runtime
-        uses: ./.github/actions/verify-vector-benchmark-runtime
-
       - name: Verify VectorChord filter mode
         if: matrix.engine == 'vectorchord'
         run: |

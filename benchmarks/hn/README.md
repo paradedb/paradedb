@@ -105,5 +105,5 @@ Executed plans must retain every predicate and use the expected ordered ANN
 index scan. VectorChord's prefilter setting is checked in both EXPLAIN and k6
 sessions. Short result counts remain diagnostic for these HN comparison engines
 after the recall gate; query errors still fail k6. The pg_search checks remain
-unchanged. The shared runtime guard records and verifies container limits and
-PostgreSQL settings before benchmarking.
+unchanged. pdbench checks the PostgreSQL settings declared in the build and
+search profiles before benchmarking.

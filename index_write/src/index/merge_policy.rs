@@ -90,22 +90,24 @@ impl LayeredMergePolicy {
             pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
         }
 
-        // VACUUM can publish retirements and then be canceled while this merger holds an
-        // older view. Its sentinel disappears on ERROR, so exclusions alone are insufficient.
+        // VACUUM or another merger can publish metadata changes and then be canceled while
+        // this merger holds an older view. Their exclusions disappear on ERROR, so compare
+        // full entries to catch both retired segments and updated deletion metadata.
         // The caller holds MergeLock, preventing a new VACUUM from starting during selection.
-        let live_ids: HashSet<_> = unsafe { metadata.segment_metas().list(None) }
+        let live_entries: HashMap<_, _> = unsafe { metadata.segment_metas().list(None) }
             .into_iter()
             .filter(|entry| entry.xmax() == pg_sys::InvalidTransactionId)
-            .map(|entry| entry.segment_id())
+            .map(|entry| (entry.segment_id(), entry))
             .collect();
 
         // tell the MergePolicy which segments it's initially allowed to consider for merging
         self.mergeable_segments = merger
             .all_entries()
             .into_iter()
-            .filter(|(segment_id, _)| {
+            .filter(|(segment_id, entry)| {
                 // skip segments that are already being vacuumed or merged
-                !non_mergeable_segments.contains(segment_id) && live_ids.contains(segment_id)
+                !non_mergeable_segments.contains(segment_id)
+                    && live_entries.get(segment_id) == Some(entry)
             })
             .collect();
     }

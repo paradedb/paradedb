@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::MetricsLine;
-use crate::runner::{HARDCODED_IGNORE_ERRORS, SuiteRunner};
+use crate::runner::{HARDCODED_IGNORE_ERRORS, SuiteRunner, WorkerState};
 use postgres::Row;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -163,24 +163,9 @@ pub fn run(
 
     let terminate_start = std::time::Instant::now();
     let shutdown_timeout = std::time::Duration::from_secs(60);
-    suite_runner.request_stop();
+    suite_runner.terminate_with_timeout(shutdown_timeout);
 
     let finished = Arc::new(AtomicBool::new(false));
-    // A failed cancellation connection must not prevent other jobs from being canceled
-    // or stop the main thread from enforcing the shutdown deadline.
-    for runner in suite_runner.runners().chain(suite_runner.monitor_runners()) {
-        let finished = finished.clone();
-        std::thread::spawn(move || {
-            while terminate_start.elapsed() < shutdown_timeout
-                && !finished.load(std::sync::atomic::Ordering::Relaxed)
-            {
-                if runner.running() {
-                    runner.cancel_query();
-                }
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-        });
-    }
     {
         let finished = finished.clone();
         let suite_runner = suite_runner.clone();
@@ -224,10 +209,28 @@ pub fn run(
     }
 
     if !finished.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut any_worker_active = false;
         for runner in suite_runner.runners().chain(suite_runner.monitor_runners()) {
-            if runner.running() {
-                eprintln!("job still running at shutdown timeout: {}", runner.title());
+            match runner.worker_state() {
+                WorkerState::Stopped => {}
+                WorkerState::RunningQuery => {
+                    any_worker_active = true;
+                    eprintln!(
+                        "job still active at shutdown timeout (running query): {}",
+                        runner.title()
+                    );
+                }
+                WorkerState::Active => {
+                    any_worker_active = true;
+                    eprintln!(
+                        "job still active at shutdown timeout (connecting or idle): {}",
+                        runner.title()
+                    );
+                }
             }
+        }
+        if !any_worker_active {
+            eprintln!("all job workers exited; suite still running teardown at shutdown timeout");
         }
         eprintln!("suite did not finish after 60 seconds");
         std::process::exit(1);

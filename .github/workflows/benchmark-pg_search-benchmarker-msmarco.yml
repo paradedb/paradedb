@@ -17,7 +17,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "df22afd6d48f43653b61c24b928dcf0e929c471c"
+        default: "cff52fd0ae6cdf449f81cfa00462992088c92f75"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -51,7 +51,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       MSMARCO_SIZE: 113m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'df22afd6d48f43653b61c24b928dcf0e929c471c' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'cff52fd0ae6cdf449f81cfa00462992088c92f75' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}

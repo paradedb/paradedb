@@ -17,7 +17,7 @@ runs:
             {NanoCpus, CpusetCpus, Memory, ShmSize, PidMode})}' \
           > benchmark-artifacts/docker-runtime.json
         jq -e '.limits | .NanoCpus == 64000000000 and .CpusetCpus == "0-63"
-          and .Memory == 137438953472 and .ShmSize == 68719476736
+          and .Memory == 34359738368 and .ShmSize == 17179869184
           and .PidMode != "host"' benchmark-artifacts/docker-runtime.json
         psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 -c \
           "SELECT json_object_agg(name, json_build_object('value', current_setting(name), 'setting', setting, 'unit', unit))
@@ -31,8 +31,8 @@ runs:
              'track_io_timing', 'track_wal_io_timing');" \
           > benchmark-artifacts/postgres-settings.json
         jq -e 'with_entries(.value = .value.value) |
-          .shared_buffers == "32GB" and .effective_cache_size == "96GB"
-          and .maintenance_work_mem == "52428MB" and .work_mem == "1GB"
+          .shared_buffers == "8GB" and .effective_cache_size == "24GB"
+          and .maintenance_work_mem == "13107MB" and .work_mem == "256MB"
           and .max_parallel_maintenance_workers == "8" and .max_parallel_workers == "16"
           and .max_parallel_workers_per_gather == "8" and .max_worker_processes == "32"
           and .max_connections == "82" and .random_page_cost == "1.1"

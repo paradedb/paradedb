@@ -99,6 +99,32 @@ END $$;
 SELECT * FROM issue_7237_mismatches('issue_7237_t');
 SELECT * FROM issue_7237_mismatches('issue_7237_imm');
 
+-- Stored pdb.query values preserve non-finite constants across reads and text I/O.
+CREATE TABLE issue_7237_saved_queries (expected_id int, query pdb.query);
+INSERT INTO issue_7237_saved_queries VALUES
+    (1, pdb.term('NaN'::float8)),
+    (2, pdb.term('Infinity'::float8)),
+    (3, pdb.term('-Infinity'::float8));
+DO $$
+DECLARE
+    saved record;
+    got int[];
+BEGIN
+    FOR saved IN SELECT * FROM issue_7237_saved_queries LOOP
+        EXECUTE 'SELECT ARRAY(SELECT id FROM issue_7237_t WHERE d @@@ $1 ORDER BY id)'
+            INTO got USING saved.query;
+        IF got IS DISTINCT FROM ARRAY[saved.expected_id] THEN
+            RAISE EXCEPTION 'stored query: got %, want %', got, ARRAY[saved.expected_id];
+        END IF;
+        EXECUTE 'SELECT ARRAY(SELECT id FROM issue_7237_t WHERE d @@@ $1 ORDER BY id)'
+            INTO got USING saved.query::text::pdb.query;
+        IF got IS DISTINCT FROM ARRAY[saved.expected_id] THEN
+            RAISE EXCEPTION 'text round trip: got %, want %', got, ARRAY[saved.expected_id];
+        END IF;
+    END LOOP;
+END $$;
+DROP TABLE issue_7237_saved_queries;
+
 -- A generic plan carries the constant as a parameter
 SET plan_cache_mode = force_generic_plan;
 PREPARE issue_7237_q(float8) AS

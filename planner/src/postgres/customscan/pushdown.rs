@@ -285,7 +285,7 @@ pub unsafe fn try_build_pushdown_qual(
     // In all other pushdown scenarios, the value is on the rhs.
     let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
         && nodecast!(Var, rhs)
-            .is_some_and(|var| unsafe { pgrx::type_is_array!((*var).vartype).is_true() })
+            .is_some_and(|var| unsafe { pgrx::type_is_array!((*var).vartype) })
     {
         (rhs, lhs, true)
     } else {

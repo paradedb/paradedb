@@ -506,8 +506,8 @@ unsafe fn record_tableoid(
             return None;
         }
         let record = pg_getarg_datum(fcinfo, nargs as usize - 1)?;
-        let header =
-            pg_sys::pg_detoast_datum(record.cast_mut_ptr()).cast::<pg_sys::HeapTupleHeaderData>();
+        let tuple = pgrx::composite_row_type_make_tuple(record);
+        let header = tuple.t_data;
         let field = field
             .get_or_insert_with(|| {
                 let (attno, _) =
@@ -521,10 +521,7 @@ unsafe fn record_tableoid(
                 Some(TableOidField { attno, tupdesc })
             })
             .as_ref()?;
-        let mut tuple: pg_sys::HeapTupleData = std::mem::zeroed();
-        tuple.t_len = pgrx::HeapTupleHeaderGetDatumLength!(header).get();
-        tuple.t_data = header;
-        let datum = heap_getattr_raw(&mut tuple, field.attno, field.tupdesc)?;
+        let datum = heap_getattr_raw(tuple.as_ptr(), field.attno, field.tupdesc)?;
         pg_sys::Oid::from_datum(datum, false)
     }
 }

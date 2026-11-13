@@ -139,24 +139,6 @@ def parse_pr_number(filename):
     return 0
 
 
-def parse_depends_on(content):
-    """Parse '-- depends-on: <PR>, ...' or '/* depends-on: ... */' from content."""
-    deps = set()
-    for match in re.finditer(
-        r"(?:--|/\*)\s*depends-on:\s*([0-9#,\s\w.-]+?)(?:\*/|\n|$)",
-        content,
-        re.IGNORECASE,
-    ):
-        raw = match.group(1)
-        for num in re.findall(r"\b\d+\b", raw):
-            deps.add(int(num))
-        for token in raw.split(","):
-            token = token.strip().lstrip("#")
-            if token.endswith(".sql"):
-                deps.add(token)
-    return deps
-
-
 def assemble_sql_files(
     repo_root,
     target_version,
@@ -929,11 +911,8 @@ def is_release_branch(branch_name):
     return bool(re.match(r"^v?\d+\.\d+\.x$", branch_name))
 
 
-def lint_sql_fragments(repo_root, base_sha):
-    """Let pgrx check SQL dependencies and mixed released/unreleased objects."""
-    # TODO(pgcentralfoundation/pgrx#2484): `cargo pgrx migrate check` does not yet
-    # validate unresolved `depends-on` targets against `sql/` or flag a single
-    # fragment touching unreleased objects from multiple prerequisite fragments.
+def lint_sql_fragments(repo_root, base_sha=None, *, upstream_ref=None):
+    """Run `cargo pgrx migrate check` on SQL scripts and fragments."""
     command = [
         "cargo",
         "pgrx",
@@ -947,53 +926,19 @@ def lint_sql_fragments(repo_root, base_sha):
     ]
     if base_sha:
         command.extend(["--base", base_sha])
+    if upstream_ref:
+        command.extend(["--upstream", upstream_ref])
     return int(subprocess.run(command, cwd=repo_root, check=False).returncode != 0)
 
 
-# TODO(pgcentralfoundation/pgrx#2484): Delegate release-branch SQL prerequisite and
-# upstream-identity checks to `cargo pgrx migrate check` once supported natively.
-def _check_branch_fragment_dependencies(repo_root, unreleased_sql_dir, base_ref):
-    errors = 0
-    for fpath in unreleased_sql_dir.glob("*.sql"):
-        if fpath.name == ".gitkeep":
-            continue
-        with open(fpath, "r", encoding="utf-8") as fp:
-            content = fp.read()
-        deps = parse_depends_on(content)
-        for dep in deps:
-            if isinstance(dep, int):
-                check = subprocess.run(
-                    ["git", "log", "-n", "1", f"--grep=#{dep}\\b", f"--grep=({dep})"],
-                    cwd=repo_root,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if not check.stdout.strip():
-                    print(
-                        f"::error file={fpath}::Fragment declares '-- depends-on: {dep}', "
-                        f"but PR #{dep} has not been backported to this branch ({base_ref}).",
-                        file=sys.stderr,
-                    )
-                    print(
-                        f"❌ {fpath.name}: Dependency PR #{dep} is missing from {base_ref}. "
-                        "Drop this fragment from the backport.",
-                        file=sys.stderr,
-                    )
-                    errors += 1
-    return errors
-
-
-def _check_branch_fragment_identity(repo_root, all_fragments):
-    subprocess.run(
-        ["git", "fetch", "origin", "main"],
-        cwd=repo_root,
-        capture_output=True,
-        check=False,
-    )
+def lint_release_branch_changelog_fragments(repo_root):
+    """Verify unreleased changelog fragments on a release branch match origin/main."""
+    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
+    if not unreleased_cl_dir.exists():
+        return 0
 
     errors = 0
-    for fpath in all_fragments:
+    for fpath in sorted(unreleased_cl_dir.glob("*.mdx")):
         if fpath.name == ".gitkeep":
             continue
         rel_path = fpath.relative_to(repo_root)
@@ -1045,22 +990,6 @@ def _check_branch_fragment_identity(repo_root, all_fragments):
                 file=sys.stderr,
             )
             errors += 1
-    return errors
-
-
-def lint_release_branch_fragments(repo_root, base_ref):
-    """Lint fragments on PRs targeting a stable release branch (e.g. 0.25.x)."""
-    unreleased_sql_dir = repo_root / "pg_search" / "sql" / "unreleased"
-    _, unreleased_cl_dir, _ = get_changelog_dirs(repo_root)
-
-    all_fragments = list(unreleased_sql_dir.glob("*.sql")) + list(
-        unreleased_cl_dir.glob("*.mdx")
-    )
-
-    errors = _check_branch_fragment_dependencies(
-        repo_root, unreleased_sql_dir, base_ref
-    )
-    errors += _check_branch_fragment_identity(repo_root, all_fragments)
     return errors
 
 
@@ -1155,14 +1084,26 @@ def handle_lint_fragments_command(args, repo_root):
 
     print(f"Linting fragments with base_ref='{args.base_ref}' at {repo_root}")
 
+    on_release_branch = is_release_branch(args.base_ref)
+    if on_release_branch:
+        subprocess.run(
+            ["git", "fetch", "origin", "main"],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+        )
+
     errors = 0
     if not changelog_only:
-        errors += lint_sql_fragments(repo_root, args.base_sha)
-        if is_release_branch(args.base_ref):
-            errors += lint_release_branch_fragments(repo_root, args.base_ref)
+        upstream_ref = "origin/main" if on_release_branch else None
+        errors += lint_sql_fragments(
+            repo_root, args.base_sha, upstream_ref=upstream_ref
+        )
 
     if not sql_only:
         errors += lint_changelog_fragments(repo_root)
+        if on_release_branch:
+            errors += lint_release_branch_changelog_fragments(repo_root)
 
     if errors > 0:
         print(f"\n❌ Fragment lint failed with {errors} error(s).", file=sys.stderr)

@@ -67,6 +67,7 @@ mod atatat;
 pub(crate) mod boost;
 pub(crate) mod const_score;
 mod eqeqeq;
+mod expand;
 pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
@@ -154,13 +155,22 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
                 }
                 rhs
             }
-            SimplifyRhs::Rewrite(operator) => rewrite_rhs_to_search_query_input(
-                operator,
-                search_query_input_typoid,
-                lhs,
-                rhs,
-                field,
-            ),
+            SimplifyRhs::Rewrite(operator) => {
+                let rhs = match (&field, operator) {
+                    (Some(field), SearchOperator::Conjunction | SearchOperator::Disjunction) => {
+                        expand::replace_expand_subquery((*request).root, rhs, &indexrel, field)
+                            .unwrap_or(rhs)
+                    }
+                    _ => rhs,
+                };
+                rewrite_rhs_to_search_query_input(
+                    operator,
+                    search_query_input_typoid,
+                    lhs,
+                    rhs,
+                    field,
+                )
+            }
         };
 
         assert_eq!(

@@ -832,6 +832,13 @@ impl PgGucs {
         } else {
             writeln!(gucs, "{verb} paradedb.min_rows_per_worker TO DEFAULT;").unwrap();
         }
+        // Lift `work_mem` so generated query shapes (including keyless joins with `pdb.agg()`
+        // `cardinality` sketches and MPP shuffles) are not memory-constrained; spilling is
+        // covered by dedicated parameterized tests instead.
+        // TODO(https://github.com/apache/datafusion/issues/24768): Re-evaluate testing spilling
+        // across generated query shapes once upstream DataFusion operators such as `HashJoinExec`
+        // support spilling to disk.
+        writeln!(gucs, "{verb} work_mem TO '1GB';").unwrap();
         writeln!(
             gucs,
             "{verb} statement_timeout TO {};",

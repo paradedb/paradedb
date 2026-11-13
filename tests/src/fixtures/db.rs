@@ -56,7 +56,8 @@ macro_rules! tolerate_transient_setup {
 }
 
 pub struct Db {
-    context: TestContext<Postgres>,
+    // `None` only after `drop_blocking` has already consumed the context for synchronous teardown.
+    context: Option<TestContext<Postgres>>,
 }
 
 impl Db {
@@ -88,23 +89,43 @@ impl Db {
             Postgres::test_context(&args)
         );
 
-        Self { context }
+        Self {
+            context: Some(context),
+        }
     }
 
     pub async fn connection(&self) -> PgConnection {
+        let context = self.context.as_ref().expect("Db is active");
         tolerate_transient_setup!(
             "failed to connect to test database",
-            self.context.connect_opts.connect()
+            context.connect_opts.connect()
         )
+    }
+
+    /// Drops this temporary database synchronously rather than spawning a detached cleanup task in
+    /// [`Drop`], so serialized fixtures do not overlap `DROP DATABASE` checkpoints with the next
+    /// test case.
+    pub(crate) fn drop_blocking(mut self) {
+        if let Some(context) = self.context.take() {
+            let db_name = context.db_name;
+            block_on(async_std::task::spawn(async move {
+                if let Err(err) = Postgres::cleanup_test(&db_name).await {
+                    // Avoid panicking during unwind teardown.
+                    eprintln!("could not drop test database {db_name}: {err}");
+                }
+            }));
+        }
     }
 }
 
 impl Drop for Db {
     fn drop(&mut self) {
-        let db_name = self.context.db_name.to_string();
-        async_std::task::spawn(async move {
-            Postgres::cleanup_test(db_name.as_str()).await.ok(); // ignore errors as there's nothing we can do about it
-        });
+        if let Some(context) = self.context.take() {
+            let db_name = context.db_name;
+            async_std::task::spawn(async move {
+                Postgres::cleanup_test(db_name.as_str()).await.ok(); // ignore errors as there's nothing we can do about it
+            });
+        }
     }
 }
 

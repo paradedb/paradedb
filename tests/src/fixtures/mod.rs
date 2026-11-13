@@ -28,8 +28,9 @@ pub mod utils;
 
 use async_std::task::block_on;
 use rstest::*;
-use sqlx::{self, PgConnection};
-use std::sync::Once;
+use sqlx::{self, Connection, PgConnection};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Mutex, MutexGuard, Once, PoisonError};
 
 pub use crate::fixtures::backend::*;
 pub use crate::fixtures::db::*;
@@ -69,8 +70,7 @@ pub fn pg_major_version(conn: &mut PgConnection) -> usize {
         .0 as usize
 }
 
-#[fixture]
-pub fn conn(database: Db) -> PgConnection {
+fn init_conn(database: &Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
 
@@ -100,4 +100,65 @@ pub fn conn(database: Db) -> PgConnection {
 
         conn
     })
+}
+
+#[fixture]
+pub fn conn(database: Db) -> PgConnection {
+    init_conn(&database)
+}
+
+/// Guard that serializes test cases within a single integration test binary.
+///
+/// Poisoning is ignored so one panicked case does not cascade to subsequent cases.
+pub struct SerialGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
+
+#[fixture]
+pub fn serial() -> SerialGuard {
+    static SERIAL: Mutex<()> = Mutex::new(());
+    SerialGuard(SERIAL.lock().unwrap_or_else(PoisonError::into_inner))
+}
+
+/// A [`PgConnection`] fixture that serializes database creation, query execution, connection
+/// close, and `DROP DATABASE` teardown across cases in the current test binary.
+pub struct SerialConn {
+    conn: Option<PgConnection>,
+    database: Option<Db>,
+    _serial: SerialGuard,
+}
+
+impl Deref for SerialConn {
+    type Target = PgConnection;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn.as_ref().expect("SerialConn is open until Drop")
+    }
+}
+
+impl DerefMut for SerialConn {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.conn.as_mut().expect("SerialConn is open until Drop")
+    }
+}
+
+impl Drop for SerialConn {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            let _ = block_on(conn.close());
+        }
+        if let Some(database) = self.database.take() {
+            database.drop_blocking();
+        }
+    }
+}
+
+#[fixture]
+pub fn serial_conn() -> SerialConn {
+    let serial = serial();
+    let db = database();
+    let conn = init_conn(&db);
+    SerialConn {
+        conn: Some(conn),
+        database: Some(db),
+        _serial: serial,
+    }
 }

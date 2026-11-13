@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794573749029,
+  "lastUpdate": 1794573772353,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -84289,6 +84289,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13941238560-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794573771020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.613,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.731,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.396,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.559,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.656,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.354,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.628,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.876,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.347,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14034050681-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -84633,6 +84701,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13941238560-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794573772341,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6881.806192827368,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7510.59791999434,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.03207541371209,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14034050681-throughput"
       }
     ],
     "benchmarker msmarco-113m (latency)": [

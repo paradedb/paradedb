@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794589355739,
+  "lastUpdate": 1794605569892,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -86164,6 +86164,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13990208832-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d653ed9ec07009f3d6c74b69e7b285027e039588",
+          "message": "chore: Split `join_permissioned_search` by selectivity and type (#7400)\n\n## What\n\nSplit `join_permissioned_search` by selectivity, and add a disjunctive\npermissioned search variant.\n\n## Why\n\nOur strategy can vary significantly based on selectivity, and we did not\nhave a disjunctive variant. Relevant to #7366 and #7429.",
+          "timestamp": "2026-11-13T16:07:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d653ed9ec07009f3d6c74b69e7b285027e039588"
+        },
+        "date": 1794605566872,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 8.549,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 11.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 11.694,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 24.996,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 31.863,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 34.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 68.382,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 617.35,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 649.111,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 4.812,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 5.997,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 6.437,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 8.049,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 12.512,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 13.367,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 20.569,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 114.982,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 164.659,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14078701945-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -86545,6 +86658,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13990208832-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d653ed9ec07009f3d6c74b69e7b285027e039588",
+          "message": "chore: Split `join_permissioned_search` by selectivity and type (#7400)\n\n## What\n\nSplit `join_permissioned_search` by selectivity, and add a disjunctive\npermissioned search variant.\n\n## Why\n\nOur strategy can vary significantly based on selectivity, and we did not\nhave a disjunctive variant. Relevant to #7366 and #7429.",
+          "timestamp": "2026-11-13T16:07:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d653ed9ec07009f3d6c74b69e7b285027e039588"
+        },
+        "date": 1794605568018,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 117.8010019834915,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 47.89943845885308,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 7.1507672118638945,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 207.49444076388886,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 121.77972350464441,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 29.569431195027608,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14078701945-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -86926,6 +87092,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13990208832-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d653ed9ec07009f3d6c74b69e7b285027e039588",
+          "message": "chore: Split `join_permissioned_search` by selectivity and type (#7400)\n\n## What\n\nSplit `join_permissioned_search` by selectivity, and add a disjunctive\npermissioned search variant.\n\n## Why\n\nOur strategy can vary significantly based on selectivity, and we did not\nhave a disjunctive variant. Relevant to #7366 and #7429.",
+          "timestamp": "2026-11-13T16:07:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d653ed9ec07009f3d6c74b69e7b285027e039588"
+        },
+        "date": 1794605568917,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2485.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 6850.35,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 54026.36,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1163.55,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2376.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 13192.66,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14078701945-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -87257,6 +87476,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13990208832-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d653ed9ec07009f3d6c74b69e7b285027e039588",
+          "message": "chore: Split `join_permissioned_search` by selectivity and type (#7400)\n\n## What\n\nSplit `join_permissioned_search` by selectivity, and add a disjunctive\npermissioned search variant.\n\n## Why\n\nOur strategy can vary significantly based on selectivity, and we did not\nhave a disjunctive variant. Relevant to #7366 and #7429.",
+          "timestamp": "2026-11-13T16:07:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d653ed9ec07009f3d6c74b69e7b285027e039588"
+        },
+        "date": 1794605569879,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 197.86666666666667,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 508969.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 127.55451202392578,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14078701945-index"
       }
     ],
     "benchmarker cohere-10m (router)": [

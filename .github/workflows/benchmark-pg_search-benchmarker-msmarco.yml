@@ -12,7 +12,7 @@ on:
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "625852ddcdfb16661cf91260549a2263e125eefa"
+        default: "f9a228a37ac360174ad5646cba8b1411224526b6"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -40,7 +40,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       MSMARCO_SIZE: 113m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '625852ddcdfb16661cf91260549a2263e125eefa' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'f9a228a37ac360174ad5646cba8b1411224526b6' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       MSMARCO_CONFIG: benchmarks/msmarco/113m.toml

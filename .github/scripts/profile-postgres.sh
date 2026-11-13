@@ -9,6 +9,7 @@ fi
 container="$1"
 output="$2"
 shift 3
+readonly events=cpu-clock:u,branch-misses:u
 readonly sample_frequency=99
 readonly stack_bytes=16384
 readonly startup_timeout_seconds=30
@@ -33,7 +34,7 @@ symfs="/proc/$container_pid/root"
   uname -a
   perf version
   docker inspect --format 'container={{.Name}} image={{.Config.Image}} image_id={{.Image}}' "$container"
-  printf 'pids=%s\nevent=cpu-clock:u\nfrequency=%s\nstack_bytes=%s\n' "$pids" "$sample_frequency" "$stack_bytes"
+  printf 'pids=%s\nevents=%s\nfrequency=%s\nstack_bytes=%s\n' "$pids" "$events" "$sample_frequency" "$stack_bytes"
   printf 'command: '
   printf '%q ' "$@"
   printf '\n'
@@ -97,7 +98,7 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 run_perf record --output "$output/perf.data" \
-  --event cpu-clock:u --freq "$sample_frequency" \
+  --event "$events" --freq "$sample_frequency" \
   --call-graph "dwarf,$stack_bytes" --inherit --namespaces --pid "$pids" \
   --delay=-1 --control="fifo:$control_dir/control,$control_dir/ack" \
   >"$output/record.log" 2>&1 &

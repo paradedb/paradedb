@@ -18,7 +18,8 @@ Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.
 
 Each k6 run profiles all PostgreSQL processes in the database container, including
-new backends and workers, using host `perf` at 99 Hz with DWARF stacks. Profiles
+new backends and workers, sampling user-space CPU time and branch misses with
+host `perf` at 99 Hz per event with DWARF stacks. Profiles
 include warmup and sampling overhead. Reports print after each run; the
 `cohere-<size>-perf` artifact retains text reports and raw profiles for 30 days.
 Future backends can reuse `.github/scripts/profile-postgres.sh` with their

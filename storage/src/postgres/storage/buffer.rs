@@ -1121,36 +1121,21 @@ impl BufferManager {
     }
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
-        /// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
-        /// runs `Drop` handlers when a function it wraps raises an ERROR.
-        struct InFlightCleanupGuard {
-            #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
-            blockno: pg_sys::BlockNumber,
-            active: bool,
-        }
-
-        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to run
-        // while an ERROR unwinds, and its body is only tracker bookkeeping.
-        impl Drop for InFlightCleanupGuard {
-            fn drop(&mut self) {
-                if self.active {
-                    block_tracker::forget!(self.blockno);
-                }
-            }
-        }
-
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);
-            let mut guard = InFlightCleanupGuard {
-                blockno,
-                active: true,
-            };
+            // Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
+            // runs `Drop` handlers when a function it wraps raises an ERROR.
+            // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to
+            // run while an ERROR unwinds, and its body is only tracker bookkeeping.
+            let guard = std::mem::DropGuard::new((), |()| {
+                block_tracker::forget!(blockno);
+            });
 
             pg_sys::LockBufferForCleanup(pg_buffer);
 
             // Hand over tracking responsibility to BufferMut's Drop
-            guard.active = false;
+            std::mem::DropGuard::dismiss(guard);
 
             BufferMut {
                 style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),

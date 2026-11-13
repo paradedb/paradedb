@@ -187,8 +187,10 @@ postgres = "0.19.14"
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
 
-[workspace.lints.rust]
-unused_crate_dependencies = "warn"
+[workspace.lints.cargo]
+missing_lints_inheritance = "deny"
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
 
 [workspace.lints.clippy]
 large_futures = "warn"

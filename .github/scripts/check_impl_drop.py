@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Fail on any `impl Drop` in pgrx-linking crates that does not say why it skips `impl_safe_drop!`.
+Fail on any `impl Drop` or `DropGuard` in pgrx-linking crates that does not say why it skips
+`impl_safe_drop!`.
 
 A `Drop` that calls into Postgres has to skip its body while a panic unwinds or the backend
 exits (#6479), which is what `impl_safe_drop!` in common/src/postgres/utils.rs does. A bare
-`impl Drop` needs a comment directly above it that opts out in so many words: "We
-intentionally do NOT use `impl_safe_drop!` here because ...". Every workspace crate that
-depends on `pgrx` is scanned.
+`impl Drop` or `DropGuard::new` needs a comment directly above it that opts out in so many
+words: "We intentionally do NOT use `impl_safe_drop!` here because ...". Every workspace crate
+that depends on `pgrx` is scanned.
 """
 
 import json
@@ -22,6 +23,7 @@ BARE_DROP = re.compile(
     r"((?:^[ \t]*//.*\n)*)(?:^[ \t]*#\[.*\n)*^[ \t]*(impl\b[^{;]*?\bDrop\s+for\s+([^{;]+))",
     re.MULTILINE,
 )
+DROP_GUARD = re.compile(r"\bDropGuard::new\b|\bDropGuard\s+as\b")
 # A comment that only names the macro, like a TODO, is not an opt out.
 OVERRIDE = re.compile(r"\bnot\s+us(?:e|ing)\W+impl_safe_drop\b", re.IGNORECASE)
 
@@ -41,17 +43,60 @@ SELF_TEST = [
         "// We intentionally do NOT use `impl_safe_drop!` here.\n#[cfg(test)]\nimpl Drop for A {",
         0,
     ),
+    ("let _g = std::mem::DropGuard::new(x, |_| {});", 1),
+    ("use std::mem::DropGuard as Guard;", 1),
+    (
+        (
+            "// We intentionally do NOT use `impl_safe_drop!` here.\n"
+            "let _g =\n    std::mem::DropGuard::new(x, |_| {});"
+        ),
+        0,
+    ),
+    (
+        (
+            "// We intentionally do NOT use `impl_safe_drop!` here.\n"
+            "let _ok = DropGuard::new(x, |_| {});\n"
+            "let _bad =\n    DropGuard::new(y, |_| {});"
+        ),
+        1,
+    ),
 ]
 
 
+def _preceding_comment_block(lines, idx):
+    """Return the `//` comment block directly above the statement at `idx`."""
+    stmt = idx
+    while stmt > 0:
+        above = lines[stmt - 1].strip()
+        if not above or above.startswith("//") or above.endswith((";", "{", "}")):
+            break
+        stmt -= 1
+    while stmt > 0 and lines[stmt - 1].lstrip().startswith("#["):
+        stmt -= 1
+    comment_start = stmt
+    while comment_start > 0 and lines[comment_start - 1].lstrip().startswith("//"):
+        comment_start -= 1
+    return "\n".join(lines[comment_start:stmt])
+
+
 def find_bare_drops(text):
-    """Return (line, header) for every `impl Drop` in `text` without an explaining comment."""
-    return [
+    """Return (line, header) for every unexcused `impl Drop` or `DropGuard`."""
+    findings = [
         (text.count("\n", 0, m.start(2)) + 1, " ".join(m.group(2).split()))
         for m in BARE_DROP.finditer(text)
         # `$ty` is the macro's own expansion.
         if not m.group(3).startswith("$") and not OVERRIDE.search(m.group(1))
     ]
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("//"):
+            continue
+        if DROP_GUARD.search(stripped) and not OVERRIDE.search(
+            _preceding_comment_block(lines, idx)
+        ):
+            findings.append((idx + 1, stripped))
+    return sorted(findings)
 
 
 def pgrx_crate_src_dirs():
@@ -89,8 +134,8 @@ def main():
     if bad:
         print("\n".join(bad))
         print(
-            f"\n{len(bad)} bare `impl Drop`. Use `impl_safe_drop!` from "
-            'common/src/postgres/utils.rs, or opt out directly above the impl with "We '
+            f"\n{len(bad)} bare `impl Drop` / `DropGuard`. Use `impl_safe_drop!` from "
+            'common/src/postgres/utils.rs, or opt out directly above with "We '
             'intentionally do NOT use `impl_safe_drop!` here because ...".'
         )
     return 1 if bad else 0

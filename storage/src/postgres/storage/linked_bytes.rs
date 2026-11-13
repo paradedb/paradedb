@@ -75,7 +75,7 @@ impl<T> UnsafeCache<T> {
             crate::postgres::customscan::mpp::interrupt::is_main_thread(),
             "LinkedBytesList cache must only be accessed on the Postgres main thread"
         );
-        unsafe { &mut *self.0.get() }
+        unsafe { self.0.as_mut_unchecked() }
     }
 }
 

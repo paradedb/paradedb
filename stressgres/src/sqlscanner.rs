@@ -145,12 +145,11 @@ impl<'a> SqlStatementScannerIterator<'a> {
                     }
                 }
 
-                // toggles
                 '"' if !(in_sl_comment || in_ml_comment || in_squote) => {
-                    in_dquote = !in_dquote;
+                    in_dquote.toggle();
                 }
                 '\'' if !(in_sl_comment || in_ml_comment || in_dquote) => {
-                    in_squote = !in_squote;
+                    in_squote.toggle();
                 }
 
                 // slash slash or dash dash for single line comments

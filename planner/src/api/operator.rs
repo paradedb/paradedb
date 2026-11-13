@@ -88,10 +88,7 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
         return false;
     }
     let expr_var = vars[0];
-    if !vars_equal_ignoring_varno(expr_var, var) {
-        return false;
-    }
-    true
+    vars_equal_ignoring_varno(expr_var, var)
 }
 
 pub unsafe fn field_name_from_node(

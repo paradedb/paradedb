@@ -112,7 +112,6 @@ arrow-select = "59.1.0"
 base64 = "0.23.1"
 bitpacking = "0.9.3"
 chrono = "0.4.45"
-time = "0.3.47"
 env_logger = "0.11.10"
 log = "0.4.34"
 once_cell = "1.21.4"
@@ -188,8 +187,10 @@ postgres = "0.19.14"
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
 
-[workspace.lints.rust]
-unused_crate_dependencies = "warn"
+[workspace.lints.cargo]
+missing_lints_inheritance = "deny"
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
 
 [workspace.lints.clippy]
 large_futures = "warn"

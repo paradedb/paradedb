@@ -2836,8 +2836,13 @@ impl RankJoinStream {
         if opp_cursor.has_buffered_rows()
             && let Some(batch_idx) = opp_cursor.sa_batch_idx
         {
-            for row_idx in opp_cursor.current_row_idx..opp_cursor.current_batch_keys.len() {
-                if let Some(ref k) = opp_cursor.current_batch_keys[row_idx] {
+            for (row_idx, k) in opp_cursor
+                .current_batch_keys
+                .iter()
+                .enumerate()
+                .skip(opp_cursor.current_row_idx)
+            {
+                if let Some(k) = k {
                     unadvanced_opp.entry(k).or_default().push(BufferedRowRef {
                         batch: BatchIndex(batch_idx),
                         row: RowIndex(row_idx),

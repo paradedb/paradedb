@@ -163,7 +163,7 @@ use crate::query::SearchQueryInput;
 use crate::scan::ScanMode;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::{
-    LazyParallelMode, LazySortConfig, PgSearchScanPlan, TopKSelectivity,
+    LazyParallelMode, LazySortConfig, PgSearchScanPlan, SaWindowChunkTracker, TopKSelectivity,
 };
 use crate::scan::rank_join_exec::{
     InputScorePair, RankJoinExec, RankJoinInputs, RankJoinSortExprs, ScoreCombiner,
@@ -1636,6 +1636,7 @@ fn try_rewrite_unscored_branch(
             initial_window: 0.0,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
+            sa_window_tracker: SaWindowChunkTracker::default(),
         },
         join_mode,
     );
@@ -1719,6 +1720,7 @@ fn try_rewrite_scored_leaf(
             initial_window: 1.0,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
+            sa_window_tracker: SaWindowChunkTracker::default(),
         },
         join_mode,
     );
@@ -2103,6 +2105,7 @@ fn try_rewrite_lazy_sort_probe_join(
             initial_window,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: None,
+            sa_window_tracker: SaWindowChunkTracker::default(),
         })) as Arc<dyn ExecutionPlan>;
         let probe_vis = take_matching_visibility_checks(pending_vis, &configured_scan.schema());
         if !pending_vis.is_empty() {

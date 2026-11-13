@@ -41,14 +41,30 @@ const MAX_ESTIMATED_RANGE_TERMS: usize = 512;
 /// across multiple candidate segments.
 const MIN_ESTIMATED_RANGE_TERMS_PER_SEGMENT: usize = 16;
 
+/// Fallback strategy when a range query spans more than `max_range_terms` dictionary terms.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RangeFallbackPolicy {
+    /// Conservative row-count heuristic for planner and executor cardinality estimation:
+    /// returns `0` when `.stats` proves disjointness, `max_doc` when `.stats` proves full
+    /// non-null coverage, and `matches.max(max_doc / 10).min(max_doc)` otherwise so a single
+    /// outlier `min` or `max` on a skewed column cannot inflate open-ended inequalities to ~100%.
+    #[default]
+    ConservativeRowCount,
+    /// Linear `[min, max]` interpolation over `.stats` bounds for HNSW vector routing
+    /// (`estimate_vector_match_fraction`), where over-estimating a broad range avoids excessive
+    /// cluster over-fetching.
+    UniformStats,
+}
+
 /// Shared state threaded into [`QueryEstimate::estimate_docs_with_context`].
 ///
 /// Reuses cached [`SegmentStatsSnapshot`] handles across segments so wide range estimates do not
-/// re-open `.stats` per segment, and bounds the per-segment FST range-term stream length across
-/// candidate segments.
+/// re-open `.stats` per segment, selects the wide-range fallback policy, and bounds the
+/// per-segment FST range-term stream length when iterating across candidate segments.
 #[derive(Clone, Copy)]
 pub struct EstimateContext<'a> {
     stats_snapshot: Option<&'a SegmentStatsSnapshot>,
+    range_fallback: RangeFallbackPolicy,
     max_range_terms: usize,
 }
 
@@ -56,13 +72,14 @@ impl Default for EstimateContext<'_> {
     fn default() -> Self {
         Self {
             stats_snapshot: None,
+            range_fallback: RangeFallbackPolicy::ConservativeRowCount,
             max_range_terms: MAX_ESTIMATED_RANGE_TERMS,
         }
     }
 }
 
 impl<'a> EstimateContext<'a> {
-    pub(crate) fn for_candidates(
+    pub(crate) fn for_vector_match_fraction(
         stats_snapshot: &'a SegmentStatsSnapshot,
         num_candidates: usize,
     ) -> Self {
@@ -70,6 +87,7 @@ impl<'a> EstimateContext<'a> {
             .max(MIN_ESTIMATED_RANGE_TERMS_PER_SEGMENT);
         Self {
             stats_snapshot: Some(stats_snapshot),
+            range_fallback: RangeFallbackPolicy::UniformStats,
             max_range_terms,
         }
     }
@@ -77,6 +95,7 @@ impl<'a> EstimateContext<'a> {
     pub(crate) fn for_single_segment(stats_snapshot: &'a SegmentStatsSnapshot) -> Self {
         Self {
             stats_snapshot: Some(stats_snapshot),
+            range_fallback: RangeFallbackPolicy::ConservativeRowCount,
             max_range_terms: MAX_ESTIMATED_RANGE_TERMS,
         }
     }
@@ -113,6 +132,50 @@ fn term_to_pdb_scalar(term: &Term) -> Option<PdbOwnedValue> {
     }
 }
 
+fn is_nan_scalar(value: &PdbOwnedValue) -> bool {
+    matches!(value, PdbOwnedValue::F64(v) if v.is_nan())
+}
+
+fn map_term_bound(bound: &Bound<Term>) -> Option<Bound<PdbOwnedValue>> {
+    Some(match bound {
+        Bound::Included(t) => {
+            let v = term_to_pdb_scalar(t)?;
+            (!is_nan_scalar(&v)).then_some(Bound::Included(v))?
+        }
+        Bound::Excluded(t) => {
+            let v = term_to_pdb_scalar(t)?;
+            (!is_nan_scalar(&v)).then_some(Bound::Excluded(v))?
+        }
+        Bound::Unbounded => Bound::Unbounded,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RangeStatsProof {
+    Disjoint,
+    CoversAllNonNull,
+    Partial,
+}
+
+fn stats_range_proof(
+    stats: &EmpiricalStats,
+    lower: &Bound<Term>,
+    upper: &Bound<Term>,
+) -> Option<RangeStatsProof> {
+    if is_nan_scalar(&stats.min) || is_nan_scalar(&stats.max) {
+        return None;
+    }
+    let lower_bound = map_term_bound(lower)?;
+    let upper_bound = map_term_bound(upper)?;
+    if !stats.intersects(&lower_bound, &upper_bound) {
+        Some(RangeStatsProof::Disjoint)
+    } else if !stats.nullable && stats.is_subset_of(&lower_bound, &upper_bound) {
+        Some(RangeStatsProof::CoversAllNonNull)
+    } else {
+        Some(RangeStatsProof::Partial)
+    }
+}
+
 /// Estimates the fraction of documents matching `(lower, upper)` assuming values are uniformly
 /// distributed between `stats.min` and `stats.max` when `.stats` carries non-nullable scalar
 /// bounds.
@@ -125,15 +188,8 @@ fn uniform_range_fraction(
         // Nullability also covers multivalued fields; min/max cannot estimate their document counts.
         return None;
     }
-    let map_bound = |bound: &Bound<Term>| -> Option<Bound<PdbOwnedValue>> {
-        Some(match bound {
-            Bound::Included(t) => Bound::Included(term_to_pdb_scalar(t)?),
-            Bound::Excluded(t) => Bound::Excluded(term_to_pdb_scalar(t)?),
-            Bound::Unbounded => Bound::Unbounded,
-        })
-    };
-    let lower_bound = map_bound(lower)?;
-    let upper_bound = map_bound(upper)?;
+    let lower_bound = map_term_bound(lower)?;
+    let upper_bound = map_term_bound(upper)?;
     let distance = |value: &PdbOwnedValue| {
         let distance = match (&stats.min, value) {
             (PdbOwnedValue::I64(min), PdbOwnedValue::I64(value)) => {
@@ -305,16 +361,33 @@ impl TermBounds {
         let max_doc = u64::from(reader.max_doc());
         if exceeded_limit {
             // TODO: Keep more granular statistics to estimate nonuniform distributions above 512 terms.
-            if let Some(stats) = ctx.empirical_stats(reader, field)?
-                && let Some(fraction) = uniform_range_fraction(&stats, &self.lower, &self.upper)
-            {
-                let est = (fraction * max_doc as f64)
-                    .max(matches as f64)
-                    .min(max_doc as f64);
-                return Ok(Some(Estimate {
-                    matches: est,
-                    cost: max_doc.max(cost),
-                }));
+            if let Some(stats) = ctx.empirical_stats(reader, field)? {
+                match stats_range_proof(&stats, &self.lower, &self.upper) {
+                    Some(RangeStatsProof::Disjoint) => {
+                        return Ok(Some(Estimate {
+                            matches: 0.0,
+                            cost: 0,
+                        }));
+                    }
+                    Some(RangeStatsProof::CoversAllNonNull) => {
+                        return Ok(Some(Estimate {
+                            matches: max_doc as f64,
+                            cost: max_doc.max(cost),
+                        }));
+                    }
+                    Some(RangeStatsProof::Partial) | None => {}
+                }
+                if ctx.range_fallback == RangeFallbackPolicy::UniformStats
+                    && let Some(fraction) = uniform_range_fraction(&stats, &self.lower, &self.upper)
+                {
+                    let est = (fraction * max_doc as f64)
+                        .max(matches as f64)
+                        .min(max_doc as f64);
+                    return Ok(Some(Estimate {
+                        matches: est,
+                        cost: max_doc.max(cost),
+                    }));
+                }
             }
             let fallback = if matches!(
                 (&self.lower, &self.upper),
@@ -1257,6 +1330,7 @@ mod tests {
         let score_field = sb.add_f64_field("score", INDEXED | FAST);
         let constant_field = sb.add_f64_field("constant", INDEXED | FAST);
         let nonfinite_field = sb.add_f64_field("nonfinite", INDEXED | FAST);
+        let skewed_field = sb.add_i64_field("skewed", INDEXED | FAST);
         let nullable_field = sb.add_i64_field("nullable", INDEXED | FAST);
         let name_field = sb.add_text_field("name", STRING | FAST);
 
@@ -1267,6 +1341,13 @@ mod tests {
 
         let total = 10_000i64;
         for g in 1..=total {
+            let skewed = if g <= 9_000 {
+                1
+            } else if g < total {
+                100 + (g - 9_000)
+            } else {
+                1_400_000
+            };
             let mut d = doc!(
                 id_field => g,
                 unsigned_field => (i64::MAX as u64) + (g as u64),
@@ -1275,6 +1356,7 @@ mod tests {
                 score_field => (g - 1) as f64 * 1000.0 / (total - 1) as f64,
                 constant_field => 100.0f64,
                 nonfinite_field => if g == total { f64::NAN } else { g as f64 },
+                skewed_field => skewed,
                 name_field => format!("s{g:05}"),
             );
             if g > 1 {
@@ -1289,16 +1371,36 @@ mod tests {
         let segment = searcher.segment_reader(0);
         assert_eq!(segment.num_docs(), total as u32);
         assert!(SegmentStats::of_reader(segment).unwrap().is_some());
+        let snapshot = SegmentStatsSnapshot::for_test(&searcher);
+        let row_ctx = EstimateContext::for_single_segment(&snapshot);
+        let vec_ctx = EstimateContext::for_vector_match_fraction(&snapshot, 1);
 
-        let live = |lo: Bound<Term>, hi: Bound<Term>| -> u64 {
+        let live_with = |ctx: EstimateContext<'_>, lo: Bound<Term>, hi: Bound<Term>| -> u64 {
             let rq: Box<dyn Query> = Box::new(RangeQuery::new(lo.clone(), hi.clone()));
             let ffrq: Box<dyn Query> = Box::new(FastFieldRangeQuery::new(lo, hi));
-            let est_rq = rq.estimate_docs(segment).unwrap().unwrap();
-            let est_ff = ffrq.estimate_docs(segment).unwrap().unwrap();
+            let est_rq = rq
+                .estimate_docs_with_context(segment, ctx)
+                .unwrap()
+                .unwrap();
+            let est_ff = ffrq
+                .estimate_docs_with_context(segment, ctx)
+                .unwrap()
+                .unwrap();
             assert!(!est_rq.matches.is_nan());
             assert_eq!(est_rq.live_docs(segment), est_ff.live_docs(segment));
             est_rq.live_docs(segment)
         };
+        let live_row = |lo: Bound<Term>, hi: Bound<Term>| -> u64 {
+            let default_est = RangeQuery::new(lo.clone(), hi.clone())
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap()
+                .live_docs(segment);
+            let ctx_est = live_with(row_ctx, lo, hi);
+            assert_eq!(default_est, ctx_est);
+            ctx_est
+        };
+        let live_vec = |lo: Bound<Term>, hi: Bound<Term>| live_with(vec_ctx, lo, hi);
 
         let term_builders: &[(&str, &dyn Fn(i64) -> Term)] = &[
             ("id", &|v| Term::from_field_i64(id_field, v)),
@@ -1313,45 +1415,82 @@ mod tests {
             }),
         ];
         for (label, mk_term) in term_builders {
-            for (lo, hi, expected) in [
-                // Narrow ranges (<= 512 terms): exact term-dictionary counts.
-                (Bound::Included(9_901), Bound::Unbounded, 100),
-                (Bound::Excluded(9_900), Bound::Unbounded, 100),
-                (Bound::Unbounded, Bound::Included(100), 100),
-                (Bound::Unbounded, Bound::Excluded(101), 100),
-                (Bound::Included(10_000), Bound::Included(10_000), 1),
-                (Bound::Included(20), Bound::Excluded(20), 0),
-                (Bound::Included(90), Bound::Included(10), 0),
-                (Bound::Excluded(10_000), Bound::Unbounded, 0),
-                (Bound::Unbounded, Bound::Excluded(1), 0),
-                // Wide selective range (> 512 terms, < 10% = 1,000): uniform `.stats` gives 6% (600).
-                (Bound::Included(9_401), Bound::Unbounded, 600),
-                (Bound::Excluded(9_400), Bound::Unbounded, 600),
-                (Bound::Unbounded, Bound::Included(600), 600),
-                (Bound::Unbounded, Bound::Excluded(601), 600),
-                // Wide broad range (> 512 terms, > 10%): uniform `.stats` gives 80% (8,000).
-                (Bound::Included(2_001), Bound::Unbounded, 8_000),
-                (Bound::Excluded(2_000), Bound::Unbounded, 8_000),
-                (Bound::Unbounded, Bound::Included(8_000), 8_000),
-                (Bound::Unbounded, Bound::Excluded(8_001), 8_000),
-                (Bound::Included(1_001), Bound::Included(9_000), 8_000),
-                (Bound::Unbounded, Bound::Unbounded, 10_000),
+            for (lo, hi, expected_row, expected_vec) in [
+                // Narrow ranges (<= 512 terms): exact term-dictionary counts under both policies.
+                (Bound::Included(9_901), Bound::Unbounded, 100, 100),
+                (Bound::Excluded(9_900), Bound::Unbounded, 100, 100),
+                (Bound::Unbounded, Bound::Included(100), 100, 100),
+                (Bound::Unbounded, Bound::Excluded(101), 100, 100),
+                (Bound::Included(10_000), Bound::Included(10_000), 1, 1),
+                (Bound::Included(20), Bound::Excluded(20), 0, 0),
+                (Bound::Included(90), Bound::Included(10), 0, 0),
+                (Bound::Excluded(10_000), Bound::Unbounded, 0, 0),
+                (Bound::Unbounded, Bound::Excluded(1), 0, 0),
+                // Full non-null coverage of `[min, max]`: exact `10_000` under both policies.
+                (Bound::Included(1), Bound::Unbounded, 10_000, 10_000),
+                (Bound::Unbounded, Bound::Included(10_000), 10_000, 10_000),
+                (Bound::Unbounded, Bound::Unbounded, 10_000, 10_000),
+                // Partial wide ranges (> 512 terms): conservative 10% (`1_000`) for row counts,
+                // uniform `.stats` interpolation (`600` / `8_000`) for vector routing.
+                (Bound::Included(9_401), Bound::Unbounded, 1_000, 600),
+                (Bound::Excluded(9_400), Bound::Unbounded, 1_000, 600),
+                (Bound::Unbounded, Bound::Included(600), 1_000, 600),
+                (Bound::Unbounded, Bound::Excluded(601), 1_000, 600),
+                (Bound::Included(2_001), Bound::Unbounded, 1_000, 8_000),
+                (Bound::Excluded(2_000), Bound::Unbounded, 1_000, 8_000),
+                (Bound::Unbounded, Bound::Included(8_000), 1_000, 8_000),
+                (Bound::Unbounded, Bound::Excluded(8_001), 1_000, 8_000),
+                (Bound::Included(1_001), Bound::Included(9_000), 1_000, 8_000),
             ] {
-                assert_eq!(live(lo.map(mk_term), hi.map(mk_term)), expected, "{label}");
+                assert_eq!(
+                    live_row(lo.map(mk_term), hi.map(mk_term)),
+                    expected_row,
+                    "{label} row"
+                );
+                assert_eq!(
+                    live_vec(lo.map(mk_term), hi.map(mk_term)),
+                    expected_vec,
+                    "{label} vec"
+                );
             }
         }
 
-        // Float ranges: both > 512 selective (6% = 600) and > 512 broad (80% = 8,000), plus constant and NaN.
+        // Power-law skewed column (`min = 1`, `max = 1_400_000`, `1_000` docs > 100 across 1,000
+        // distinct terms): conservative row estimation returns `1_000` (10%) instead of ~`9_999`.
+        assert_eq!(
+            live_row(
+                Bound::Excluded(Term::from_field_i64(skewed_field, 100)),
+                Bound::Unbounded
+            ),
+            1_000
+        );
+
+        // Float ranges: conservative `1_000` for row counts, uniform `600` / `8_000` for vector
+        // routing, plus exact constant and `NaN`-safe fallback.
         let f_term = |f, v| Term::from_field_f64(f, v);
         assert_eq!(
-            live(
+            live_row(
+                Bound::Included(f_term(score_field, 940.0)),
+                Bound::Unbounded
+            ),
+            1_000
+        );
+        assert_eq!(
+            live_vec(
                 Bound::Included(f_term(score_field, 940.0)),
                 Bound::Unbounded
             ),
             600
         );
         assert_eq!(
-            live(
+            live_row(
+                Bound::Included(f_term(score_field, 200.0)),
+                Bound::Unbounded
+            ),
+            1_000
+        );
+        assert_eq!(
+            live_vec(
                 Bound::Included(f_term(score_field, 200.0)),
                 Bound::Unbounded
             ),
@@ -1379,11 +1518,19 @@ mod tests {
                 0,
             ),
         ] {
-            assert_eq!(live(lo, hi), expected);
+            assert_eq!(live_row(lo.clone(), hi.clone()), expected);
+            assert_eq!(live_vec(lo, hi), expected);
         }
         // Non-finite `.stats` (`NaN`) falls back cleanly without producing `NaN` estimates.
         assert_eq!(
-            live(
+            live_row(
+                Bound::Included(f_term(nonfinite_field, 1.0)),
+                Bound::Unbounded
+            ),
+            1_000
+        );
+        assert_eq!(
+            live_vec(
                 Bound::Included(f_term(nonfinite_field, 1.0)),
                 Bound::Unbounded
             ),
@@ -1391,41 +1538,43 @@ mod tests {
         );
 
         // Nullable and string fields: exact below 512 terms, heuristic 10% floor above 512 terms.
-        assert_eq!(
-            live(
-                Bound::Included(Term::from_field_i64(nullable_field, 9_901)),
-                Bound::Unbounded
-            ),
-            100
-        );
-        assert_eq!(
-            live(
-                Bound::Included(Term::from_field_i64(nullable_field, 2_001)),
-                Bound::Unbounded
-            ),
-            1_000
-        );
-        assert_eq!(
-            live(
-                Bound::Included(Term::from_field_text(name_field, "s09901")),
-                Bound::Unbounded
-            ),
-            100
-        );
-        assert_eq!(
-            live(
-                Bound::Included(Term::from_field_text(name_field, "s02001")),
-                Bound::Unbounded
-            ),
-            1_000
-        );
+        for live in [&live_row as &dyn Fn(_, _) -> u64, &live_vec] {
+            assert_eq!(
+                live(
+                    Bound::Included(Term::from_field_i64(nullable_field, 9_901)),
+                    Bound::Unbounded
+                ),
+                100
+            );
+            assert_eq!(
+                live(
+                    Bound::Included(Term::from_field_i64(nullable_field, 2_001)),
+                    Bound::Unbounded
+                ),
+                1_000
+            );
+            assert_eq!(
+                live(
+                    Bound::Included(Term::from_field_text(name_field, "s09901")),
+                    Bound::Unbounded
+                ),
+                100
+            );
+            assert_eq!(
+                live(
+                    Bound::Included(Term::from_field_text(name_field, "s02001")),
+                    Bound::Unbounded
+                ),
+                1_000
+            );
+        }
 
         // Cached `SegmentStatsSnapshot` opens `.stats` once across repeated range estimates, and
-        // `EstimateContext::for_candidates(..., 32)` caps per-segment FST enumeration at 16 terms.
+        // `EstimateContext::for_vector_match_fraction(..., 32)` caps per-segment FST enumeration at 16 terms.
         use crate::index::segment_pruning::STATS_OPENS;
         use std::sync::atomic::Ordering::Relaxed;
-        let snapshot = SegmentStatsSnapshot::for_test(&searcher);
-        let ctx_32 = EstimateContext::for_candidates(&snapshot, 32);
+        let fresh_snapshot = SegmentStatsSnapshot::for_test(&searcher);
+        let ctx_32 = EstimateContext::for_vector_match_fraction(&fresh_snapshot, 32);
         assert_eq!(
             ctx_32.max_range_terms,
             MIN_ESTIMATED_RANGE_TERMS_PER_SEGMENT

@@ -892,8 +892,6 @@ impl PgSearchTableProvider {
                     crate::scan::ScanEstimateBasis::TotalDocsUpperBound => true,
                     crate::scan::ScanEstimateBasis::Sampled => {
                         self.scan_info.estimate == RowEstimate::Unknown
-                            || (reader.supports_statistics_estimation()
-                                && reader.segment_readers().len() > 1)
                     }
                     crate::scan::ScanEstimateBasis::Snapshot => false,
                 });

@@ -857,8 +857,7 @@ ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 
 -- Edge Case 7: Outer GROUP BY over top-K semi-join, RankJoinExec streaming under tight
--- work_mem, correlated multi-clause BooleanQuery discounting, and multi-segment TermSetQuery
--- parent selectivity estimation.
+-- work_mem, and correlated multi-clause BooleanQuery discounting.
 SELECT sub.parent_id, round(min(sub.dist)::numeric, 4) AS min_dist
 FROM (
     SELECT c.parent_id, c.vec <=> '[1,0,0]'::vector AS dist
@@ -948,19 +947,6 @@ WHERE c.id @@@ pdb.all()
   AND p.id @@@ pdb.all()
   AND p.category = 'gamma'
   AND p.metadata->>'region' = 'north'
-ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
-LIMIT 2;
-
--- Skewed multi-segment TermSetQuery (`1 / 150` on largest segment + `35 / 46` on smaller segment
--- = `36 / 200 = 18% > 0.08`) sums across segments and selects RankJoinExec.
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
-SELECT c.id, c.parent_id
-FROM vsp_children c
-WHERE c.id @@@ pdb.all()
-  AND c.parent_id IN (
-    SELECT p.id FROM vsp_parents p
-    WHERE p.category === 'delta'
-  )
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 

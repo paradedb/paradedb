@@ -216,6 +216,7 @@ mod tests {
                 initial_window: 10.0,
                 parallel_mode: LazyParallelMode::Unpartitioned,
                 telemetry: None,
+                sa_window_tracker: Default::default(),
             });
             let assigned = plan.with_assigned_partition(0);
             let serial = assigned.as_ref().clone().into_single_shared_partition();

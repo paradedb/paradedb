@@ -72,9 +72,10 @@
 //!     `SA` nor `RA` remains.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use crate::api::{HashMap, HashSet};
 use crate::scan::pre_filter::RankLookupPhysicalExpr;
@@ -1341,6 +1342,8 @@ impl ExecutionPlan for RankJoinExec {
             plan_contains_filter_id(&self.inputs.left, self.left_lookup_filter.expression_id());
         let right_ra_capable =
             plan_contains_filter_id(&self.inputs.right, self.right_lookup_filter.expression_id());
+        let left_sa_window_tracker = child_sa_window_tracker(&self.inputs.left, partition);
+        let right_sa_window_tracker = child_sa_window_tracker(&self.inputs.right, partition);
         let left_mode = CursorMode::from_plan(&self.inputs.left, self.combiner.uses_left());
         let right_mode = CursorMode::from_plan(&self.inputs.right, self.combiner.uses_right());
 
@@ -1358,6 +1361,7 @@ impl ExecutionPlan for RankJoinExec {
             left_keys,
             Arc::clone(&key_converter),
             Arc::clone(&self.left_lookup_filter),
+            left_sa_window_tracker,
             left_ra_capable,
             left_mode,
             left_reservation,
@@ -1369,6 +1373,7 @@ impl ExecutionPlan for RankJoinExec {
             right_keys,
             key_converter,
             Arc::clone(&self.right_lookup_filter),
+            right_sa_window_tracker,
             right_ra_capable,
             right_mode,
             right_reservation,
@@ -1537,6 +1542,29 @@ fn plan_contains_filter_id(plan: &Arc<dyn ExecutionPlan>, target_id: Option<u64>
         .any(|c| plan_contains_filter_id(c, Some(target_id)))
 }
 
+/// Resolves the leaf [`PgSearchScanPlan`] `SA`-window chunk tracker for `partition` when `plan`
+/// is a 1-to-1 single-child pass-through chain over a lazy-sorted leaf scan. Returns `None` for
+/// multi-child inputs such as a nested [`RankJoinExec`].
+///
+/// [`PgSearchScanPlan`]: crate::scan::execution_plan::PgSearchScanPlan
+fn child_sa_window_tracker(
+    plan: &Arc<dyn ExecutionPlan>,
+    partition: usize,
+) -> Option<Arc<AtomicBool>> {
+    let mut cur = plan;
+    while cur.children().len() == 1 {
+        let child = cur.children()[0];
+        if child.properties().output_partitioning().partition_count()
+            != cur.properties().output_partitioning().partition_count()
+        {
+            return None;
+        }
+        cur = child;
+    }
+    cur.downcast_ref::<crate::scan::execution_plan::PgSearchScanPlan>()
+        .and_then(|scan| scan.sa_window_tracker_for_partition(partition))
+}
+
 fn update_lookup_filter(
     filter: &Arc<dyn PhysicalExpr>,
     new_expr: Arc<dyn PhysicalExpr>,
@@ -1692,6 +1720,44 @@ struct RetainedBatch {
     heap_refs: HeapRefCount,
 }
 
+/// Score normalized to ascending priority order (`-score` when `descending`, `score` when
+/// `ascending`, with `-0.0` canonicalized to `0.0`) so `BTreeSet::first` visits the
+/// highest-priority entry first.
+#[derive(Debug, Clone, Copy)]
+struct RankOrderKey(f64);
+
+impl RankOrderKey {
+    fn from_score(score: f64, descending: bool) -> Self {
+        let ordered = if descending { -score } else { score };
+        Self(if ordered == 0.0 { 0.0 } else { ordered })
+    }
+
+    fn to_score(self, descending: bool) -> f64 {
+        let score = if descending { -self.0 } else { self.0 };
+        if score == 0.0 { 0.0 } else { score }
+    }
+}
+
+impl PartialEq for RankOrderKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for RankOrderKey {}
+
+impl PartialOrd for RankOrderKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RankOrderKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
 /// Wraps one child stream of [`RankJoinExec`], retaining pulled batches so matched rows
 /// can be assembled by `(BatchIndex, RowIndex)` when their candidate clears threshold `T`,
 /// and coordinating both Sorted Access (`SA`) window pulls and Random Access (`RA`) point lookups.
@@ -1701,6 +1767,7 @@ struct RankedInputCursor {
     key_exprs: Vec<Arc<dyn PhysicalExpr>>,
     key_converter: Arc<RowConverter>,
     lookup_filter: Arc<dyn PhysicalExpr>,
+    child_sa_window_has_more_chunks: Option<Arc<AtomicBool>>,
     ra_capable: bool,
     mode: CursorMode,
     batches: Vec<Option<RetainedBatch>>,
@@ -1716,17 +1783,16 @@ struct RankedInputCursor {
     sa_exhausted: bool,
     /// Total number of `SA` rows advanced from this cursor so far.
     sa_rows_advanced: usize,
-    /// Distinct keys from `SA` batches in rank order `(key, best_sa_score)` for tracking the
-    /// highest-ranking unresolved key (`s_unres`) for Tier-1 (`score > 0.0`) and
-    /// Tier-2 (`score >= 0.0`) `RA` probes on the opposite side.
-    sa_keys_in_order: Vec<(OwnedRow, f64)>,
-    /// Maps each queued key in `sa_keys_in_order` to its best recorded score so duplicate keys
-    /// with worse or equal scores can be skipped in `O(1)` time without scanning `sa_keys_in_order`.
-    sa_queued_keys: HashMap<OwnedRow, f64>,
-    /// Index of the first key in `sa_keys_in_order` not yet probed at all (Tier 1: `score > 0.0`).
-    next_unresolved_idx: usize,
-    /// Index of the first key in `sa_keys_in_order` not yet probed for `0.0`-score rows (Tier 2).
-    next_zero_unresolved_idx: usize,
+    /// Distinct keys ordered by rank priority that have not yet been probed at all
+    /// (Tier 1: `score > 0.0`) on the opposite side.
+    tier1_unprobed: BTreeSet<(RankOrderKey, OwnedRow)>,
+    /// Distinct keys ordered by rank priority that have not yet been probed for `0.0`-score rows
+    /// (Tier 2: `score >= 0.0`) on the opposite side.
+    tier2_unprobed: BTreeSet<(RankOrderKey, OwnedRow)>,
+    /// Maps each recorded key to its best [`RankOrderKey`] so duplicate keys with worse or equal
+    /// scores are skipped in `O(1)` time and strictly better scores update `tier1_unprobed` /
+    /// `tier2_unprobed` in `O(log N)` time.
+    sa_queued_keys: HashMap<OwnedRow, RankOrderKey>,
     /// Current batch size for `RA` point lookups triggered from this cursor's unresolved `SA` keys.
     /// Starts at [`RA_INITIAL_BATCH_SIZE`] and scales by `topk_retry_scale_factor` after each batch.
     ra_batch_size: usize,
@@ -1746,6 +1812,7 @@ impl RankedInputCursor {
         key_exprs: Vec<Arc<dyn PhysicalExpr>>,
         key_converter: Arc<RowConverter>,
         lookup_filter: Arc<dyn PhysicalExpr>,
+        child_sa_window_has_more_chunks: Option<Arc<AtomicBool>>,
         ra_capable: bool,
         mode: CursorMode,
         reservation: MemoryReservation,
@@ -1758,6 +1825,7 @@ impl RankedInputCursor {
             key_exprs,
             key_converter,
             lookup_filter,
+            child_sa_window_has_more_chunks,
             ra_capable,
             mode,
             batches: Vec::new(),
@@ -1771,10 +1839,9 @@ impl RankedInputCursor {
             bottom_score: start_sa_exhausted.then_some(0.0),
             sa_exhausted: start_sa_exhausted,
             sa_rows_advanced: 0,
-            sa_keys_in_order: Vec::new(),
+            tier1_unprobed: BTreeSet::new(),
+            tier2_unprobed: BTreeSet::new(),
             sa_queued_keys: HashMap::default(),
-            next_unresolved_idx: 0,
-            next_zero_unresolved_idx: 0,
             ra_batch_size: RA_INITIAL_BATCH_SIZE,
             ra_positive_probed_keys: HashSet::default(),
             ra_probed_keys: HashSet::default(),
@@ -1794,69 +1861,83 @@ impl RankedInputCursor {
         self.current_row_idx < self.current_batch_scores.len()
     }
 
+    /// Returns `true` when pulling the next `SA` chunk from the child stream stays within an
+    /// already-computed sorted stream rather than expanding a leaf `TopDocs` retry window.
+    /// Non-leaf children (`None`, such as a nested [`RankJoinExec`]) stream incremental batches
+    /// without `TopDocs` window retries until `sa_exhausted` becomes `true`.
+    fn has_child_sa_window_chunks(&self) -> bool {
+        match &self.child_sa_window_has_more_chunks {
+            Some(flag) => flag.load(AtomicOrdering::Relaxed),
+            None => !self.sa_exhausted,
+        }
+    }
+
+    fn has_more_in_current_sa_window(&self) -> bool {
+        !self.sa_exhausted && (self.has_buffered_rows() || self.has_child_sa_window_chunks())
+    }
+
     fn sa_fully_consumed(&self) -> bool {
         self.sa_exhausted && !self.has_buffered_rows()
     }
 
-    /// Number of un-probed `SA` key entries currently queued for Tier-1 `RA` lookup on the opposite side.
+    fn rank_order_key(&self, score: f64) -> RankOrderKey {
+        RankOrderKey::from_score(score, self.sort_expr.options.descending)
+    }
+
+    fn score_from_rank_key(&self, key: RankOrderKey) -> f64 {
+        key.to_score(self.sort_expr.options.descending)
+    }
+
+    /// Number of distinct unprobed keys currently queued for Tier-1 (`score > 0.0`) `RA` lookup
+    /// on the opposite side.
     fn unresolved_key_count(&self) -> usize {
-        self.sa_keys_in_order
-            .len()
-            .saturating_sub(self.next_unresolved_idx)
+        self.tier1_unprobed.len()
     }
 
-    /// Number of `SA` key entries not yet probed for `0.0`-score rows (Tier-2) on the opposite side.
+    /// Number of distinct keys not yet probed for `0.0`-score rows (Tier-2) on the opposite side.
     fn zero_unresolved_key_count(&self) -> usize {
-        self.sa_keys_in_order
-            .len()
-            .saturating_sub(self.next_zero_unresolved_idx)
+        self.tier2_unprobed.len()
     }
 
-    /// Advances `next_unresolved_idx` past keys already in `opposite_positive_probed` or `opposite_probed`,
-    /// and advances `next_zero_unresolved_idx` past keys already in `opposite_probed`.
-    fn skip_probed_keys(
-        &mut self,
-        opposite_positive_probed: &HashSet<OwnedRow>,
-        opposite_probed: &HashSet<OwnedRow>,
-    ) {
-        while self.next_unresolved_idx < self.sa_keys_in_order.len() {
-            let (key, _) = &self.sa_keys_in_order[self.next_unresolved_idx];
-            if opposite_positive_probed.contains(key) || opposite_probed.contains(key) {
-                self.next_unresolved_idx += 1;
-            } else {
-                break;
-            }
-        }
-        while self.next_zero_unresolved_idx < self.sa_keys_in_order.len() {
-            let (key, _) = &self.sa_keys_in_order[self.next_zero_unresolved_idx];
-            if opposite_probed.contains(key) {
-                self.next_zero_unresolved_idx += 1;
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// Returns the score of the highest-ranked `SA` row whose join key has not yet been
-    /// probed at all via `RA` (neither Tier-1 nor Tier-2) on the opposite side.
-    fn top_unresolved_score(
-        &self,
-        opposite_positive_probed: &HashSet<OwnedRow>,
-        opposite_probed: &HashSet<OwnedRow>,
-    ) -> Option<f64> {
-        self.sa_keys_in_order[self.next_unresolved_idx..]
+    /// Returns `true` if at least `self.ra_batch_size` Tier-2 unprobed keys satisfy
+    /// `include_score`, matching the prefix cutoff enforced by [`Self::pop_all_unresolved_keys`].
+    fn has_tier2_batch_ready(&self, mut include_score: impl FnMut(f64) -> bool) -> bool {
+        self.tier2_unprobed
             .iter()
-            .find(|(k, _)| !opposite_positive_probed.contains(k) && !opposite_probed.contains(k))
-            .map(|(_, s)| *s)
+            .take_while(|(rk, _)| include_score(self.score_from_rank_key(*rk)))
+            .take(self.ra_batch_size)
+            .count()
+            >= self.ra_batch_size
     }
 
-    /// Returns the score of the highest-ranked `SA` row whose join key has not yet been
-    /// probed for `0.0`-score rows (Tier-2) on the opposite side.
-    fn top_zero_unresolved_score(&self, opposite_probed: &HashSet<OwnedRow>) -> Option<f64> {
-        self.sa_keys_in_order[self.next_zero_unresolved_idx..]
-            .iter()
-            .find(|(k, _)| !opposite_probed.contains(k))
-            .map(|(_, s)| *s)
+    /// Returns the score of the highest-ranked key that has not yet been probed at all via `RA`
+    /// (neither Tier-1 nor Tier-2) on the opposite side.
+    fn top_unresolved_score(&self) -> Option<f64> {
+        self.tier1_unprobed
+            .first()
+            .map(|(rk, _)| self.score_from_rank_key(*rk))
+    }
+
+    /// Returns the score of the highest-ranked key that has not yet been probed for `0.0`-score
+    /// rows (Tier-2) on the opposite side.
+    fn top_zero_unresolved_score(&self) -> Option<f64> {
+        self.tier2_unprobed
+            .first()
+            .map(|(rk, _)| self.score_from_rank_key(*rk))
+    }
+
+    fn remove_tier1_key(&mut self, key: &OwnedRow) {
+        if let Some(&rk) = self.sa_queued_keys.get(key) {
+            self.tier1_unprobed.remove(&(rk, key.clone()));
+        }
+    }
+
+    fn remove_all_tiers_key(&mut self, key: &OwnedRow) {
+        if let Some(&rk) = self.sa_queued_keys.get(key) {
+            let entry = (rk, key.clone());
+            self.tier1_unprobed.remove(&entry);
+            self.tier2_unprobed.remove(&entry);
+        }
     }
 
     fn scale_ra_batch_size(&mut self) {
@@ -1869,58 +1950,60 @@ impl RankedInputCursor {
         self.ra_batch_size = (self.ra_batch_size * retry_scale).min(max_chunk);
     }
 
-    /// Pops up to `self.ra_batch_size` distinct unresolved `SA` keys for a Tier-1 (`score > 0.0`)
-    /// `RA` probe, marking them in `opposite_positive_probed`.
+    /// Pops up to `self.ra_batch_size` distinct unresolved keys for a Tier-1 (`score > 0.0`)
+    /// `RA` probe, marking them in `opposite_cursor.ra_positive_probed_keys`.
     fn pop_positive_unresolved_keys(
         &mut self,
-        opposite_positive_probed: &mut HashSet<OwnedRow>,
-        opposite_probed: &HashSet<OwnedRow>,
+        opposite_cursor: &mut Self,
         scale: RaBatchScale,
     ) -> Vec<OwnedRow> {
         let max_keys = self.ra_batch_size;
         let mut out = Vec::new();
-        while self.next_unresolved_idx < self.sa_keys_in_order.len() && out.len() < max_keys {
-            let (key, _) = &self.sa_keys_in_order[self.next_unresolved_idx];
-            self.next_unresolved_idx += 1;
-            if !opposite_probed.contains(key) && opposite_positive_probed.insert(key.clone()) {
-                out.push(key.clone());
+        while out.len() < max_keys
+            && let Some((_, key)) = self.tier1_unprobed.pop_first()
+        {
+            if !opposite_cursor.ra_probed_keys.contains(&key)
+                && opposite_cursor.ra_positive_probed_keys.insert(key.clone())
+            {
+                out.push(key);
             }
         }
-        self.skip_probed_keys(opposite_positive_probed, opposite_probed);
-        if !out.is_empty() && matches!(scale, RaBatchScale::AdvanceWindow) {
+        if out.len() >= max_keys && matches!(scale, RaBatchScale::AdvanceWindow) {
             self.scale_ra_batch_size();
         }
         out
     }
 
-    /// Pops up to `self.ra_batch_size` distinct unresolved `SA` keys whose Tier-2 (`score = 0.0`
-    /// on the opposite side) rank bound is `>= cutoff`, marking them in both `opposite_probed`
-    /// and `opposite_positive_probed`.
+    /// Pops up to `self.ra_batch_size` distinct unresolved keys whose Tier-2 (`score = 0.0`
+    /// on the opposite side) rank bound satisfies `include_score`, marking them in both
+    /// `opposite_cursor.ra_probed_keys` and `opposite_cursor.ra_positive_probed_keys`.
     fn pop_all_unresolved_keys(
         &mut self,
-        opposite_positive_probed: &mut HashSet<OwnedRow>,
-        opposite_probed: &mut HashSet<OwnedRow>,
+        opposite_cursor: &mut Self,
         scale: RaBatchScale,
         mut include_score: impl FnMut(f64) -> bool,
     ) -> Vec<OwnedRow> {
         let max_keys = self.ra_batch_size;
         let mut out = Vec::new();
-        while self.next_zero_unresolved_idx < self.sa_keys_in_order.len() && out.len() < max_keys {
-            let (key, score) = &self.sa_keys_in_order[self.next_zero_unresolved_idx];
-            if !out.is_empty() && !include_score(*score) {
+        while out.len() < max_keys {
+            let Some((rk, _)) = self.tier2_unprobed.first() else {
+                break;
+            };
+            let score = self.score_from_rank_key(*rk);
+            if !out.is_empty() && !include_score(score) {
                 break;
             }
-            self.next_zero_unresolved_idx += 1;
-            opposite_positive_probed.insert(key.clone());
-            if opposite_probed.insert(key.clone()) {
-                out.push(key.clone());
+            let (rk, key) = self
+                .tier2_unprobed
+                .pop_first()
+                .expect("checked non-empty above");
+            self.tier1_unprobed.remove(&(rk, key.clone()));
+            opposite_cursor.ra_positive_probed_keys.insert(key.clone());
+            if opposite_cursor.ra_probed_keys.insert(key.clone()) {
+                out.push(key);
             }
         }
-        if self.next_unresolved_idx < self.next_zero_unresolved_idx {
-            self.next_unresolved_idx = self.next_zero_unresolved_idx;
-        }
-        self.skip_probed_keys(opposite_positive_probed, opposite_probed);
-        if !out.is_empty() && matches!(scale, RaBatchScale::AdvanceWindow) {
+        if out.len() >= max_keys && matches!(scale, RaBatchScale::AdvanceWindow) {
             self.scale_ra_batch_size();
         }
         out
@@ -1970,6 +2053,11 @@ impl RankedInputCursor {
                         }
                     }
                     if batch.num_rows() == 0 {
+                        if (self.unresolved_key_count() > 0 || self.zero_unresolved_key_count() > 0)
+                            && !self.has_child_sa_window_chunks()
+                        {
+                            return Ok(None);
+                        }
                         continue;
                     }
                     return Ok(Some(batch));
@@ -2111,62 +2199,51 @@ impl RankedInputCursor {
         Ok(())
     }
 
-    /// Records a key in `sa_keys_in_order` while maintaining this cursor's rank order
-    /// (`descending` or `ascending`).
-    fn record_positive_key(&mut self, key: OwnedRow, score: f64) {
-        let descending = self.sort_expr.options.descending;
-        let is_better_or_eq = |a: f64, b: f64| if descending { a >= b } else { a <= b };
-        let is_strictly_better = |a: f64, b: f64| if descending { a > b } else { a < b };
+    /// Records a positive-score key into `tier1_unprobed` and `tier2_unprobed` according to this
+    /// cursor's rank order (`descending` or `ascending`), skipping tiers already probed on
+    /// `opp_cursor`.
+    fn record_positive_key(&mut self, key: OwnedRow, score: f64, opp_cursor: &Self) {
+        if opp_cursor.ra_probed_keys.contains(&key) {
+            return;
+        }
+        let new_rk = self.rank_order_key(score);
         match self.sa_queued_keys.entry(key.clone()) {
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(score);
-                let pos = if self
-                    .sa_keys_in_order
-                    .last()
-                    .is_none_or(|(_, last_s)| is_better_or_eq(*last_s, score))
-                {
-                    self.sa_keys_in_order.len()
-                } else {
-                    self.sa_keys_in_order
-                        .partition_point(|(_, s)| is_better_or_eq(*s, score))
-                };
-                self.sa_keys_in_order.insert(pos, (key, score));
-                self.next_unresolved_idx = self.next_unresolved_idx.min(pos);
-                self.next_zero_unresolved_idx = self.next_zero_unresolved_idx.min(pos);
+                entry.insert(new_rk);
+                if !opp_cursor.ra_positive_probed_keys.contains(&key) {
+                    self.tier1_unprobed.insert((new_rk, key.clone()));
+                }
+                self.tier2_unprobed.insert((new_rk, key));
             }
             std::collections::hash_map::Entry::Occupied(mut entry) => {
-                if is_strictly_better(score, *entry.get()) {
-                    entry.insert(score);
-                    if let Some(existing_idx) =
-                        self.sa_keys_in_order.iter().position(|(k, _)| *k == key)
-                    {
-                        self.sa_keys_in_order.remove(existing_idx);
+                let old_rk = *entry.get();
+                if new_rk < old_rk {
+                    entry.insert(new_rk);
+                    let old_entry = (old_rk, key.clone());
+                    self.tier1_unprobed.remove(&old_entry);
+                    self.tier2_unprobed.remove(&old_entry);
+                    if !opp_cursor.ra_positive_probed_keys.contains(&key) {
+                        self.tier1_unprobed.insert((new_rk, key.clone()));
                     }
-                    let pos = self
-                        .sa_keys_in_order
-                        .partition_point(|(_, s)| is_better_or_eq(*s, score));
-                    self.sa_keys_in_order.insert(pos, (key, score));
-                    self.next_unresolved_idx = self.next_unresolved_idx.min(pos);
-                    self.next_zero_unresolved_idx = self.next_zero_unresolved_idx.min(pos);
+                    self.tier2_unprobed.insert((new_rk, key));
                 }
             }
         }
     }
 
     /// Advances the buffered `SA` cursor by one row, updating `bottom_score` and recording
-    /// its key in `sa_keys_in_order` if the opposite side is `ra_capable`.
-    fn advance_buffered_row(&mut self, record_for_ra: bool, opposite_probed: &HashSet<OwnedRow>) {
+    /// its key for `RA` probing if `opp_cursor` is `ra_capable`.
+    fn advance_buffered_row(&mut self, opp_cursor: &Self) {
         let row_idx = self.current_row_idx;
         let score = self.current_batch_scores[row_idx];
         let key = self.current_batch_keys[row_idx].take();
         self.current_row_idx += 1;
         self.sa_rows_advanced += 1;
         self.bottom_score = Some(score);
-        if record_for_ra
+        if opp_cursor.ra_capable
             && let Some(k) = key
-            && !opposite_probed.contains(&k)
         {
-            self.record_positive_key(k, score);
+            self.record_positive_key(k, score, opp_cursor);
         }
     }
 
@@ -2472,6 +2549,16 @@ impl RankJoinStream {
         }
     }
 
+    fn cursors_mut(
+        &mut self,
+        side: AdvanceSide,
+    ) -> (&mut RankedInputCursor, &mut RankedInputCursor) {
+        match side {
+            AdvanceSide::Left => (&mut self.left_cursor, &mut self.right_cursor),
+            AdvanceSide::Right => (&mut self.right_cursor, &mut self.left_cursor),
+        }
+    }
+
     fn score_to_rank_value(
         combined_score: f64,
         primary_score_is_f32: bool,
@@ -2510,11 +2597,8 @@ impl RankJoinStream {
             };
             (u, f64::NEG_INFINITY)
         } else {
-            let s_pos = cursor.top_unresolved_score(
-                &opp_cursor.ra_positive_probed_keys,
-                &opp_cursor.ra_probed_keys,
-            );
-            let s_zero = cursor.top_zero_unresolved_score(&opp_cursor.ra_probed_keys);
+            let s_pos = cursor.top_unresolved_score();
+            let s_zero = cursor.top_zero_unresolved_score();
             let u_pos = match (s_pos, opp_bound) {
                 (Some(s), Some(opp)) if opp > 0.0 => {
                     self.to_rank_value(self.combiner.eval(InputScorePair::for_side(side, s, opp)))
@@ -2633,11 +2717,8 @@ impl RankJoinStream {
     /// Advances the specified side's `SA` cursor by one buffered row, lowering `bottom_score`
     /// and recording its join key for `RA` probing on the opposite side.
     fn advance_one_row(&mut self, side: AdvanceSide) {
-        let (cursor, opp_cursor) = match side {
-            AdvanceSide::Left => (&mut self.left_cursor, &self.right_cursor),
-            AdvanceSide::Right => (&mut self.right_cursor, &self.left_cursor),
-        };
-        cursor.advance_buffered_row(opp_cursor.ra_capable, &opp_cursor.ra_probed_keys);
+        let (cursor, opp_cursor) = self.cursors_mut(side);
+        cursor.advance_buffered_row(opp_cursor);
     }
 
     /// Inserts all rows of the newly pulled `SA` batch on `side` into `side`'s hash table
@@ -2710,7 +2791,7 @@ impl RankJoinStream {
     /// satisfy neither side's disjunctive search predicate when join keys are non-unique.
     /// Positive-score `RA` rows (`score > 0.0`) matched their own table's search query (and were
     /// added to `emitted_docs`, so `SA` will not re-emit them), so they are treated as `from_sa`
-    /// and recorded in `sa_keys_in_order` for Tier-2 probing on the opposite side.
+    /// and recorded for `RA` probing on the opposite side.
     fn ingest_ra_batch(&mut self, side: AdvanceSide, batch: RecordBatch) -> Result<()> {
         if batch.num_rows() == 0 {
             return Ok(());
@@ -2779,9 +2860,9 @@ impl RankJoinStream {
                         ));
                     }
                 }
-                // Queue unprobed keys from positive-score RA rows for Tier-2 probing on the opposite side.
-                if from_sa && opp_cursor.ra_capable && !opp_cursor.ra_probed_keys.contains(&key) {
-                    cursor.record_positive_key(key.clone(), score);
+                // Queue unprobed keys from positive-score RA rows for Tier-1/Tier-2 probing on the opposite side.
+                if from_sa && opp_cursor.ra_capable {
+                    cursor.record_positive_key(key.clone(), score, opp_cursor);
                 }
                 // Index the row in `side`'s hash table for future opposite-side SA/RA arrivals.
                 cursor
@@ -3002,7 +3083,8 @@ impl RankJoinStream {
                     .and_then(|pt| self.combiner.threshold_for(opposite_side, pt, target_score));
                 match row_opp_thresh {
                     None => {
-                        let opposite_cursor = self.cursor_mut(opposite_side);
+                        let (target_cursor, opposite_cursor) = self.cursors_mut(target_side);
+                        target_cursor.remove_all_tiers_key(key);
                         opposite_cursor.ra_positive_probed_keys.insert(key.clone());
                         if opposite_cursor.ra_probed_keys.insert(key.clone()) {
                             unfiltered_keys.push(key.clone());
@@ -3027,7 +3109,7 @@ impl RankJoinStream {
             if !threshold_keys.is_empty() {
                 let opp_thresh = min_opp_thresh.unwrap_or(0.0);
                 let filtered_threshold_keys: Vec<OwnedRow> = {
-                    let opposite_cursor = self.cursor_mut(opposite_side);
+                    let (target_cursor, opposite_cursor) = self.cursors_mut(target_side);
                     threshold_keys
                         .into_iter()
                         .filter(|k| {
@@ -3035,6 +3117,7 @@ impl RankJoinStream {
                                 return false;
                             }
                             if opp_thresh == 0.0 {
+                                target_cursor.remove_tier1_key(k);
                                 opposite_cursor.ra_positive_probed_keys.insert(k.clone())
                             } else {
                                 true
@@ -3376,14 +3459,6 @@ impl RankJoinStream {
         &mut self,
         pull_side: AdvanceSide,
     ) -> Result<bool> {
-        self.left_cursor.skip_probed_keys(
-            &self.right_cursor.ra_positive_probed_keys,
-            &self.right_cursor.ra_probed_keys,
-        );
-        self.right_cursor.skip_probed_keys(
-            &self.left_cursor.ra_positive_probed_keys,
-            &self.left_cursor.ra_probed_keys,
-        );
         self.evict_consumed_batches();
 
         let b = self.compute_detailed_bounds();
@@ -3472,15 +3547,6 @@ impl RankJoinStream {
     /// has accumulated `ra_batch_size` unresolved keys so Rule 2 can interleave a batched `RA`
     /// lookup before draining the remainder of a large `SA` window.
     fn next_buffered_sa_side(&mut self) -> Option<AdvanceSide> {
-        self.left_cursor.skip_probed_keys(
-            &self.right_cursor.ra_positive_probed_keys,
-            &self.right_cursor.ra_probed_keys,
-        );
-        self.right_cursor.skip_probed_keys(
-            &self.left_cursor.ra_positive_probed_keys,
-            &self.left_cursor.ra_probed_keys,
-        );
-
         let left_can_advance = self.left_cursor.has_buffered_rows()
             && (!self.right_cursor.ra_capable
                 || self.left_cursor.unresolved_key_count() < self.left_cursor.ra_batch_size);
@@ -3506,15 +3572,23 @@ impl RankJoinStream {
         };
         let pos_ready = match policy {
             RaReadinessPolicy::RequireFullBatch => {
-                src_cursor.sa_fully_consumed()
+                !src_cursor.has_more_in_current_sa_window()
                     || src_cursor.unresolved_key_count() >= src_cursor.ra_batch_size
             }
             RaReadinessPolicy::FlushAnyAvailable => src_cursor.unresolved_key_count() > 0,
         };
         let zero_ready = match policy {
             RaReadinessPolicy::RequireFullBatch => {
-                src_cursor.sa_fully_consumed()
-                    || src_cursor.zero_unresolved_key_count() >= src_cursor.ra_batch_size
+                if !src_cursor.has_more_in_current_sa_window() {
+                    src_cursor.zero_unresolved_key_count() > 0
+                } else {
+                    src_cursor.has_tier2_batch_ready(|src_score| {
+                        let combined = self
+                            .combiner
+                            .eval(InputScorePair::for_side(side, src_score, 0.0));
+                        self.to_rank_value(combined) >= bounds.u_sa
+                    })
+                }
             }
             RaReadinessPolicy::FlushAnyAvailable => src_cursor.zero_unresolved_key_count() > 0,
         };
@@ -3553,17 +3627,10 @@ impl RankJoinStream {
         let combiner = self.combiner.clone();
         let descending = self.output_ordering[0].options.descending;
         let primary_score_is_f32 = self.primary_score_is_f32;
-        let (src_cursor, dst_cursor) = match source_side {
-            AdvanceSide::Left => (&mut self.left_cursor, &mut self.right_cursor),
-            AdvanceSide::Right => (&mut self.right_cursor, &mut self.left_cursor),
-        };
+        let (src_cursor, dst_cursor) = self.cursors_mut(source_side);
         match tier {
             RaProbeTier::PositiveOnly => {
-                let keys = src_cursor.pop_positive_unresolved_keys(
-                    &mut dst_cursor.ra_positive_probed_keys,
-                    &dst_cursor.ra_probed_keys,
-                    scale,
-                );
+                let keys = src_cursor.pop_positive_unresolved_keys(dst_cursor, scale);
                 NextIoStep::RaLookup {
                     target_side,
                     keys,
@@ -3571,17 +3638,11 @@ impl RankJoinStream {
                 }
             }
             RaProbeTier::IncludeZero { cutoff } => {
-                let keys = src_cursor.pop_all_unresolved_keys(
-                    &mut dst_cursor.ra_positive_probed_keys,
-                    &mut dst_cursor.ra_probed_keys,
-                    scale,
-                    |src_score| {
-                        let combined =
-                            combiner.eval(InputScorePair::for_side(source_side, src_score, 0.0));
-                        Self::score_to_rank_value(combined, primary_score_is_f32, descending)
-                            >= cutoff
-                    },
-                );
+                let keys = src_cursor.pop_all_unresolved_keys(dst_cursor, scale, |src_score| {
+                    let combined =
+                        combiner.eval(InputScorePair::for_side(source_side, src_score, 0.0));
+                    Self::score_to_rank_value(combined, primary_score_is_f32, descending) >= cutoff
+                });
                 NextIoStep::RaLookup {
                     target_side,
                     keys,
@@ -3595,9 +3656,10 @@ impl RankJoinStream {
     /// async child I/O operation (Tier-1 `score > 0.0` `RA` lookup, Tier-2 `score >= 0.0` `RA`
     /// lookup, or pulling the next `SA` batch).
     ///
-    /// While a source cursor's `SA` stream still has rows available (`!sa_fully_consumed()`), its
-    /// `RA` probe is deferred until `ra_batch_size` unprobed keys have accumulated across `SA`
-    /// chunks so `RA` lookups remain large even when `SA` materializes small chunks.
+    /// While a source cursor's current `SA` window still has unmaterialized chunks
+    /// (`has_more_in_current_sa_window()`), its `RA` probe is deferred until `ra_batch_size`
+    /// unprobed keys have accumulated across chunks; once the current `SA` window finishes, any
+    /// remaining unprobed keys flush immediately before triggering a larger retry `SA` window.
     fn next_io_step(&mut self) -> NextIoStep {
         let b = self.compute_detailed_bounds();
         let can_sa = (!self.left_cursor.sa_fully_consumed()

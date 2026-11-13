@@ -129,10 +129,6 @@ pub struct SegmentPruningEstimate {
 }
 
 struct EstimationSample<'a> {
-    candidates: Vec<&'a SegmentReader>,
-    candidate_docs: u64,
-    /// Proportion `reader_docs / total_docs` covered when summing across all `candidates`.
-    candidates_doc_proportion: f64,
     largest_reader: &'a SegmentReader,
     /// Proportion `(largest_seg_docs / candidate_docs) * (reader_docs / total_docs)` covered by
     /// `largest_reader` alone.
@@ -1058,7 +1054,10 @@ impl SearchIndexReader {
 
     pub fn estimate_vector_match_fraction(&self) -> f64 {
         let candidates: Vec<_> = self.candidate_segment_readers().collect();
-        let ctx = EstimateContext::for_candidates(&self.segment_stats_snapshot, candidates.len());
+        let ctx = EstimateContext::for_vector_match_fraction(
+            &self.segment_stats_snapshot,
+            candidates.len(),
+        );
         let (matches, docs) =
             candidates
                 .into_iter()
@@ -3056,10 +3055,8 @@ impl SearchIndexReader {
     /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     /// 3. Tantivy's relative cost to drive the configured query's docset.
     ///
-    /// Prunes segments using `.stats` first, sums dictionary-backed estimates across all
-    /// surviving candidate segments when [`Self::supports_statistics_estimation`] holds and every
-    /// candidate segment supports [`QueryEstimate`], and otherwise samples the largest surviving
-    /// candidate segment and scales its estimates to the candidate portion of the relation.
+    /// Prunes segments using `.stats` first, then samples the largest surviving candidate segment
+    /// and scales its estimates to the candidate portion of the relation.
     ///
     /// TODO: <https://github.com/paradedb/paradedb/issues/6976> will replace per-segment sampling
     /// with persistent index-wide summary statistics, avoiding both the assumption that the
@@ -3089,10 +3086,6 @@ impl SearchIndexReader {
             };
         };
 
-        if let Some(docs_estimate) = self.estimate_self_across_candidates(&sample, total_docs) {
-            return docs_estimate;
-        }
-
         let largest_reader = sample.largest_reader;
         let single_ctx = EstimateContext::for_single_segment(&self.segment_stats_snapshot);
         let (count, mut cost) = self
@@ -3118,67 +3111,7 @@ impl SearchIndexReader {
         }
     }
 
-    /// Sums dictionary-backed [`QueryEstimate`] live-doc and cost estimates for `self.query`
-    /// across `sample.candidates` and scales them to the candidate share of `total_docs`,
-    /// returning `None` if statistics estimation is disabled or unsupported on any candidate.
-    fn estimate_self_across_candidates(
-        &self,
-        sample: &EstimationSample<'_>,
-        total_docs: u64,
-    ) -> Option<DocsEstimate> {
-        if !self.estimate_from_statistics {
-            return None;
-        }
-        let ctx =
-            EstimateContext::for_candidates(&self.segment_stats_snapshot, sample.candidates.len());
-        let mut matching_docs = 0u64;
-        let mut query_cost = 0u64;
-        for &reader in &sample.candidates {
-            let estimate = self
-                .query
-                .estimate_docs_with_context(reader, ctx)
-                .ok()
-                .flatten()?;
-            let mut seg_cost = estimate.cost;
-            if let Some(shortest_posting_list) = self.shortest_posting_list(reader) {
-                seg_cost = seg_cost.max(shortest_posting_list);
-            }
-            matching_docs = matching_docs.saturating_add(estimate.live_docs(reader));
-            query_cost = query_cost.saturating_add(seg_cost);
-        }
-        Some(DocsEstimate {
-            matching_docs: scale_largest_segment_estimate(
-                matching_docs,
-                sample.candidates_doc_proportion,
-            ) as usize,
-            total_docs,
-            query_cost: scale_largest_segment_estimate(
-                query_cost,
-                sample.candidates_doc_proportion,
-            ),
-        })
-    }
-
-    /// Sums unscaled dictionary-backed [`QueryEstimate`] live-doc counts for `query` across
-    /// `candidates`, returning `None` if any candidate segment does not support [`QueryEstimate`].
-    fn estimate_live_docs_across_candidates(
-        &self,
-        query: &dyn Query,
-        candidates: &[&SegmentReader],
-    ) -> Option<u64> {
-        let ctx = EstimateContext::for_candidates(&self.segment_stats_snapshot, candidates.len());
-        let mut matching_docs = 0u64;
-        for &reader in candidates {
-            let estimate = query
-                .estimate_docs_with_context(reader, ctx)
-                .ok()
-                .flatten()?;
-            matching_docs = matching_docs.saturating_add(estimate.live_docs(reader));
-        }
-        Some(matching_docs)
-    }
-
-    /// Returns the candidate segment readers and scaling proportions for plan-time estimation.
+    /// Returns the largest candidate segment reader and scaling proportion for plan-time estimation.
     ///
     /// Populates `self.pruning_estimate` over all candidate segments (including mutable segments),
     /// then excludes mutable segments from the estimation sample whenever at least one persisted
@@ -3231,11 +3164,7 @@ impl SearchIndexReader {
         let largest_doc_proportion = (self.segment_num_docs(largest_reader) as f64
             / candidate_docs as f64)
             * reader_proportion;
-        let candidates = candidates.into_iter().map(|(_, r)| r).collect();
         Some(EstimationSample {
-            candidates,
-            candidate_docs,
-            candidates_doc_proportion: reader_proportion,
             largest_reader,
             largest_doc_proportion,
         })
@@ -3256,13 +3185,6 @@ impl SearchIndexReader {
             return 0.0;
         };
         let query = self.make_query(query_input, None);
-        if query_input.supports_statistics_estimation()
-            && sample.candidate_docs > 0
-            && let Some(count) =
-                self.estimate_live_docs_across_candidates(query.as_ref(), &sample.candidates)
-        {
-            return (count as f64 / sample.candidate_docs as f64).clamp(0.0, 1.0);
-        }
         let largest_reader = sample.largest_reader;
         let seg_docs = self.segment_num_docs(largest_reader);
         if seg_docs == 0 {
@@ -3432,16 +3354,6 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
-        if estimate_from_statistics
-            && let Some(count) = self
-                .estimate_live_docs_across_candidates(tantivy_query.as_ref(), &sample.candidates)
-        {
-            node.set_estimate(scale_largest_segment_estimate(
-                count,
-                sample.candidates_doc_proportion,
-            ) as usize);
-            return;
-        }
         let largest_reader = sample.largest_reader;
         let single_ctx = EstimateContext::for_single_segment(&self.segment_stats_snapshot);
         if estimate_from_statistics
@@ -4535,7 +4447,9 @@ mod tests {
             if uses_stats {
                 prop_assert!(est.matching_docs <= 20);
                 if is_exact_single_leaf(&query) {
-                    prop_assert_eq!(est.matching_docs, unpruned_count);
+                    if pruning.candidate_segments <= 1 {
+                        prop_assert_eq!(est.matching_docs, unpruned_count);
+                    }
                     if pruning.candidate_segments > 0 {
                         let candidate_docs: u64 = reader
                             .candidate_segment_readers()

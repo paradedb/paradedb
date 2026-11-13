@@ -44,7 +44,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       MSMARCO_SIZE: 113m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '571856093420cea96fa875440851638918be9c6c' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'b9ab301b8f990a5508429bc5893c9b016e5cf016' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       MSMARCO_CONFIG: ${{ inputs.engine == 'pg_search' && 'benchmarks/msmarco/113m.toml' || format('benchmarks/msmarco/113m-{0}.toml', inputs.engine) }}
@@ -369,9 +369,9 @@ jobs:
 
           pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
 
-          Engine: \`$BENCHMARK_ENGINE\`. Uses heap backup \`20261102-224214F\` and the same 100 held-out query vectors for all engines. Each engine runs on its own runner, with a 64-CPU / 128-GiB database container.
+          Engine: \`$BENCHMARK_ENGINE\`. Uses heap backup \`20261102-224214F\` and the same 100 held-out query vectors for all engines. Each engine runs on its own runner, with a 64-CPU / 32-GiB database container.
 
-          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch at paradedb/pg_vectorsearch commit \`$PG_VECTORSEARCH_REF\` includes the parallel-build detoast memory fix and uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (80,000 lists, residual quantization, spherical centroids) and sweeps vchordrq.probes from 1–80000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
+          ParadeDB uses eight index segments, a 0.32 training sample ratio, quantized routing, and adaptive probing. Its integer max_probe sweep starts at 100 and searches 1–100000. pg_vectorsearch at paradedb/pg_vectorsearch commit \`$PG_VECTORSEARCH_REF\` includes the parallel-build detoast memory fix and uses PRISM with automatic nlist and an integer prism.nprobe sweep starting at 64, searching 1–4096. VectorChord 1.1.1 uses the pdbench load profile (100,000 lists, residual quantization, spherical centroids, hierarchical k-means in 100 dimensions, sampling factor 64, and build.pin=2) and sweeps vchordrq.probes from 1–100000, starting at 100. Settings are selected independently for top-10 and top-100 at R90/R95/R99.
 
           Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 

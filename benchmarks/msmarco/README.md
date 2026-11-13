@@ -16,7 +16,13 @@ calibration runs in pdbench's Rust implementation.
 | --------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | ParadeDB        | Requested pg_search revision; eight segments, 0.32 training sample ratio, quantized routing | `paradedb.vector_cluster_max_probe`: 1–100000, starting at 100 |
 | pg_vectorsearch | Pinned ParadeDB fork; PRISM cosine index with automatic `nlist`                             | `prism.nprobe`: 1–4096, starting at 64                         |
-| VectorChord     | Release 1.1.1; 80,000 lists, residual quantization, spherical centroids                     | `vchordrq.probes`: 1–80000, starting at 100                    |
+| VectorChord     | Release 1.1.1; 100,000 lists, residual quantization, spherical centroids                    | `vchordrq.probes`: 1–100000, starting at 100                   |
+
+VectorChord uses hierarchical k-means in 100 dimensions, a sampling factor of 64,
+and `build.pin=2`. Its 100,000 lists fall within the documented 8–16 times the
+square root of the row count for datasets above 50 million rows. This keeps the
+clustering memory estimate near 2.7 GiB before Postgres and index-cache overhead.
+See the [partitioning guidance](https://docs.vectorchord.ai/vectorchord/usage/partitioning-tuning.html).
 
 The VectorChord partition configuration is a starting point, not a tuned 113M
 result. ParadeDB uses adaptive probing; SOAR replication from #7315 is not part

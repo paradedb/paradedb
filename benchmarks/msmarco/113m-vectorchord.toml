@@ -25,10 +25,14 @@ max_worker_processes = 32
 [index]
 options = """
 residual_quantization = true
+build.pin = 2
 [build.internal]
-lists = [80000]
+lists = [100000]
 spherical_centroids = true
 build_threads = 8
+sampling_factor = 64
+kmeans_algorithm.hierarchical = {}
+kmeans_dimension = 100
 """
 
 [search]
@@ -50,7 +54,7 @@ enable_sort = "off"
 [search.sweep]
 param = "vchordrq.probes"
 min = 1
-max = 80000
+max = 100000
 start = 100
 integer = true
 targets = [0.9, 0.95, 0.99]

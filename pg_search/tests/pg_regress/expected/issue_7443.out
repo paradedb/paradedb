@@ -1,23 +1,23 @@
 -- A Join Scan or an Aggregate Scan that is read in parts, by a cursor or a PL/pgSQL
 -- FOR loop, must go on from the row where the previous fetch stopped. Postgres shuts
--- the plan down at the end of each partial fetch and then runs it again.
+-- the plan down at the end of each partial fetch and then runs it again (#7443).
 \i common/common_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
-CREATE TABLE issue_cursor_restart_s (id int PRIMARY KEY, title text);
-CREATE TABLE issue_cursor_restart_e (id int PRIMARY KEY, s_id int);
-INSERT INTO issue_cursor_restart_s SELECT g, 'dragon ' || g FROM generate_series(1, 9000) g;
-INSERT INTO issue_cursor_restart_e SELECT g, g FROM generate_series(1, 9000) g;
-CREATE INDEX issue_cursor_restart_s_idx ON issue_cursor_restart_s USING paradedb (id, title);
-CREATE INDEX issue_cursor_restart_e_idx ON issue_cursor_restart_e USING paradedb (id, s_id);
+CREATE TABLE issue_7443_s (id int PRIMARY KEY, title text);
+CREATE TABLE issue_7443_e (id int PRIMARY KEY, s_id int);
+INSERT INTO issue_7443_s SELECT g, 'dragon ' || g FROM generate_series(1, 9000) g;
+INSERT INTO issue_7443_e SELECT g, g FROM generate_series(1, 9000) g;
+CREATE INDEX issue_7443_s_idx ON issue_7443_s USING paradedb (id, title);
+CREATE INDEX issue_7443_e_idx ON issue_7443_e USING paradedb (id, s_id);
 SET paradedb.enable_join_custom_scan = on;
 SET paradedb.enable_aggregate_custom_scan = on;
 EXPLAIN (COSTS OFF)
 SELECT s.id, e.id AS e_id
-FROM issue_cursor_restart_s s JOIN issue_cursor_restart_e e ON e.s_id = s.id
+FROM issue_7443_s s JOIN issue_7443_e e ON e.s_id = s.id
 WHERE s.title ||| 'dragon'
 ORDER BY s.id LIMIT 6;
                                                                                                                        QUERY PLAN                                                                                                                        
@@ -40,12 +40,12 @@ ORDER BY s.id LIMIT 6;
 
 -- Join Scan: three fetches of 4 rows return rows 1-4, then 5-6, then none.
 BEGIN;
-DECLARE issue_cursor_restart_join CURSOR FOR
+DECLARE issue_7443_join CURSOR FOR
 SELECT s.id, e.id AS e_id
-FROM issue_cursor_restart_s s JOIN issue_cursor_restart_e e ON e.s_id = s.id
+FROM issue_7443_s s JOIN issue_7443_e e ON e.s_id = s.id
 WHERE s.title ||| 'dragon'
 ORDER BY s.id LIMIT 6;
-FETCH 4 FROM issue_cursor_restart_join;
+FETCH 4 FROM issue_7443_join;
  id | e_id 
 ----+------
   1 |    1
@@ -54,14 +54,14 @@ FETCH 4 FROM issue_cursor_restart_join;
   4 |    4
 (4 rows)
 
-FETCH 4 FROM issue_cursor_restart_join;
+FETCH 4 FROM issue_7443_join;
  id | e_id 
 ----+------
   5 |    5
   6 |    6
 (2 rows)
 
-FETCH 4 FROM issue_cursor_restart_join;
+FETCH 4 FROM issue_7443_join;
  id | e_id 
 ----+------
 (0 rows)
@@ -69,14 +69,14 @@ FETCH 4 FROM issue_cursor_restart_join;
 COMMIT;
 -- Join Scan: a FOR loop in a procedure called at the top level fetches one row at
 -- a time. It must see each of the 12 rows once and then end.
-CREATE PROCEDURE issue_cursor_restart_join_loop(INOUT ids int[] DEFAULT '{}')
+CREATE PROCEDURE issue_7443_join_loop(INOUT ids int[] DEFAULT '{}')
 LANGUAGE plpgsql AS $$
 DECLARE
     r record;
 BEGIN
     FOR r IN
         SELECT s.id
-        FROM issue_cursor_restart_s s JOIN issue_cursor_restart_e e ON e.s_id = s.id
+        FROM issue_7443_s s JOIN issue_7443_e e ON e.s_id = s.id
         WHERE s.title ||| 'dragon'
         ORDER BY s.id LIMIT 12
     LOOP
@@ -85,7 +85,7 @@ BEGIN
     END LOOP;
 END
 $$;
-CALL issue_cursor_restart_join_loop();
+CALL issue_7443_join_loop();
              ids              
 ------------------------------
  {1,2,3,4,5,6,7,8,9,10,11,12}
@@ -93,14 +93,14 @@ CALL issue_cursor_restart_join_loop();
 
 EXPLAIN (COSTS OFF)
 SELECT s.id, count(*)
-FROM issue_cursor_restart_s s JOIN issue_cursor_restart_e e ON e.s_id = s.id
+FROM issue_7443_s s JOIN issue_7443_e e ON e.s_id = s.id
 WHERE s.title ||| 'dragon'
 GROUP BY s.id;
                                                                                                                      QUERY PLAN                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
-   Indexes: issue_cursor_restart_s_idx (s), issue_cursor_restart_e_idx (e)
+   Indexes: issue_7443_s_idx (s), issue_7443_e_idx (e)
    Group By: id
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
@@ -115,7 +115,7 @@ GROUP BY s.id;
 -- Aggregate Scan: a FOR loop in a function fetches 10 rows, then 50 at a time. The
 -- 9000 groups are more than one DataFusion batch (8192 rows), and the loop must
 -- see all of them.
-CREATE FUNCTION issue_cursor_restart_agg_loop() RETURNS bigint
+CREATE FUNCTION issue_7443_agg_loop() RETURNS bigint
 LANGUAGE plpgsql AS $$
 DECLARE
     r record;
@@ -123,7 +123,7 @@ DECLARE
 BEGIN
     FOR r IN
         SELECT s.id, count(*)
-        FROM issue_cursor_restart_s s JOIN issue_cursor_restart_e e ON e.s_id = s.id
+        FROM issue_7443_s s JOIN issue_7443_e e ON e.s_id = s.id
         WHERE s.title ||| 'dragon'
         GROUP BY s.id
     LOOP
@@ -132,15 +132,15 @@ BEGIN
     RETURN n;
 END
 $$;
-SELECT issue_cursor_restart_agg_loop();
- issue_cursor_restart_agg_loop 
--------------------------------
-                          9000
+SELECT issue_7443_agg_loop();
+ issue_7443_agg_loop 
+---------------------
+                9000
 (1 row)
 
 RESET paradedb.enable_join_custom_scan;
 RESET paradedb.enable_aggregate_custom_scan;
-DROP PROCEDURE issue_cursor_restart_join_loop;
-DROP FUNCTION issue_cursor_restart_agg_loop;
-DROP TABLE issue_cursor_restart_s;
-DROP TABLE issue_cursor_restart_e;
+DROP PROCEDURE issue_7443_join_loop;
+DROP FUNCTION issue_7443_agg_loop;
+DROP TABLE issue_7443_s;
+DROP TABLE issue_7443_e;

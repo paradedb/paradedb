@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794579977001,
+  "lastUpdate": 1794589355739,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -88821,6 +88821,299 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13965035445-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "501f56d2dfe455f2d2cacc3f649dde474fb8d472",
+          "message": "docs: Fix Homebrew installation instructions for icu4c (#7451)\n\nUpdated instructions for installing icu4c with Homebrew.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Philippe No\u00ebl <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-11-13T15:30:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/501f56d2dfe455f2d2cacc3f649dde474fb8d472"
+        },
+        "date": 1794589351527,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 35.227,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 50.589,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 59.95,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 38.468,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 47.448,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 54.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 60.12,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 76.622,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 81.988,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 34.843,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 61.798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 69.402,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 41.647,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 60.006,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 70.578,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 53.107,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 68.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 78.773,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 35.786,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 57.472,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 66.609,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 36.638,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 55.841,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 70.017,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 48.529,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 64.872,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 71.533,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.489,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.526,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.603,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.571,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.609,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.695,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.55,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.587,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.67,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 18.055,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 18.938,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 19.699,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 18.85,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 19.667,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 20.559,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 12.657,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 12.994,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 14.552,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 20.076,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 22.94,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 23.552,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 37.009,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 41.09,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 41.859,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 95.865,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 110.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 111.196,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14059398430-latency"
       }
     ],
     "benchmarker hackernews-vector-28m (throughput)": [
@@ -89049,6 +89342,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13965035445-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "501f56d2dfe455f2d2cacc3f649dde474fb8d472",
+          "message": "docs: Fix Homebrew installation instructions for icu4c (#7451)\n\nUpdated instructions for installing icu4c with Homebrew.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Philippe No\u00ebl <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-11-13T15:30:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/501f56d2dfe455f2d2cacc3f649dde474fb8d472"
+        },
+        "date": 1794589353541,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 26.67051771108635,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 25.36824785573261,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 16.34975359773497,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 25.305712273248048,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 23.213412919567848,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 18.888234498149554,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 25.298426308417437,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 25.097414755340736,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 20.198983248647107,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 284.021357603167,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 277.5164312852125,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 279.15487073884645,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 56.14830344262919,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 53.0263709519131,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 78.36969376838803,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 50.7196529736382,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 28.357303908037913,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 10.16804049717987,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14059398430-throughput"
       }
     ],
     "benchmarker hackernews-vector-28m (buffers)": [
@@ -89277,6 +89683,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13965035445-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "501f56d2dfe455f2d2cacc3f649dde474fb8d472",
+          "message": "docs: Fix Homebrew installation instructions for icu4c (#7451)\n\nUpdated instructions for installing icu4c with Homebrew.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Philippe No\u00ebl <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-11-13T15:30:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/501f56d2dfe455f2d2cacc3f649dde474fb8d472"
+        },
+        "date": 1794589354783,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 19031.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 23291.07,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 39404.23,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 17335.99,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 20519.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 33165.65,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 18987.25,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 20327.04,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 30526.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1308.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1308.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1308.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 8986.7,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 9732.48,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7606.42,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 8024.44,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 15961.03,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 49017.44,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14059398430-buffers"
       }
     ],
     "benchmarker hackernews-vector-28m (index build)": [
@@ -89355,6 +89874,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13965035445-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe No\u00ebl",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "501f56d2dfe455f2d2cacc3f649dde474fb8d472",
+          "message": "docs: Fix Homebrew installation instructions for icu4c (#7451)\n\nUpdated instructions for installing icu4c with Homebrew.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Philippe No\u00ebl <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-11-13T15:30:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/501f56d2dfe455f2d2cacc3f649dde474fb8d472"
+        },
+        "date": 1794589355727,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 30.75,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162334.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 46.46413803100586,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14059398430-index"
       }
     ]
   }

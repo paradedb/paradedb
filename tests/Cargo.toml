@@ -20,12 +20,10 @@ dst = ["proptest/antithesis", "dst/enabled"]
 
 [dependencies]
 anyhow = "1.0.102"
-approx = "0.5.1"
 async-std = { version = "1.13.2", features = ["attributes"] }
 bigdecimal = { version = "0.4.11", features = ["serde"] }
 bytes = "1.11.1"
 chrono = { version = "0.4.44", features = ["clock", "alloc"] }
-cmd_lib = "2.0.1"
 dotenvy = "0.15.7"
 # Antithesis hooks; the macros are type-checked no-ops until `dst/enabled`.
 dst = { path = "../dst" }
@@ -33,8 +31,6 @@ env_logger = "0.11.10"
 futures = "0.3.34"
 lockfree-object-pool = "0.1.6"
 num-traits = "0.2.19"
-pgvector = { version = "0.4.1", features = ["sqlx"] }
-pretty_assertions = "1.4.1"
 # Fork adds RngAlgorithm::Antithesis (crate version still 1.11.0).
 proptest = { git = "https://github.com/antithesishq/proptest", rev = "6061eb48d67ff76f882e709677308816d5791ce7" }
 # Stays on crates.io: the antithesis feature does not touch the derive crate.
@@ -55,6 +51,13 @@ strum = { version = "0.28.0", features = ["derive"] }
 tantivy.workspace = true
 tempfile = "3.27.0"
 time = { version = "0.3.47", features = ["serde"] }
+uuid = "1.27.0"
+
+[dev-dependencies]
+approx = "0.5.1"
+cmd_lib = "2.0.1"
+pgvector = { version = "0.4.1", features = ["sqlx"] }
+pretty_assertions = "1.4.1"
 tokenizers = { path = "../tokenizers" }
 tokio = { version = "1.53.2", features = [
   "rt-multi-thread",
@@ -62,4 +65,3 @@ tokio = { version = "1.53.2", features = [
   "time",
   "sync",
 ] }
-uuid = "1.27.0"

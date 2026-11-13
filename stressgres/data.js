@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794557653806,
+  "lastUpdate": 1794557684750,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -502168,6 +502168,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13925467961-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794557680935,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.81797937279438,
+            "unit": "median tps",
+            "extra": "avg tps: 57.23704578330083, max tps: 513.0397060424841, count: 58716"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.34100701737928,
+            "unit": "median tps",
+            "extra": "avg tps: 31.42154032881388, max tps: 321.4725797722517, count: 58716"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.33835081131583,
+            "unit": "median tps",
+            "extra": "avg tps: 131.6462328103387, max tps: 1426.0598655178012, count: 58716"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.379846002553023,
+            "unit": "median tps",
+            "extra": "avg tps: 30.446612897458817, max tps: 255.37469869503923, count: 58716"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.81664472259669,
+            "unit": "median tps",
+            "extra": "avg tps: 59.680020885677024, max tps: 525.6599496398995, count: 58716"
+          }
+        ],
+        "publication_id": "14020736037-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -515740,6 +515793,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13925467961-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43",
+          "message": "fix: store columnar section lengths as u64 (#7430)\n\n## Ticket(s) Closed\n\n- None. Reported internally: a 300 GB index build died in its last merge\nwith `assertion failed: end <= orig_range.end`.\n\n## What\n\nThis PR fixes index builds and merges that produce a fast field column\nlarger than 4 GiB.\n\n## Why\n\nThe columnar format stored the byte lengths that trail a column index, a\nmultivalued index's optional index and a string dictionary as `u32`. A\nmerged segment with a high-cardinality string fast field, such as a text\nkey field, can grow its dictionary past 4 GiB. The length was truncated\non write. The stats plugin then reopened every column of the merged\nsegment, parsed the dictionary footer from the wrong bytes, and panicked\nin `FileSlice::split`.\n\n## How\n\n- Columnar format v3 in the Tantivy fork (paradedb/tantivy#418) stores\nthese lengths as `u64`. Segments written in v1 and v2 stay readable.\n- The ctid map keeps writing its column in the v2 layout, because it has\nno columnar footer to tell the versions apart.\n\n## Tests\n\n- Tantivy fork: `columnar/tests/large_dictionary.rs` (ignored, needs\nabout 9 GB of scratch space), `columnar/src/compat_tests.rs`,\n`columnar/src/columnar/format_version.rs`.\n- No SQL regression test. The failure needs more than 4 GiB of distinct\nfast field values in one segment.\n- #7445 has scripts that reproduce the build failure on `0.26.3`.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T06:34:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7556396e5aa3e60b0e386ba7f6ba6fc2875bdc43"
+        },
+        "date": 1794557684647,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.5546875,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.20381595838443, max partition_index_size:MB: 23.65625, count: 58716"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.922636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.224550350903513, max cpu: 32.78049, count: 58716"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 47.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.97030116365216, max mem: 55.67578125, count: 58716"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.032629,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.893526450649873, max cpu: 32.668934, count: 58716"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 66.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 66.77946958133218, max mem: 72.2578125, count: 58716"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.714285,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.172385767791608, max cpu: 27.839535, count: 58716"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 49.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.318566143598, max mem: 51.6640625, count: 58716"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.021584,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.89890274038116, max cpu: 36.64122, count: 58716"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 64.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.9218541767789, max mem: 72.41796875, count: 58716"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.922636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.155355312927558, max cpu: 32.307693, count: 58716"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 60.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.72161888103328, max mem: 70.2421875, count: 58716"
+          }
+        ],
+        "publication_id": "14020736037-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

@@ -30,6 +30,9 @@ use crate::gucs;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::{MainThread, run_on_main_thread};
 
+/// Minimum estimated matches for candidate prefiltering, independent of the probe budget.
+pub const MIN_BATCHED_FILTER_MATCHES: usize = 50_000;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct VectorRoutingResults {
     pub budget: VectorSearchBudget,

@@ -18,6 +18,7 @@
 use super::cost::{WorkerDecisionReason, WorkerPathPolicy, parallel_divisor};
 use crate::api::FieldName;
 use crate::gucs;
+use crate::index::reader::vector::MIN_BATCHED_FILTER_MATCHES;
 use crate::postgres::options::BM25IndexOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
@@ -45,6 +46,9 @@ impl WorkerPathPolicy {
         let Some(nworkers) = NonZeroUsize::new(workers) else {
             return Self::SerialOnly { reason };
         };
+        if !query.is_text_only() && vectors * selectivity < MIN_BATCHED_FILTER_MATCHES as f64 {
+            return Self::ParallelOnly { nworkers, reason };
+        }
         let Some(SearchFieldType::Vector(_, dimensions, _)) = options.get_field_type(field) else {
             return Self::SerialOnly { reason };
         };

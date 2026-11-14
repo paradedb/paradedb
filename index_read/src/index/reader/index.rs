@@ -36,7 +36,8 @@ use crate::index::reader::io_stats;
 use crate::index::reader::scorer::{DeferredScorer, LazyWeight, ScorerIter};
 use crate::index::reader::sort_by_range::SortByRange;
 use crate::index::reader::vector::{
-    SharedVectorRouting, VectorFilterWeight, VectorRoutingResults, probe_params,
+    MIN_BATCHED_FILTER_MATCHES, SharedVectorRouting, VectorFilterWeight, VectorRoutingResults,
+    probe_params,
 };
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::setup_tokenizers;
@@ -966,17 +967,23 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+    pub fn estimate_vector_matches(&self) -> f64 {
+        self.candidate_segment_readers()
+            .map(|(_, reader)| {
+                self.query.estimate_docs(reader).ok().flatten().map_or(
+                    f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                    |estimate| estimate.live_docs(reader) as f64,
+                )
+            })
+            .sum()
+    }
+
     pub fn estimate_vector_match_fraction(&self) -> f64 {
-        let (matches, docs) =
-            self.candidate_segment_readers()
-                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
-                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
-                        |estimate| estimate.live_docs(reader) as f64,
-                    );
-                    (matches + estimated, docs + u64::from(reader.num_docs()))
-                });
-        matches / docs.max(1) as f64
+        let docs = self
+            .candidate_segment_readers()
+            .map(|(_, reader)| u64::from(reader.num_docs()))
+            .sum::<u64>();
+        self.estimate_vector_matches() / docs.max(1) as f64
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -3411,7 +3418,9 @@ impl SearchIndexReader {
             match routing {
                 VectorRouting::Local => {
                     let mut builder = builder.clone();
-                    if self.has_column_filter {
+                    if self.has_column_filter
+                        && self.estimate_vector_matches() >= MIN_BATCHED_FILTER_MATCHES as f64
+                    {
                         builder =
                             builder.with_batched_filtering(self.estimate_vector_match_fraction());
                     }
@@ -3916,6 +3925,7 @@ mod tests {
             },
         ] {
             let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_matches(), 2.0);
             assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
             assert_eq!(reader.search().count(), 2);
         }
@@ -3933,6 +3943,7 @@ mod tests {
             ),
         ] {
             let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_matches(), expected * 10.0);
             assert_eq!(reader.estimate_vector_match_fraction(), expected);
         }
         let (mutable, _) = segmented_index_fixture("vector_range_without_stats", 0, true);
@@ -3961,6 +3972,7 @@ mod tests {
             },
         };
         let reader = open_snapshot_reader(&index, query, false);
+        assert_eq!(reader.estimate_vector_matches(), 10.0);
         assert_eq!(reader.estimate_vector_match_fraction(), 0.1);
         assert_eq!(reader.search().count(), 10);
     }
@@ -5046,9 +5058,10 @@ mod tests {
              INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
              SET vector_parallelism.filter = 'keep OR other';
              SET vector_parallelism.range = '[2 TO 100]';
-             RESET paradedb.global_mutable_segment_rows;"
+             RESET paradedb.global_mutable_segment_rows;
+             ANALYZE vector_parallelism;"
         ).unwrap();
-        for (predicate, workers, parallel) in [
+        for (predicate, workers, rows, parallel) in [
             ("", 2, false),
             ("AND category = 'keep'", 2, false),
             (
@@ -5056,19 +5069,29 @@ mod tests {
                 2,
                 false,
             ),
-            ("AND id > 1", 2, false),
+            ("AND id > 1", 2, true),
             (
                 "AND id @@@ paradedb.parse_with_field('id', current_setting('vector_parallelism.range'))",
                 2,
-                false,
+                true,
             ),
-            ("AND heap_value = 1", 2, false),
-            ("AND category = 'keep' AND heap_value = 1", 2, false),
+            ("AND heap_value = 1", 2, true),
+            ("AND category = 'keep' AND heap_value = 1", 2, true),
             ("AND category = 'keep'", 0, false),
             ("AND id > 1", 0, false),
             ("AND heap_value = 1", 0, false),
-        ] {
-            Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
+        ]
+        .into_iter()
+        .map(|(predicate, workers, parallel)| (predicate, workers, 200, parallel))
+        .chain([
+            ("AND id > 1", 2, MIN_BATCHED_FILTER_MATCHES / 2, true),
+            ("AND id > 1", 2, 2 * MIN_BATCHED_FILTER_MATCHES, false),
+        ]) {
+            Spi::run(&format!(
+                "SET max_parallel_workers_per_gather = {workers};
+                 UPDATE pg_class SET reltuples = {rows} WHERE oid = 'vector_parallelism'::regclass;"
+            ))
+            .unwrap();
             let plan = Spi::get_one::<pgrx::Json>(&format!(
                 "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
             )).unwrap().unwrap().0;
@@ -5079,7 +5102,7 @@ mod tests {
                 workers |= node["Workers Planned"].as_u64().unwrap_or(0) > 0;
                 if node["Index"] == "vector_parallelism_idx" {
                     found = true;
-                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
+                    assert_eq!(node["Parallel Aware"], parallel, "rows={rows}: {plan}");
                     assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
                     if predicate.contains("heap_value") {
                         assert!(

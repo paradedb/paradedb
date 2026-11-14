@@ -1,5 +1,5 @@
 name: Set Up VectorChord
-description: Build the pinned VectorChord extension against the benchmark PostgreSQL
+description: Build and install VectorChord in the benchmark container
 
 inputs:
   ref:
@@ -17,7 +17,7 @@ runs:
         path: vectorchord
         persist-credentials: false
 
-    - name: Build and install VectorChord in the benchmark container
+    - name: Build and Install VectorChord
       shell: bash
       run: |
         set -euo pipefail
@@ -40,7 +40,7 @@ runs:
         BUILD
         git -C vectorchord rev-parse HEAD > benchmark-artifacts/vectorchord-commit.txt
 
-    - name: Preload VectorChord and restart the benchmark container
+    - name: Preload VectorChord and Restart PostgreSQL
       shell: bash
       run: |
         set -euo pipefail

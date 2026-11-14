@@ -1,5 +1,5 @@
 name: Set Up pg_vectorsearch
-description: Build the pinned PRISM extension used by the vector benchmarks
+description: Build and install pg_vectorsearch in the benchmark container
 
 inputs:
   ref:
@@ -21,7 +21,7 @@ runs:
         token: ${{ inputs.github_token }}
         persist-credentials: false
 
-    - name: Build and install pg_vectorsearch in the benchmark container
+    - name: Build and Install pg_vectorsearch
       shell: bash
       run: |
         set -euo pipefail
@@ -42,7 +42,7 @@ runs:
         mkdir -p benchmark-artifacts
         git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
 
-    - name: Restart PostgreSQL after installing build dependencies
+    - name: Restart PostgreSQL
       shell: bash
       run: |
         set -euo pipefail

@@ -11,7 +11,10 @@ on:
         description: "Vector index to benchmark"
         type: choice
         options:
-          [pg_search, pg_vectorsearch, vectorchord, vectorchord-prefilter]
+          - pg_search
+          - pg_vectorsearch
+          - vectorchord
+          - vectorchord-prefilter
         default: pg_search
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
@@ -39,13 +42,13 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       contains(fromJSON('["benchmark-hn-vector", "benchmark-hn-pg_vectorsearch", "benchmark-hn-vectorchord", "benchmark-hn-vectorchord-prefilter"]'), github.event.label.name)
+    timeout-minutes: ${{ matrix.engine != 'pg_search' && 1440 || 720 }}
     strategy:
       matrix:
         engine: >-
           ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-hn-pg_vectorsearch') && '["pg_vectorsearch"]' || (startsWith(inputs.engine, 'vectorchord') || startsWith(github.event.label.name, 'benchmark-hn-vectorchord')) && '["vectorchord"]' || '["pg_search"]') }}
         prefilter: >-
           ${{ fromJSON((inputs.engine == 'vectorchord-prefilter' || github.event.label.name == 'benchmark-hn-vectorchord-prefilter') && '["on"]' || '["off"]') }}
-    timeout-minutes: ${{ matrix.engine != 'pg_search' && 1440 || 720 }}
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794643581331,
+  "lastUpdate": 1794643607616,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -525715,6 +525715,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14019394500-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643604787,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3839.0615299642504,
+            "unit": "median tps",
+            "extra": "avg tps: 3835.0857987315762, max tps: 4288.2921340539615, count: 58914"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4385.998731236391,
+            "unit": "median tps",
+            "extra": "avg tps: 4441.018677471104, max tps: 5195.811014905406, count: 58914"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.64127558441693,
+            "unit": "median tps",
+            "extra": "avg tps: 165.37487850177206, max tps: 2834.947836126007, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 24.122849698023522,
+            "unit": "median tps",
+            "extra": "avg tps: 40.41343638969708, max tps: 549.4196843678948, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.115939336448974,
+            "unit": "median tps",
+            "extra": "avg tps: 40.691720812327844, max tps: 581.1435914794894, count: 58914"
+          }
+        ],
+        "publication_id": "14105224062-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -541314,6 +541367,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14019394500-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643607498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5076525568981225, max cpu: 4.6489105, count: 58914"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.907482861671248, max mem: 20.97265625, count: 58914"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.595126405829029, max cpu: 9.086607, count: 58914"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 20.521910910394812, max mem: 20.53515625, count: 58914"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.226334,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.410210476039365, max cpu: 32.95733, count: 58914"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 21.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.18443574797586, max mem: 21.1875, count: 58914"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.038310079099, max document_count: 10002.0, count: 58914"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.027905081984, max document_count: 10002.0, count: 58914"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.242281,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.44311587450949, max cpu: 33.44948, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 59.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.997216679184916, max mem: 73.78125, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.224964,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.411608979351904, max cpu: 33.44948, count: 58914"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 58.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.96065086662338, max mem: 72.71484375, count: 58914"
+          }
+        ],
+        "publication_id": "14105224062-other"
       }
     ]
   }

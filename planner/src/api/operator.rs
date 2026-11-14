@@ -32,7 +32,8 @@ use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
-use pgrx::{PgList, pg_sys};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{PgList, PgLogLevel, PgSqlErrorCode, function_name, pg_sys};
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
 ///
@@ -40,6 +41,7 @@ use pgrx::{PgList, pg_sys};
 pub unsafe fn tantivy_field_name_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
+    error_on_missing_field: bool,
 ) -> Option<(PgSearchRelation, Option<FieldName>)> {
     let (heaprelid, _, targetlist) = find_node_relation(node, root);
     if heaprelid == pg_sys::Oid::INVALID {
@@ -70,6 +72,25 @@ pub unsafe fn tantivy_field_name_from_node(
     if field_name.is_none() {
         let var = nodecast!(Var, node)?;
         if (*var).varattno != 0 {
+            // Typed SearchQueryInput calls can execute without an inferred field,
+            // for example `unindexed_column @@@ paradedb.empty()`.
+            if error_on_missing_field
+                && let Some(field_var) = nodecast!(Var, field_node)
+                && let Some(column) = attname_from_var(&heaprel, field_var)
+            {
+                ErrorReport::new(
+                    PgSqlErrorCode::ERRCODE_UNDEFINED_COLUMN,
+                    format!(
+                        "column \"{column}\" is not included in ParadeDB index \"{}\"",
+                        indexrel.name()
+                    ),
+                    function_name!(),
+                )
+                .set_hint(format!(
+                    "Recreate the index including column \"{column}\" to search it with a ParadeDB operator."
+                ))
+                .report(PgLogLevel::ERROR);
+            }
             return None;
         }
     }

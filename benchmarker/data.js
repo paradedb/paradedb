@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794605569892,
+  "lastUpdate": 1794660137242,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -22788,6 +22788,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14038097449-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794660135407,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 24.835,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 93.443,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 313.516,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 14.341,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 101.329,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 179.209,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 47.007,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 146.926,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 212.896,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 22.658,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 121.195,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 191.566,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 15.294,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 79.342,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 177.672,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14114945456-latency"
       }
     ],
     "benchmarker wikipedia (latency)": [
@@ -49965,6 +50063,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14038097449-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794660137229,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 24.52170742028534,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 33.52486339755,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 16.42751971721752,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 26.105668937214997,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 37.77634619278417,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14114945456-throughput"
       }
     ],
     "benchmarker cohere-1m (latency)": [

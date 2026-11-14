@@ -50,8 +50,8 @@ jobs:
       MSMARCO_CONFIG: ${{ inputs.engine == 'pg_search' && 'benchmarks/msmarco/113m.toml' || format('benchmarks/msmarco/113m-{0}.toml', inputs.engine) }}
       BENCHMARK_ENGINE: ${{ inputs.engine }}
       LOAD_CONFIG: ${{ inputs.engine == 'pg_vectorsearch' && '../benchmarks/msmarco/pg_vectorsearch/load.yaml' || format('configs/load/msmarco-113m-{0}.yaml', inputs.engine == 'pg_search' && 'paradedb' || inputs.engine) }}
-      BENCHMARK_IMAGE: ${{ inputs.engine == 'pg_search' && 'paradedb-source:ci' || inputs.engine == 'pg_vectorsearch' && 'msmarco-pg-vectorsearch:ci' || 'tensorchord/vchord-postgres:pg18-v1.1.1' }}
       RESULTS_DATASET: ${{ inputs.engine == 'pg_search' && 'msmarco-113m' || format('msmarco-113m-{0}', inputs.engine) }}
+      VECTORCHORD_REF: f9b5e234c44cee69b266b8431f92b7deed4e99d3
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
 
     steps:
@@ -90,7 +90,7 @@ jobs:
           rsync -a --delete benchmark-workflow/benchmarks/ benchmarks/
           rsync -a benchmark-workflow/.github/actions/ .github/actions/
           rsync -a benchmark-workflow/.github/scripts/ .github/scripts/
-          cp benchmark-workflow/docker/Dockerfile.{source,pg-vectorsearch} docker/
+          cp benchmark-workflow/docker/Dockerfile.source docker/Dockerfile.source
 
       - name: Record benchmark configuration
         run: |
@@ -125,45 +125,6 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
-      - name: Checkout pg_vectorsearch
-        if: inputs.engine == 'pg_vectorsearch'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          repository: paradedb/pg_vectorsearch
-          ref: ${{ env.PG_VECTORSEARCH_REF }}
-          path: pg-vectorsearch
-          token: ${{ steps.pdbench_token.outputs.token }}
-          persist-credentials: false
-
-      # The pinned pdbench revision supplies VectorChord loading, calibration, and reports.
-      - name: Prepare comparison engine image and dataset
-        if: inputs.engine != 'pg_search'
-        run: |
-          set -euo pipefail
-          if [ "$BENCHMARK_ENGINE" = pg_vectorsearch ]; then
-            git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
-            docker build -f benchmarks/msmarco/pg_vectorsearch/Dockerfile \
-              -t msmarco-pg-vectorsearch:ci pg-vectorsearch
-            mkdir -p pdbench/datasets/msmarco/timescale
-            cp benchmarks/msmarco/pg_vectorsearch/{pre,post}.sql pdbench/datasets/msmarco/timescale/
-          else
-            docker pull tensorchord/vchord-postgres:pg18-v1.1.1
-            test -f pdbench/configs/load/msmarco-113m-vectorchord.yaml
-          fi
-          # Keep the same resource limits and settings, without ParadeDB preload libraries.
-          python3 - <<'PYTHON'
-          import os
-          from pathlib import Path
-          path = Path("pdbench/datasets/msmarco/docker-compose.yml")
-          compose = path.read_text()
-          preload = "shared_preload_libraries=pg_search,pg_cron"
-          if compose.count(preload) != 1:
-              raise ValueError("Expected exactly one ParadeDB preload setting")
-          libraries = "vchord" if os.environ["BENCHMARK_ENGINE"] == "vectorchord" else ""
-          path.write_text(compose.replace(preload, f"shared_preload_libraries={libraries}"))
-          PYTHON
-          docker image inspect "${{ env.BENCHMARK_IMAGE }}" > benchmark-artifacts/image.json
-
       - name: Set up Docker benchmark cluster
         uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
@@ -171,9 +132,26 @@ jobs:
           dataset: msmarco
           size: ${{ env.MSMARCO_SIZE }}
           backup: "20261102-224214F"
-          image_tag: ${{ env.BENCHMARK_IMAGE }}
-          build_from_source: ${{ inputs.engine == 'pg_search' }}
           compose_file: pdbench/datasets/msmarco/docker-compose.yml
+
+      - name: Set up pg_vectorsearch
+        if: inputs.engine == 'pg_vectorsearch'
+        uses: ./.github/actions/setup-pg-vectorsearch
+        with:
+          ref: ${{ env.PG_VECTORSEARCH_REF }}
+          github_token: ${{ steps.pdbench_token.outputs.token }}
+
+      - name: Set up VectorChord
+        if: inputs.engine == 'vectorchord'
+        uses: ./.github/actions/setup-vectorchord
+        with:
+          ref: ${{ env.VECTORCHORD_REF }}
+
+      - name: Prepare pg_vectorsearch load scripts
+        if: inputs.engine == 'pg_vectorsearch'
+        run: |
+          mkdir -p pdbench/datasets/msmarco/timescale
+          cp benchmarks/msmarco/pg_vectorsearch/{pre,post}.sql pdbench/datasets/msmarco/timescale/
 
       - name: Install pdbench toolchain
         run: rustup toolchain install 1.97.1 --profile minimal
@@ -197,7 +175,7 @@ jobs:
         with:
           ref: ${{ env.BENCHMARKER_REF }}
 
-      - name: Refresh benchmark extension and build index
+      - name: Refresh benchmark extension
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c 'DROP EXTENSION IF EXISTS pg_search;'
@@ -216,43 +194,11 @@ jobs:
               -c "SELECT json_object_agg(extname, extversion) FROM pg_extension" \
               > benchmark-artifacts/vectorchord-version.json
           fi
-          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-            -c "SELECT name, setting, unit FROM pg_settings
-                WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
-                               'max_worker_processes', 'max_parallel_maintenance_workers',
-                               'parallel_leader_participation', 'paradedb.global_target_segment_count',
-                               'paradedb.vector_router_rerank_factor', 'paradedb.vector_router_min_beam_fraction',
-                               'paradedb.vector_router_aps')
-                ORDER BY name;" \
-            | tee benchmark-artifacts/index-build-settings.log
-          # The index definition, its options and the Postgres settings it is built under come
-          # from pdbench's load config and dataset files.
-          (
-            cd pdbench
-            pdbench-load finalize "$LOAD_CONFIG" \
-              --set "datastore.url=$PARADEDB_URL" --set datastore.container=paradedb \
-              --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load"
-          ) 2>&1 | tee benchmark-artifacts/index-build.log
-          runs=(benchmark-artifacts/load/*/*_load)
-          test "${#runs[@]}" -eq 1
-          # Writes report.html into the run directory, which is uploaded with the diagnostics.
-          pdbench-report html "${runs[0]}"
-          index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
-          # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
-          created="$(jq -r '.created_at' "${runs[0]}/run.json")"
-          finished="$(jq -r '.finished_at' "${runs[0]}/run.json")"
-          build_seconds=$(( $(date -d "$finished" +%s) - $(date -d "$created" +%s) ))
-          size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
-            -c "SELECT pg_total_relation_size('${index}'::regclass)")"
-          # Container memory in use, excluding inactive page cache, sampled once a second.
-          peak_bytes="$(jq -n '[inputs | select(.type == "Point" and .metric == "container_memory") | .value] | max' \
-            "${runs[0]}/points.jsonl")"
-          jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \
-            --argjson size_bytes "$size_bytes" --argjson peak_bytes "$peak_bytes" '[
-            {name: ($index + " build time"), unit: "min", value: ($build_seconds / 60)},
-            {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)},
-            {name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
-          ]' > benchmark-artifacts/index-metrics.json
+
+      - name: Build index and report metrics
+        uses: ./.github/actions/build-vector-benchmark-index
+        with:
+          config: ${{ env.LOAD_CONFIG }}
 
       - name: Verify eight-segment index
         if: inputs.engine == 'pg_search'
@@ -386,7 +332,7 @@ jobs:
           dataset: ${{ env.RESULTS_DATASET }}
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ inputs.engine }}","pg_vectorsearch":"${{ inputs.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ inputs.engine }}","pg_vectorsearch":"${{ inputs.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ inputs.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
 
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results

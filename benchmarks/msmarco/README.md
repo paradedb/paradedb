@@ -16,7 +16,7 @@ calibration runs in pdbench's Rust implementation.
 | --------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | ParadeDB        | Requested pg_search revision; eight segments, 0.32 training sample ratio, quantized routing | `paradedb.vector_cluster_max_probe`: 1–100000, starting at 100 |
 | pg_vectorsearch | Pinned ParadeDB fork; PRISM cosine index with automatic `nlist`                             | `prism.nprobe`: 1–4096, starting at 64                         |
-| VectorChord     | Release 1.1.1; 80,000 lists, residual quantization, spherical centroids                     | `vchordrq.probes`: 1–80000, starting at 100                    |
+| VectorChord     | Pinned source revision; 80,000 lists, residual quantization, spherical centroids            | `vchordrq.probes`: 1–80000, starting at 100                    |
 
 The VectorChord partition configuration is a starting point, not a tuned 113M
 result. ParadeDB uses adaptive probing; SOAR replication from #7315 is not part
@@ -26,9 +26,11 @@ MS MARCO dataset and uses the existing `timescale` loader backend.
 pg_vectorsearch is built from `paradedb/pg_vectorsearch` commit
 `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, which fixes retained detoast memory
 during parallel index builds. CI authenticates to the private fork, builds it
-with `benchmarks/msmarco/pg_vectorsearch/Dockerfile`, and checks the installed extension's
-commit before building the index. The source revision is retained in diagnostics
-and k6 metadata.
+with the same `setup-pg-vectorsearch` action as HN, and checks the installed
+extension's commit before building the index. The source revision is retained in
+diagnostics and k6 metadata. VectorChord uses HN's `setup-vectorchord` action and pinned
+source revision. All engines use the shared ParadeDB benchmark image and cluster
+setup; comparison runs install their extension into that container.
 
 The pinned pdbench commit includes loading from
 [pdbench #56](https://github.com/paradedb/pdbench/pull/56), calibration from
@@ -89,8 +91,8 @@ PR reports, artifacts, and baseline histories:
 - `benchmarker msmarco-113m-pg_vectorsearch`
 - `benchmarker msmarco-113m-vectorchord`
 
-Diagnostics retain configuration, extension/tool versions, image IDs for the
-comparison engines, query hashes, index settings, plans, raw pdbench reports,
+Diagnostics retain configuration, extension/tool versions, query hashes, index
+settings, plans, raw pdbench reports,
 k6 dashboards, and database logs.
 
 Memory traces for every engine are included in its diagnostics artifact:

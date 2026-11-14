@@ -19,15 +19,20 @@
 //! A `pdb.expand` subquery that reads the rules of a synonym index gives the same expansion as
 //! that index, so the planner replaces it with the index and no query reads every rule.
 
-use super::pdb_query_typoid;
+use super::{
+    SearchOperator, estimate_selectivity, pdb_query_typoid, rewrite_rhs_to_search_query_input,
+    searchqueryinput_typoid,
+};
 use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::access::IndexOid;
 use crate::postgres::node::NodeExt;
-use crate::postgres::planner_warnings::add_planner_warning;
+use crate::postgres::planner_warnings::{add_planner_warning, with_nested_planning};
 use crate::postgres::rel::PgSearchRelation;
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::{pdb, synonym_index_of_column};
 use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, pg_extern, pg_sys};
+use std::ffi::CStr;
 
 /// The planner calls this function in place of a `pdb.expand` subquery that a synonym index
 /// holds. The text of a prepared statement can be a parameter, which has a value only at run time.
@@ -77,6 +82,132 @@ pub(super) unsafe fn replace_expand_subquery(
     })?;
     // The call and a cast around it are immutable, so a constant text gives a constant query.
     Some(pg_sys::eval_const_expressions(root, replaced))
+}
+
+/// The share of rows that the match selects with the rules that the `pdb.expand` subquery in
+/// `rhs` returns now. The plan keeps the subquery, so a cached plan reads the rules of each run.
+pub(super) unsafe fn selectivity_now(
+    root: *mut pg_sys::PlannerInfo,
+    operator: SearchOperator,
+    lhs: *mut pg_sys::Node,
+    rhs: *mut pg_sys::Node,
+    index: &PgSearchRelation,
+    field: &FieldName,
+) -> Option<f64> {
+    if root.is_null() {
+        return None;
+    }
+    let rhs = replace_subquery(rhs, &|subquery| {
+        expand_call(subquery)?;
+        run_now(root, subquery)
+    })?;
+    let rhs = pg_sys::eval_const_expressions(root, rhs);
+    nodecast!(Const, rhs)?;
+    let input = rewrite_rhs_to_search_query_input(
+        operator,
+        searchqueryinput_typoid(),
+        lhs,
+        rhs,
+        Some(field.clone()),
+    );
+    let input = nodecast!(Const, input)?;
+    let input = SearchQueryInput::from_datum((*input).constvalue, (*input).constisnull)?;
+    estimate_selectivity(index, input)
+}
+
+/// The run for the estimate reads and compiles every rule a second time, so it is only for a
+/// rules table of at most this many blocks.
+const MAX_BLOCKS_FOR_ESTIMATE: pg_sys::BlockNumber = 16;
+
+/// Whether a run of the subquery alone, by the role, reads what the subquery reads in the plan.
+unsafe fn runs_alone(subquery: *mut pg_sys::Query) -> bool {
+    let query = &*subquery;
+    let tables = PgList::<pg_sys::RangeTblEntry>::from_pg(query.rtable);
+    let Some(table) = tables.get_ptr(0) else {
+        return false;
+    };
+    if tables.len() != 1
+        || query.hasSubLinks
+        || (*table).rtekind != pg_sys::RTEKind::RTE_RELATION
+        || pg_sys::get_rel_relkind((*table).relid) as u8 != pg_sys::RELKIND_RELATION
+    {
+        return false;
+    }
+    // A subquery in a view has the rights of the view owner, and the run has the rights of the
+    // role.
+    #[cfg(feature = "pg15")]
+    let check_as_user = (*table).checkAsUser;
+    #[cfg(not(feature = "pg15"))]
+    let check_as_user = PgList::<pg_sys::RTEPermissionInfo>::from_pg(query.rteperminfos)
+        .get_ptr(((*table).perminfoindex as usize).wrapping_sub(1))
+        .map_or(pg_sys::Oid::INVALID, |rights| (*rights).checkAsUser);
+    if check_as_user != pg_sys::Oid::INVALID && check_as_user != pg_sys::GetUserId() {
+        return false;
+    }
+    // A column of the outer query has no value in a run of the subquery alone.
+    let reads_outer_row = |node: *mut pg_sys::Node| {
+        node.any(|node| nodecast!(Var, node).is_some_and(|column| (*column).varlevelsup > 0))
+    };
+    if reads_outer_row(query.targetList.cast()) || reads_outer_row(query.jointree.cast()) {
+        return false;
+    }
+    let rules = PgSearchRelation::with_lock((*table).relid, pg_sys::AccessShareLock as _);
+    pg_sys::RelationGetNumberOfBlocksInFork(rules.as_ptr(), pg_sys::ForkNumber::MAIN_FORKNUM)
+        <= MAX_BLOCKS_FOR_ESTIMATE
+}
+
+/// The value of the subquery under the snapshot of the planner, as a constant.
+unsafe fn run_now(
+    root: *mut pg_sys::PlannerInfo,
+    subquery: *mut pg_sys::Query,
+) -> Option<*mut pg_sys::Node> {
+    // A volatile subquery can give other rules on its second run.
+    if !pg_sys::ActiveSnapshotSet()
+        || pg_sys::contain_volatile_functions(subquery.cast())
+        || !runs_alone(subquery)
+    {
+        return None;
+    }
+    let sql = pg_sys::pg_get_querydef(pg_sys::copyObjectImpl(subquery.cast()).cast(), false);
+    let params = (*(*root).glob).boundParams;
+    // A generic plan has no value for a parameter.
+    if params.is_null() && CStr::from_ptr(sql).to_bytes().contains(&b'$') {
+        return None;
+    }
+    let value = with_nested_planning(|| {
+        if pg_sys::SPI_connect() != pg_sys::SPI_OK_CONNECT as i32 {
+            return None;
+        }
+        let mut options: pg_sys::SPIExecuteOptions = std::mem::zeroed();
+        options.params = params;
+        options.read_only = true;
+        options.tcount = 2;
+        let mut value = None;
+        if pg_sys::SPI_execute_extended(sql, &options) == pg_sys::SPI_OK_SELECT as i32
+            && pg_sys::SPI_processed == 1
+        {
+            let rows = pg_sys::SPI_tuptable;
+            let mut is_null = false;
+            let datum = pg_sys::SPI_getbinval(*(*rows).vals, (*rows).tupdesc, 1, &mut is_null);
+            if !is_null {
+                value = Some(pg_sys::SPI_datumTransfer(datum, false, -1));
+            }
+        }
+        pg_sys::SPI_finish();
+        value
+    })?;
+    Some(
+        pg_sys::makeConst(
+            pdb_query_typoid(),
+            -1,
+            pg_sys::Oid::INVALID,
+            -1,
+            value,
+            false,
+            false,
+        )
+        .cast(),
+    )
 }
 
 /// A cast such as `::pdb.fuzzy(1)` is a function call around the subquery. Any other function

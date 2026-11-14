@@ -14,7 +14,7 @@ import duckdb
 SOURCE = "https://paradedb-benchmark.s3.us-east-1.amazonaws.com/datasets/hackernews/vector/v1"
 MANIFEST_SHA256 = "1394cce89acddb820d564ace048179184e6f053f6f0b8192dca82a375851e2b6"
 GROUND_TRUTH_SHA256 = "f3372b78ab359abc121666b053c30e1ce0328efabcd461c6f9ae91bafdafc0dd"
-ASSETS = Path(__file__).parent / "assets/hn"
+ASSETS = Path(__file__).parent.parent / "assets/hn"
 WORKLOADS = {
     "range_10pct": "knn_top10_time_1",
     "range_1pct": "knn_top10_time_2",

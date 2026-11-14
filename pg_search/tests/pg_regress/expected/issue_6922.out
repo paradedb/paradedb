@@ -1,0 +1,117 @@
+-- A bare whole-row reference in a Join Scan target list must return the
+-- source's row from its fetched heap tuple, not NULL (#6922).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET max_parallel_workers_per_gather = 0;
+SET paradedb.enable_join_custom_scan = on;
+CREATE TABLE issue_6922_s (id int PRIMARY KEY, title text, path text);
+CREATE TABLE issue_6922_e (id int PRIMARY KEY, s_id int, dropped text);
+INSERT INTO issue_6922_s VALUES
+    (1, 'dragon one', 'p/1'), (2, 'other two', 'p/2'),
+    (3, 'dragon three', NULL), (4, 'dragon four', 'p/4');
+INSERT INTO issue_6922_e VALUES (10, 1, 'gone'), (11, 3, 'gone'), (12, 2, 'gone');
+-- The rows above keep the dropped column and lack the added one.
+ALTER TABLE issue_6922_e DROP COLUMN dropped;
+ALTER TABLE issue_6922_e ADD COLUMN note text DEFAULT 'added';
+CREATE INDEX issue_6922_s_idx ON issue_6922_s USING paradedb (id, title);
+CREATE INDEX issue_6922_e_idx ON issue_6922_e USING paradedb (id, s_id);
+ANALYZE issue_6922_s;
+ANALYZE issue_6922_e;
+-- The searched side.
+EXPLAIN (COSTS OFF)
+SELECT s.id, s FROM issue_6922_s s JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s INNER e
+   Join Cond: e.s_id = s.id
+   Limit: 10
+   Order By: e.s_id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s, e], pruned=[e]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, s_id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
+SELECT s.id, s FROM issue_6922_s s JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+ id |          s           
+----+----------------------
+  1 | (1,"dragon one",p/1)
+  3 | (3,"dragon three",)
+(2 rows)
+
+-- The other side, referenced only by its whole row.
+SELECT s.id, e FROM issue_6922_s s JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+ id |      e       
+----+--------------
+  1 | (10,1,added)
+  3 | (11,3,added)
+(2 rows)
+
+-- s.id 4 has no match, so its e must be NULL.
+EXPLAIN (COSTS OFF)
+SELECT s, e FROM issue_6922_s s LEFT JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: s LEFT e
+   Join Cond: e.s_id = s.id
+   Limit: 10
+   Order By: s.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+     :     VisibilityFilterExec: tables=[s]
+     :       HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@1, s_id@1)], projection=[ctid_0@0, id@1, ctid_1@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=s, segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=e, segments=1, dynamic_filters=1, visibility=eager, query="all"
+(14 rows)
+
+SELECT s, e FROM issue_6922_s s LEFT JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+           s           |      e       
+-----------------------+--------------
+ (1,"dragon one",p/1)  | (10,1,added)
+ (3,"dragon three",)   | (11,3,added)
+ (4,"dragon four",p/4) | 
+(3 rows)
+
+-- Postgres returns the same rows.
+SET paradedb.enable_join_custom_scan = off;
+SELECT s.id, s FROM issue_6922_s s JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+ id |          s           
+----+----------------------
+  1 | (1,"dragon one",p/1)
+  3 | (3,"dragon three",)
+(2 rows)
+
+SELECT s.id, e FROM issue_6922_s s JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+ id |      e       
+----+--------------
+  1 | (10,1,added)
+  3 | (11,3,added)
+(2 rows)
+
+SELECT s, e FROM issue_6922_s s LEFT JOIN issue_6922_e e ON e.s_id = s.id
+WHERE s.title ||| 'dragon' ORDER BY s.id LIMIT 10;
+           s           |      e       
+-----------------------+--------------
+ (1,"dragon one",p/1)  | (10,1,added)
+ (3,"dragon three",)   | (11,3,added)
+ (4,"dragon four",p/4) | 
+(3 rows)
+
+RESET paradedb.enable_join_custom_scan;
+DROP TABLE issue_6922_s, issue_6922_e;

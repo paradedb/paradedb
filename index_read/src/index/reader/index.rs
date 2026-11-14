@@ -757,6 +757,9 @@ pub struct SearchIndexReader {
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
+    /// Whether a Top K vector search returns per-segment scan statistics in
+    /// [`TopKSearch::segment_info`]. A scan whose statistics nothing reads turns it off.
+    pub vector_segment_info: bool,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -805,6 +808,7 @@ impl Clone for SearchIndexReader {
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
             vector_routing_plan: self.vector_routing_plan.clone(),
+            vector_segment_info: self.vector_segment_info,
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -1324,6 +1328,7 @@ impl SearchIndexReader {
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
             vector_routing_plan: None,
+            vector_segment_info: true,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2655,7 +2660,11 @@ impl SearchIndexReader {
                     ),
                 };
                 let segment_ids = collected_ids.into_inner();
-                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                let mut segment_info = if self.vector_segment_info {
+                    probe_stats_to_segment_info(&segment_ids, &fruit.stats)
+                } else {
+                    BTreeMap::new()
+                };
                 if let Some(first_segment) = segment_ids.first()
                     && let Some(serde_json::Value::Object(stats)) =
                         segment_info.get_mut(first_segment)

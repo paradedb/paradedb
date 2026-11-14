@@ -739,6 +739,7 @@ pub struct SearchIndexReader {
     underlying_index: Index,
     query: Box<dyn Query>,
     estimate_from_statistics: bool,
+    has_column_filter: bool,
     segment_stats_snapshot: Arc<SegmentStatsSnapshot>,
     /// The original query, retained for pruning only when a predicate references a field with
     /// segment statistics. This eligibility check needs no segment statistics. Keep the whole
@@ -795,6 +796,7 @@ impl Clone for SearchIndexReader {
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
             estimate_from_statistics: self.estimate_from_statistics,
+            has_column_filter: self.has_column_filter,
             segment_stats_snapshot: Arc::clone(&self.segment_stats_snapshot),
             pruning_query: self.pruning_query.clone(),
             need_scores: self.need_scores,
@@ -1288,6 +1290,7 @@ impl SearchIndexReader {
         let pruning_query = SegmentPruner::has_prunable_predicate(&schema, &search_query_input)
             .then(|| search_query_input.clone());
         let estimate_from_statistics = search_query_input.supports_statistics_estimation();
+        let has_column_filter = !search_query_input.is_text_only();
         let query = search_query_input
             .into_tantivy_query(
                 &schema,
@@ -1313,6 +1316,7 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             estimate_from_statistics,
+            has_column_filter,
             segment_stats_snapshot,
             pruning_query,
             need_scores,
@@ -3406,9 +3410,13 @@ impl SearchIndexReader {
                 .collect::<Vec<_>>();
             match routing {
                 VectorRouting::Local => {
+                    let mut builder = builder.clone();
+                    if self.has_column_filter {
+                        builder =
+                            builder.with_batched_filtering(self.estimate_vector_match_fraction());
+                    }
                     collector = Some(
                         builder
-                            .clone()
                             .build_for_segments(&weight, &segments, on_segment)
                             .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
                             .expect("vector scan preparation should not fail"),

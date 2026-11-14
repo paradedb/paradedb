@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794643635422,
+  "lastUpdate": 1794643665782,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113047,6 +113047,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13925528501-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643662353,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1630.6249143734995,
+            "unit": "median tps",
+            "extra": "avg tps: 1641.6663063787007, max tps: 1816.3562071859362, count: 59240"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.88353459911847,
+            "unit": "median tps",
+            "extra": "avg tps: 5.932330771629271, max tps: 7.001534029104242, count: 59240"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1526.248671443051,
+            "unit": "median tps",
+            "extra": "avg tps: 1527.7814479800106, max tps: 1828.9358930821022, count: 59240"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2811.261196490088,
+            "unit": "median tps",
+            "extra": "avg tps: 2758.503173510761, max tps: 3064.8394186794894, count: 59240"
+          }
+        ],
+        "publication_id": "14105676335-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158218,6 +158265,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "13925528501-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643665686,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.9817859554355165, max background_merging: 2.0, count: 59240"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.47997224185293, max cpu: 9.825998, count: 59240"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.39315443534774, max mem: 27.42578125, count: 59240"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.729137567621785, max cpu: 28.138742, count: 59240"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 55.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.971609066403616, max mem: 55.140625, count: 59240"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40401,
+            "unit": "median block_count",
+            "extra": "avg block_count: 40247.126553004724, max block_count: 40401.0, count: 59240"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 15,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.545914922349764, max segment_count: 22.0, count: 59240"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.75714054337486, max cpu: 33.7011, count: 59240"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 36.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.101015071109046, max mem: 36.1796875, count: 59240"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.722037298990881, max cpu: 31.803125, count: 59240"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 55.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.26249788993923, max mem: 55.34375, count: 59240"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.506700890258432, max cpu: 27.718958, count: 59240"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 49.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.27889187521101, max mem: 50.81640625, count: 59240"
+          }
+        ],
+        "publication_id": "14105676335-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

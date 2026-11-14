@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794643557128,
+  "lastUpdate": 1794643581331,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -503705,6 +503705,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14020736037-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643578868,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.96888041620147,
+            "unit": "median tps",
+            "extra": "avg tps: 57.819435744997875, max tps: 531.4772654027438, count: 58793"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.308072259916493,
+            "unit": "median tps",
+            "extra": "avg tps: 31.466506916299945, max tps: 331.51523236143737, count: 58793"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.36019240081058,
+            "unit": "median tps",
+            "extra": "avg tps: 129.29412226076158, max tps: 1233.8850753271415, count: 58793"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.440445553913786,
+            "unit": "median tps",
+            "extra": "avg tps: 30.649150126598865, max tps: 261.0557455856942, count: 58793"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.91796885215123,
+            "unit": "median tps",
+            "extra": "avg tps: 59.815388867942495, max tps: 537.6318915701718, count: 58793"
+          }
+        ],
+        "publication_id": "14105084233-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -517366,6 +517419,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14020736037-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643581237,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.75,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.41976630402429, max partition_index_size:MB: 22.15625, count: 58793"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.19696993162864, max cpu: 36.71128, count: 58793"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 47.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.2017696090521, max mem: 55.46875, count: 58793"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.893828985484227, max cpu: 55.066925, count: 58793"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 66.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 65.66910202957835, max mem: 74.109375, count: 58793"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.701237,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.231434073170963, max cpu: 27.678999, count: 58793"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 46.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.000276526329664, max mem: 50.984375, count: 58793"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.886286717252236, max cpu: 50.478012, count: 58793"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 62.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.174927752347216, max mem: 72.64453125, count: 58793"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.16099072218828, max cpu: 36.71128, count: 58793"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 59.5,
+            "unit": "median mem",
+            "extra": "avg mem: 61.11960647419761, max mem: 67.55859375, count: 58793"
+          }
+        ],
+        "publication_id": "14105084233-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

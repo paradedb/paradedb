@@ -139,6 +139,39 @@ SELECT * FROM filtered_scan_plan(
     'ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5'
 );
 
+SET plan_cache_mode = force_generic_plan;
+PREPARE filtered_scan_runtime(integer) AS
+SELECT ARRAY(
+    SELECT id FROM filtered_scan_items
+    WHERE category @@@ paradedb.range('category', int4range(0, $1, '[)'))
+    ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5
+);
+DO $$
+DECLARE
+    upper_bound integer;
+    actual integer[];
+    expected integer[];
+    plan jsonb;
+BEGIN
+    FOREACH upper_bound IN ARRAY ARRAY[3, 2, 3] LOOP
+        EXECUTE format('EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) EXECUTE filtered_scan_runtime(%s)', upper_bound)
+            INTO plan;
+        ASSERT jsonb_path_query_first(plan, '$.**."Vector Filtering"') #>> '{}' = 'Deferred until execution';
+        EXECUTE format('EXECUTE filtered_scan_runtime(%s)', upper_bound) INTO actual;
+        SELECT ARRAY(
+            SELECT id FROM filtered_scan_oracle WHERE category >= 0 AND category < upper_bound
+            ORDER BY vec <-> filtered_scan_vector(768, 7), id LIMIT 5
+        ) INTO expected;
+        ASSERT actual = expected;
+        EXECUTE format('EXPLAIN (ANALYZE, VERBOSE, COSTS OFF, FORMAT JSON) EXECUTE filtered_scan_runtime(%s)', upper_bound)
+            INTO plan;
+        ASSERT jsonb_path_query_first(plan, '$.**."Vector Filtering"') #>> '{}' = 'Pre (fast fields)';
+    END LOOP;
+END
+$$;
+DEALLOCATE filtered_scan_runtime;
+RESET plan_cache_mode;
+
 DROP TABLE filtered_scan_oracle;
 DROP TABLE filtered_scan_items;
 DROP FUNCTION filtered_scan_plan(text);

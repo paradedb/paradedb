@@ -18,10 +18,12 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use pgrx::pg_sys;
+use tantivy::query::{Scorer, Weight};
 use tantivy::vector::{
     AtomicVectorWork, Candidate, ClusterRef, LocatedPath, ProbeParams, SharedVectorWork,
     VectorRoutingStats, VectorSearchBudget,
 };
+use tantivy::{Result, Score, SegmentReader};
 
 use crate::api::HashMap;
 use crate::gucs;
@@ -206,7 +208,29 @@ impl VectorFilterWeight {
     }
 }
 
-impl tantivy::query::Weight for VectorFilterWeight {
+impl Weight for VectorFilterWeight {
+    fn uses_fast_fields(&self) -> bool {
+        self.base.get().uses_fast_fields()
+            || self
+                .constrained
+                .as_ref()
+                .is_some_and(|w| w.get().uses_fast_fields())
+    }
+
+    fn scorer_for_candidates_unpositioned(
+        &self,
+        reader: &SegmentReader,
+        boost: Score,
+        candidate_size: u32,
+    ) -> Result<Box<dyn Scorer>> {
+        if self.visible_docs.contains_key(&reader.segment_id()) {
+            self.scorer(reader, boost)
+        } else {
+            self.get(reader)
+                .scorer_for_candidates_unpositioned(reader, boost, candidate_size)
+        }
+    }
+
     fn scorer(
         &self,
         reader: &tantivy::SegmentReader,

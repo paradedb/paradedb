@@ -15,43 +15,46 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::cost::{WorkerDecisionReason, WorkerPathPolicy, parallel_divisor};
 use crate::api::FieldName;
 use crate::gucs;
 use crate::postgres::options::BM25IndexOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
-use std::num::NonZeroUsize;
+use tantivy::vector::VectorFilterStrategy;
 
 // Minimum estimated byte-work saved to cover worker startup and coordination.
 const MIN_PARALLEL_SAVINGS_BYTES: f64 = 64.0 * 1024.0 * 1024.0;
 
-impl WorkerPathPolicy {
-    pub(super) fn for_vector_topk(
+struct VectorSearchStats {
+    vectors: f64,
+    matches: f64,
+}
+
+pub(super) struct VectorWork {
+    scan_bytes: f64,
+    extra_routing_bytes: f64,
+}
+
+impl VectorWork {
+    pub(super) fn for_query(
+        strategy: VectorFilterStrategy,
         query: &SearchQueryInput,
         vectors: f64,
         selectivity: f64,
         field: &FieldName,
         options: &BM25IndexOptions,
-        workers: usize,
-        leader_participates: bool,
-    ) -> Self {
-        let reason = WorkerDecisionReason::VectorWork;
-        // TODO: We have not yet seen a speedup for parallel unfiltered queries, but should be
-        // able to with a good global adaptive probing model.
-        if query.is_match_all() {
-            return Self::SerialOnly { reason };
-        }
-        let Some(nworkers) = NonZeroUsize::new(workers) else {
-            return Self::SerialOnly { reason };
-        };
-        // TODO: Posting list filters are currently cheap, but column filters are expensive.
-        // Model column filter evaluation cost before estimating their work.
-        if !query.is_text_only() {
-            return Self::ParallelOnly { nworkers, reason };
+    ) -> Option<Self> {
+        if !matches!(
+            strategy,
+            VectorFilterStrategy::Pre {
+                uses_fast_fields: false
+            }
+        ) || query.is_match_all()
+        {
+            return None;
         }
         let Some(SearchFieldType::Vector(_, dimensions, _)) = options.get_field_type(field) else {
-            return Self::SerialOnly { reason };
+            return None;
         };
         let stats = VectorSearchStats {
             vectors,
@@ -62,7 +65,7 @@ impl WorkerPathPolicy {
         let row_bytes = layers.as_ref().map_or(full_row_bytes, |layers| {
             (dimensions * usize::from(layers[0])).div_ceil(u8::BITS as usize) as f64
         });
-        let work = VectorWork::estimate(
+        Some(Self::estimate(
             &stats,
             options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio()),
             if layers.is_some() && options.vector_router_quantization() {
@@ -74,26 +77,9 @@ impl WorkerPathPolicy {
             gucs::vector_fixed_probe_cost_rows(),
             row_bytes,
             full_row_bytes,
-        );
-        if work.parallel_wins(parallel_divisor(nworkers, leader_participates)) {
-            Self::ParallelOnly { nworkers, reason }
-        } else {
-            Self::SerialOnly { reason }
-        }
+        ))
     }
-}
 
-struct VectorSearchStats {
-    vectors: f64,
-    matches: f64,
-}
-
-struct VectorWork {
-    scan_bytes: f64,
-    extra_routing_bytes: f64,
-}
-
-impl VectorWork {
     fn estimate(
         stats: &VectorSearchStats,
         average_cluster_size: f64,
@@ -139,7 +125,7 @@ impl VectorWork {
         }
     }
 
-    fn parallel_wins(&self, participants: f64) -> bool {
+    pub(super) fn parallel_wins(&self, participants: f64) -> bool {
         participants > 1.0
             && self.scan_bytes * (1.0 - 1.0 / participants) - self.extra_routing_bytes
                 > MIN_PARALLEL_SAVINGS_BYTES
@@ -148,6 +134,7 @@ impl VectorWork {
 
 #[cfg(test)]
 mod tests {
+    use super::super::cost::WorkerPathPolicy;
     use super::*;
 
     fn work(matches: f64, max_probe: usize, dimensions: usize, bits: usize) -> VectorWork {
@@ -163,6 +150,52 @@ mod tests {
             (dimensions * bits).div_ceil(u8::BITS as usize) as f64,
             (dimensions * size_of::<f32>()) as f64,
         )
+    }
+
+    #[test]
+    fn worker_policy_preserves_costed_posting_filters() {
+        for workers in [0, 7] {
+            for leader_participates in [false, true] {
+                for cheap in [false, true] {
+                    for strategy in [
+                        VectorFilterStrategy::Post {
+                            estimated_selectivity: 0.1,
+                        },
+                        VectorFilterStrategy::Pre {
+                            uses_fast_fields: false,
+                        },
+                        VectorFilterStrategy::Pre {
+                            uses_fast_fields: true,
+                        },
+                    ] {
+                        let work = if cheap {
+                            work(100.0, 65_536, 1024, 1)
+                        } else {
+                            work(8_000_000.0, 1024, 1024, 1)
+                        };
+                        let parallel = workers > 0
+                            && match strategy {
+                                VectorFilterStrategy::Post { .. } => false,
+                                VectorFilterStrategy::Pre { uses_fast_fields } => {
+                                    uses_fast_fields || !cheap
+                                }
+                            };
+                        assert_eq!(
+                            matches!(
+                                WorkerPathPolicy::for_vector_topk(
+                                    strategy,
+                                    workers,
+                                    Some(work),
+                                    leader_participates,
+                                ),
+                                WorkerPathPolicy::ParallelOnly { .. }
+                            ),
+                            parallel
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

@@ -72,8 +72,9 @@ use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Sc
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
-    ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
-    TopDocsByVectorSimilarityBuilder, VectorSearchBudget, VectorSegment, VectorSimilarityFruit,
+    ProbeParams, ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
+    TopDocsByVectorSimilarityBuilder, VectorFilterStrategy, VectorSearchBudget, VectorSegment,
+    VectorSimilarityFruit,
 };
 use tantivy::{
     DateTime, DocAddress, DocId, DocSet, IndexReader, ReloadPolicy, Score, Searcher,
@@ -757,6 +758,7 @@ pub struct SearchIndexReader {
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
+    pub vector_filter_strategy: Option<VectorFilterStrategy>,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -805,6 +807,7 @@ impl Clone for SearchIndexReader {
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
             vector_routing_plan: self.vector_routing_plan.clone(),
+            vector_filter_strategy: self.vector_filter_strategy,
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -964,17 +967,43 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+    pub fn estimate_vector_matches(&self) -> f64 {
+        self.candidate_segment_readers()
+            .map(|(_, reader)| {
+                self.query.estimate_docs(reader).ok().flatten().map_or(
+                    f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                    |estimate| estimate.live_docs(reader) as f64,
+                )
+            })
+            .sum()
+    }
+
     pub fn estimate_vector_match_fraction(&self) -> f64 {
-        let (matches, docs) =
-            self.candidate_segment_readers()
-                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
-                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
-                        |estimate| estimate.live_docs(reader) as f64,
-                    );
-                    (matches + estimated, docs + u64::from(reader.num_docs()))
-                });
-        matches / docs.max(1) as f64
+        let docs = self
+            .candidate_segment_readers()
+            .map(|(_, reader)| u64::from(reader.num_docs()))
+            .sum::<u64>();
+        self.estimate_vector_matches() / docs.max(1) as f64
+    }
+
+    pub fn vector_filter_strategy(&self) -> VectorFilterStrategy {
+        self.vector_filter_strategy
+            .expect("vector filter strategy must be selected before routing or collection")
+    }
+
+    pub fn plan_vector_filter(&self, name: &FieldName) -> Result<VectorFilterStrategy> {
+        let field = self.schema.tantivy_schema().get_field(&name.root())?;
+        let segments = self
+            .candidate_segment_readers()
+            .map(VectorSegment::from)
+            .collect::<Vec<_>>();
+        Ok(VectorFilterStrategy::plan(
+            field,
+            self.weight().as_ref(),
+            self.estimate_vector_matches().ceil() as usize,
+            gucs::vector_max_scan_levels(),
+            &segments,
+        )?)
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -1022,7 +1051,10 @@ impl SearchIndexReader {
         let router = TopClustersBySimilarityCollector::new(
             field,
             query.to_vec(),
-            probe_params(),
+            ProbeParams {
+                filter_strategy: Some(self.vector_filter_strategy()),
+                ..probe_params()
+            },
             match_fraction,
         )
         .expect("vector routing parameters should be valid")
@@ -1324,6 +1356,7 @@ impl SearchIndexReader {
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
             vector_routing_plan: None,
+            vector_filter_strategy: None,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -2572,7 +2605,10 @@ impl SearchIndexReader {
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_probe_params(probe_params())
+                    .with_probe_params(ProbeParams {
+                        filter_strategy: Some(self.vector_filter_strategy()),
+                        ..probe_params()
+                    })
                     .with_max_scan_levels(max_scan_levels);
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     collector = collector.with_shared_threshold(std::sync::Arc::new(
@@ -5054,8 +5090,8 @@ mod tests {
                 2,
                 true,
             ),
-            ("AND heap_value = 1", 2, true),
-            ("AND category = 'keep' AND heap_value = 1", 2, true),
+            ("AND heap_value = 1", 2, false),
+            ("AND category = 'keep' AND heap_value = 1", 2, false),
             ("AND category = 'keep'", 0, false),
             ("AND id > 1", 0, false),
             ("AND heap_value = 1", 0, false),
@@ -5074,6 +5110,10 @@ mod tests {
                     assert_eq!(node["Parallel Aware"], parallel, "{plan}");
                     assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
                     if predicate.contains("heap_value") {
+                        assert_eq!(
+                            node["Vector Filtering"], "Deferred until execution",
+                            "{plan}"
+                        );
                         assert!(
                             node["Tantivy Query"].to_string().contains("heap_filter"),
                             "{plan}"
@@ -5199,7 +5239,10 @@ mod tests {
         )
         .unwrap();
         let index_rel = open_index("cancel_vectors_idx");
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        reader.vector_filter_strategy = Some(VectorFilterStrategy::Pre {
+            uses_fast_fields: false,
+        });
         let ids = reader.segment_ids();
         assert_eq!(ids.len(), 2);
         let order = [OrderByInfo {
@@ -5238,7 +5281,10 @@ mod tests {
                 .unwrap()
                 .unwrap(),
         );
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        reader.vector_filter_strategy = Some(VectorFilterStrategy::Pre {
+            uses_fast_fields: false,
+        });
         let order = vec![OrderByInfo {
             feature: OrderByFeature::VectorDistance {
                 name: FieldName::from("embedding"),
@@ -5331,6 +5377,12 @@ mod tests {
         let index_rel = open_index("candidate_vectors_idx");
         let base = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
         assert_eq!(base.segment_ids().len(), 2);
+        let pre = VectorFilterStrategy::Pre {
+            uses_fast_fields: true,
+        };
+        let post = VectorFilterStrategy::Post {
+            estimated_selectivity: 0.5,
+        };
         for (lo, hi, expected_rows, expected_segments) in [
             (1, 10, 10, 1),
             (11, 20, 10, 1),
@@ -5338,11 +5390,18 @@ mod tests {
             (99, 100, 0, 0),
         ] {
             for reverse in [false, true] {
-                for (tie_break, individual_segments) in
-                    [(false, false), (true, false), (false, true), (true, true)]
-                {
+                for (tie_break, individual_segments, strategy) in [
+                    (false, false, pre),
+                    (true, false, pre),
+                    (false, true, pre),
+                    (true, true, pre),
+                    (false, false, post),
+                    (true, false, post),
+                    (false, true, post),
+                    (true, true, post),
+                ] {
                     let trace = io_stats::Trace::default();
-                    let reader = SearchIndexReader::open_with_context(
+                    let mut reader = SearchIndexReader::open_with_context(
                         &index_rel,
                         range_query("id", lo, hi),
                         false,
@@ -5353,6 +5412,7 @@ mod tests {
                         Some(trace.clone()),
                     )
                     .unwrap();
+                    reader.vector_filter_strategy = Some(strategy);
                     let mut ids = reader.segment_ids();
                     if reverse {
                         ids.reverse();
@@ -5469,7 +5529,10 @@ mod tests {
              REINDEX INDEX retry_vectors_idx;",
         ).unwrap();
         let index_rel = open_index("retry_vectors_idx");
-        let reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        let mut reader = open_snapshot_reader(&index_rel, SearchQueryInput::All, false);
+        reader.vector_filter_strategy = Some(VectorFilterStrategy::Pre {
+            uses_fast_fields: false,
+        });
         let field = FieldName::from("embedding");
         let query = vec![1.0, 0.0, 0.0];
         let plan = Arc::new(SharedVectorRouting::from(reader.vector_routing_plan(

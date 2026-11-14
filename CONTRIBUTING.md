@@ -12,13 +12,11 @@ All external contributions should be associated with a GitHub issue. If there is
 
 Ideal issues for external contributors include well-scoped, individual features (e.g. adding support for a new tokenizer), as those are less likely to conflict with our general development process. We welcome small documentation contributions that accompany a feature, correct wrong information or fix typos, but will not accept "general improvement" documentation PRs.
 
-### Approval Before Contributing
+### Claiming GitHub Issues
 
-If you have not had a pull request merged into ParadeDB, wait for explicit maintainer approval before starting work or opening a pull request. Comment on the issue with the problem you want to solve, supporting evidence, and your proposed approach. A maintainer must approve both the scope and your participation. Opening an issue, commenting `/take`, or choosing a `good first issue` does not count as approval.
+You do not need maintainer approval to pick an issue. Before claiming one, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
 
-New contributors may have only one pull request open at a time. Maintainers may explicitly waive these requirements, including for small corrections or issues intended for beginners. Returning contributors should discuss new features and substantial changes with a maintainer before starting work.
-
-Before claiming an issue, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. Assignment reserves the issue but does not replace the maintainer approval required above. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
+Work on one pull request at a time. Wait until it is merged or closed before opening another, and address review feedback before moving on to a new contribution.
 
 ### Development Workflow
 
@@ -33,7 +31,7 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 
 1. Before working on a change, please check if there is already a GitHub issue open for it.
 2. If there is not, please open an issue first. This gives the community visibility into your work and allows others to make suggestions and leave comments.
-3. Obtain any required maintainer approval described above, then fork the ParadeDB repo and branch out from the `main` branch.
+3. Fork the ParadeDB repo and branch out from the `main` branch.
 4. Install [prek](https://github.com/j178/prek) hooks within your fork with `prek install` to ensure code quality and consistency with upstream.
 5. Make your changes. If you've added new functionality, please add tests. We will not merge a feature without appropriate tests.
 6. Add release fragments (if applicable):
@@ -86,20 +84,20 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 9. Include evidence that the change solves the problem:
    - Bug fixes need a reproducer and a regression test that fails before the fix and passes with it.
    - Performance changes need a reproducible benchmark with before and after results.
-   - Features need agreed behavior and relevant tests.
+   - Features need a clear description of the intended behavior and relevant tests.
    - Explain what you tested, the results, and any limitations. Passing CI alone does not establish correctness or usefulness.
 
 ### Review Expectations
 
-Maintainer review time is limited. Approval to work on an issue does not guarantee review or acceptance of a pull request. We may close submissions without a full technical review if they lack required approval or evidence, exceed the agreed scope, address an unsubstantiated problem, or require disproportionate maintainer effort to make them usable. This applies regardless of which tools were used to produce them.
+Maintainer review time is limited. Opening a pull request does not guarantee review or acceptance. We may close submissions without a full technical review if they lack supporting evidence, exceed the scope of the issue, address an unsubstantiated problem, or require disproportionate maintainer effort to make them usable. This applies regardless of which tools were used to produce them.
 
-Contributors must be able to explain their changes and respond to review questions themselves. We may close a pull request if its author cannot explain the implementation or its effects on correctness, safety, and performance. If a pull request is closed for missing approval or evidence, return to the issue with that information before resubmitting. Repeated spam or attempts to evade these requirements may result in an account being blocked.
+Contributors must be able to explain their changes and respond to review questions themselves. We may close a pull request if its author cannot explain the implementation or its effects on correctness, safety, and performance. If a pull request is closed for missing evidence, provide that evidence in the issue before resubmitting. Repeated spam or attempts to evade these requirements may result in an account being blocked.
 
 ### Use of AI Tools
 
-AI assistants are welcome, but a human must understand, review, test, and take responsibility for every contribution. Autonomous agent submissions are not accepted.
+You are free to use AI assistants, but you must understand, review, test, and take responsibility for every change you submit. Do not submit generated code you cannot explain. AI slop and autonomous agent submissions will be closed without review.
 
-Write pull request descriptions and replies to maintainers in your own words. Do not relay generated answers to review questions. You must be able to explain the code and the reasoning behind it yourself. Low-quality generated submissions that do not demonstrate this understanding may be closed immediately.
+Engage with maintainers yourself throughout the review. Write pull request descriptions and replies to maintainers in your own words. Do not relay generated answers to review questions. You must be able to explain the code and the reasoning behind it yourself. Low-quality generated submissions that do not demonstrate this understanding may be closed immediately.
 
 ### Documentation
 

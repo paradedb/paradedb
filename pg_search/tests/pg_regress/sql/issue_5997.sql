@@ -87,8 +87,8 @@ WHERE title @@@ 'doc'
 ORDER BY span::text COLLATE "C"
 LIMIT 4;
 
--- AggregateScan declines the bigint::text grouping cast. PostgreSQL sorts the
--- text groups before LIMIT; numeric order would return the wrong set (1, 2, 3, 4).
+-- AggregateScan shares the sort classifier. More distinct n than LIMIT so a
+-- numeric pushdown would return the wrong set (1, 2, 3, 4), not only order.
 SET paradedb.enable_aggregate_custom_scan = on;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT n::text AS t, count(*) FROM issue_5997

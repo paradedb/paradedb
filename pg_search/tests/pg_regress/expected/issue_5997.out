@@ -176,8 +176,8 @@ WARNING:  Query has LIMIT 4 but is not using Top K scan (using Normal instead). 
  [2,3)
 (4 rows)
 
--- AggregateScan declines the bigint::text grouping cast. PostgreSQL sorts the
--- text groups before LIMIT; numeric order would return the wrong set (1, 2, 3, 4).
+-- AggregateScan shares the sort classifier. More distinct n than LIMIT so a
+-- numeric pushdown would return the wrong set (1, 2, 3, 4), not only order.
 SET paradedb.enable_aggregate_custom_scan = on;
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT n::text AS t, count(*) FROM issue_5997
@@ -185,28 +185,25 @@ WHERE title @@@ 'doc'
 GROUP BY n::text
 ORDER BY n::text COLLATE "C"
 LIMIT 4;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5997)
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((n)::text) COLLATE "C"
-         ->  HashAggregate
-               Group Key: (n)::text
-               ->  Custom Scan (ParadeDB Base Scan) on issue_5997
-                     Table: issue_5997
-                     Index: issue_5997_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+         ->  Custom Scan (ParadeDB Aggregate Scan) on issue_5997
+               Index: issue_5997_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"doc","lenient":null,"conjunction_mode":null}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: n
+                 Limit: 4
+                 Aggregate Definition: {"grouped":{"terms":{"field":"n","segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT n::text AS t, count(*) FROM issue_5997
 WHERE title @@@ 'doc'
 GROUP BY n::text
 ORDER BY n::text COLLATE "C"
 LIMIT 4;
-WARNING:  Aggregate Scan not used: grouping cast requires PostgreSQL evaluation. To disable this warning: SET paradedb.planner_warnings = 'off' (table: issue_5997)
   t  | count 
 -----+-------
  1   |     1

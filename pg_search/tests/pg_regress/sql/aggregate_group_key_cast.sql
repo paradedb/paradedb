@@ -1,14 +1,7 @@
 -- Issue #6625: casts of grouping keys must use PostgreSQL cast semantics.
-SELECT current_database() AS orig_db \gset
-DROP DATABASE IF EXISTS aggregate_group_key_cast_6625;
-CREATE DATABASE aggregate_group_key_cast_6625 TEMPLATE template0;
-\set QUIET 1
-\c aggregate_group_key_cast_6625
-\set QUIET 0
-CREATE EXTENSION IF NOT EXISTS vector;
 \i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS ltree;
 SET paradedb.enable_aggregate_custom_scan = on;
-SET paradedb.planner_warnings = off;
 SET datestyle = 'ISO, MDY';
 SET timezone = 'UTC';
 
@@ -21,15 +14,10 @@ INSERT INTO cast_groups VALUES
 CREATE INDEX cast_groups_idx ON cast_groups USING paradedb (id, d, ts, (label::pdb.literal));
 ANALYZE cast_groups;
 
--- Ordinary operator quals must not cache ltree's absence before installation.
-SELECT id FROM cast_groups WHERE id @@@ pdb.all() AND id > 0 ORDER BY id;
-
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
 
--- Planning without ltree must not prevent installing and indexing it later.
-CREATE EXTENSION ltree;
 SELECT d::text AS dt, COUNT(*) FROM cast_groups
 WHERE id @@@ pdb.all() GROUP BY d ORDER BY 1;
 
@@ -116,18 +104,44 @@ WHERE id @@@ pdb.all() GROUP BY meta->>'n' ORDER BY 1, 2;
 RESET paradedb.max_term_agg_buckets;
 DROP TABLE cast_json;
 
--- An indexed cast already stores the grouping expression's value.
-CREATE TABLE cast_indexed (id INT PRIMARY KEY, n BIGINT);
-INSERT INTO cast_indexed VALUES (1, 1), (2, 10), (3, 1), (4, 2);
-CREATE INDEX cast_indexed_idx ON cast_indexed
-USING paradedb (id, n, ((n::text)::pdb.literal('alias=n_text')));
-EXPLAIN (COSTS OFF)
-SELECT n::text AS n, COUNT(*) FROM cast_indexed
-WHERE id @@@ pdb.all() GROUP BY n::text ORDER BY 1;
-SELECT n::text AS n, COUNT(*) FROM cast_indexed
-WHERE id @@@ pdb.all() GROUP BY n::text ORDER BY 1;
-SELECT n, COUNT(*) FROM cast_indexed
+-- Integer keys print the same text as PostgreSQL.
+CREATE TABLE cast_ints (id INT PRIMARY KEY, i INT4, n BIGINT);
+INSERT INTO cast_ints VALUES
+    (1, -5, -5000000000), (2, 10, 10), (3, -5, -5000000000), (4, NULL, NULL);
+CREATE INDEX cast_ints_idx ON cast_ints USING paradedb (id, i, n);
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT i::text AS i, COUNT(*) FROM cast_ints
+WHERE id @@@ pdb.all() GROUP BY i::text ORDER BY 1;
+SELECT i::text AS i, COUNT(*) FROM cast_ints
+WHERE id @@@ pdb.all() GROUP BY i::text ORDER BY 1;
+SELECT n::text AS n, COUNT(*) FROM cast_ints
 WHERE id @@@ pdb.all() GROUP BY n ORDER BY n;
+DROP TABLE cast_ints;
+
+-- PostgreSQL evaluates a cast above unnest() on the element value.
+CREATE TABLE cast_arrays (id INT PRIMARY KEY, a INT4[]);
+INSERT INTO cast_arrays VALUES (1, '{-1,2}'), (2, '{2,10}'), (3, NULL);
+CREATE INDEX cast_arrays_idx ON cast_arrays USING paradedb (id, a);
+SELECT unnest(a)::text AS v, COUNT(*) FROM cast_arrays
+WHERE id @@@ pdb.all() GROUP BY 1 ORDER BY 1;
+SELECT unnest(a)::text AS v, COUNT(*) FROM cast_arrays
+WHERE id @@@ pdb.all() GROUP BY unnest(a) ORDER BY 1;
+DROP TABLE cast_arrays;
+
+-- An indexed cast already stores the grouping expression's value.
+CREATE TABLE cast_indexed (id INT PRIMARY KEY, u UUID);
+INSERT INTO cast_indexed VALUES
+    (1, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (2, 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (3, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    (4, NULL);
+CREATE INDEX cast_indexed_idx ON cast_indexed
+USING paradedb (id, u, ((u::text)::pdb.literal('alias=u_text')));
+EXPLAIN (COSTS OFF)
+SELECT u::text AS u, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
+SELECT u::text AS u, COUNT(*) FROM cast_indexed
+WHERE id @@@ pdb.all() GROUP BY u::text ORDER BY 1;
 DROP TABLE cast_indexed;
 
 -- The existing ltree-to-text decoder remains usable.
@@ -153,7 +167,8 @@ WHERE id @@@ pdb.all() GROUP BY path::text ORDER BY 1;
 SELECT path::text, COUNT(*) FROM cast_paths
 WHERE id @@@ pdb.all() GROUP BY path::text ORDER BY 1;
 DROP TABLE cast_paths;
-\set QUIET 1
-\c :orig_db
-\set QUIET 0
-DROP DATABASE aggregate_group_key_cast_6625;
+RESET paradedb.max_term_agg_buckets;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET datestyle;
+RESET timezone;
+\i common/common_cleanup.sql

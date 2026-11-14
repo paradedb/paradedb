@@ -33,7 +33,6 @@ use crate::gucs::WorkMem;
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::node::NodeExt;
 use crate::postgres::search_operator_relations;
-use planner::postgres::customscan::aggregatescan::groupby::can_decode_group_key_cast;
 pub use planner::postgres::customscan::aggregatescan::{
     AggIndexInfo, AggregateType, CustomScanBuildError, CustomScanClause, GroupByClause,
     GroupingColumn, GroupingPushdownDeclineReason, TargetListEntry, aggregate_type, build, exec,
@@ -42,6 +41,8 @@ pub use planner::postgres::customscan::aggregatescan::{
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+
+use crate::postgres::catalog::is_ltree_oid;
 
 use crate::postgres::customscan::datafusion::explain::{
     explain_physical_plan, get_plan_with_merged_metrics,
@@ -2766,14 +2767,18 @@ fn decode_safe_cast(
         return key;
     }
 
-    if can_decode_group_key_cast(original_typoid, expected_typoid)
-        && let PdbOwnedValue::Str(ref s) = key.0
-    {
-        key = TantivyValue(PdbOwnedValue::Str(
-            crate::postgres::catalog::facet_encoded_str_to_ltree_text(s),
-        ));
+    match (original_typoid, expected_typoid) {
+        (orig, pg_sys::TEXTOID) if is_ltree_oid(orig) => {
+            if let PdbOwnedValue::Str(ref s) = key.0 {
+                key = TantivyValue(PdbOwnedValue::Str(
+                    crate::postgres::catalog::facet_encoded_str_to_ltree_text(s),
+                ));
+            }
+            key
+        }
+        // Add other safe `original_typoid` -> `expected_typoid` conversions here
+        _ => key,
     }
-    key
 }
 
 /// True when a group key is the sentinel Tantivy's terms aggregation puts on the bucket of rows

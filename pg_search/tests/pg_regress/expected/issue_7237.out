@@ -174,7 +174,6 @@ BEGIN
     END LOOP;
 END $$;
 DROP TABLE issue_7237_saved_queries;
-
 -- A generic plan carries the constant as a parameter
 SET plan_cache_mode = force_generic_plan;
 PREPARE issue_7237_q(float8) AS

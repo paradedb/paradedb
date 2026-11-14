@@ -1,7 +1,7 @@
 # MS MARCO vector CI
 
-Separate MS MARCO workflows benchmark ParadeDB, pg_vectorsearch, and VectorChord
-using one shared implementation in `.github/workflows/benchmark-msmarco.yml`.
+The MS MARCO workflow benchmarks ParadeDB, pg_vectorsearch, and VectorChord
+using `.github/workflows/benchmark-msmarco.yml`.
 Each restores the same PostgreSQL 18 heap backup
 `20261102-224214F`: 113,520,750 rows with 1,024-dimensional vectors. Every job has
 its own `c8gd.metal-24xl` runner and a 64-CPU / 128-GiB database container; k6 runs
@@ -26,7 +26,7 @@ MS MARCO dataset and uses the existing `timescale` loader backend.
 pg_vectorsearch is built from `paradedb/pg_vectorsearch` commit
 `1bc1c77b2a07611d57c8a1eae767939bd1e39ee1`, which fixes retained detoast memory
 during parallel index builds. CI authenticates to the private fork, builds it
-with `docker/Dockerfile.pg-vectorsearch`, and checks the installed extension's
+with `benchmarks/msmarco/pg_vectorsearch/Dockerfile`, and checks the installed extension's
 commit before building the index. The source revision is retained in diagnostics
 and k6 metadata.
 
@@ -55,20 +55,11 @@ The modifier stays on the PR for subsequent runs; remove it to use Spot again.
 It does not start a benchmark by itself or change an already queued or running
 job. Scheduled and manual runs use Spot because they have no PR labels.
 
-Each extension has its own workflow and runs daily on main. Manual dispatch runs
-only the selected workflow's extension:
-
-| Extension       | Workflow                                      |
-| --------------- | --------------------------------------------- |
-| pg_search       | `benchmark-pg_search-benchmarker-msmarco.yml` |
-| pg_vectorsearch | `benchmark-msmarco-pg-vectorsearch.yml`       |
-| VectorChord     | `benchmark-msmarco-vectorchord.yml`           |
-
-For example, to run only VectorChord:
+Daily runs benchmark all three engines. For a manual run, select one engine:
 
 ```sh
-gh workflow run benchmark-msmarco-vectorchord.yml \
-  --repo paradedb/paradedb --ref main
+gh workflow run benchmark-pg_search-benchmarker-msmarco.yml \
+  --repo paradedb/paradedb --ref main -f engine=vectorchord
 ```
 
 The optional `commit` input benchmarks another pg_search revision using the

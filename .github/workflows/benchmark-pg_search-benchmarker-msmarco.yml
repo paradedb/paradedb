@@ -1,4 +1,4 @@
-name: Benchmark MS MARCO vector (pg_search)
+name: Benchmark MS MARCO vector
 
 on:
   schedule:
@@ -7,6 +7,11 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      engine:
+        description: "Vector index to benchmark"
+        type: choice
+        options: [pg_search, pg_vectorsearch, vectorchord]
+        default: pg_search
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
         default: ""
@@ -25,11 +30,17 @@ permissions:
 
 jobs:
   benchmark:
-    name: MS MARCO pg_search
-    if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-msmarco-pg_search'
+    name: MS MARCO ${{ matrix.engine }}
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-pg_vectorsearch", "benchmark-msmarco-vectorchord"]'), github.event.label.name)
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: ${{ fromJSON(github.event_name == 'schedule' && '["pg_search", "pg_vectorsearch", "vectorchord"]' || format('["{0}"]', inputs.engine || (github.event.label.name == 'benchmark-msmarco-pg_vectorsearch' && 'pg_vectorsearch') || (github.event.label.name == 'benchmark-msmarco-vectorchord' && 'vectorchord') || 'pg_search')) }}
     uses: ./.github/workflows/benchmark-msmarco.yml
     with:
-      engine: pg_search
+      engine: ${{ matrix.engine }}
       commit: ${{ inputs.commit || '' }}
       pdbench_ref: ${{ inputs.pdbench_ref || '' }}
       benchmarker_ref: ${{ inputs.benchmarker_ref || '' }}

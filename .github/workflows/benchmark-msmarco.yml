@@ -1,4 +1,4 @@
-# Shared implementation for the extension-specific MS MARCO entry workflows.
+# Shared implementation for the MS MARCO benchmark workflow.
 name: Run MS MARCO benchmark
 
 on:
@@ -142,7 +142,7 @@ jobs:
           set -euo pipefail
           if [ "$BENCHMARK_ENGINE" = pg_vectorsearch ]; then
             git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
-            docker build -f docker/Dockerfile.pg-vectorsearch \
+            docker build -f benchmarks/msmarco/pg_vectorsearch/Dockerfile \
               -t msmarco-pg-vectorsearch:ci pg-vectorsearch
             mkdir -p pdbench/datasets/msmarco/timescale
             cp benchmarks/msmarco/pg_vectorsearch/{pre,post}.sql pdbench/datasets/msmarco/timescale/
@@ -338,7 +338,7 @@ jobs:
           for k in 10 100; do
             query="knn_top${k}_unfiltered"
             pdbench search --url "$PARADEDB_URL" --config "$MSMARCO_CONFIG" \
-              --assets-dir benchmarks/msmarco/assets --runs-dir benchmark-artifacts/search \
+              --assets-dir benchmarks/assets --runs-dir benchmark-artifacts/search \
               --query "$query" --set "search.k=$k" --no-compare --html
           done
 

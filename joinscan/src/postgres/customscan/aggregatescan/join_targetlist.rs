@@ -27,6 +27,7 @@ use super::GroupingShape;
 use super::datafusion_build::{
     FilterExprBuildContext, collect_join_agg_sources, resolve_source_field,
 };
+use super::groupby::validate_grouping_casts;
 use super::pdb_agg::{PdbAggFieldRef, PdbAggRequest};
 use super::privdat::FilterExpr;
 use crate::api::{SortDirection, pdb_agg_spec};
@@ -37,7 +38,7 @@ use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, Rel
 pub use crate::postgres::customscan::joinscan::window_func::SupportedWindowAggType;
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
 use crate::postgres::node::NodeExt;
-use crate::postgres::utils::strip_relabel;
+use crate::postgres::utils::{strip_relabel, strip_unnest_and_relabel};
 use crate::postgres::var::{VarContext, find_one_fieldname, find_one_var};
 use crate::schema::SearchFieldType;
 use pgrx::PgList;
@@ -965,80 +966,78 @@ unsafe fn extract_raw_group_column(
         node = var.cast();
         transform = GroupingTransform::TimestampToDate;
     }
-    let (var, attno, field_name, plan_position, numeric_source) = if (*node).type_
-        == pg_sys::NodeTag::T_Var
-    {
-        let var = node.cast::<pg_sys::Var>();
-        let resolved = resolve_var_source(
-            context,
-            (*var).varno as pg_sys::Index,
-            (*var).varattno,
-            &label,
-        )?;
-        (
-            var,
-            resolved.attno,
-            resolved.field_name,
-            resolved.plan_position,
-            Some(resolved.source),
-        )
-    } else {
-        let GroupColumnOrigin::Clause { position } = origin else {
-            unreachable!("output columns that are not keys are plain Vars by construction");
-        };
-        assert!(
-            !context.shape.is_distinct(),
-            "DISTINCT group expressions are plain columns by construction"
-        );
-        // The field holds the column's value, not the value of a cast of it.
-        if let Some(coerce) = nodecast!(CoerceViaIO, strip_relabel(expr))
-            && nodecast!(Var, strip_relabel((*coerce).arg.cast())).is_some()
-        {
-            return Err(format!(
-                "GROUP BY item {position} is a cast of a column; only plain columns and indexed \
-                 expressions are pushed down"
-            ));
-        }
-        let unsupported = || {
-            format!(
-                "GROUP BY item {position} is an unsupported expression; only plain columns \
-                 and indexed expressions are pushed down"
-            )
-        };
-        let var_context = VarContext::from_planner(context.root);
-        let var = find_one_var(var_context, expr).ok_or_else(unsupported)?;
-        let rti = (*var).varno as pg_sys::Index;
-        let attno = (*var).varattno;
-        let plan_position = context
-            .plan
-            .plan_position(context.outer_root_id, rti, attno)
-            .ok_or_else(|| {
-                format!(
-                    "GROUP BY expression at RTI {rti} (attno={attno}) does not resolve to a \
-                     unique output-visible source in the plan tree"
-                )
-            })?;
-
-        if let Ok(source) = find_source_by_rti(context.sources, rti, "GROUP BY expression") {
-            let field_name = source
-                .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
-                .map(|r| r.field.name())
-                .or_else(|| find_one_fieldname(var_context, expr).map(|f| f.into_inner()))
-                .ok_or_else(unsupported)?;
+    let (var, attno, field_name, plan_position, numeric_source) =
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node.cast::<pg_sys::Var>();
+            let resolved = resolve_var_source(
+                context,
+                (*var).varno as pg_sys::Index,
+                (*var).varattno,
+                &label,
+            )?;
             (
                 var,
-                attno,
-                field_name,
-                plan_position,
-                find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
+                resolved.attno,
+                resolved.field_name,
+                resolved.plan_position,
+                Some(resolved.source),
             )
         } else {
-            let field_name = find_one_fieldname(var_context, expr)
-                .map(|f| f.into_inner())
-                .ok_or_else(unsupported)?;
-            (var, attno, field_name, plan_position, None)
-        }
-    };
+            let GroupColumnOrigin::Clause { position } = origin else {
+                unreachable!("output columns that are not keys are plain Vars by construction");
+            };
+            assert!(
+                !context.shape.is_distinct(),
+                "DISTINCT group expressions are plain columns by construction"
+            );
+            // The field holds the column's value, not the value of a cast of it.
+            let (stripped, _) = strip_unnest_and_relabel(expr);
+            if validate_grouping_casts(expr, stripped, |_, _| false).is_err() {
+                return Err(format!(
+                    "GROUP BY item {position} is a cast; only plain columns and indexed \
+                 expressions are pushed down"
+                ));
+            }
+            let unsupported = || {
+                format!(
+                    "GROUP BY item {position} is an unsupported expression; only plain columns \
+                 and indexed expressions are pushed down"
+                )
+            };
+            let var_context = VarContext::from_planner(context.root);
+            let var = find_one_var(var_context, expr).ok_or_else(unsupported)?;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            let plan_position = context
+                .plan
+                .plan_position(context.outer_root_id, rti, attno)
+                .ok_or_else(|| {
+                    format!(
+                        "GROUP BY expression at RTI {rti} (attno={attno}) does not resolve to a \
+                     unique output-visible source in the plan tree"
+                    )
+                })?;
+
+            if let Ok(source) = find_source_by_rti(context.sources, rti, "GROUP BY expression") {
+                let field_name = source
+                    .resolve_fast_field(ResTarget::Expr(expr), Access::Scalar)
+                    .map(|r| r.field.name())
+                    .or_else(|| find_one_fieldname(var_context, expr).map(|f| f.into_inner()))
+                    .ok_or_else(unsupported)?;
+                (
+                    var,
+                    attno,
+                    field_name,
+                    plan_position,
+                    find_source_by_rti(context.sources, rti, "GROUP BY expression").ok(),
+                )
+            } else {
+                let field_name = find_one_fieldname(var_context, expr)
+                    .map(|f| f.into_inner())
+                    .ok_or_else(unsupported)?;
+                (var, attno, field_name, plan_position, None)
+            }
+        };
     // A columnar read of an array cannot tell an empty array from NULL, and
     // it has no NULL elements. Check the underlying Var for both plain keys
     // and expressions: an array subscript can have a scalar result type.

@@ -17,6 +17,7 @@
 
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
+use crate::postgres::customscan::aggregatescan::groupby::resolve_grouping_cast;
 use crate::postgres::customscan::aggregatescan::{CustomScanBuildError, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::pullup::{Access, ResTarget, SourceContext};
@@ -131,15 +132,21 @@ impl CustomScanClause for TargetList {
                 Access::Scalar
             };
 
-            let (resolved, maybe_field_name) = unsafe {
-                find_one_resolved_var_and_fieldname(var_context, context, actual_expr, access)
+            let cast_resolution = resolve_grouping_cast(expr.cast(), actual_expr, context, access);
+            let maybe_field_name = if let Ok(Some(resolved)) = &cast_resolution {
+                Some(resolved.field.name())
+            } else {
+                let (resolved, maybe_field_name) = unsafe {
+                    find_one_resolved_var_and_fieldname(var_context, context, actual_expr, access)
+                };
+                resolved
+                    .map(|r| r.field.name())
+                    .or_else(|| maybe_field_name.map(|f| f.into_inner()))
             };
-            let maybe_field_name = resolved
-                .map(|r| r.field.name())
-                .or_else(|| maybe_field_name.map(|f| f.into_inner()));
 
             // Try to extract field name from the expression (handles both Var and JSON operators)
             if let Some(field_name) = maybe_field_name {
+                cast_resolution?;
                 // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                 // Find which grouping column this is
                 let mut found = false;

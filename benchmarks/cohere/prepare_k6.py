@@ -217,6 +217,7 @@ def summary(points):
             f"HN {points[0]['engine']} reports short result counts without failing k6. "
             "Query errors still fail the run; the 100-vector recall gate remains strict.\n"
         )
+    lines.append("</details>\n")
     return "\n".join(lines)
 
 

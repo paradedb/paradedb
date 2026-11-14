@@ -56,6 +56,10 @@ const requiredChecks =
   point.require_full_neighbors === false
     ? "checks{check:query succeeds}"
     : "checks";
+export const collectMetrics = backends.addMetricsCollector(
+  scenarios,
+  `${warmup + duration}s`,
+);
 export const options = {
   scenarios,
   thresholds: { [requiredChecks]: ["rate==1"] },

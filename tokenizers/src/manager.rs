@@ -314,25 +314,27 @@ impl SearchTokenizerFilters {
 
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
-        // Build the analyzer with static filters first
+        // Stopwords go right after lowercasing: their lists hold whole, accented words, which stemming and
+        // folding would change, so "para" stemmed to "par" or "más" folded to "mas" would no longer match.
         let mut builder = tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.trim_filter())
             .filter($filters.token_length_filter())
             .filter($filters.lower_caser())
-            .filter($filters.stemmer())
             .filter($filters.stopwords())
-            .filter($filters.ascii_folding())
-            $(
-                .filter($extra_filter)
-            )*
-            .filter($filters.alpha_num_only())
             // Convert to type-erased builder for dynamic filter application
             .dynamic();
         // Apply stopword language filters dynamically in a for loop
         for stopword_filter in $filters.stopwords_languages() {
             builder = builder.filter_dynamic(stopword_filter);
         }
-        builder.build()
+        builder
+            .filter_dynamic($filters.stemmer())
+            .filter_dynamic($filters.ascii_folding())
+            $(
+                .filter_dynamic($extra_filter)
+            )*
+            .filter_dynamic($filters.alpha_num_only())
+            .build()
     }};
 }
 
@@ -1718,5 +1720,27 @@ mod tests {
             found_space, should_find_space,
             "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected"
         );
+    }
+
+    #[rstest]
+    #[case::language(r#"{"type": "default", "stemmer": "Spanish", "stopwords_language": "Spanish"}"#, &["sill", "mader"])]
+    #[case::custom(r#"{"type": "default", "stemmer": "Spanish", "stopwords": ["para"]}"#, &["sill", "mas", "mader"])]
+    #[case::accented(r#"{"type": "default", "stemmer": "Spanish", "ascii_folding": true, "stopwords": ["más"]}"#, &["sill", "par", "mader"])]
+    fn test_stopwords_removed_before_stemming_and_folding(
+        #[case] json: &str,
+        #[case] expected: &[&str],
+    ) {
+        use tantivy::tokenizer::TokenStream;
+
+        // Stopword lists hold whole words: "para" stems to "par" and "más" folds to "mas", which no list holds.
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+        let mut token_stream = analyzer.token_stream("silla para más madera");
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            tokens.push(token_stream.token().text.clone());
+        }
+        assert_eq!(tokens, expected);
     }
 }

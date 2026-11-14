@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794666523149,
+  "lastUpdate": 1794666554754,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -59586,6 +59586,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14044331160-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794666549432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 3.506,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 3.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 3.995,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 4.473,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 5.012,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 5.084,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 10.158,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 11.207,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 11.55,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 4.826,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 5.44,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 5.54,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 5.854,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 6.777,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 6.975,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 9.677,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 10.712,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 11.338,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.678,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.171,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 3.417,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 3.778,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 4.457,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 4.96,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 8.253,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 9.498,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 9.79,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14116902817-latency"
       }
     ],
     "benchmarker cohere-1m (throughput)": [
@@ -63655,6 +63813,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14044331160-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794666550735,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 282.3074310368712,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 223.74160142900678,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 98.21067785332066,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 205.89583922067132,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 172.8221465010233,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 102.46681084568695,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 365.22519850733164,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 262.5372164358022,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 128.08869157480262,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14116902817-throughput"
       }
     ],
     "benchmarker cohere-10m (latency)": [
@@ -80958,6 +81184,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14044331160-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794666554738,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 0.45,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 4595.3984375,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "14116902817-index"
       }
     ],
     "benchmarker cohere-10m (buffers)": [
@@ -84948,6 +85207,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14044331160-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794666551708,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 1231.93,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 1836.53,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 5651.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 2393.74,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 2948.25,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 6110.37,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 774.66,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 1197.77,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 2711.91,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14116902817-buffers"
       }
     ],
     "benchmarker hackernews (latency)": [
@@ -89062,6 +89389,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14044331160-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794666552683,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 1.0487451737451738,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 1.107266435986159,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.9895829443614638,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 0.907184622622488,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.980283156419919,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "14116902817-router"
       }
     ],
     "benchmarker cohere-1m (router detail)": [
@@ -89336,6 +89716,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14044331160-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794666553691,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 16084.89,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 16890.58,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.11518376999999999,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 30996.94,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 33921.32,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.18818522000000001,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 112001.92,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 99793.09,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 0.44332646,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14116902817-router-detail"
       }
     ],
     "benchmarker hackernews-vector-28m (latency)": [

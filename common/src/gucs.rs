@@ -83,6 +83,8 @@ static ENABLE_VISIBILITY_MAP_SHORTCUTS: GucSetting<bool> = GucSetting::<bool>::n
 /// Allows pruning segments via `.stats` and `.fast` field bounds before estimation and execution.
 static ENABLE_SEGMENT_PRUNING: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+static RECENT_BUFFERS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Controls the behavior of ParadeDB planner warnings when an optimized scan cannot be used
 static PLANNER_WARNINGS: GucSetting<PlannerWarnings> =
     GucSetting::<PlannerWarnings>::new(PlannerWarnings::Warning);
@@ -521,6 +523,15 @@ pub fn init() {
         c"Enable visibility-map shortcuts for segments and document ranges",
         c"When disabled, fetch each matching document's CTID and use per-row visibility checks",
         &ENABLE_VISIBILITY_MAP_SHORTCUTS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.recent_buffers",
+        c"Cache buffer IDs for index reads",
+        c"Validate backend-local buffer hints with ReadRecentBuffer before falling back to the shared buffer mapping table",
+        &RECENT_BUFFERS,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -1193,6 +1204,10 @@ pub fn enable_aggregate_custom_scan() -> bool {
 
 pub fn enable_visibility_map_shortcuts() -> bool {
     ENABLE_VISIBILITY_MAP_SHORTCUTS.get()
+}
+
+pub fn recent_buffers() -> bool {
+    RECENT_BUFFERS.get()
 }
 
 pub fn enable_segment_pruning() -> bool {

@@ -174,13 +174,7 @@ impl RelationBufferAccess {
     /// function returns `None`.
     pub fn get_buffer_conditional(&self, blockno: pg_sys::BlockNumber) -> Option<pg_sys::Buffer> {
         unsafe {
-            let pg_buffer = pg_sys::ReadBufferExtended(
-                self.rel.as_ptr(),
-                self.rel.fork_number(),
-                blockno,
-                pg_sys::ReadBufferMode::RBM_NORMAL,
-                std::ptr::null_mut(),
-            );
+            let pg_buffer = self.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 Some(pg_buffer)
             } else {
@@ -197,6 +191,7 @@ impl RelationBufferAccess {
         buffer_mode: pg_sys::ReadBufferMode::Type,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
+        pg_sys::submodules::thread_check::check_active_thread();
         // don't allow callers to try and specify a lock when the `buffer_mode` will cause the buffer to be locked
         debug_assert!(
             lock.is_none()
@@ -212,6 +207,17 @@ impl RelationBufferAccess {
                     extend_by_one_buffer(self.rel.as_ptr(), strategy, self.rel.fork_number());
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
+            } else if strategy.is_null()
+                && buffer_mode == pg_sys::ReadBufferMode::RBM_NORMAL
+                // Parallel workers cannot amortize seeding a backend-local cache across queries.
+                && pg_sys::ParallelWorkerNumber == -1
+                && crate::gucs::recent_buffers()
+                && (*(*self.rel.as_ptr()).rd_rel).relkind
+                    == pg_sys::RELKIND_INDEX as std::ffi::c_char
+                && (*(*self.rel.as_ptr()).rd_rel).relpersistence
+                    != pg_sys::RELPERSISTENCE_TEMP as std::ffi::c_char
+            {
+                super::recent_buffers::read(self.rel.as_ptr(), self.rel.fork_number(), blockno)
             } else {
                 pg_sys::ReadBufferExtended(
                     self.rel.as_ptr(),

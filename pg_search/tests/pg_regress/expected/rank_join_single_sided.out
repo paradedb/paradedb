@@ -703,9 +703,9 @@ WARNING:  RankJoinExec not used: ORDER BY scores only one side of a cross-table 
      :           PgSearchScan: table=p, segments=2, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
--- 6f: Gate 3 unscored RA selectivity (< 0.025 uses HashJoinExec(fetch=K) over lazy_sort probe vs >= 0.025 uses RankJoinExec when rank_join_min_rows > 0)
+-- 6f: Gate 3 unscored RA selectivity (< 0.05 uses HashJoinExec(fetch=K) over lazy_sort probe vs >= 0.05 uses RankJoinExec when rank_join_min_rows > 0)
 SET paradedb.rank_join_min_rows = 1;
--- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.025) with fast-field sort -> HashJoinExec(fetch=5) + lazy_sort probe
+-- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.05) with fast-field sort -> HashJoinExec(fetch=5) + lazy_sort probe
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -743,7 +743,7 @@ LIMIT 5;
     1 |   50
 (2 rows)
 
--- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.025) with BM25 score sort -> HashJoinExec(fetch=5) + lazy_sort probe
+-- Selective build side (u.id <= 1 matches 1/50 = 0.02 < 0.05) with BM25 score sort -> HashJoinExec(fetch=5) + lazy_sort probe
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -781,7 +781,7 @@ LIMIT 5;
     1 |  100
 (2 rows)
 
--- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.025) -> RankJoinExec
+-- Non-selective RA side (u.bio @@@ 'rust' matches 25/50 = 0.50 >= 0.05) -> RankJoinExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT u.id AS u_id, p.id AS p_id
 FROM rj_users u
@@ -862,11 +862,11 @@ LIMIT 5;
      : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=5
      :     VisibilityFilterExec: tables=[u, p]
-     :       RankJoinExec: mode=CollectLeft, on=[(user_id@2, id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@4, ctid_0@5, id@6, pdb.score(p)@0, ctid_1@1, id@3]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=14, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"term_set":{"terms":[{"field":"user_id","value":2},{"field":"user_id","value":4},{"field":"user_id","value":6}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=u, segments=2, lazy_sort=166, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT u.id AS u_id, p.id AS p_id
@@ -906,11 +906,11 @@ LIMIT 5;
      : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(u)@0 + pdb.score(p)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=5
      :     VisibilityFilterExec: tables=[u, p]
-     :       RankJoinExec: mode=CollectLeft, on=[(id@2, user_id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@0, ctid_0@1, id@2, pdb.score(p)@3, ctid_1@4, id@6]
-     :         CooperativeExec
-     :           PgSearchScan: table=u, segments=2, lazy_sort=14, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
+     :       RankJoinExec: mode=CollectLeft, on=[(user_id@2, id@2)], order=[pdb.score(u)@0 + pdb.score(p)@3 DESC, id@2 ASC NULLS LAST, id@5 ASC NULLS LAST], projection=[pdb.score(u)@4, ctid_0@5, id@6, pdb.score(p)@0, ctid_1@1, id@3]
      :         CooperativeExec
      :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"range":{"field":"views","lower_bound":{"included":0},"upper_bound":null}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=u, segments=2, lazy_sort=100, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT u.id AS u_id, p.id AS p_id

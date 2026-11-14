@@ -1264,21 +1264,35 @@ fn try_convert_in_list_to_query(
 
     let field_type = field.field_type();
 
-    // Check GUC thresholds
+    const DEFAULT_HASH_JOIN_INLIST_MAX_SIZE: usize = 16 * 1024 * 1024;
+    const DEFAULT_HASH_JOIN_INLIST_MAX_DISTINCT: usize = 20_000;
+    const LAZY_SORT_INLIST_MAX_SIZE: usize = 32 * 1024 * 1024;
+    const LAZY_SORT_INLIST_MAX_DISTINCT: usize = 500_000;
+
+    // Check GUC thresholds (`PushToIndex` allows up to 500K distinct keys / 32 MiB on ordered
+    // top-K scans unless the session explicitly lowers the GUC below its default, including 0).
+    let base_max_size = crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as usize;
+    let base_max_distinct =
+        crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize;
     let (max_size, max_distinct) = match linear_fallback {
-        InListLinearFallback::KeepAsPreFilter => (
-            crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as usize,
-            crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize,
-        ),
+        InListLinearFallback::KeepAsPreFilter => (base_max_size, base_max_distinct),
         InListLinearFallback::PushToIndex => (
-            crate::gucs::effective_lazy_sort_inlist_max_size(),
-            crate::gucs::effective_lazy_sort_inlist_max_distinct_values(),
+            if base_max_size < DEFAULT_HASH_JOIN_INLIST_MAX_SIZE {
+                base_max_size
+            } else {
+                base_max_size.max(LAZY_SORT_INLIST_MAX_SIZE)
+            },
+            if base_max_distinct < DEFAULT_HASH_JOIN_INLIST_MAX_DISTINCT {
+                base_max_distinct
+            } else {
+                base_max_distinct.max(LAZY_SORT_INLIST_MAX_DISTINCT)
+            },
         ),
     };
 
     // K cap: defaults to 20,000 on standard scans (`HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`)
-    // and 500,000 on `lazy_sort` scans (`DEFAULT_LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`).
-    // See the GUC docs in `common::gucs` for the crossover trade-offs. Set to 0 to disable pushdown.
+    // and 500,000 on `lazy_sort` / `TopK` scans (`LAZY_SORT_INLIST_MAX_DISTINCT`). Set to 0 to
+    // disable pushdown.
     if in_list.list().len() > max_distinct {
         return InListPushdown::Keep;
     }

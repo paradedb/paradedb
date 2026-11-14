@@ -767,7 +767,7 @@ LIMIT 10;
      :         CooperativeExec
      :           PgSearchScan: table=documents, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"postgres","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=3, output_bytes=108.0 B, output_batches=3, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=3, ra_queries=1, rows_pruned=0, rows_scanned=3]
      :         CooperativeExec
-     :           PgSearchScan: table=files, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=5, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=6, ra_queries=3, rows_pruned=0, rows_scanned=5]
+     :           PgSearchScan: table=files, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"content","value":"index","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}, metrics=[output_rows=5, output_bytes=180.0 B, output_batches=4, dynamic_filter_pushdown_automaton=1, dynamic_filter_pushdown_score=1, queries=6, ra_queries=3, rows_pruned=0, rows_scanned=5]
 (14 rows)
 
 SELECT documents.id AS doc_id,

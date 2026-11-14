@@ -26,10 +26,8 @@ use crate::api::{FieldName, HashMap};
 use crate::index::segment_pruning::SegmentStatsSnapshot;
 use crate::index::stats::{EmpiricalStats, comparable, ends_before};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
+use crate::schema::{SearchField, SearchIndexSchema};
 use tantivy::SegmentOrdinal;
-use tantivy::query::Occur;
-use tantivy::query_grammar::{UserInputAst, UserInputBound, UserInputLeaf, parse_query};
 use tantivy::schema::FieldType;
 
 /// Answers pruning questions directly for one segment of a [`SegmentStatsSnapshot`].
@@ -208,22 +206,6 @@ impl<'a> SegmentPruner<'a> {
                 };
                 range_can_match(self.empirical(segment, &field).as_ref(), &lower, &upper)
             }
-            pdb::Query::Parse {
-                query_string,
-                lenient,
-                conjunction_mode,
-            } => {
-                lenient.unwrap_or(false)
-                    || self.parse_can_match(
-                        segment,
-                        query_string,
-                        if conjunction_mode.unwrap_or(false) {
-                            Occur::Must
-                        } else {
-                            Occur::Should
-                        },
-                    )
-            }
             _ => true,
         }
     }
@@ -289,22 +271,6 @@ impl<'a> SegmentPruner<'a> {
             SearchQueryInput::Null => false,
             SearchQueryInput::FieldedQuery { field, query } => {
                 self.field_can_match(segment, field, query)
-            }
-            SearchQueryInput::Parse {
-                query_string,
-                lenient,
-                conjunction_mode,
-            } => {
-                lenient.unwrap_or(false)
-                    || self.parse_can_match(
-                        segment,
-                        query_string,
-                        if conjunction_mode.unwrap_or(false) {
-                            Occur::Must
-                        } else {
-                            Occur::Should
-                        },
-                    )
             }
             SearchQueryInput::TermSet { terms } => Self::terms_by_field(terms)
                 .into_iter()
@@ -374,108 +340,6 @@ impl<'a> SegmentPruner<'a> {
             }
             // Score and heap filters may reject any row that matches their indexed child.
             _ => false,
-        }
-    }
-
-    fn eligible_parse_field(&self, field_name: Option<&str>) -> Option<SearchField> {
-        let name = field_name.filter(|&f| f != "*" && !f.contains('.'))?;
-        self.eligible_value_field(&FieldName::from(name))
-            .filter(|f| {
-                !matches!(
-                    f.field_type(),
-                    SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)
-                )
-            })
-    }
-
-    fn parse_can_match(
-        &self,
-        segment: Option<SegmentOrdinal>,
-        query_string: &str,
-        default_occur: Occur,
-    ) -> bool {
-        let Ok(ast) = parse_query(query_string) else {
-            return true;
-        };
-        self.ast_can_match(segment, &ast, default_occur)
-    }
-
-    fn ast_can_match(
-        &self,
-        segment: Option<SegmentOrdinal>,
-        ast: &UserInputAst,
-        default_occur: Occur,
-    ) -> bool {
-        match ast {
-            UserInputAst::Clause(children) => {
-                let mut must = Vec::new();
-                let mut should = Vec::new();
-                for (occur, child) in children {
-                    match occur.unwrap_or(default_occur) {
-                        Occur::Must => must.push(child),
-                        Occur::Should => should.push(child),
-                        Occur::MustNot => {}
-                    }
-                }
-                if must.is_empty() && should.is_empty() {
-                    return true;
-                }
-                must.iter()
-                    .all(|c| self.ast_can_match(segment, c, default_occur))
-                    && (!must.is_empty()
-                        || should
-                            .iter()
-                            .any(|c| self.ast_can_match(segment, c, default_occur)))
-            }
-            UserInputAst::Boost(inner, _) => self.ast_can_match(segment, inner, default_occur),
-            UserInputAst::Leaf(leaf) => match leaf.as_ref() {
-                UserInputLeaf::Range {
-                    field,
-                    lower,
-                    upper,
-                } => {
-                    let Some(field) = self.eligible_parse_field(field.as_deref()) else {
-                        return true;
-                    };
-                    let Some(segment) = segment else {
-                        return false;
-                    };
-                    let map_bound = |b: &UserInputBound| match b {
-                        UserInputBound::Inclusive(s) => {
-                            Bound::Included(PdbOwnedValue::Str(s.clone()))
-                        }
-                        UserInputBound::Exclusive(s) => {
-                            Bound::Excluded(PdbOwnedValue::Str(s.clone()))
-                        }
-                        UserInputBound::Unbounded => Bound::Unbounded,
-                    };
-                    let lower = map_bound(lower);
-                    let upper = map_bound(upper);
-                    let Some((lower, upper)) = self.range_bounds(&field, &lower, &upper) else {
-                        return true;
-                    };
-                    range_can_match(self.empirical(segment, &field).as_ref(), &lower, &upper)
-                }
-                UserInputLeaf::Set { field, elements } if !elements.is_empty() => {
-                    let Some(field) = self.eligible_parse_field(field.as_deref()) else {
-                        return true;
-                    };
-                    let Some(segment) = segment else {
-                        return false;
-                    };
-                    let mut converted = Vec::with_capacity(elements.len());
-                    for el in elements {
-                        let Some(val) = self.term_value(&field, &PdbOwnedValue::Str(el.clone()))
-                        else {
-                            return true;
-                        };
-                        converted.push(val);
-                    }
-                    let stats = self.empirical(segment, &field);
-                    converted.iter().any(|v| term_can_match(stats.as_ref(), v))
-                }
-                _ => true,
-            },
         }
     }
 }
@@ -560,15 +424,17 @@ fn term_matches_all(stats: Option<&EmpiricalStats>, term: &PdbOwnedValue) -> boo
     })
 }
 
-/// Negative minima are cast to usize during query compilation, so keep them conservative,
-/// including when nested under NOT.
+/// Tantivy's scorer and pruning_scorer disagree on the minimum for a single positive clause.
+/// Negative minima are cast to usize during query compilation. Neither case provides a safe
+/// exclusion or match-all guarantee, including when nested under NOT.
 fn required_should_matches(
     must: usize,
     should: usize,
+    must_not: usize,
     minimum_should_match: Option<i64>,
 ) -> Option<usize> {
     let minimum = minimum_should_match.unwrap_or(0);
-    if minimum < 0 {
+    if minimum < 0 || (must + should == 1 && must_not == 0 && minimum as usize > should) {
         return None;
     }
     Some((minimum as usize).max(usize::from(must == 0 && should > 0)))
@@ -586,8 +452,12 @@ fn boolean_can_match(
     if must.len() == 0 && should.len() == 0 {
         return false;
     }
-    let Some(required) = required_should_matches(must.len(), should.len(), minimum_should_match)
-    else {
+    let Some(required) = required_should_matches(
+        must.len(),
+        should.len(),
+        must_not.len(),
+        minimum_should_match,
+    ) else {
         return true;
     };
     must.all(|possible| possible)
@@ -605,8 +475,12 @@ fn boolean_matches_all(
     if must.len() == 0 && should.len() == 0 {
         return false;
     }
-    let Some(required) = required_should_matches(must.len(), should.len(), minimum_should_match)
-    else {
+    let Some(required) = required_should_matches(
+        must.len(),
+        should.len(),
+        must_not.len(),
+        minimum_should_match,
+    ) else {
         return false;
     };
     must.all(|guaranteed| guaranteed)
@@ -786,8 +660,8 @@ mod unit_tests {
         vec![], vec![ALWAYS, ALWAYS], vec![], Some(2), ALWAYS
     )]
     #[case::explicit_zero_still_unions_should(vec![], vec![NEVER], vec![], Some(0), NEVER)]
-    #[case::single_should_oversized_minimum(vec![], vec![ALWAYS], vec![], Some(2), NEVER)]
-    #[case::single_must_positive_minimum(vec![ALWAYS], vec![], vec![], Some(1), NEVER)]
+    #[case::single_should_oversized_minimum(vec![], vec![ALWAYS], vec![], Some(2), MAYBE)]
+    #[case::single_must_positive_minimum(vec![ALWAYS], vec![], vec![], Some(1), MAYBE)]
     fn boolean_truth_cases(
         #[case] must: Vec<Proof>,
         #[case] should: Vec<Proof>,
@@ -1042,28 +916,5 @@ mod tests {
             "a heap filter can only inherit rejections"
         );
         assert_eq!(truths(&heap_filter(never)), [NEVER, NEVER]);
-
-        let parse = |query_string: &str, lenient: Option<bool>| SearchQueryInput::Parse {
-            query_string: query_string.into(),
-            lenient,
-            conjunction_mode: None,
-        };
-        assert!(!SegmentPruner::has_prunable_predicate(
-            reader.schema(),
-            &parse("title:silver", None),
-        ));
-        assert!(SegmentPruner::has_prunable_predicate(
-            reader.schema(),
-            &parse("id:[1 TO 5]", None),
-        ));
-        for (q, expected) in [
-            (parse("id:[1 TO 5]", None), [MAYBE, NEVER]),
-            (parse("id:[99 TO 99]", None), [NEVER, NEVER]),
-            (parse("id:[1 TO 1] OR id:[15 TO 15]", None), [MAYBE, MAYBE]),
-            (parse("id: IN [12 15]", None), [NEVER, MAYBE]),
-            (parse("id:[99 TO 99]", Some(true)), [MAYBE, MAYBE]),
-        ] {
-            assert_eq!(truths(&q), expected, "{q:?}");
-        }
     }
 }

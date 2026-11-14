@@ -838,9 +838,6 @@ impl CustomScan for AggregateScan {
             PlanShape::DataFusion { clause_count } => {
                 // For join aggregates, scanrelid=0 (no single base relation)
                 builder.set_scanrelid(0);
-                if let PrivateData::DataFusion { plan, .. } = builder.custom_private_mut() {
-                    plan.estimate_sources();
-                }
 
                 let best_path = builder.args().best_path;
                 let root = builder.args().root;

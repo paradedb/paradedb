@@ -294,7 +294,6 @@ impl TopKScanExecState {
                 .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: Some(telemetry),
-            sa_window_tracker: Default::default(),
         };
 
         let plan = PgSearchScanPlan::new(

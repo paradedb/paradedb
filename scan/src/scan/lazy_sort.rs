@@ -18,17 +18,14 @@
 //! Lazy sorted scan configuration and stream execution for [`PgSearchScanPlan`].
 //!
 //! Supports iterative, expanding-window Sorted Access (`SA`) for `BaseScan` Top-K and
-//! [`RankJoinExec`](crate::scan::rank_join_exec::RankJoinExec) (materializing each `SA` window in
-//! bounded chunks so early-terminating downstream consumers avoid upfront fast-field and
-//! dictionary reads across the remainder of the window), as well as on-demand Random Access (`RA`)
-//! join-key point lookups and tagless `ScanMode::Disjunctive` scoring.
+//! [`RankJoinExec`](crate::scan::rank_join_exec::RankJoinExec), as well as on-demand Random Access
+//! (`RA`) join-key point lookups and tagless `ScanMode::Disjunctive` scoring.
 //!
 //! [`PgSearchScanPlan`]: crate::scan::execution_plan::PgSearchScanPlan
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use arrow_array::RecordBatch;
@@ -46,8 +43,8 @@ use tantivy::index::SegmentId;
 use crate::api::OrderByInfo;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::{
-    MultiSegmentSearchResults, RaLookupWeights, SearchIndexReader, SearchIndexScore,
-    TopKAuxiliaryCollector, TopKLimit, TopKOffset, TopKSearch, TopKWindow, VectorRouting,
+    MultiSegmentSearchResults, RaLookupWeights, SearchIndexReader, TopKAuxiliaryCollector,
+    TopKLimit, TopKOffset, TopKSearch, TopKWindow, VectorRouting,
 };
 use crate::index::stats::{PartitionSegments, segments_for_partition};
 use crate::postgres::ParallelScanState;
@@ -156,32 +153,6 @@ pub struct LazySortTelemetryState {
 pub type LazySortTelemetry =
     Arc<Mutex<crate::postgres::customscan::mpp::MainThread<LazySortTelemetryState>>>;
 
-/// Tracks per-partition whether a leaf `LazySortStreamState` still has unmaterialized
-/// `SA_MATERIALIZE_CHUNK_SIZE` slices buffered in `pending_sa_window` from its most recent
-/// Sorted Access (`SA`) Top-K pull.
-///
-/// [`RankJoinExec`](crate::scan::rank_join_exec::RankJoinExec) reads this flag so it can
-/// accumulate up to `ra_batch_size` unresolved keys across `128`-row chunks within an active
-/// `SA` window, while flushing `RA` immediately once the current window's chunks finish rather
-/// than triggering a larger retry `TopDocs` search first.
-#[derive(Clone, Default)]
-pub struct SaWindowChunkTracker {
-    partitions: Arc<Mutex<Vec<Arc<AtomicBool>>>>,
-}
-
-impl SaWindowChunkTracker {
-    pub fn for_partition(&self, partition: usize) -> Arc<AtomicBool> {
-        let mut guard = self
-            .partitions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if guard.len() <= partition {
-            guard.resize_with(partition + 1, || Arc::new(AtomicBool::new(false)));
-        }
-        Arc::clone(&guard[partition])
-    }
-}
-
 /// Configures [`PgSearchScanPlan`](crate::scan::execution_plan::PgSearchScanPlan) for iterative,
 /// expanding-window Sorted Access (`SA`) and/or on-demand Random Access (`RA`) join-key point
 /// lookups within a single stream:
@@ -219,9 +190,6 @@ pub struct LazySortConfig {
     pub parallel_mode: LazyParallelMode,
     /// Optional process-local telemetry and first-pull auxiliary collector hook for `BaseScan`.
     pub telemetry: Option<LazySortTelemetry>,
-    /// Shared per-partition indicator reporting whether `pending_sa_window` still holds
-    /// unmaterialized chunks for the current `SA` window.
-    pub sa_window_tracker: SaWindowChunkTracker,
 }
 
 impl std::fmt::Debug for LazySortConfig {
@@ -681,64 +649,6 @@ fn record_pull_telemetry(
     }
 }
 
-/// Maximum number of `(SearchIndexScore, DocAddress)` hits materialized into a single
-/// `RecordBatch` per stream step from an `SA` Top-K window, avoiding upfront fast-field and
-/// dictionary materialization of multi-thousand-row windows when downstream `LIMIT` or
-/// [`RankJoinExec`](crate::scan::rank_join_exec::RankJoinExec) terminates early.
-const SA_MATERIALIZE_CHUNK_SIZE: usize = 128;
-
-/// Buffers the rank-ordered `(score, DocAddress)` window returned by a single `SA` Top-K pull
-/// so [`LazySortStreamState`] can materialize and emit Arrow `RecordBatch`es incrementally in
-/// [`SA_MATERIALIZE_CHUNK_SIZE`] slices instead of decoding the entire window up front.
-struct PendingSaWindow {
-    /// Rank-ordered hits from the current Top-K window.
-    results: Vec<(SearchIndexScore, tantivy::DocAddress)>,
-    /// Index of the next uninspected hit in `results`.
-    cursor: usize,
-}
-
-impl PendingSaWindow {
-    fn new(results: Vec<(SearchIndexScore, tantivy::DocAddress)>) -> Self {
-        Self { results, cursor: 0 }
-    }
-
-    /// Drains up to [`SA_MATERIALIZE_CHUNK_SIZE`] un-emitted hits in rank order, recording them
-    /// in `emitted_docs` and advancing `cursor` past any immediately trailing already-emitted
-    /// documents.
-    fn next_chunk(
-        &mut self,
-        emitted_docs: &mut crate::api::HashSet<tantivy::DocAddress>,
-    ) -> Vec<(SearchIndexScore, tantivy::DocAddress)> {
-        let mut chunk = Vec::with_capacity(
-            self.results
-                .len()
-                .saturating_sub(self.cursor)
-                .min(SA_MATERIALIZE_CHUNK_SIZE),
-        );
-        while self.cursor < self.results.len() && chunk.len() < SA_MATERIALIZE_CHUNK_SIZE {
-            let hit = self.results[self.cursor];
-            self.cursor += 1;
-            if emitted_docs.insert(hit.1) {
-                chunk.push(hit);
-            }
-        }
-        self.skip_emitted(emitted_docs);
-        chunk
-    }
-
-    fn skip_emitted(&mut self, emitted_docs: &crate::api::HashSet<tantivy::DocAddress>) {
-        while self.cursor < self.results.len()
-            && emitted_docs.contains(&self.results[self.cursor].1)
-        {
-            self.cursor += 1;
-        }
-    }
-
-    fn is_exhausted(&self) -> bool {
-        self.cursor >= self.results.len()
-    }
-}
-
 /// Mutable state machine driving a lazy-sorted [`PgSearchScanPlan`] stream across
 /// interleaved Sorted Access (`SA`) Top-K windows and Random Access (`RA`) point lookups.
 ///
@@ -754,8 +664,6 @@ struct LazySortStreamState {
     segment_target: LazySegmentTarget,
     vector_routing: VectorRouting,
     window_cursor: TopKWindowCursor,
-    pending_sa_window: Option<PendingSaWindow>,
-    sa_window_has_more_chunks: Arc<AtomicBool>,
     filter_metrics: FilterStepMetrics,
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     schema: SchemaRef,
@@ -852,9 +760,6 @@ impl LazySortStreamState {
             ExhaustionBehavior::SignalBothExhausted
         };
 
-        let sa_window_has_more_chunks = lazy_sort.sa_window_tracker.for_partition(target_partition);
-        sa_window_has_more_chunks.store(false, Ordering::Relaxed);
-
         Ok(Self {
             lazy_sort,
             reader,
@@ -866,8 +771,6 @@ impl LazySortStreamState {
             segment_target,
             vector_routing,
             window_cursor,
-            pending_sa_window: None,
-            sa_window_has_more_chunks,
             filter_metrics,
             dynamic_filters,
             schema,
@@ -976,23 +879,7 @@ impl LazySortStreamState {
             effective_ra_threshold.is_some(),
         );
 
-        if let Some(pending) = &mut self.pending_sa_window {
-            pending.skip_emitted(&self.emitted_docs);
-            if pending.is_exhausted() {
-                self.pending_sa_window = None;
-                if self.has_exhausted_all_sa() {
-                    self.signal_parent_sa_exhausted();
-                }
-            }
-            self.sync_sa_window_tracker();
-        }
-
         Ok(ra_batch.unwrap_or_else(|| RecordBatch::new_empty(self.schema.clone())))
-    }
-
-    fn sync_sa_window_tracker(&self) {
-        self.sa_window_has_more_chunks
-            .store(self.pending_sa_window.is_some(), Ordering::Relaxed);
     }
 
     /// Advances the expanding `SA` window cursor, returning `None` once `SA` is exhausted.
@@ -1012,10 +899,21 @@ impl LazySortStreamState {
         }
     }
 
-    /// Executes one expanding `SA` Top-K index search and buffers any matched `(score, DocAddress)`
-    /// hits in `pending_sa_window` for chunked materialization.
-    fn start_sa_window(&mut self, pull: &WindowPull) -> Result<()> {
+    /// Executes one expanding `SA` Top-K window pull, deduplicating against `emitted_docs`
+    /// and materializing surviving rows.
+    fn execute_sa_window(&mut self, pull: &WindowPull) -> Result<Option<RecordBatch>> {
         let timer = self.baseline_metrics.elapsed_compute().timer();
+        let (pre_filters, _) = update_scanner_filters(
+            &self.scanner,
+            &self.dynamic_filters,
+            &self.schema,
+            self.score_column_schema_idx,
+        )?;
+        let pre_filters_wrapper = (!pre_filters.is_empty()).then_some(PreFilters {
+            filters: &pre_filters,
+            schema: &self.schema,
+        });
+
         let mut top_k_search = self.segment_target.search_window(
             &self.sa_reader,
             &self.lazy_sort,
@@ -1034,52 +932,12 @@ impl LazySortStreamState {
         if exhausted {
             self.window_cursor.mark_exhausted();
         }
-        timer.done();
-
-        if top_k_search.results.is_empty() {
-            self.filter_metrics.flush(
-                &self.scanner,
-                &self.plan_metrics,
-                self.target_partition,
-                &self.rows_scanned,
-                &self.rows_pruned,
-                self.has_exhausted_all_sa(),
-            );
-        } else {
-            self.pending_sa_window = Some(PendingSaWindow::new(top_k_search.results));
-        }
-        self.sync_sa_window_tracker();
-        Ok(())
-    }
-
-    /// Materializes the next [`SA_MATERIALIZE_CHUNK_SIZE`] slice from `pending_sa_window`,
-    /// deduplicating against `emitted_docs` lazily so documents emitted by interleaved `RA`
-    /// lookups are skipped.
-    fn materialize_next_sa_chunk(&mut self) -> Result<Option<RecordBatch>> {
-        let Some(mut pending) = self.pending_sa_window.take() else {
-            self.sync_sa_window_tracker();
-            return Ok(None);
-        };
-        let chunk = pending.next_chunk(&mut self.emitted_docs);
-        if !pending.is_exhausted() {
-            self.pending_sa_window = Some(pending);
-        }
-        self.sync_sa_window_tracker();
-
-        let timer = self.baseline_metrics.elapsed_compute().timer();
-        let next_batch = if !chunk.is_empty() {
-            let (pre_filters, _) = update_scanner_filters(
-                &self.scanner,
-                &self.dynamic_filters,
-                &self.schema,
-                self.score_column_schema_idx,
-            )?;
-            let pre_filters_wrapper = (!pre_filters.is_empty()).then_some(PreFilters {
-                filters: &pre_filters,
-                schema: &self.schema,
-            });
+        top_k_search
+            .results
+            .retain(|(_, doc_addr)| self.emitted_docs.insert(*doc_addr));
+        let next_batch = if !top_k_search.results.is_empty() {
             let batch = self.scanner.materialize_topk_window(
-                &chunk,
+                &top_k_search.results,
                 &self.ffhelper,
                 &mut self.visibility,
                 pre_filters_wrapper.as_ref(),
@@ -1092,30 +950,25 @@ impl LazySortStreamState {
         };
         timer.done();
 
-        let all_sa_exhausted = self.has_exhausted_all_sa();
         self.filter_metrics.flush(
             &self.scanner,
             &self.plan_metrics,
             self.target_partition,
             &self.rows_scanned,
             &self.rows_pruned,
-            all_sa_exhausted,
+            exhausted,
         );
 
-        if next_batch.is_some() && all_sa_exhausted {
+        if next_batch.is_some() && self.window_cursor.is_exhausted() {
             self.signal_parent_sa_exhausted();
         }
         Ok(next_batch)
     }
 
-    fn has_exhausted_all_sa(&self) -> bool {
-        self.window_cursor.is_exhausted() && self.pending_sa_window.is_none()
-    }
-
     /// Returns `true` when an `SA` pull produced no rows, the index is exhausted, and the scan
     /// does not need to stay open for future `RA` point lookups.
     fn should_terminate_after_empty_sa(&self) -> bool {
-        self.has_exhausted_all_sa()
+        self.window_cursor.is_exhausted()
             && self.exhaustion_behavior != ExhaustionBehavior::KeepAliveForRa
     }
 
@@ -1150,18 +1003,7 @@ impl LazySortStreamState {
     }
 
     fn finish(&self) {
-        self.sa_window_has_more_chunks
-            .store(false, Ordering::Relaxed);
         self.baseline_metrics.done();
-    }
-}
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only clears a pure
-// Rust `AtomicBool` and never calls into Postgres.
-impl Drop for LazySortStreamState {
-    fn drop(&mut self) {
-        self.sa_window_has_more_chunks
-            .store(false, Ordering::Relaxed);
     }
 }
 
@@ -1204,45 +1046,26 @@ pub(super) fn build_lazy_sort_stream(
                         return Ok(LazySortStep::Yield(state.record_output(batch)));
                     }
 
-                    // 2. When no unmaterialized `SA` hits remain from the current window, pull the
-                    //    next expanding Sorted Access (`SA`) Top-K window `[offset .. offset + limit)`.
-                    //    When `SA` is exhausted, either stay alive to service future `RA` probes
-                    //    (signaling `lit(false)` to the parent `RankJoinExec`) or terminate the stream.
-                    if state.pending_sa_window.is_none() {
-                        let Some(pull) = state.next_sa_window() else {
-                            return Ok(match state.handle_exhausted_sa() {
-                                Some(empty_batch) => {
-                                    LazySortStep::Yield(state.record_output(empty_batch))
-                                }
-                                None => LazySortStep::Done,
-                            });
-                        };
-                        state.start_sa_window(&pull)?;
-                        check_for_cancel()?;
-                        if state.pending_sa_window.is_none() {
-                            return Ok(if state.should_terminate_after_empty_sa() {
-                                LazySortStep::Done
-                            } else {
-                                LazySortStep::Continue
-                            });
-                        }
-                    }
+                    // 2. Pull the next expanding Sorted Access (`SA`) Top-K window `[offset .. offset + limit)`.
+                    //    When `SA` is exhausted, either stay alive to service future `RA` probes (signaling
+                    //    `lit(false)` to the parent `RankJoinExec`) or terminate the stream.
+                    let Some(pull) = state.next_sa_window() else {
+                        return Ok(match state.handle_exhausted_sa() {
+                            Some(empty_batch) => {
+                                LazySortStep::Yield(state.record_output(empty_batch))
+                            }
+                            None => LazySortStep::Done,
+                        });
+                    };
 
-                    // 3. Materialize the next chunk from `pending_sa_window`, deduplicating against
-                    //    previously emitted `SA`/`RA` documents.
-                    let sa_batch = state.materialize_next_sa_chunk()?;
+                    // 3. Execute the `SA` Top-K search, deduplicate against previously emitted `SA`/`RA`
+                    //    documents, and materialize surviving rows.
+                    let sa_batch = state.execute_sa_window(&pull)?;
                     check_for_cancel()?;
                     if let Some(batch) = sa_batch {
                         Ok(LazySortStep::Yield(state.record_output(batch)))
                     } else if state.should_terminate_after_empty_sa() {
                         Ok(LazySortStep::Done)
-                    } else if !state.has_exhausted_all_sa()
-                        && state.pending_sa_window.is_none()
-                        && matches!(state.lazy_sort.parallel_mode, LazyParallelMode::Unpartitioned)
-                    {
-                        Ok(LazySortStep::Yield(state.record_output(
-                            RecordBatch::new_empty(state.schema.clone()),
-                        )))
                     } else {
                         Ok(LazySortStep::Continue)
                     }

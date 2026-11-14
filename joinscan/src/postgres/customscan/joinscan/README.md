@@ -102,7 +102,7 @@ Execution-layer files under [`scan/src/scan/`](../../../../../scan/src/scan/):
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [`rank_join_exec.rs`][rank-join-exec]                                                               | [`RankJoinExec`][rank-join-exec]: pull-based `SA + RA` symmetric hash rank join                         |
 | [`rank_join_rule.rs`][rank-join-rule]                                                               | [`RankJoinRule`][rank-join-rule]: rewrites top-K scored and vector-ordered `HashJoinExec` subtrees      |
-| [`lazy_sort.rs`](../../../../../scan/src/scan/lazy_sort.rs)                                         | Chunked expanding-window `SA` top-K stream and on-demand `RA` point lookups                             |
+| [`lazy_sort.rs`](../../../../../scan/src/scan/lazy_sort.rs)                                         | Expanding-window `SA` top-K stream and on-demand `RA` point lookups                                     |
 | [`segmented_topk_exec.rs`][topk-exec]                                                               | [`SegmentedTopKExec`][topk-exec]: per-segment buffers, global threshold publishing                      |
 | [`segmented_topk_rule.rs`][topk-rule]                                                               | Optimizer rule, [`wrap_blocking_nodes`][wrap-blocking]                                                  |
 | [`visibility_ctid_resolver_rule.rs`](../../../../../scan/src/scan/visibility_ctid_resolver_rule.rs) | Wires scan-side FFHelper into `VisibilityFilterExec` for ctid resolution                                |
@@ -116,17 +116,16 @@ Execution-layer files under [`scan/src/scan/`](../../../../../scan/src/scan/):
 
 ## GUCs
 
-| GUC                                                      | Default | Effect                                                                                                                     |
-| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `paradedb.enable_join_custom_scan`                       | `on`    | Master switch                                                                                                              |
-| `paradedb.enable_range_partitioned_join`                 | `true`  | Range co-partitioned joins                                                                                                 |
-| `paradedb.enable_rank_join`                              | `true`  | `RankJoinExec` (`SA + RA` Rank Join) and lazy probe-side top-K injection for scored, field-ordered, and vector joins       |
-| `paradedb.rank_join_min_rows`                            | `10000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`                          |
-| `paradedb.rank_join_unscored_selectivity_threshold`      | `0.025` | Minimum estimated selectivity on unscored (`RA`) or disjunctive `base_query` join inputs when `rank_join_min_rows > 0`     |
-| `paradedb.hash_join_inlist_pushdown_max_distinct_values` | `20000` | Maximum distinct keys in an `InList` pushed to `TermSetQuery` (`lazy_sort` probe scans default to `500000` unless lowered) |
-| `paradedb.enable_segmented_topk`                         | `true`  | `SegmentedTopKExec` injection                                                                                              |
-| `paradedb.defer_column_fetch`                            | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`)                        |
-| `paradedb.defer_string_decode`                           | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)                             |
+| GUC                                                 | Default | Effect                                                                                                                 |
+| --------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `paradedb.enable_join_custom_scan`                  | `on`    | Master switch                                                                                                          |
+| `paradedb.enable_range_partitioned_join`            | `true`  | Range co-partitioned joins                                                                                             |
+| `paradedb.enable_rank_join`                         | `true`  | `RankJoinExec` (`SA + RA` Rank Join) and lazy probe-side top-K injection for scored, field-ordered, and vector joins   |
+| `paradedb.rank_join_min_rows`                       | `10000` | Minimum estimated matching rows on both join inputs before `RankJoinRule` replaces `HashJoinExec`                      |
+| `paradedb.rank_join_unscored_selectivity_threshold` | `0.05`  | Minimum estimated selectivity on unscored (`RA`) or disjunctive `base_query` join inputs when `rank_join_min_rows > 0` |
+| `paradedb.enable_segmented_topk`                    | `true`  | `SegmentedTopKExec` injection                                                                                          |
+| `paradedb.defer_column_fetch`                       | `auto`  | Fetch term ordinals with the decode (`on`), in the scan (`off`), or per the placement rule (`auto`)                    |
+| `paradedb.defer_string_decode`                      | `auto`  | Decode strings at the consumer (`on`), in the scan (`off`), or per the placement rule (`auto`)                         |
 
 [activation]: mod.rs
 [relnode]: build.rs

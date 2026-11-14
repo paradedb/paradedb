@@ -28,7 +28,7 @@
 
 use std::num::NonZeroUsize;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
@@ -87,8 +87,7 @@ use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::lazy_sort::build_lazy_sort_stream;
 pub use crate::scan::lazy_sort::{
-    LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState,
-    SaWindowChunkTracker, TopKSelectivity,
+    LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, TopKSelectivity,
 };
 use crate::scan::pre_filter::{
     InListLinearFallback, PreFilter, collect_filters, try_dynamic_filter_pushdown,
@@ -394,7 +393,6 @@ impl PgSearchScanPlan {
                 initial_window: 0.0,
                 parallel_mode: LazyParallelMode::Unpartitioned,
                 telemetry: None,
-                sa_window_tracker: SaWindowChunkTracker::default(),
             });
         }
         self
@@ -464,12 +462,6 @@ impl PgSearchScanPlan {
 
     pub fn lazy_sort(&self) -> Option<&LazySortConfig> {
         self.lazy_sort.as_ref()
-    }
-
-    pub fn sa_window_tracker_for_partition(&self, partition: usize) -> Option<Arc<AtomicBool>> {
-        let ls = self.lazy_sort.as_ref()?;
-        let target_partition = self.assigned_partition.unwrap_or(partition);
-        Some(ls.sa_window_tracker.for_partition(target_partition))
     }
 
     /// Returns a new copy of this plan resized to support exactly `target_partitions`.
@@ -1467,7 +1459,6 @@ impl PgSearchScanPlan {
                     initial_window: ls.initial_window,
                     parallel_mode: ls.parallel_mode,
                     telemetry: None,
-                    sa_window_tracker: SaWindowChunkTracker::default(),
                 })
             }
             None => None,
@@ -2883,7 +2874,6 @@ mod tests {
             initial_window: 25.0,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
-            sa_window_tracker: Default::default(),
         });
 
         assert_eq!(plan.lazy_sort().map(|ls| ls.initial_window), Some(25.0));

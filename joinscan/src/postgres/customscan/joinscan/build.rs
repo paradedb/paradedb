@@ -350,6 +350,9 @@ pub struct JoinSourceCandidate {
     pub alias: Option<String>,
     pub score_needed: bool,
     pub partition_by: Vec<crate::api::FieldName>,
+    pub estimate: Option<RowEstimate>,
+    pub estimate_from_total_docs: bool,
+    pub segment_count: Option<usize>,
 }
 
 impl JoinSourceCandidate {
@@ -364,6 +367,9 @@ impl JoinSourceCandidate {
             alias: None,
             score_needed: false,
             partition_by: Vec::new(),
+            estimate: None,
+            estimate_from_total_docs: false,
+            segment_count: None,
         }
     }
 
@@ -408,6 +414,59 @@ impl JoinSourceCandidate {
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.heap_rti == rti
+    }
+
+    /// Calculate and store the estimated number of rows matching the query.
+    ///
+    /// Uses [`SearchIndexReader::mvcc_for_estimation`] (`MvccSatisfies::Snapshot` when the
+    /// query has predicates that can prune segments via `.stats`, or
+    /// `MvccSatisfies::LargestSegment` otherwise) for cheap estimation. When the
+    /// query has heap filters or `PostgresExpression`s (which need executor
+    /// state we don't have at planning time), falls back to `total_docs` as
+    /// an upper bound - looser estimate but avoids evaluating Param-bearing
+    /// expressions during planning (would segfault on unbound PARAM_EXEC).
+    pub fn estimate_rows(&mut self) {
+        if !self.has_bm25_index() {
+            return;
+        }
+
+        let indexrelid = self.indexrelid.expect("Index relid missing");
+        let heaprelid = self.heaprelid.expect("Heap relid missing");
+
+        let index_rel = PgSearchRelation::open(indexrelid);
+        let heap_rel = PgSearchRelation::open(heaprelid);
+        let query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+
+        if query.has_postgres_expressions() || query.has_heap_filters() {
+            let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
+                .expect("Failed to open index reader for estimation");
+            self.segment_count = Some(reader.total_segment_count());
+            self.estimate = Some(RowEstimate::Known(reader.total_docs()));
+            self.estimate_from_total_docs = true;
+            return;
+        }
+
+        // `expr_context` only lives until the end of this function,
+        // which is fine because it is only used to get estimates
+        let expr_context = ExprContextGuard::new();
+        let needs_tokenizer_manager = query.needs_tokenizer();
+        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
+        let reader = SearchIndexReader::open_with_context(
+            &index_rel,
+            query,
+            false,
+            mvcc_style,
+            NonNull::new(expr_context.as_ptr()),
+            None,
+            needs_tokenizer_manager,
+            None,
+        )
+        .expect("Failed to open index reader for estimation");
+
+        let estimate = reader.estimate_docs(row_estimate);
+        self.segment_count = Some(reader.estimated_segment_count());
+        self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
     }
 }
 
@@ -540,59 +599,6 @@ impl JoinSource {
     pub fn execution_alias(&self) -> String {
         RelationAlias::new(self.scan_info.alias.as_deref()).execution(self.plan_position)
     }
-
-    /// Calculate and store the estimated number of rows matching this source's query.
-    ///
-    /// Deferred until `plan_custom_path` so paths declined during `create_custom_path` (or
-    /// discarded by PostgreSQL's cost comparison) never open index readers or `.stats` files.
-    ///
-    /// Uses [`SearchIndexReader::mvcc_for_estimation`] (`MvccSatisfies::Snapshot` when the
-    /// query has predicates that can prune segments via `.stats`, or
-    /// `MvccSatisfies::LargestSegment` otherwise) for cheap estimation. When the
-    /// query has heap filters or `PostgresExpression`s (which need executor
-    /// state we don't have at planning time), falls back to `total_docs` as
-    /// an upper bound - looser estimate but avoids evaluating Param-bearing
-    /// expressions during planning (would segfault on unbound PARAM_EXEC).
-    pub fn estimate_rows(&mut self) {
-        let index_rel = PgSearchRelation::open(self.scan_info.indexrelid);
-        let heap_rel = PgSearchRelation::open(self.scan_info.heaprelid);
-        let query = self.scan_info.mode.query().clone();
-        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
-        if query.has_postgres_expressions() || query.has_heap_filters() {
-            let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
-                .expect("Failed to open index reader for estimation");
-            self.scan_info.estimate = RowEstimate::Known(reader.total_docs());
-            self.scan_info.estimate_basis = crate::scan::ScanEstimateBasis::TotalDocsUpperBound;
-            return;
-        }
-
-        // `expr_context` only lives until the end of this function,
-        // which is fine because it is only used to get estimates
-        let expr_context = ExprContextGuard::new();
-        let needs_tokenizer_manager = query.needs_tokenizer();
-        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
-        let is_snapshot = mvcc_style == MvccSatisfies::Snapshot;
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query,
-            false,
-            mvcc_style,
-            NonNull::new(expr_context.as_ptr()),
-            None,
-            needs_tokenizer_manager,
-            None,
-        )
-        .expect("Failed to open index reader for estimation");
-
-        let estimate = reader.estimate_docs(row_estimate);
-        self.scan_info.estimate = RowEstimate::Known(estimate.matching_docs as u64);
-        self.scan_info.estimate_basis = if is_snapshot {
-            crate::scan::ScanEstimateBasis::Snapshot
-        } else {
-            crate::scan::ScanEstimateBasis::Sampled
-        };
-    }
 }
 
 impl TryFrom<JoinSourceCandidate> for JoinSource {
@@ -625,8 +631,19 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                 score_needed: candidate.score_needed,
                 fields: Vec::new(),
                 partition_by: candidate.partition_by,
-                estimate: RowEstimate::Unknown,
-                estimate_basis: crate::scan::ScanEstimateBasis::Sampled,
+                estimate: candidate.estimate.ok_or_else(|| {
+                    anyhow!(
+                        "cannot build JoinSource for RTI {}: estimate is missing",
+                        candidate.heap_rti
+                    )
+                })?,
+                estimate_from_total_docs: candidate.estimate_from_total_docs,
+                segment_count: candidate.segment_count.ok_or_else(|| {
+                    anyhow!(
+                        "cannot build JoinSource for RTI {}: segment_count is missing",
+                        candidate.heap_rti
+                    )
+                })?,
                 vector_order_by: None,
             },
         })
@@ -1330,13 +1347,6 @@ impl RelNode {
         let mut result = Vec::new();
         self.collect_sources_mut(&mut result);
         result
-    }
-
-    /// Populate `scan_info.estimate` and `scan_info.estimate_basis` for every leaf source.
-    pub fn estimate_sources(&mut self) {
-        for source in self.sources_mut() {
-            source.estimate_rows();
-        }
     }
 
     fn collect_sources_mut<'a>(&'a mut self, acc: &mut Vec<&'a mut JoinSource>) {

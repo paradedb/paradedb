@@ -361,15 +361,10 @@ pub fn init_worker_base_session_state() {
 /// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
 /// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
 /// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
-/// current GUC settings (`apply_paradedb_session_config`) plus per-plan
-/// [`PlanSessionConfig`](crate::postgres::customscan::joinscan::scan_state::PlanSessionConfig)
-/// overrides once per query.
-fn worker_base_session_state(
-    plan_config: crate::postgres::customscan::joinscan::scan_state::PlanSessionConfig,
-) -> SessionState {
+/// current GUC settings (`apply_paradedb_session_config`) once per query.
+fn worker_base_session_state() -> SessionState {
     let mut cfg = WORKER_BASE_SESSION_STATE.config().clone();
     crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(&mut cfg);
-    plan_config.apply(&mut cfg);
     SessionStateBuilder::new_from_existing(WORKER_BASE_SESSION_STATE.clone())
         .with_config(cfg)
         .build()
@@ -379,7 +374,6 @@ fn worker_base_session_state(
 pub(crate) struct MppWorkerInputs {
     pub parallel_state: *mut ParallelScanState,
     pub session: WorkerSession,
-    pub plan_config: crate::postgres::customscan::joinscan::scan_state::PlanSessionConfig,
 }
 
 /// Extract a human-readable message from a panic payload (including `pgrx` `ErrorReportWithLevel`
@@ -413,7 +407,6 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
     let MppWorkerInputs {
         parallel_state,
         session: worker_session,
-        plan_config,
     } = inputs;
 
     let worker_proc = worker_session.worker_proc;
@@ -494,7 +487,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
                 .build())
         }
     })
-    .with_base_session_state(worker_base_session_state(plan_config));
+    .with_base_session_state(worker_base_session_state());
     let incoming = tokio_stream::StreamExt::chain(
         tokio_stream::iter(
             streams

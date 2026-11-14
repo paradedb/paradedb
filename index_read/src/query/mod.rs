@@ -31,7 +31,6 @@ pub mod tid_bitmap_stream;
 
 use crate::query::tid_bitmap_stream::BitmapCell;
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
-use estimate::MAX_ESTIMATED_TERM_SET_LEN;
 use estimate_tree::QueryWithEstimates;
 use heap_field_filter::HeapFieldFilter;
 
@@ -426,19 +425,9 @@ impl SearchQueryInput {
     }
 
     pub fn supports_statistics_estimation(&self) -> bool {
-        // Check the input too: parsed queries can compile to terms but must use the old estimator
-        // unless every leaf is an estimable range or small term set.
+        // Check the input too: parsed queries can compile to terms but must use the old estimator.
         match self {
-            Self::All | Self::Empty => true,
-            Self::TermSet { terms } => terms.len() <= MAX_ESTIMATED_TERM_SET_LEN,
-            Self::Parse {
-                query_string,
-                lenient,
-                ..
-            } => pdb_query::parsed_query_supports_statistics_estimation(
-                query_string,
-                lenient.unwrap_or(false),
-            ),
+            Self::All => true,
             Self::Boolean {
                 must,
                 should,
@@ -452,7 +441,24 @@ impl SearchQueryInput {
             Self::WithIndex { query, .. }
             | Self::ConstScore { query, .. }
             | Self::Boost { query, .. } => query.supports_statistics_estimation(),
-            Self::FieldedQuery { field, query } => query.supports_statistics_estimation(field),
+            Self::FieldedQuery { query, .. } => {
+                matches!(
+                    query,
+                    pdb::Query::All
+                        | pdb::Query::Term { .. }
+                        | pdb::Query::Match {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::MatchArray {
+                            distance: None | Some(0),
+                            ..
+                        }
+                        | pdb::Query::Phrase { .. }
+                        | pdb::Query::PhraseArray { .. }
+                        | pdb::Query::TokenizedPhrase { .. }
+                )
+            }
             _ => false,
         }
     }
@@ -3116,94 +3122,5 @@ mod tests {
             tantivy::Term::from_field_i64(field, i64::MAX)
         );
         assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
-    }
-
-    #[pg_test]
-    fn topk_prunability_requires_single_posting_list() {
-        use super::pdb::Query;
-        use std::collections::Bound;
-
-        let match_q = |value: &str| Query::Match {
-            value: value.to_string(),
-            tokenizer: None,
-            distance: None,
-            transposition_cost_one: None,
-            prefix: None,
-            conjunction_mode: None,
-            synonyms: None,
-        };
-        let fielded = |query: Query| SearchQueryInput::FieldedQuery {
-            field: crate::api::FieldName::from("field"),
-            query,
-        };
-        let fielded_parse = |s: &str| {
-            fielded(Query::Parse {
-                query_string: s.to_string(),
-                lenient: None,
-                conjunction_mode: None,
-            })
-        };
-        let top_parse = |s: &str| SearchQueryInput::Parse {
-            query_string: s.to_string(),
-            lenient: None,
-            conjunction_mode: None,
-        };
-
-        let mut fuzzy = match_q("help");
-        if let Query::Match { distance, .. } = &mut fuzzy {
-            *distance = Some(1);
-        }
-        let mut prefix = match_q("help");
-        if let Query::Match { prefix: p, .. } = &mut prefix {
-            *p = Some(true);
-        }
-        let mut custom_tok = match_q("help");
-        if let Query::Match { tokenizer, .. } = &mut custom_tok {
-            *tokenizer = Some(serde_json::Value::Null);
-        }
-
-        for (query, expected) in [
-            (fielded(match_q("help")), true),
-            (fielded(match_q("a b c d e")), false),
-            (
-                fielded(Query::Range {
-                    lower_bound: Bound::Unbounded,
-                    upper_bound: Bound::Unbounded,
-                }),
-                false,
-            ),
-            (
-                fielded(Query::Regex {
-                    pattern: "he.*".into(),
-                }),
-                false,
-            ),
-            (
-                fielded(Query::Phrase {
-                    phrases: vec!["help".into(), "common".into()],
-                    slop: None,
-                }),
-                false,
-            ),
-            (fielded(fuzzy), false),
-            (fielded(prefix), false),
-            (fielded(custom_tok), false),
-            (fielded(Query::All), false),
-            (fielded(Query::Exists), false),
-            (fielded_parse("alpha"), true),
-            (fielded_parse("alpha_2"), true),
-            (fielded_parse("alpha*"), false),
-            (fielded_parse("/al.*/"), false),
-            (fielded_parse("-foo"), false),
-            (fielded_parse("foo:bar"), false),
-            (fielded_parse("(foo)"), false),
-            (SearchQueryInput::All, false),
-            (SearchQueryInput::TermSet { terms: vec![] }, false),
-            (top_parse("alpha"), true),
-            (top_parse("alpha*"), false),
-            (top_parse("-foo"), false),
-        ] {
-            assert_eq!(query.is_topk_prunable(), expected, "{query:?}");
-        }
     }
 }

@@ -707,70 +707,12 @@ pub async fn build_physical_plan(
     }
 }
 
-fn plan_has_lazy_sort_scan(plan: &Arc<dyn ExecutionPlan>) -> bool {
-    let mut found = false;
-    crate::scan::execution_plan::visit_scan_nodes(plan, &mut |scan| {
-        if scan.lazy_sort().is_some() {
-            found = true;
-        }
-    });
-    found
-}
-
-#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(transparent)]
-struct InListMaxDistinctValues(usize);
-
-#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(transparent)]
-struct InListMaxSizeBytes(usize);
-
-/// Per-plan [`SessionConfig`] overrides derived from a built physical [`ExecutionPlan`] and
-/// applied identically to the leader's [`TaskContext`] and each MPP worker's base
-/// [`SessionState`](datafusion::execution::SessionState).
-#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
-#[repr(C)]
-pub struct PlanSessionConfig {
-    hash_join_inlist_pushdown_max_distinct_values: InListMaxDistinctValues,
-    hash_join_inlist_pushdown_max_size: InListMaxSizeBytes,
-}
-
-impl crate::parallel_worker::ParallelStateType for PlanSessionConfig {}
-
-impl PlanSessionConfig {
-    pub fn for_plan(plan: &Arc<dyn ExecutionPlan>) -> Self {
-        let (max_distinct, max_size) = if plan_has_lazy_sort_scan(plan) {
-            (
-                crate::gucs::effective_lazy_sort_inlist_max_distinct_values(),
-                crate::gucs::effective_lazy_sort_inlist_max_size(),
-            )
-        } else {
-            (
-                crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize,
-                crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as usize,
-            )
-        };
-        Self {
-            hash_join_inlist_pushdown_max_distinct_values: InListMaxDistinctValues(max_distinct),
-            hash_join_inlist_pushdown_max_size: InListMaxSizeBytes(max_size),
-        }
-    }
-
-    pub fn apply(self, config: &mut SessionConfig) {
-        let opt = &mut config.options_mut().optimizer;
-        opt.hash_join_inlist_pushdown_max_distinct_values =
-            self.hash_join_inlist_pushdown_max_distinct_values.0;
-        opt.hash_join_inlist_pushdown_max_size = self.hash_join_inlist_pushdown_max_size.0;
-    }
-}
-
 /// Build the `TaskContext` used to execute a DataFusion physical plan.
 ///
 /// Sizes a `PanicOnOOMMemoryPool` against the supplied `work_mem_bytes` and
 /// `hash_mem_multiplier` (typically PostgreSQL's `work_mem * 1024` and
 /// `hash_mem_multiplier` GUCs), bundles it into a fresh `RuntimeEnv`, and
-/// pairs that with the session config from `ctx` plus any per-plan
-/// [`PlanSessionConfig`] overrides.
+/// pairs that with the session config from `ctx`.
 ///
 /// Shared by JoinScan and AggregateScan; both call this immediately before
 /// `physical_plan.execute(0, task_ctx)`.
@@ -782,13 +724,7 @@ pub fn build_task_context(
     on_spill: crate::postgres::customscan::datafusion::spill::SpillNotify,
 ) -> Arc<TaskContext> {
     let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
-    let mut cfg = ctx.copied_config();
-    PlanSessionConfig::for_plan(plan).apply(&mut cfg);
-    Arc::new(
-        TaskContext::from(ctx)
-            .with_session_config(cfg)
-            .with_runtime(build_runtime_env(memory_pool, on_spill)),
-    )
+    Arc::new(TaskContext::from(ctx).with_runtime(build_runtime_env(memory_pool, on_spill)))
 }
 
 /// Clones `task_ctx` with an updated `SessionConfig`, preserving all function registries

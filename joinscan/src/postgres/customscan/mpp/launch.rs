@@ -53,7 +53,6 @@ use crate::parallel_worker::{
     generic_parallel_worker_entry_point,
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
-use crate::postgres::customscan::joinscan::scan_state::PlanSessionConfig;
 use crate::postgres::customscan::mpp::glue::{
     MIN_TOTAL_WORKER_COUNT, MppLeaderState, collect_stages, estimate_dsm_size, leader_setup,
     max_producer_task_count, mpp_is_active, producer_worker_cap, stages_have_data_parallelism,
@@ -70,7 +69,6 @@ use crate::scan::info::{RowEstimate, ScanInfo};
 const MESH_IDX: usize = 0;
 pub(super) const SCAN_IDX: usize = 1;
 const GO_IDX: usize = 2;
-const PLAN_CONFIG_IDX: usize = 3;
 
 /// Go-flag states. The leader sets `RUN` once the mesh is initialized, or `ABORT` if too few
 /// workers attached for an MPP mesh.
@@ -92,7 +90,6 @@ struct MppParallelProcess {
     mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
     go: u32,
-    plan_config: PlanSessionConfig,
 }
 
 /// The only launch outcomes that preserve the MPP mesh invariant.
@@ -125,12 +122,7 @@ fn mpp_attach_outcome(
 
 impl ParallelProcess for MppParallelProcess {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
-        vec![
-            &self.mesh_region,
-            &self.scan_state,
-            &self.go,
-            &self.plan_config,
-        ]
+        vec![&self.mesh_region, &self.scan_state, &self.go]
     }
 }
 
@@ -199,15 +191,9 @@ fn run_launched_worker(seg: *mut pg_sys::dsm_segment, state_manager: ParallelSta
         _ => pgrx::error!("mpp worker: parallel scan state missing from parallel state"),
     };
 
-    let plan_config = match state_manager.object::<PlanSessionConfig>(PLAN_CONFIG_IDX) {
-        Ok(Some(cfg)) => *cfg,
-        _ => pgrx::error!("mpp worker: plan session config missing from parallel state"),
-    };
-
     let inputs = MppWorkerInputs {
         parallel_state: scan_ptr,
         session: worker,
-        plan_config,
     };
 
     let runtime = match PgTokioRuntime::new() {
@@ -300,7 +286,7 @@ pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a Sc
         crate::gucs::mpp_min_rows() as u64,
         sources
             .into_iter()
-            .map(|info| (info.estimate, info.estimate_basis)),
+            .map(|info| (info.estimate, info.estimate_from_total_docs)),
     )
 }
 
@@ -313,22 +299,20 @@ pub(crate) fn mpp_eligible(parallel_mode_ok: bool, plan: &RelNode) -> bool {
         && !mpp_gated_by_min_rows(plan.sources().into_iter().map(|s| &s.scan_info))
 }
 
-/// `(estimate, estimate_basis)` per source, not `&ScanInfo`: the plain unit tests
+/// `(estimate, estimate_from_total_docs)` per source, not `&ScanInfo`: the plain unit tests
 /// below must not construct (and drop) pgrx-typed values, whose drop glue references server
 /// symbols a standalone test binary cannot link.
 fn gated_by_min_rows(
     min_rows: u64,
-    sources: impl IntoIterator<Item = (RowEstimate, crate::scan::ScanEstimateBasis)>,
+    sources: impl IntoIterator<Item = (RowEstimate, bool)>,
 ) -> bool {
     if min_rows == 0 {
         return false;
     }
     let mut largest: u64 = 0;
-    for (estimate, basis) in sources {
+    for (estimate, from_total_docs) in sources {
         let rows = match estimate {
-            RowEstimate::Known(n)
-                if basis == crate::scan::ScanEstimateBasis::TotalDocsUpperBound =>
-            {
+            RowEstimate::Known(n) if from_total_docs => {
                 (n as f64 * crate::PARAMETERIZED_SELECTIVITY) as u64
             }
             RowEstimate::Known(n) => n,
@@ -392,7 +376,6 @@ pub fn launch_mpp(
         },
         scan_state: vec![0u8; scan_size],
         go: GO_WAIT,
-        plan_config: PlanSessionConfig::for_plan(physical),
     };
 
     let launcher = ParallelProcessBuilder::build(
@@ -506,14 +489,8 @@ mod tests {
 
     #[test]
     fn gate_takes_the_largest_source() {
-        let dim = (
-            RowEstimate::Known(10_000),
-            crate::scan::ScanEstimateBasis::Sampled,
-        );
-        let fact = (
-            RowEstimate::Known(2_000_000),
-            crate::scan::ScanEstimateBasis::Snapshot,
-        );
+        let dim = (RowEstimate::Known(10_000), false);
+        let fact = (RowEstimate::Known(2_000_000), false);
         assert!(!gated_by_min_rows(500_000, [dim, fact]));
         assert!(gated_by_min_rows(500_000, [dim]));
     }
@@ -524,42 +501,24 @@ mod tests {
         // discount, 600k docs stand for 60k matches: under the default threshold.
         assert!(gated_by_min_rows(
             500_000,
-            [(
-                RowEstimate::Known(600_000),
-                crate::scan::ScanEstimateBasis::TotalDocsUpperBound,
-            )]
+            [(RowEstimate::Known(600_000), true)]
         ));
         assert!(!gated_by_min_rows(
             500_000,
-            [(
-                RowEstimate::Known(600_000),
-                crate::scan::ScanEstimateBasis::Snapshot,
-            )]
+            [(RowEstimate::Known(600_000), false)]
         ));
     }
 
     #[test]
     fn unknown_estimates_do_not_gate() {
-        let placeholder = (
-            RowEstimate::Unknown,
-            crate::scan::ScanEstimateBasis::Sampled,
-        );
-        let small = (
-            RowEstimate::Known(10),
-            crate::scan::ScanEstimateBasis::Sampled,
-        );
+        let placeholder = (RowEstimate::Unknown, false);
+        let small = (RowEstimate::Known(10), false);
         assert!(!gated_by_min_rows(500_000, [placeholder, small]));
     }
 
     #[test]
     fn zero_threshold_disables_the_gate() {
-        assert!(!gated_by_min_rows(
-            0,
-            [(
-                RowEstimate::Known(1),
-                crate::scan::ScanEstimateBasis::Sampled,
-            )]
-        ));
+        assert!(!gated_by_min_rows(0, [(RowEstimate::Known(1), false)]));
     }
 
     #[pg_test]

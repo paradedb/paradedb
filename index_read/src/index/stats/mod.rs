@@ -49,8 +49,6 @@ mod pruning;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
-#[cfg(test)]
-pub(crate) use plugin::create_in_ram;
 use plugin::stats_component;
 pub use plugin::{StatsWriter, logical_bounds_hold, register};
 pub use pruning::{

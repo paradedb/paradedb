@@ -282,21 +282,6 @@ impl ScanMode {
     }
 }
 
-/// How [`ScanInfo::estimate`] was produced at plan time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum ScanEstimateBasis {
-    /// Not yet estimated, or estimated from a single-segment (`MvccSatisfies::LargestSegment`)
-    /// sample.
-    #[default]
-    Sampled,
-    /// Summed across all candidate segments of an `MvccSatisfies::Snapshot` reader with no
-    /// unresolved runtime parameters.
-    Snapshot,
-    /// Upper bound from `total_docs` because runtime `PostgresExpression`s or heap filters
-    /// prevented plan-time evaluation; MPP size gates discount by `PARAMETERIZED_SELECTIVITY`.
-    TotalDocsUpperBound,
-}
-
 /// Information about a scan of a ParadeDB table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanInfo {
@@ -324,9 +309,13 @@ pub struct ScanInfo {
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
     pub estimate: RowEstimate,
-    /// How `estimate` was derived at plan time; controls MPP size discounting and whether
-    /// execution-time `PgSearchTableProvider::scan` needs to recompute the estimate.
-    pub estimate_basis: ScanEstimateBasis,
+    /// True when `estimate` is the index's total document count rather than a match count.
+    /// The estimator substitutes the total when the query carries a Postgres expression or a
+    /// heap filter it cannot evaluate at plan time; consumers that need a match count (the MPP
+    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+    pub estimate_from_total_docs: bool,
+    /// The number of segments in the index.
+    pub segment_count: usize,
     /// Whether rows are checked against the heap for snapshot visibility. Only a
     /// `pdb.agg()` query can ask for anything but the default.
     pub mvcc_visibility: MvccVisibility,
@@ -352,7 +341,8 @@ impl ScanInfo {
             fields: Vec::new(),
             partition_by: Vec::new(),
             estimate: RowEstimate::Unknown,
-            estimate_basis: ScanEstimateBasis::Sampled,
+            estimate_from_total_docs: false,
+            segment_count: 0,
             mvcc_visibility: MvccVisibility::default(),
             vector_order_by: None,
         }

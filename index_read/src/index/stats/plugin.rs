@@ -62,15 +62,6 @@ pub fn register(index: &mut Index) {
     index.register_plugin(Arc::new(StatsPlugin));
 }
 
-#[cfg(test)]
-pub(crate) fn create_in_ram(schema: Schema) -> Index {
-    Index::builder()
-        .schema(schema)
-        .register_plugin(Arc::new(StatsPlugin))
-        .create_in_ram()
-        .unwrap()
-}
-
 impl SegmentPlugin for StatsPlugin {
     fn extensions(&self) -> &[&str] {
         &[STATS_EXT]

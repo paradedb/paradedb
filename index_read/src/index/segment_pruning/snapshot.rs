@@ -76,29 +76,6 @@ impl SegmentStatsSnapshot {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn for_test(searcher: &Searcher) -> Self {
-        let segments = searcher
-            .segment_readers()
-            .iter()
-            .map(|reader| CapturedSegment {
-                id: reader.segment_id(),
-                is_mutable: false,
-                stats: OnceLock::new(),
-            })
-            .collect::<Box<[_]>>();
-        let ordinal_by_id = segments
-            .iter()
-            .enumerate()
-            .map(|(ord, segment)| (segment.id, ord))
-            .collect();
-        Self {
-            searcher: searcher.clone(),
-            segments,
-            ordinal_by_id,
-        }
-    }
-
     #[cfg(any(test, feature = "pg_test"))]
     pub fn len(&self) -> usize {
         self.segments.len()
@@ -117,18 +94,6 @@ impl SegmentStatsSnapshot {
     /// The searcher [`SegmentOrdinal`] of `id`, or `None` when the segment is not in this snapshot.
     pub fn segment_ordinal(&self, id: SegmentId) -> Option<SegmentOrdinal> {
         self.segment_index(id).map(|ord| ord as SegmentOrdinal)
-    }
-
-    /// Returns the cached [`SegmentStats`] handle for `id`, opening `.stats` at most once without
-    /// invoking PostgreSQL error reporting so pure-Rust callers/tests can propagate `io::Result`.
-    pub(crate) fn try_segment_stats(
-        &self,
-        id: SegmentId,
-    ) -> std::io::Result<Option<&SegmentStats>> {
-        let Some(ord) = self.segment_index(id) else {
-            return Ok(None);
-        };
-        self.try_stats(ord)
     }
 
     /// Decode one field for one segment. When a persisted segment has no `.stats` component,
@@ -160,33 +125,30 @@ impl SegmentStatsSnapshot {
         })
     }
 
-    fn try_stats(&self, ord: usize) -> std::io::Result<Option<&SegmentStats>> {
-        if let Some(cached) = self.segments[ord].stats.get() {
-            return Ok(cached.as_ref());
-        }
-        let reader = self.searcher.segment_reader(ord as SegmentOrdinal);
-        #[cfg(any(test, feature = "pg_test"))]
-        test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let opened = SegmentStats::of_reader(reader);
-        #[cfg(any(test, feature = "pg_test"))]
-        let opened = test_support::maybe_hide(reader.segment_id(), opened);
-        #[cfg(any(test, feature = "pg_test"))]
-        let opened = test_support::maybe_fail(
-            reader.segment_id(),
-            test_support::InjectedStatsFailure::Open,
-            opened,
-        );
-        let opened = opened?;
-        Ok(self.segments[ord].stats.get_or_init(|| opened).as_ref())
-    }
-
     fn stats(&self, ord: usize) -> Option<&SegmentStats> {
-        self.try_stats(ord).unwrap_or_else(|error| {
-            pgrx::error!(
-                "could not open segment statistics for {:?}: {error}",
-                self.segments[ord].id
-            )
-        })
+        self.segments[ord]
+            .stats
+            .get_or_init(|| {
+                let reader = self.searcher.segment_reader(ord as SegmentOrdinal);
+                #[cfg(any(test, feature = "pg_test"))]
+                test_support::STATS_OPENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let opened = SegmentStats::of_reader(reader);
+                #[cfg(any(test, feature = "pg_test"))]
+                let opened = test_support::maybe_hide(reader.segment_id(), opened);
+                #[cfg(any(test, feature = "pg_test"))]
+                let opened = test_support::maybe_fail(
+                    reader.segment_id(),
+                    test_support::InjectedStatsFailure::Open,
+                    opened,
+                );
+                opened.unwrap_or_else(|error| {
+                    pgrx::error!(
+                        "could not open segment statistics for {:?}: {error}",
+                        reader.segment_id()
+                    )
+                })
+            })
+            .as_ref()
     }
 
     /// Classify a segment's relation to this partition: fully included, partially included,

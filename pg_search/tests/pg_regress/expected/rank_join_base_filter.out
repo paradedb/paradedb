@@ -206,9 +206,9 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=40, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=22, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, lazy_sort=40, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, lazy_sort=26, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
@@ -245,11 +245,11 @@ $$);
      : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[j, c]
-     :       RankJoinExec: mode=CollectLeft, on=[(client_id@2, id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@0, ctid_0@1, id@3, pdb.score(c)@4, ctid_1@5, id@6]
+     :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
+     :         CooperativeExec
+     :           PgSearchScan: table=c, segments=1, lazy_sort=26, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
      :           PgSearchScan: table=j, segments=1, lazy_sort=20, dynamic_filters=1, query={"term_set":{"terms":[{"field":"division","value":2}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=40, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
@@ -968,9 +968,9 @@ $$);
      :     VisibilityFilterExec: tables=[j, c]
      :       RankJoinExec: mode=CollectLeft, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :         CooperativeExec
-     :           PgSearchScan: table=c, segments=1, lazy_sort=40, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=c, segments=1, lazy_sort=22, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=j, segments=1, lazy_sort=40, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=j, segments=1, lazy_sort=26, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT j.id AS job, c.id AS client
@@ -1045,11 +1045,11 @@ $$);
      :   │   VisibilityFilterExec: tables=[j, c]
      :   │     RankJoinExec: mode=Partitioned, on=[(id@2, client_id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@3, ctid_0@4, id@6, pdb.score(c)@0, ctid_1@1, id@2]
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=1, pruned=1}, partition=id[-∞..127), lazy_sort=40, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :   │         t1: PgSearchScan: table=c, segments={partial=1, included=1, pruned=1}, partition=id[127..∞), lazy_sort=40, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :   │         t0: PgSearchScan: table=c, segments={partial=1, included=1, pruned=1}, partition=id[-∞..127), lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :   │         t1: PgSearchScan: table=c, segments={partial=1, included=1, pruned=1}, partition=id[127..∞), lazy_sort=20, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[-∞..127), lazy_sort=39, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :   │         t1: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[127..∞), lazy_sort=39, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :   │         t0: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[-∞..127), lazy_sort=21, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
+     :   │         t1: PgSearchScan: table=j, segments={partial=1, included=1, pruned=1}, partition=client_id[127..∞), lazy_sort=21, dynamic_filters=1, query={"const_score":{"query":{"term_set":{"terms":[{"field":"division","value":1}]}},"score":0.0}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
      :   └──────────────────────────────────────────────────
 (23 rows)
 
@@ -1102,225 +1102,6 @@ RESET max_parallel_workers;
 RESET min_parallel_table_scan_size;
 RESET parallel_setup_cost;
 RESET parallel_tuple_cost;
--- ============================================================
--- Test 17: range base filters use inverted-index dictionary statistics rather than Tantivy's
--- 10% fast-field heuristic, declining RankJoinExec below rank_join_min_rows (including after
--- InitPlan solving in pdb.parse range policies) while keeping RankJoinExec on broad ranges and
--- returning identical rows/scores across multi-segment indexes.
--- ============================================================
-SET max_parallel_workers_per_gather = 0;
-INSERT INTO rjf_jobs VALUES
-    (400, 99, 100, 'zebra rare', 'a'),
-    (401, 99, 105, 'noise', 'a');
--- Under rank_join_min_rows = 10, division 99 has 2 jobs (< 10, whereas 10% of 131 = 13 >= 10),
--- so pdb.range, split SQL range bounds, and InitPlan pdb.parse range policies all decline
--- RankJoinExec; division 1 has 65 jobs (>= 10, with 65 clients >= 10) and keeps RankJoinExec.
-SET paradedb.rank_join_min_rows = 10;
-SELECT explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
-  AND j.division @@@ pdb.range(int4range(99, 100))
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$);
-                                                                                                                                                           explain_redact_oid                                                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: j INNER c
-   Join Cond: c.id = j.client_id
-   Join Predicate: (j:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}})
-   Limit: 10
-   Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[j, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(client_id@2, id@2)], filter=__j_0_tag_0@0 OR __c_1_tag_0@1, projection=[pdb.score(j)@0, ctid_0@1, id@3, pdb.score(c)@5, ctid_1@6, id@7]
-     :         CooperativeExec
-     :           PgSearchScan: table=j, segments={included=1, pruned=3}, query={"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":99},"upper_bound":{"excluded":100}}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=3, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-
-SELECT explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
-  AND j.division >= 99 AND j.division < 100
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$);
-                                                                                                                                                                                            explain_redact_oid                                                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: j INNER c
-   Join Cond: c.id = j.client_id
-   Join Predicate: (j:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}})
-   Limit: 10
-   Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[j, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(client_id@2, id@2)], filter=__j_0_tag_0@0 OR __c_1_tag_0@1, projection=[pdb.score(j)@0, ctid_0@1, id@3, pdb.score(c)@5, ctid_1@6, id@7]
-     :         CooperativeExec
-     :           PgSearchScan: table=j, segments={included=1, pruned=3}, query={"boolean":{"must":[{"range":{"field":"division","lower_bound":{"included":99},"upper_bound":null}},{"range":{"field":"division","lower_bound":null,"upper_bound":{"excluded":100}}}]}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=3, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-
-SELECT explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
-  AND j.division @@@ pdb.range(int4range(1, 2))
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$);
-                                                                                                                                                                           explain_redact_oid                                                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: j INNER c
-   Join Cond: c.id = j.client_id
-   Join Predicate: (j:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}})
-   Limit: 10
-   Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   GlobalLimitExec: skip=0, fetch=10
-     :     VisibilityFilterExec: tables=[j, c]
-     :       RankJoinExec: mode=CollectLeft, on=[(client_id@2, id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@0, ctid_0@1, id@3, pdb.score(c)@4, ctid_1@5, id@6]
-     :         CooperativeExec
-     :           PgSearchScan: table=j, segments={included=3, pruned=1}, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":1},"upper_bound":{"excluded":2}}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=3, lazy_sort=41, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-
-SET rjf.division_ranges = '{[99,100)}';
-SET ROLE rjf_range_user;
-SELECT bool_or(line LIKE '%RankJoinExec%') AS uses_rank_join
-FROM explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$, 'ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF') AS line;
- uses_rank_join 
-----------------
- f
-(1 row)
-
-SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10;
- job | client | job_score | client_score 
------+--------+-----------+--------------
- 401 |    105 |         0 |    1.5124766
- 400 |    100 | 1.2210011 |            0
-(2 rows)
-
--- Forcing RankJoinExec (rank_join_min_rows = 0) across segments where 3 of 4 segments have
--- zero matching base docs returns the exact same rows and scores.
-RESET ROLE;
-SET paradedb.rank_join_min_rows = 0;
-SET ROLE rjf_range_user;
-SELECT j.id AS job, c.id AS client, pdb.score(j.id) AS job_score, pdb.score(c.id) AS client_score
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10;
- job | client | job_score | client_score 
------+--------+-----------+--------------
- 401 |    105 |         0 |    1.5124766
- 400 |    100 | 1.2210011 |            0
-(2 rows)
-
-RESET ROLE;
-SET paradedb.rank_join_min_rows = 10;
-SET rjf.division_ranges = '{[1,2)}';
-SET ROLE rjf_range_user;
-SELECT bool_or(line LIKE '%RankJoinExec%') AS uses_rank_join
-FROM explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE j.body @@@ 'zebra' OR c.name @@@ 'zebra'
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$, 'ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF') AS line;
- uses_rank_join 
-----------------
- t
-(1 row)
-
-RESET ROLE;
-RESET rjf.division_ranges;
--- Under rank_join_min_rows = 1, division 99 has 2 jobs (>= 1), but selectivity 2/130 = 0.0154
--- is below rank_join_unscored_selectivity_threshold (0.025), so Gate 3 declines RankJoinExec;
--- lowering rank_join_unscored_selectivity_threshold to 0.01 admits RankJoinExec and scales only
--- the unfiltered partner leaf's lazy_sort window (c: 1300, j: 20).
-SET paradedb.rank_join_min_rows = 1;
-SELECT explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
-  AND j.division @@@ pdb.range(int4range(99, 100))
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$);
-WARNING:  RankJoinExec not used: base/unscored input selectivity (0.015) is below paradedb.rank_join_unscored_selectivity_threshold (0.025). To disable this warning: SET paradedb.planner_warnings = 'off'
-                                                                                                                                                           explain_redact_oid                                                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: j INNER c
-   Join Cond: c.id = j.client_id
-   Join Predicate: (j:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}})
-   Limit: 10
-   Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   SortExec: TopK(fetch=10), expr=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[false]
-     :     VisibilityFilterExec: tables=[j, c]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(client_id@2, id@2)], filter=__j_0_tag_0@0 OR __c_1_tag_0@1, projection=[pdb.score(j)@0, ctid_0@1, id@3, pdb.score(c)@5, ctid_1@6, id@7]
-     :         CooperativeExec
-     :           PgSearchScan: table=j, segments={included=1, pruned=3}, query={"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":99},"upper_bound":{"excluded":100}}}}}, tag_0={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=3, dynamic_filters=1, tag_0={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-
-SET paradedb.rank_join_unscored_selectivity_threshold = 0.01;
-SELECT explain_redact_oid($$
-SELECT j.id, c.id
-FROM rjf_jobs j JOIN rjf_clients c ON c.id = j.client_id
-WHERE (j.body @@@ 'zebra' OR c.name @@@ 'zebra')
-  AND j.division @@@ pdb.range(int4range(99, 100))
-ORDER BY pdb.score(j.id) + pdb.score(c.id) DESC, j.id
-LIMIT 10
-$$);
-                                                                                                                                                                             explain_redact_oid                                                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Join Scan)
-   Relation Tree: j INNER c
-   Join Cond: c.id = j.client_id
-   Join Predicate: (j:{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}} OR c:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}})
-   Limit: 10
-   Order By: pdb.score(j) + pdb.score(c) desc, j.id asc
-   DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@2 as col_1, id@5 as col_2, pdb.score(j)@0 + pdb.score(c)@3 as col_3, ctid_0@1 as ctid_0, ctid_1@4 as ctid_1]
-     :   GlobalLimitExec: skip=0, fetch=10
-     :     VisibilityFilterExec: tables=[j, c]
-     :       RankJoinExec: mode=CollectLeft, on=[(client_id@2, id@2)], order=[pdb.score(j)@0 + pdb.score(c)@3 DESC, id@2 ASC NULLS LAST], projection=[pdb.score(j)@0, ctid_0@1, id@3, pdb.score(c)@4, ctid_1@5, id@6]
-     :         CooperativeExec
-     :           PgSearchScan: table=j, segments={included=1, pruned=3}, lazy_sort=20, dynamic_filters=1, query={"with_index":{"query":{"range":{"field":"division","lower_bound":{"included":99},"upper_bound":{"excluded":100}}}}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-     :         CooperativeExec
-     :           PgSearchScan: table=c, segments=3, lazy_sort=1310, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"zebra","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
-
-RESET paradedb.rank_join_unscored_selectivity_threshold;
-SET paradedb.rank_join_min_rows = 0;
 -- ============================================================
 -- Cleanup
 -- ============================================================

@@ -28,7 +28,6 @@ arrow-schema.workspace = true
 arrow-select.workspace = true
 async-trait.workspace = true
 bigdecimal.workspace = true
-bytemuck.workspace = true
 bytes.workspace = true
 datafusion.workspace = true
 datafusion-distributed.workspace = true

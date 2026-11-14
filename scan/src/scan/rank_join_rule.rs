@@ -60,7 +60,7 @@
 //!    - Requires `K <= 1,000` ([`MAX_RANK_JOIN_K`]), estimated rows `>=`
 //!      `paradedb.rank_join_min_rows` on every joined input, and combined unscored (`RA`) /
 //!      disjunctive `base_query` selectivity `>= paradedb.rank_join_unscored_selectivity_threshold`
-//!      (default `0.025`, [`UNSCORED_SELECTIVITY_THRESHOLD`]).
+//!      (default `0.05`, [`UNSCORED_SELECTIVITY_THRESHOLD`]).
 //!    - Scales each `SA` leaf's `initial_window` inversely by its survival probability across the
 //!      rest of the subtree (`p_survive = p_unscored_other * p_tagged`) via
 //!      [`TopKSelectivity::compute_initial_window`].
@@ -75,10 +75,10 @@
 //!      (allowing `LimitPushdown` to push `fetch=K` directly into `HashJoinExec`), and configures
 //!      the probe leaf scan with `LazySortConfig` (`LazyParallelMode::WorkerPool`). For
 //!      `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite is gated on the selective
-//!      build side fitting within the effective `lazy_sort` `InList` pushdown caps
-//!      (`paradedb.hash_join_inlist_pushdown_max_distinct_values` / `500K` default and byte cap) and the probe leaf
-//!      supporting indexed `InList` pushdown on the join keys, so the build side's `InList` dynamic
-//!      filter restricts the probe's `TopDocs` / Block-Max WAND collector directly.
+//!      build side fitting within `paradedb.hash_join_inlist_pushdown_max_distinct_values` /
+//!      `paradedb.hash_join_inlist_pushdown_max_size` and the probe leaf supporting indexed
+//!      `InList` pushdown on the join keys, so the build side's `InList` dynamic filter restricts
+//!      the probe's `TopDocs` / Block-Max WAND collector directly.
 //!
 //! # Why Physical-Time Optimization & Tag Elision (`ScanMode::Tagged` -> `ScanMode::Disjunctive`)
 //!
@@ -163,7 +163,7 @@ use crate::query::SearchQueryInput;
 use crate::scan::ScanMode;
 use crate::scan::deferred_lookup::PhysicalDeferredField;
 use crate::scan::execution_plan::{
-    LazyParallelMode, LazySortConfig, PgSearchScanPlan, SaWindowChunkTracker, TopKSelectivity,
+    LazyParallelMode, LazySortConfig, PgSearchScanPlan, TopKSelectivity,
 };
 use crate::scan::rank_join_exec::{
     InputScorePair, RankJoinExec, RankJoinInputs, RankJoinSortExprs, ScoreCombiner,
@@ -183,11 +183,11 @@ pub const SCORE_BALANCE_THRESHOLD: f64 = 0.20;
 /// unscored (`RA`) inputs of a single-sided (`NRJN`) join and `base_query` filters of a
 /// tagless disjunctive (`ScanMode::Disjunctive`) join when `min_rows > 0`.
 ///
-/// When an unscored build side or disjunctive `base_query` is selective (`< 2.5%`), most rows
+/// When an unscored build side or disjunctive `base_query` is selective (`< 5%`), most rows
 /// pulled from an unfiltered `SA` stream miss during `RA` point lookups, whereas parallel
 /// `HashJoinExec` (or `HashJoinExec(fetch=K) + lazy_sort` with `BitsetFromPostings` `InList`
 /// pushdown) can build a small hash table on the selective input and prune the partner scan.
-/// Above `~2.5%`, `InList` pushdown transitions to `LinearScan` `TermSetQuery` on multi-million-row
+/// Above `~5%`, `InList` pushdown transitions to `LinearScan` `TermSetQuery` on multi-million-row
 /// tables and `HashJoinExec` must scan large fractions of the probe side, where `RankJoinExec` wins.
 pub use crate::gucs::UNSCORED_SELECTIVITY_THRESHOLD;
 
@@ -650,9 +650,10 @@ fn try_rewrite_under_sort(
         }
     }
     eager_fields.clear();
-    let max_inlist_distinct = crate::gucs::effective_lazy_sort_inlist_max_distinct_values();
+    let max_inlist_distinct =
+        crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0) as usize;
     let inlist_expectation =
-        if max_inlist_distinct > 0 && crate::gucs::effective_lazy_sort_inlist_max_size() > 0 {
+        if max_inlist_distinct > 0 && crate::gucs::hash_join_inlist_pushdown_max_size() > 0 {
             ProbeInListExpectation::Expected
         } else {
             ProbeInListExpectation::NotExpected
@@ -1636,7 +1637,6 @@ fn try_rewrite_unscored_branch(
             initial_window: 0.0,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
-            sa_window_tracker: SaWindowChunkTracker::default(),
         },
         join_mode,
     );
@@ -1720,7 +1720,6 @@ fn try_rewrite_scored_leaf(
             initial_window: 1.0,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
-            sa_window_tracker: SaWindowChunkTracker::default(),
         },
         join_mode,
     );
@@ -1920,15 +1919,15 @@ fn estimate_subtree_selectivity(plan: &Arc<dyn ExecutionPlan>) -> TopKSelectivit
     TopKSelectivity::ALL
 }
 
-fn build_fits_lazy_sort_inlist_caps(rows: u64, max_inlist_distinct: usize) -> bool {
-    let max_size = crate::gucs::effective_lazy_sort_inlist_max_size() as u64;
+fn build_fits_inlist_caps(rows: u64, max_inlist_distinct: usize) -> bool {
+    let max_size = crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as u64;
     rows <= max_inlist_distinct as u64 && rows.saturating_mul(32) <= max_size
 }
 
 /// Updates `ctx` and routes `probe_key_sets` when descending into `probe_side` of `join`,
 /// accumulating `build_survival_selectivity` and disabling `inlist_expectation` / non-vector probe
 /// eligibility if `join` has a residual `JoinFilter`, if `build_input`'s estimated rows exceed
-/// [`build_fits_lazy_sort_inlist_caps`], or if the join keys cannot be routed as single-column
+/// [`build_fits_inlist_caps`], or if the join keys cannot be routed as single-column
 /// `InList` dynamic filters.
 fn advance_probe_join_context(
     ctx: LazySortProbeContext,
@@ -1943,7 +1942,7 @@ fn advance_probe_join_context(
         .build_survival_selectivity
         .and(estimate_subtree_selectivity(build_input));
     let fits_inlist_caps = estimate_subtree_rows(build_input)
-        .is_some_and(|rows| build_fits_lazy_sort_inlist_caps(rows, ctx.max_inlist_distinct));
+        .is_some_and(|rows| build_fits_inlist_caps(rows, ctx.max_inlist_distinct));
     if !fits_inlist_caps {
         child_ctx.inlist_expectation = ProbeInListExpectation::NotExpected;
     }
@@ -1979,11 +1978,11 @@ fn advance_probe_join_context(
 /// `OrderByFeature::Score`, or `OrderByFeature::Field` plus any secondary tie-breakers).
 ///
 /// For `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite requires the build
-/// side's estimated row count to fit within the effective `lazy_sort` `InList` pushdown caps
-/// (`paradedb.hash_join_inlist_pushdown_max_distinct_values` / `500K` default and byte cap) and the probe leaf to
-/// support indexed `InList` pushdown on the join keys. For `OrderByFeature::VectorDistance`, when
-/// `InList` pushdown into the probe leaf's index is not expected, the probe leaf's `initial_window`
-/// is scaled by `build_survival_selectivity`.
+/// side's estimated row count to fit within `paradedb.hash_join_inlist_pushdown_max_distinct_values`
+/// and `paradedb.hash_join_inlist_pushdown_max_size`, and the probe leaf to support indexed
+/// `InList` pushdown on the join keys. For `OrderByFeature::VectorDistance`, when `InList`
+/// pushdown into the probe leaf's index is not expected, the probe leaf's `initial_window` is
+/// scaled by `build_survival_selectivity`.
 fn try_rewrite_lazy_sort_probe_join(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
@@ -2105,7 +2104,6 @@ fn try_rewrite_lazy_sort_probe_join(
             initial_window,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: None,
-            sa_window_tracker: SaWindowChunkTracker::default(),
         })) as Arc<dyn ExecutionPlan>;
         let probe_vis = take_matching_visibility_checks(pending_vis, &configured_scan.schema());
         if !pending_vis.is_empty() {

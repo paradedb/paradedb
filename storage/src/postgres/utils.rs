@@ -167,14 +167,23 @@ pub unsafe fn extract_field_attributes(
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if is_text_lower(expression.cast()) {
+                        // `pdb.literal` stores the value as PostgreSQL computed it, so Lowercase
+                        // must not be inferred for it. Inferring it reorders Top-K under the C
+                        // collation (#7054).
+                        let is_literal = common::postgres::catalog::lookup_type_name(typoid)
+                            .as_deref()
+                            == Some("literal");
+                        if !is_literal && normalizer.is_none() && is_text_lower(expression.cast()) {
                             normalizer = Some(SearchNormalizer::Lowercase);
                         } else if let Some(relabel) = nodecast!(RelabelType, expression) {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
                             }
 
-                            if is_text_lower((*relabel).arg.cast()) {
+                            if !is_literal
+                                && normalizer.is_none()
+                                && is_text_lower((*relabel).arg.cast())
+                            {
                                 normalizer = Some(SearchNormalizer::Lowercase);
                             }
                         }

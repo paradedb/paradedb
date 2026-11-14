@@ -420,8 +420,8 @@ ORDER BY 1;
          Aggregates: SUM(price)
          DataFusion Physical Plan: 
            : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[sum(p_0.price) as agg_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], filter=price@0 > pdb_eval_expr_funcexpr_087a5553(product_id@1), projection=[category@0, price@1]
-           :     FilterExec: price@1 > pdb_eval_expr_funcexpr_087a5553(id@2)
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, product_id@0)], filter=price@0 > CAST(product_id@1 AS Float64), projection=[category@0, price@1]
+           :     FilterExec: price@1 > CAST(id@2 AS Float64)
            :       CooperativeExec
            :         PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
            :     CooperativeExec
@@ -470,8 +470,8 @@ ORDER BY 1;
            : FilterExec: agg_1@2 > 4
            :   AggregateExec: mode=Single, gby=[category@0 as category], aggr=[count(1) as agg_0, sum(r_2.rating) FILTER (WHERE t_1.tag_name = Utf8View("tech")) as agg_1]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[category@0, tag_name@2, rating@3]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=price@0 > pdb_eval_expr_funcexpr_2bc2e063(product_id@1), projection=[category@0, id@1, tag_name@3]
-           :         FilterExec: price@2 > pdb_eval_expr_funcexpr_2bc2e063(id@1)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], filter=price@0 > CAST(product_id@1 AS Float64), projection=[category@0, id@1, tag_name@3]
+           :         FilterExec: price@2 > CAST(id@1 AS Float64)
            :           CooperativeExec
            :             PgSearchScan: table=p, segments=1, eager=[category], visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec

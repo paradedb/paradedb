@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794643665782,
+  "lastUpdate": 1794643692698,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -345913,6 +345913,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14019386825-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643689673,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.46898984197253,
+            "unit": "median tps",
+            "extra": "avg tps: 57.19070250067638, max tps: 672.3799049682473, count: 59056"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.904691763234126,
+            "unit": "median tps",
+            "extra": "avg tps: 57.084554939665416, max tps: 728.0189892833071, count: 59056"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.85479555016833,
+            "unit": "median tps",
+            "extra": "avg tps: 59.97651894899065, max tps: 814.194960625996, count: 59056"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.85822001255756,
+            "unit": "median tps",
+            "extra": "avg tps: 56.65090636704167, max tps: 698.8371219259192, count: 59056"
+          }
+        ],
+        "publication_id": "14104599167-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -369516,6 +369563,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14019386825-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643692599,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.079484913900163, max cpu: 45.977013, count: 59056"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 51.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.629807738100276, max mem: 63.5078125, count: 59056"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.513399,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.687128131689907, max cpu: 4.5801525, count: 59056"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 22.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.39198202765172, max mem: 22.42578125, count: 59056"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.610387259830542, max cpu: 9.2441025, count: 59056"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 28.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.24561545662168, max mem: 28.24609375, count: 59056"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1930,
+            "unit": "median pages",
+            "extra": "avg pages: 1617.9001625575725, max pages: 2075.0, count: 59056"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 15.078125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 12.639845019981035, max relation_size:MB: 16.2109375, count: 59056"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.1259313194256295, max segment_count: 15.0, count: 59056"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.5649076,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.483410181304136, max cpu: 4.5649076, count: 59056"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 22.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.030039549326062, max mem: 22.0546875, count: 59056"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.68431,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.25864889086124, max cpu: 45.977013, count: 59056"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 50.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.23430726767813, max mem: 60.4609375, count: 59056"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.127127392997252, max cpu: 48.8454, count: 59056"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 44.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.00919988813584, max mem: 56.26953125, count: 59056"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 97.29328918457031,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 201.71874788233143, max replication_lag:MB: 968.8044204711914, count: 59056"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.673594,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.22947111199133, max cpu: 48.8454, count: 59056"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 62.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.66523121327638, max mem: 74.63671875, count: 59056"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.052334,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.970490850295246, max cpu: 31.788078, count: 59056"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 22.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.58760911253725, max mem: 22.65625, count: 59056"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.052334,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.928613252270988, max cpu: 31.939163, count: 59056"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 22.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.54911499519524, max mem: 22.65625, count: 59056"
+          }
+        ],
+        "publication_id": "14104599167-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

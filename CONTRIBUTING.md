@@ -16,7 +16,7 @@ Ideal issues for external contributors include well-scoped, individual features 
 
 Before claiming an issue, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
 
-Please work on one pull request at a time. Wait until it is merged or closed before opening another.
+If you are an external contributor, please work on one pull request at a time. Wait until it is merged or closed before opening another.
 
 ### Development Workflow
 

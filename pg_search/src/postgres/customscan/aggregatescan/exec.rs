@@ -84,8 +84,22 @@ pub fn aggregation_results_iter(
     // DataFusion using an estimate, but a stale/wrong estimate can still land an
     // over-cap query here. Truncation at the cap is only recoverable for a single
     // grouping column bounded by a static LIMIT+OFFSET within the cap: the ordered
-    // prefix Tantivy returns covers the requested window. Otherwise a dropped
-    // group is silent data loss, so we error instead.
+    // prefix Tantivy returns covers the requested window. String MIN-sentinel ordering
+    // needs a later NULL/empty-string swap, so truncation can discard a needed
+    // bucket before that repair. Otherwise a dropped group is silent data loss,
+    // so we error instead.
+    let needs_null_order_repair = aggregate_clause
+        .use_min_sentinel_fields()
+        .iter()
+        .any(|name| {
+            state
+                .custom_state()
+                .indexrel()
+                .schema()
+                .expect("index schema should be readable")
+                .search_field(name)
+                .is_some_and(|field| field.is_text() || field.is_json())
+        });
     let truncation_recoverable = grouping_fields.len() == 1
         && aggregate_clause
             .static_fetch()
@@ -123,7 +137,16 @@ pub fn aggregation_results_iter(
     // incomplete GROUP BY. Fail loudly instead. This is an interim guard until we
     // route on cost between Tantivy and DataFusion; see
     // https://github.com/paradedb/paradedb/issues/5565.
-    if !truncation_recoverable && result.any_terms_truncated(bucket_limit as u64) {
+    if (!truncation_recoverable || needs_null_order_repair)
+        && result.any_terms_truncated(bucket_limit as u64)
+    {
+        if truncation_recoverable && needs_null_order_repair {
+            pgrx::error!(
+                "GROUP BY exceeded paradedb.max_term_agg_buckets ({bucket_limit}); \
+                 truncated buckets cannot preserve NULL and empty string ordering. \
+                 Raise paradedb.max_term_agg_buckets to cover the group cardinality."
+            );
+        }
         let on_fields = if grouping_fields.is_empty() {
             String::new()
         } else {

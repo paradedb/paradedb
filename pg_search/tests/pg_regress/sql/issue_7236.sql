@@ -87,3 +87,34 @@ GROUP BY s ORDER BY s DESC NULLS LAST;
 RESET paradedb.enable_aggregate_custom_scan;
 
 DROP TABLE issue_7236;
+
+-- Keep the estimate below the cap so these queries exercise Tantivy truncation.
+CREATE TABLE issue_7236_cap (id int, s text) WITH (autovacuum_enabled = false);
+INSERT INTO issue_7236_cap SELECT g, '' FROM generate_series(1, 100) g;
+CREATE INDEX issue_7236_cap_idx ON issue_7236_cap USING paradedb (id, (s::pdb.literal));
+ANALYZE issue_7236_cap;
+INSERT INTO issue_7236_cap VALUES (101, NULL), (102, 'a');
+
+-- Truncation must not discard either bucket before the NULL/empty-string swap.
+SET paradedb.max_term_agg_buckets = 1;
+SELECT s, COUNT(*) FROM issue_7236_cap WHERE id @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST LIMIT 1;
+SET paradedb.max_term_agg_buckets = 2;
+EXPLAIN (COSTS OFF)
+SELECT s, COUNT(*) FROM issue_7236_cap WHERE id @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST LIMIT 2;
+SELECT s, COUNT(*) FROM issue_7236_cap WHERE id @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST LIMIT 2;
+
+-- Truncation remains safe when the sentinel already has the correct order.
+SELECT s, COUNT(*) FROM issue_7236_cap WHERE id @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS LAST LIMIT 2;
+
+-- A sufficient cap lets both affected orderings return the correct rows.
+SET paradedb.max_term_agg_buckets = 3;
+SELECT s, COUNT(*) FROM issue_7236_cap WHERE id @@@ pdb.all()
+GROUP BY s ORDER BY s ASC NULLS FIRST LIMIT 1;
+SELECT s, COUNT(*) FROM issue_7236_cap WHERE id @@@ pdb.all()
+GROUP BY s ORDER BY s DESC NULLS LAST LIMIT 2;
+RESET paradedb.max_term_agg_buckets;
+DROP TABLE issue_7236_cap;

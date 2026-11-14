@@ -321,6 +321,10 @@ var results = await (
 
 </CodeGroup>
 
+Each `pdb.score(<column>)` call evaluates the BM25 score for that table's predicates, and `+` sums the per-table scores in the same way a single-table BM25 query sums its clauses. You can weight one table relative to another with positive multipliers such as `2.0 * pdb.score(m.id) + pdb.score(o.order_id)`. When a joined row does not match an `OR` branch on one table, that table's `pdb.score(...)` returns `0.0`; on null-extended rows of an outer join, `pdb.score(...)` on the unmatched table is `NULL` (wrap it in `COALESCE(pdb.score(...), 0)` when summing).
+
+For pushdown requirements on score-ordered joins, see [Score-Ordered Joins](/reference/joins/overview#score-ordered-joins). For how splitting fields across tables affects BM25 corpus statistics, see [Schema Modeling](/reference/indexing/schema-modeling#how-schema-shape-affects-bm25-scoring).
+
 <Note>
   To combine full text and vector search, where scores operate on different
   scales, see [Reciprocal Rank Fusion](/reference/hybrid/rrf).

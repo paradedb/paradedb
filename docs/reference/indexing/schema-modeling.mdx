@@ -1,0 +1,91 @@
+---
+title: Schema Modeling
+description: Choose between normalized tables and denormalized columns when indexing in ParadeDB
+canonical: https://www.paradedb.com/docs/reference/indexing/schema-modeling
+---
+
+External search engines generally require flattening relational tables into a single wide document and syncing updates through an ETL pipeline. Because ParadeDB runs inside Postgres and supports [join pushdown](/reference/joins/overview), you can usually index your normalized tables directly and join them at query time.
+
+At the same time, each ParadeDB index is a [covering index](/concepts/limitations#covering-index) over the indexed columns of one table. How you model relationships across tables and columns affects write amplification, query latency, and BM25 statistics.
+
+| Pattern                                  | Best For                                                                                    | Key Tradeoff                                                                                                                          |
+| :--------------------------------------- | :------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------ |
+| Normalized tables (`1:N`, `M:N`)         | Related entities with independent lifecycles (`posts` and `comments`, `orders` and `items`) | Parent updates touch one row instead of rewriting child rows; joins run at query time via [join pushdown](/reference/joins/overview). |
+| Multi-valued columns (`TEXT[]`, `JSONB`) | Simple attributes owned by a single row (`tags`, dynamic `metadata`)                        | Single-table reads with no join; updating the array or `JSONB` re-indexes the row.                                                    |
+| Denormalized table or materialized view  | Read-heavy workloads with query shapes outside join pushdown or deep pagination             | Single-table scan speed; adds write amplification or refresh lag when upstream rows change.                                           |
+
+## Normalized Tables
+
+For `1:N` and `M:N` relationships, start by creating a ParadeDB index on each table rather than flattening them into one wide table. Include only the columns needed for search, filtering, sorting, joins, or aggregates (updating unindexed columns can still use Postgres Heap-Only Tuple updates without touching the ParadeDB index):
+
+```sql
+CREATE TABLE posts (
+  id INT PRIMARY KEY,
+  author_id INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL
+);
+
+CREATE TABLE comments (
+  id INT PRIMARY KEY,
+  post_id INT NOT NULL REFERENCES posts(id),
+  created_at TIMESTAMPTZ NOT NULL,
+  body TEXT NOT NULL
+);
+
+CREATE INDEX posts_idx ON posts
+USING paradedb (id, author_id, created_at, title, body);
+
+CREATE INDEX comments_idx ON comments
+USING paradedb (id, post_id, created_at, body);
+```
+
+Keeping these tables separate avoids write amplification: updating `posts.title` rewrites one entry in `posts_idx` rather than every comment belonging to that post. Foreign keys, constraints, and row-level security policies also remain on their source tables.
+
+At query time, ParadeDB pushes the join, filters, and Top K ordering into the indexes:
+
+```sql
+SELECT
+  p.id AS post_id,
+  c.id AS comment_id,
+  pdb.score(p.id) + pdb.score(c.id) AS score
+FROM posts p
+JOIN comments c ON c.post_id = p.id
+WHERE p.body ||| 'replication'
+  OR c.body ||| 'replication'
+ORDER BY score DESC, c.id
+LIMIT 10;
+```
+
+For large tables joined in parallel, partitioning both indexes on their equi-join keys (`posts.id` and `comments.post_id`) with [`partition_by`](/reference/indexing/partition-by) lets workers join matching key ranges locally without exchanging rows across processes.
+
+## When to Denormalize
+
+Keeping data in a single table is still preferable in a few cases:
+
+- Multi-valued attributes owned by one entity: When values do not have their own lifecycle or foreign-key references, store them on the parent row using [text arrays](/reference/indexing/indexing-arrays) (such as `tags TEXT[]`) or [JSONB](/reference/indexing/indexing-json) (such as `metadata JSONB`) instead of a separate join table.
+- Queries outside join pushdown or rank-join limits: Score-ordered rank joins support `INNER` and single-sided `SEMI` joins up to `LIMIT 1000` (see [Score-Ordered Joins](/reference/joins/overview#score-ordered-joins)). Read-heavy workloads that rely on deep pagination or outer joins ordered by combined relevance may run faster against a denormalized table or `MATERIALIZED VIEW`.
+
+<Note>
+  If keeping columns on a single table exceeds Postgres's 32-column index limit,
+  pack related fields into a named composite type. See [Indexing 32+
+  Columns](/reference/indexing/indexing-composite).
+</Note>
+
+## How Schema Shape Affects BM25 Scoring
+
+Within a single ParadeDB index, a multi-clause BM25 query such as `title ||| 'keyboard' OR body ||| 'keyboard'` scores each clause against its own field and sums the matching clause scores. Clauses that do not match contribute `0.0`.
+
+Across joined tables, adding [`pdb.score`](/reference/full-text/score#joined-scores) calls (`pdb.score(p.id) + pdb.score(c.id)`) combines clauses the same way. Positive scalar multipliers weight one table relative to another, such as `2.0 * pdb.score(p.id) + pdb.score(c.id)`, matching how [`::pdb.boost(...)`](/reference/full-text/relevance-tuning#boosting) scales individual clauses within one table.
+
+Whether normalizing fields across tables changes the underlying BM25 numbers comes down to which corpus statistics are per field versus per index:
+
+- Per-field statistics: Term frequency, field token length, total tokens in the field, document frequency (how many rows contain the term in that field), and BM25 `k1` / `b` parameters are all tracked independently for each field. A row has no combined cross-field length.
+- Per-index statistic: The total number of rows in the index is tracked at the table level. BM25 uses this row count for inverse document frequency (IDF) and as the denominator for a field's average length (rows where a field is `NULL` have token length `0` and still count toward total rows).
+
+As a result:
+
+- `1:1` tables with matching row counts produce the same scores as a single table. When every row in `users` has a corresponding row in `user_profiles`, both indexes have the same row count and the same per-field statistics. `pdb.score(u.id) + pdb.score(up.user_id)` yields the same BM25 score as indexing all of those fields on one table (aside from minor `float4` rounding or unvacuumed dead rows; see [Score Refresh](/reference/full-text/score#score-refresh)).
+- Optional `1:0..1` tables shift field averages on the sparser table. If `user_profiles` omits rows for users without a profile instead of storing `NULL` fields, `user_profiles` has a smaller total row count than `users`. On its fields, a smaller row count raises average field length and lowers IDF compared to a single table that stores `NULL` values.
+- `1:N` normalized tables score each entity against its own population. In a join between `posts` and `comments`, post fields use the row count of `posts` and comment fields use the row count of `comments`. Flattening `posts` onto every `comments` row in a single index would instead duplicate each post's tokens once per comment, skewing post document frequencies and average field lengths toward heavily commented posts.

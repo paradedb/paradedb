@@ -81,7 +81,7 @@ await dbContext
 In order for a Top K query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
 
 1. All `ORDER BY` fields must be indexed. If they are text fields, they [must use the literal tokenizer](#sorting-by-text).
-2. At least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT`. A search inside a subquery such as `IN (...)` does not count. See [searching in subqueries](#searching-in-subqueries).
+2. For single-table Top K scans, at least one ParadeDB text search operator must be present at the same level as the `ORDER BY...LIMIT` (`IN` and `EXISTS` subqueries across ParadeDB-indexed tables use [join pushdown](/reference/joins/overview#semi-join) instead; see [searching in subqueries](#searching-in-subqueries)).
 3. The query must have a `LIMIT`.
 4. With the exception of `lower`, ordering by expressions is not supported -- only the raw fields themselves. See [sorting by computed values](#sorting-by-computed-values) for workarounds.
 5. Text `ORDER BY` fields must use a byte-ordered [collation](#collation), such as `C`.
@@ -474,8 +474,8 @@ If `in_stock` can be `NULL`, add a third branch for `in_stock IS NULL`.
 
 ## Searching in Subqueries
 
-Top K requires the search, `ORDER BY`, and `LIMIT` to be at the same level of the query.
-A common way to miss this is to run one search per field in a subquery and sort the combined results outside of it:
+Single-table Top K scans require the search, `ORDER BY`, and `LIMIT` to be at the same level of the query (whereas `IN` and `EXISTS` subqueries across ParadeDB-indexed tables can still be accelerated as [semi joins](/reference/joins/overview#semi-join)).
+A common way to miss this on one table is to run one search per field in a `UNION ALL` subquery and sort the combined results outside of it:
 
 ```sql
 EXPLAIN (COSTS OFF)

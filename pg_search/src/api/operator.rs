@@ -268,7 +268,8 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
             fields.push(tableoid.cast());
             names.push(pg_sys::makeString(pg_sys::pstrdup(c"tableoid".as_ptr())).cast());
         }
-        // The estimate of a subquery that has no value until the query runs.
+        // The estimate of a subquery that has no value until the query runs. The restriction
+        // estimator of the operator returns it, so `EXPLAIN` shows it in the `rows` of the scan.
         if let Some(selectivity) = selectivity_now.and_then(IntoDatum::into_datum) {
             fields.push(
                 pg_sys::makeConst(

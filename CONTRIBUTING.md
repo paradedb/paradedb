@@ -14,9 +14,9 @@ Ideal issues for external contributors include well-scoped, individual features 
 
 ### Claiming GitHub Issues
 
-You do not need maintainer approval to pick an issue. Before claiming one, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
+Before claiming an issue, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
 
-Work on one pull request at a time. Wait until it is merged or closed before opening another, and address review feedback before moving on to a new contribution.
+Please work on one pull request at a time. Wait until it is merged or closed before opening another.
 
 ### Development Workflow
 
@@ -89,15 +89,13 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 
 ### Review Expectations
 
-Maintainer review time is limited. Opening a pull request does not guarantee review or acceptance. We may close submissions without a full technical review if they lack supporting evidence, exceed the scope of the issue, address an unsubstantiated problem, or require disproportionate maintainer effort to make them usable. This applies regardless of which tools were used to produce them.
-
-Contributors must be able to explain their changes and respond to review questions themselves. We may close a pull request if its author cannot explain the implementation or its effects on correctness, safety, and performance. If a pull request is closed for missing evidence, provide that evidence in the issue before resubmitting. Repeated spam or attempts to evade these requirements may result in an account being blocked.
+Maintainer time is limited, and not every pull request will be reviewed. We may close pull requests that lack tests or evidence, go beyond the scope of the issue, or need substantial work from maintainers before they can be merged. Repeated spam may result in an account being blocked.
 
 ### Use of AI Tools
 
-You are free to use AI assistants, but you must understand, review, test, and take responsibility for every change you submit. Do not submit generated code you cannot explain. AI slop and autonomous agent submissions will be closed without review.
+We don't care what tools you use to write your code. You are free to use AI agents and assistants to help you write, refactor, or debug your contributions. However, by submitting a pull request, you confirm that you fully understand the code you are submitting and that you stand behind it. AI slop will be rejected.
 
-Engage with maintainers yourself throughout the review. Write pull request descriptions and replies to maintainers in your own words. Do not relay generated answers to review questions. You must be able to explain the code and the reasoning behind it yourself. Low-quality generated submissions that do not demonstrate this understanding may be closed immediately.
+Write pull request descriptions and review replies in your own words. You should be able to explain your changes and answer questions yourself. Do not use an AI agent to respond to maintainers on your behalf. Pull requests whose authors cannot explain their code or engage in the review themselves will be closed.
 
 ### Documentation
 

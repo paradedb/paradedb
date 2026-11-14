@@ -156,7 +156,7 @@ pub enum SearchQueryInput {
         conjunction_mode: Option<bool>,
     },
     TermSet {
-        terms: Vec<TermInput>,
+        termset: std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -1075,8 +1075,8 @@ impl SearchQueryInput {
                     }
                 },
                 Self::Parse { query_string, .. } => Some(query_string.clone()),
-                Self::TermSet { terms } => {
-                    field_names.extend(terms.iter().map(|term| term.field.root()));
+                Self::TermSet { termset } => {
+                    field_names.extend(termset.keys().map(|field| field.root()));
                     None
                 }
                 Self::MoreLikeThis { document, .. } => {
@@ -1911,20 +1911,21 @@ impl SearchQueryInput {
                 )?;
                 Ok(builder.build_leaf(query, || "Parse Query".to_string(), cloned_for_estimate))
             }
-            SearchQueryInput::TermSet { terms: fields } => {
-                check_term_set_size(fields.len());
-                let terms = fields
-                    .into_iter()
-                    .map(|TermInput { field, value }| {
-                        let search_field = schema
-                            .search_field(field.root())
-                            .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
-                        let field_type = search_field.field_entry().field_type();
+            SearchQueryInput::TermSet { termset } => {
+                let term_count = termset.values().map(|s| s.len()).sum();
+                check_term_set_size(term_count);
+                let mut terms = Vec::with_capacity(term_count);
+                for (field, values) in termset.into_iter() {
+                    let search_field = schema
+                        .search_field(field.root())
+                        .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
 
+                    let field_type = search_field.field_entry().field_type();
+                    for value in values {
                         // A number that no integer of the field equals matches nothing, so it is
                         // left out.
                         if numeric::is_outside_int_domain(&value, &search_field.field_type()) {
-                            return Ok(None);
+                            continue;
                         }
 
                         // The tantivy `FieldType` can't tell a scaled `Numeric64` or an encoded
@@ -1936,17 +1937,17 @@ impl SearchQueryInput {
                             index_created_by_version,
                         )?;
 
-                        value_to_term(
+                        let term = value_to_term(
                             search_field.field(),
                             &value,
                             field_type,
                             field.path().as_deref(),
                             index_created_by_version,
-                        )
-                        .map(Some)
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                let query = Box::new(TermSetQuery::new(terms.into_iter().flatten()));
+                        )?;
+                        terms.push(term);
+                    }
+                }
+                let query = Box::new(TermSetQuery::new(terms));
 
                 Ok(builder.build_leaf(query, || "TermSet Query".to_string(), cloned_for_estimate))
             }
@@ -2366,7 +2367,7 @@ impl PostgresExpression {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{SearchQueryInput, TermInput};
+    use super::SearchQueryInput;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
 
@@ -2536,12 +2537,9 @@ mod tests {
     }
 
     fn create_term_query() -> SearchQueryInput {
-        SearchQueryInput::TermSet {
-            terms: vec![TermInput {
-                field: "test".into(),
-                value: PdbOwnedValue::Str("value".to_string()),
-            }],
-        }
+        let mut termset = std::collections::HashMap::new();
+        termset.insert("test".into(), vec![PdbOwnedValue::Str("value".to_string())]);
+        SearchQueryInput::TermSet { termset }
     }
 
     fn create_match_query() -> SearchQueryInput {

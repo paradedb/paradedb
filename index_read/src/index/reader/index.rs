@@ -4360,8 +4360,6 @@ mod tests {
 
     #[pg_test]
     fn segment_pruning_preserves_unsigned_terms_encoded_as_signed_values() {
-        use crate::query::TermInput;
-
         Spi::run(
             "CREATE TABLE pruning_signed_terms (id bigint PRIMARY KEY, x bigint NOT NULL);
              CREATE INDEX pruning_signed_terms_idx ON pruning_signed_terms USING paradedb (id, x)
@@ -4393,10 +4391,7 @@ mod tests {
                     },
                 },
                 SearchQueryInput::TermSet {
-                    terms: vec![TermInput {
-                        field: field.clone(),
-                        value,
-                    }],
+                    termset: std::collections::HashMap::from([(field.clone(), vec![value])]),
                 },
             ] {
                 queries.push((query, expected));
@@ -4931,7 +4926,7 @@ mod tests {
     #[pg_test]
     fn term_sets_read_each_field_at_most_once_per_segment() {
         use crate::index::segment_pruning::EMPIRICAL_READS;
-        use crate::query::TermInput;
+        use std::collections::HashMap;
         use std::sync::atomic::Ordering::Relaxed;
 
         Spi::run("CREATE TABLE grouped_term_proofs (id bigint PRIMARY KEY, x bigint NOT NULL, title text NOT NULL);
@@ -4943,29 +4938,23 @@ mod tests {
             INSERT INTO grouped_term_proofs SELECT g, g + 1000, 'alpha beta' FROM generate_series(11, 20) g;
             RESET paradedb.global_mutable_segment_rows;").unwrap();
         let index_rel = open_index("grouped_term_proofs_idx");
-        let mut same_field = (1000..1512)
-            .map(|value| TermInput {
-                field: FieldName::from("id"),
-                value: PdbOwnedValue::I64(value),
-            })
-            .collect::<Vec<_>>();
+        let mut same_field: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::from([(
+            FieldName::from("id"),
+            (1000..1512).map(PdbOwnedValue::I64).collect(),
+        )]);
         // Duplicates neither multiply results nor create additional field proof passes.
-        same_field.extend([10, 10].map(|value| TermInput {
-            field: FieldName::from("id"),
-            value: PdbOwnedValue::I64(value),
-        }));
+        same_field
+            .entry(FieldName::from("id"))
+            .and_modify(|values| values.extend([PdbOwnedValue::I64(10), PdbOwnedValue::I64(10)]));
         let mut mixed_fields = same_field.clone();
-        mixed_fields.push(TermInput {
-            field: FieldName::from("x"),
-            value: PdbOwnedValue::I64(1011),
-        });
+        mixed_fields.insert(FieldName::from("x"), vec![PdbOwnedValue::I64(1011)]);
         let mut unsupported = mixed_fields.clone();
-        unsupported.push(TermInput {
-            field: FieldName::from("title"),
-            value: PdbOwnedValue::Str("alpha".into()),
-        });
-        for (terms, expected, candidates, passes) in [
-            (vec![], 0, 0, 0),
+        unsupported.insert(
+            FieldName::from("title"),
+            vec![PdbOwnedValue::Str("alpha".into())],
+        );
+        for (termset, expected, candidates, passes) in [
+            (HashMap::new(), 0, 0, 0),
             (same_field, 1, 1, 1),
             (mixed_fields, 2, 2, 2),
             (unsupported, 20, 2, 2),
@@ -4975,7 +4964,7 @@ mod tests {
                 let reader = open_snapshot_reader(
                     &index_rel,
                     SearchQueryInput::TermSet {
-                        terms: terms.clone(),
+                        termset: termset.clone(),
                     },
                     scoring,
                 );
@@ -5525,7 +5514,6 @@ mod tests {
     #[pg_test]
     fn pruning_requires_a_query_predicate_on_a_field_with_statistics() {
         use crate::index::segment_pruning::EMPIRICAL_READS;
-        use crate::query::TermInput;
         use std::sync::atomic::Ordering::Relaxed;
 
         let boolean = |must, should, must_not| SearchQueryInput::Boolean {
@@ -5602,10 +5590,10 @@ mod tests {
             ),
             (
                 SearchQueryInput::TermSet {
-                    terms: vec![TermInput {
-                        field: FieldName::from("id"),
-                        value: PdbOwnedValue::I64(1),
-                    }],
+                    termset: std::collections::HashMap::from([(
+                        FieldName::from("id"),
+                        vec![PdbOwnedValue::I64(1)],
+                    )]),
                 },
                 1,
                 true,

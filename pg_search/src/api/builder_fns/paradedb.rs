@@ -16,13 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use common::postgres::pdb_owned_value::PdbOwnedValue;
 use pgrx::*;
 
 use crate::api::FieldName;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
+use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
-use crate::query::{SearchQueryInput, TermInput};
 use pgrx::nullable::IntoNullableIterator;
 use std::ops::Bound;
 
@@ -199,7 +200,7 @@ pub unsafe fn terms_with_operator(
         //
         // this case can be optimized to use the tantivy TermSet
         let array_type = PgOid::from_untagged(array_type);
-        let terms = array
+        let values = array
             .into_nullable_iter()
             // skip NULL values in the array -- SQL boolean logic says we can't match them
             // and since this is the disjunction case ("OR"), we don't need to anyway
@@ -207,14 +208,12 @@ pub unsafe fn terms_with_operator(
             .map(|datum| {
                 let value = TantivyValue::try_from_datum(datum.unwrap(), array_type)?;
 
-                Ok(TermInput {
-                    field: field.clone(),
-                    value: value.0,
-                })
+                Ok(value.0)
             })
             .collect::<Result<Vec<_>, TantivyValueError>>()?;
-
-        Ok(SearchQueryInput::TermSet { terms })
+        let mut termset = std::collections::HashMap::new();
+        termset.insert(field, values);
+        Ok(SearchQueryInput::TermSet { termset })
     } else {
         // this case must form a tantivy Boolean expression of individual terms
         // which are OR'd or AND'd together
@@ -312,18 +311,22 @@ term_fn_unsupported!(
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
-    let terms: Vec<_> = terms
-        .into_iter()
-        .map(|input| match input {
+    use std::collections::HashMap;
+
+    let mut termset: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::new();
+    for input in terms {
+        match input {
             SearchQueryInput::FieldedQuery {
                 field,
                 query: pdb::Query::Term { value },
-            } => TermInput { field, value },
+            } => {
+                termset.entry(field).or_default().push(value);
+            }
             _ => panic!("only term queries can be passed to term_set"),
-        })
-        .collect();
+        }
+    }
 
-    SearchQueryInput::TermSet { terms }
+    SearchQueryInput::TermSet { termset }
 }
 
 #[pg_cast(implicit)]

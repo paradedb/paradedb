@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Fuzzy queries (`pdb.fuzzy`) now expand each token to at most 50 terms by default, keeping the terms with the smallest edit distance. A query that matched more terms now returns fewer rows. The new fourth argument of `pdb.fuzzy` sets the limit, for example `pdb.fuzzy(2, f, f, 10)`, and `pdb.fuzzy(2, f, f, -1)` matches every term as before.

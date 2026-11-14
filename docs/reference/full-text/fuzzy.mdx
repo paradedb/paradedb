@@ -416,3 +416,36 @@ await dbContext
 </Note>
 
 With [synonyms](/reference/tokenizers/synonyms), the words you typed stay fuzzy and their synonyms match exactly.
+
+## Max Expansions
+
+A fuzzy token can match many distinct terms in the index, and each one is searched, which costs memory and time.
+By default, each token expands to at most `50` terms. The terms with the smallest edit distance are kept, and terms
+at the same distance are kept in alphabetical order.
+
+The fourth argument of `fuzzy` sets this limit. For instance, the following query keeps the `10` closest terms:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description ||| 'shose'::pdb.fuzzy(2, f, f, 10)
+LIMIT 5;
+```
+
+To expand to every matching term, set it to `-1`:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description ||| 'shose'::pdb.fuzzy(2, f, f, -1)
+LIMIT 5;
+```
+
+<Note>
+  The limit applies to each segment of the index, so a query can match up to
+  that many terms per segment.
+</Note>
+
+`max_expansions` must be `-1` or between `1` and `134217726`. The [match](/reference/full-text/match) and
+[term](/reference/full-text/term) queries support it. A query string parsed with `@@@` does not: it expands to every
+matching term, and setting `max_expansions` on it is an error.

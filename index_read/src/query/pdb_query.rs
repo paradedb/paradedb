@@ -98,6 +98,27 @@ pub mod pdb {
         pub distance: u8,
         pub prefix: bool,
         pub transposition_cost_one: bool,
+        /// The most terms each fuzzy token expands to: [`DEFAULT_MAX_EXPANSIONS`] when `None`,
+        /// and no limit when [`UNLIMITED_MAX_EXPANSIONS`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub max_expansions: Option<i32>,
+    }
+
+    /// The most terms a fuzzy token expands to when the query does not say.
+    pub const DEFAULT_MAX_EXPANSIONS: u32 = 50;
+
+    /// The `max_expansions` that lets a fuzzy token expand to every matching term.
+    pub const UNLIMITED_MAX_EXPANSIONS: i32 = -1;
+
+    impl FuzzyData {
+        /// The typmod holds `max_expansions` in the bits above the distance: `0` when it is not
+        /// set, so a typmod written before the field existed reads as not set, `1` for
+        /// [`UNLIMITED_MAX_EXPANSIONS`], and `n + 1` for a limit of `n`.
+        const MAX_EXPANSIONS_SHIFT: u32 = 4;
+
+        /// The largest `max_expansions` that fits in a typmod, which Postgres requires to be
+        /// non-negative.
+        pub const MAX_EXPANSIONS_LIMIT: i32 = (i32::MAX >> Self::MAX_EXPANSIONS_SHIFT) - 1;
     }
 
     impl Display for FuzzyData {
@@ -109,26 +130,45 @@ pub mod pdb {
                 self.distance,
                 if self.prefix { "t" } else { "f" },
                 if self.transposition_cost_one { "t" } else { "f" }
-            )
+            )?;
+            if let Some(max_expansions) = self.max_expansions {
+                write!(f, ",{max_expansions}")?;
+            }
+            Ok(())
         }
     }
 
     impl From<i32> for FuzzyData {
         fn from(value: i32) -> Self {
-            let distance = (value >> 2) as u8;
+            let distance = ((value >> 2) & 0b11) as u8;
             let prefix = (value & 2) != 0;
             let transposition_cost_one = (value & 1) != 0;
+            let max_expansions = match value >> FuzzyData::MAX_EXPANSIONS_SHIFT {
+                0 => None,
+                1 => Some(UNLIMITED_MAX_EXPANSIONS),
+                stored => Some(stored - 1),
+            };
             FuzzyData {
                 distance,
                 prefix,
                 transposition_cost_one,
+                max_expansions,
             }
         }
     }
 
     impl From<FuzzyData> for i32 {
         fn from(data: FuzzyData) -> Self {
-            ((data.distance as i32) << 2)
+            // The distance has two bits, below `max_expansions`.
+            assert!(data.distance <= 3, "fuzzy distance must be at most 3");
+            let max_expansions = match data.max_expansions {
+                None => 0,
+                Some(UNLIMITED_MAX_EXPANSIONS) => 1,
+                Some(limit @ 1..=FuzzyData::MAX_EXPANSIONS_LIMIT) => limit + 1,
+                Some(other) => panic!("max_expansions cannot be stored in a typmod: {other}"),
+            };
+            (max_expansions << FuzzyData::MAX_EXPANSIONS_SHIFT)
+                | ((data.distance as i32) << 2)
                 | ((data.prefix as i32) << 1)
                 | (data.transposition_cost_one as i32)
         }
@@ -255,6 +295,9 @@ pub mod pdb {
             distance: Option<u8>,
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
+            /// The most terms the fuzzy term expands to. See [`FuzzyData::max_expansions`].
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            max_expansions: Option<i32>,
         },
         Match {
             value: String,
@@ -263,6 +306,9 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
+            /// The most terms each fuzzy token expands to. See [`FuzzyData::max_expansions`].
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            max_expansions: Option<i32>,
             /// The rules that expand the tokens of `value`.
             #[serde(skip_serializing_if = "Option::is_none")]
             synonyms: Option<SynonymRules>,
@@ -273,6 +319,9 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
+            /// The most terms each fuzzy token expands to. See [`FuzzyData::max_expansions`].
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            max_expansions: Option<i32>,
         },
         Parse {
             query_string: String,
@@ -438,6 +487,7 @@ impl pdb::Query {
                     distance: Some(new_fuzzy_data.distance),
                     transposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),
                     prefix: Some(new_fuzzy_data.prefix),
+                    max_expansions: new_fuzzy_data.max_expansions,
                 }
             }
 
@@ -457,6 +507,7 @@ impl pdb::Query {
                     transposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),
                     prefix: Some(new_fuzzy_data.prefix),
                     conjunction_mode: Some(false),
+                    max_expansions: new_fuzzy_data.max_expansions,
                 }
             }
 
@@ -464,28 +515,33 @@ impl pdb::Query {
                 distance,
                 transposition_cost_one,
                 prefix,
+                max_expansions,
                 ..
             } => {
                 *distance = Some(new_fuzzy_data.distance);
                 *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
                 *prefix = Some(new_fuzzy_data.prefix);
+                *max_expansions = new_fuzzy_data.max_expansions;
             }
 
             pdb::Query::Match {
                 distance,
                 transposition_cost_one,
                 prefix,
+                max_expansions,
                 ..
             }
             | pdb::Query::MatchArray {
                 distance,
                 transposition_cost_one,
                 prefix,
+                max_expansions,
                 ..
             } => {
                 *distance = Some(new_fuzzy_data.distance);
                 *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
                 *prefix = Some(new_fuzzy_data.prefix);
+                *max_expansions = new_fuzzy_data.max_expansions;
             }
 
             pdb::Query::ParseWithField { fuzzy_data, .. } => *fuzzy_data = Some(new_fuzzy_data),
@@ -586,6 +642,7 @@ impl pdb::Query {
                 distance,
                 transposition_cost_one,
                 prefix,
+                max_expansions,
             } => Box::new(fuzzy_term(
                 &field,
                 schema,
@@ -594,6 +651,7 @@ impl pdb::Query {
                 distance,
                 transposition_cost_one,
                 prefix,
+                max_expansions,
             )?),
             pdb::Query::Match {
                 value,
@@ -602,6 +660,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                max_expansions,
                 synonyms,
             } => match_query(
                 &field,
@@ -614,6 +673,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                max_expansions,
                 synonyms,
             )?,
             pdb::Query::MatchArray {
@@ -622,6 +682,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                max_expansions,
             } => match_array_query(
                 &field,
                 schema,
@@ -631,6 +692,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                max_expansions,
             )?,
             pdb::Query::Parse {
                 query_string,
@@ -2184,6 +2246,11 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     let tantivy_field = search_field.field();
 
     if let Some(fuzzy_data) = fuzzy_data {
+        if fuzzy_data.max_expansions.is_some() {
+            return Err(anyhow::anyhow!(
+                "`max_expansions` of `pdb.fuzzy` is not supported by the `@@@` operator; use `|||`, `&&&` or `===`"
+            ));
+        }
         parser.set_field_fuzzy(
             tantivy_field,
             fuzzy_data.prefix,
@@ -2238,8 +2305,10 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
+    max_expansions: Option<i32>,
     synonyms: Option<pdb::SynonymRules>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let max_expansions = resolve_max_expansions(max_expansions)?;
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
     let conjunction_mode = conjunction_mode.unwrap_or(false);
@@ -2321,15 +2390,13 @@ fn match_query(
                 (0, _) => expansion_query(expansion, term)?,
                 (d, prefix) => {
                     let fuzzy = |token: &str| -> Box<dyn TantivyQuery> {
-                        if prefix {
-                            Box::new(FuzzyTermQuery::new_prefix(
-                                term(token),
-                                d,
-                                transposition_cost_one,
-                            ))
-                        } else {
-                            Box::new(FuzzyTermQuery::new(term(token), d, transposition_cost_one))
-                        }
+                        Box::new(fuzzy_term_query(
+                            term(token),
+                            d,
+                            transposition_cost_one,
+                            prefix,
+                            max_expansions,
+                        ))
                     };
                     fuzzy_expansion_query(expansion, fuzzy, term)?
                 }
@@ -2514,7 +2581,9 @@ fn match_array_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
+    max_expansions: Option<i32>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let max_expansions = resolve_max_expansions(max_expansions)?;
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
     let conjunction_mode = conjunction_mode.unwrap_or(false);
@@ -2536,14 +2605,13 @@ fn match_array_query(
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
             (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
-            (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
+            (distance, prefix) => Box::new(fuzzy_term_query(
                 term,
                 distance,
                 transposition_cost_one,
+                prefix,
+                max_expansions,
             )),
-            (distance, false) => {
-                Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
-            }
         };
 
         let occur = if conjunction_mode {
@@ -2558,6 +2626,7 @@ fn match_array_query(
     Ok(BooleanClauses(terms).into_query())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fuzzy_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
@@ -2566,7 +2635,9 @@ fn fuzzy_term(
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
+    max_expansions: Option<i32>,
 ) -> anyhow::Result<FuzzyTermQuery> {
+    let max_expansions = resolve_max_expansions(max_expansions)?;
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -2580,12 +2651,47 @@ fn fuzzy_term(
     )?;
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-    let query = match prefix {
-        Some(true) => FuzzyTermQuery::new_prefix(term, distance, transposition_cost_one),
-        Some(false) | None => FuzzyTermQuery::new(term, distance, transposition_cost_one),
-    };
+    Ok(fuzzy_term_query(
+        term,
+        distance,
+        transposition_cost_one,
+        prefix.unwrap_or(false),
+        max_expansions,
+    ))
+}
 
-    Ok(query)
+/// The limit on the terms of a fuzzy token, `None` for no limit, from the `max_expansions` of a
+/// query.
+fn resolve_max_expansions(max_expansions: Option<i32>) -> anyhow::Result<Option<u32>> {
+    match max_expansions {
+        None => Ok(Some(pdb::DEFAULT_MAX_EXPANSIONS)),
+        Some(pdb::UNLIMITED_MAX_EXPANSIONS) => Ok(None),
+        Some(limit) if limit >= 1 => Ok(Some(limit as u32)),
+        Some(other) => Err(anyhow::anyhow!(
+            "max_expansions must be {} for no limit, or at least 1, got: {other}",
+            pdb::UNLIMITED_MAX_EXPANSIONS
+        )),
+    }
+}
+
+/// A fuzzy query for `term` that expands to at most `max_expansions` terms, the closest first,
+/// or to every matching term when `max_expansions` is `None`.
+fn fuzzy_term_query(
+    term: Term,
+    distance: u8,
+    transposition_cost_one: bool,
+    prefix: bool,
+    max_expansions: Option<u32>,
+) -> FuzzyTermQuery {
+    let mut query = if prefix {
+        FuzzyTermQuery::new_prefix(term, distance, transposition_cost_one)
+    } else {
+        FuzzyTermQuery::new(term, distance, transposition_cost_one)
+    };
+    if let Some(max_expansions) = max_expansions {
+        query.set_max_expansions(max_expansions);
+    }
+    query
 }
 
 fn fast_field_range_weight(
@@ -3079,11 +3185,20 @@ mod tests {
 
     #[pg_test]
     fn fuzzy_data_roundtrip() {
-        proptest::proptest!(|(distance in 0u8..=255u8, prefix in 0..=1, transposition_cost_one in 0..=1)| {
+        proptest::proptest!(|(
+            distance in 0u8..=2u8,
+            prefix in 0..=1,
+            transposition_cost_one in 0..=1,
+            max_expansions in proptest::option::of(proptest::prop_oneof![
+                proptest::strategy::Just(super::pdb::UNLIMITED_MAX_EXPANSIONS),
+                1..=FuzzyData::MAX_EXPANSIONS_LIMIT,
+            ]),
+        )| {
             let original = FuzzyData {
                 distance,
                 prefix: prefix == 1,
                 transposition_cost_one: transposition_cost_one == 1,
+                max_expansions,
             };
 
             let typmod_repr: i32 = original.clone().into();
@@ -3091,6 +3206,42 @@ mod tests {
             let from_typmod: FuzzyData = typmod_repr.into();
             assert_eq!(original, from_typmod);
         })
+    }
+
+    #[pg_test]
+    fn fuzzy_data_typmod_without_max_expansions() {
+        // A typmod stored before `max_expansions` existed has no bits above the distance.
+        for (typmod, distance, prefix, transposition_cost_one) in [
+            (0, 0, false, false),
+            (5, 1, false, true),
+            (10, 2, true, false),
+            (11, 2, true, true),
+        ] {
+            assert_eq!(
+                FuzzyData::from(typmod),
+                FuzzyData {
+                    distance,
+                    prefix,
+                    transposition_cost_one,
+                    max_expansions: None,
+                }
+            );
+        }
+    }
+
+    #[pg_test]
+    fn fuzzy_data_display() {
+        let mut data = FuzzyData {
+            distance: 2,
+            prefix: true,
+            transposition_cost_one: false,
+            max_expansions: None,
+        };
+        assert_eq!(data.to_string(), "2,t,f");
+        data.max_expansions = Some(50);
+        assert_eq!(data.to_string(), "2,t,f,50");
+        data.max_expansions = Some(super::pdb::UNLIMITED_MAX_EXPANSIONS);
+        assert_eq!(data.to_string(), "2,t,f,-1");
     }
 
     use super::pdb::Query;
@@ -3105,6 +3256,7 @@ mod tests {
             prefix: None,
             conjunction_mode: None,
             synonyms: None,
+            max_expansions: None,
         }
     }
 
@@ -3204,6 +3356,7 @@ mod tests {
                 transposition_cost_one: None,
                 prefix: None,
                 conjunction_mode: None,
+                max_expansions: None,
             },
             Query::PhraseArray {
                 tokens: vec!["database".into()],

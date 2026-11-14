@@ -113,7 +113,7 @@ mod sql_datum_support {
 mod typedef {
     use crate::api::operator::fuzzy::FuzzyType;
     use crate::query::pdb_query::pdb;
-    use crate::query::pdb_query::pdb::{FuzzyData, query_out};
+    use crate::query::pdb_query::pdb::{FuzzyData, UNLIMITED_MAX_EXPANSIONS, query_out};
     use pgrx::{Array, extension_sql, pg_extern, pg_sys};
     use std::ffi::{CStr, CString};
     use std::str::FromStr;
@@ -143,7 +143,10 @@ mod typedef {
     /// `impl From<FuzzyData> for i32` implementation over on [`crate::query::pdb_query::pdb::FuzzyData`]
     #[pg_extern(immutable, parallel_safe)]
     fn fuzzy_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
-        assert!(typmod_parts.len() <= 3);
+        assert!(
+            typmod_parts.len() <= 4,
+            "pdb.fuzzy takes at most 4 arguments: distance, prefix, transposition_cost_one and max_expansions"
+        );
         let fuzzy_str = typmod_parts
             .get(0)
             .unwrap()
@@ -170,10 +173,29 @@ mod typedef {
             panic!("fuzzy value must be 0, 1, or 2");
         }
 
+        let max_expansions = typmod_parts.get(3).map(|max_expansions| {
+            let max_expansions = max_expansions
+                .expect("max_expansions value cannot be NULL")
+                .to_str()
+                .unwrap();
+            i32::from_str(max_expansions)
+                .ok()
+                .filter(|&n| {
+                    n == UNLIMITED_MAX_EXPANSIONS || (1..=FuzzyData::MAX_EXPANSIONS_LIMIT).contains(&n)
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "max_expansions must be {UNLIMITED_MAX_EXPANSIONS} for no limit, or an integer from 1 to {}, got: {max_expansions}",
+                        FuzzyData::MAX_EXPANSIONS_LIMIT
+                    )
+                })
+        });
+
         FuzzyData {
             distance: fuzzy as u8,
             prefix: is_prefix,
             transposition_cost_one,
+            max_expansions,
         }
         .into()
     }

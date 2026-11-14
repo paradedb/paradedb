@@ -1107,12 +1107,16 @@ fn apply_sa_initial_window(
     .map(|t| t.data)
 }
 
-fn collect_decode_tiebreaker_fields(
+/// Collects the deferred `decode` fields referenced by any sort key in `ordering` so
+/// `make_fields_eager` can decode them at the leaf scan. This includes the primary sort key, which
+/// is deferred when it is a string or bytes column (see `resolve_scan_sort_key_order_by`):
+/// a deferred column emits per-segment term ordinals, which are not comparable across segments.
+fn collect_decode_sort_fields(
     decode: &TantivyDecodeExec,
     ordering: &LexOrdering,
     out: &mut Vec<PhysicalDeferredField>,
 ) {
-    for sort_expr in ordering.iter().skip(1) {
+    for sort_expr in ordering.iter() {
         for col in collect_columns(&sort_expr.expr) {
             if let Some(field) = decode
                 .deferred_fields()
@@ -1154,7 +1158,7 @@ fn try_rewrite_scored_branch(
             eager_fields,
         )?;
         if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-            collect_decode_tiebreaker_fields(decode, required_ordering, eager_fields);
+            collect_decode_sort_fields(decode, required_ordering, eager_fields);
         }
         let rebuilt = replace_children_if_necessary(Arc::clone(node), vec![new_child])?;
         return Ok((rebuilt, stats));
@@ -1963,7 +1967,7 @@ fn try_rewrite_lazy_sort_probe_join(
             return Ok(None);
         };
         if let Some(decode) = node.downcast_ref::<TantivyDecodeExec>() {
-            collect_decode_tiebreaker_fields(decode, required_ordering, eager_fields);
+            collect_decode_sort_fields(decode, required_ordering, eager_fields);
         }
         if node.is::<CoalescePartitionsExec>()
             && new_child.output_partitioning().partition_count() == 1
@@ -1978,8 +1982,11 @@ fn try_rewrite_lazy_sort_probe_join(
         if required_ordering.len() > crate::index::reader::index::MAX_TOPK_FEATURES {
             return Ok(None);
         }
+        // Unlike `RankJoinExec`, the leaf sorts a string / bytes primary key natively, so fall back
+        // to any key sortable at position `0`.
         let Some(primary_ob) =
             resolve_scan_order_by(scan, &required_ordering[0], FieldSortPolicy::Allowed)
+                .or_else(|| resolve_scan_sort_key_order_by(scan, &required_ordering[0], 0))
         else {
             return Ok(None);
         };
@@ -2170,7 +2177,9 @@ fn resolve_scan_order_by(
     } else if field_sort_policy == FieldSortPolicy::Allowed
         && scan.is_sortable_fast_field(col.index())
     {
-        // TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key:
+        // TODO: Support `is_raw_sortable()` string and bytes fast fields as the primary sort key
+        // in `RankJoinExec` (`try_rewrite_lazy_sort_probe_join` already does, via
+        // `resolve_scan_sort_key_order_by`):
         // <https://github.com/paradedb/paradedb/issues/7244>.
         OrderByFeature::Field {
             name: FieldName::from(field_name.clone()),
@@ -2196,12 +2205,12 @@ fn resolve_leaf_order_bys(
     let mut order_bys = Vec::with_capacity(required_ordering.len());
     order_bys.push(primary_ob);
     for (idx, sort_expr) in required_ordering.iter().enumerate().skip(1) {
-        order_bys.push(resolve_scan_tiebreaker_order_by(scan, sort_expr, idx)?);
+        order_bys.push(resolve_scan_sort_key_order_by(scan, sort_expr, idx)?);
     }
     Some(order_bys)
 }
 
-fn resolve_scan_tiebreaker_order_by(
+fn resolve_scan_sort_key_order_by(
     scan: &PgSearchScanPlan,
     required_sort: &PhysicalSortExpr,
     position: usize,
@@ -2298,18 +2307,9 @@ fn map_ordering_through_passthrough(
     if node.is::<TantivyDecodeExec>() || node.is::<TantivyFetchExec>() {
         let out_schema = node.schema();
         let in_schema = node.children()[0].schema();
-        let valid = ordering.iter().enumerate().all(|(idx, sort_expr)| {
+        let valid = ordering.iter().all(|sort_expr| {
             collect_columns(&sort_expr.expr).iter().all(|col| {
-                let in_bounds = col.index() < out_schema.fields().len()
-                    && col.index() < in_schema.fields().len();
-                // Primary score expression (`idx == 0`) cannot reference a deferred
-                // column whose DataType changes across `TantivyDecodeExec`. Secondary
-                // tiebreakers (`idx > 0`) may reference deferred columns, which will
-                // be converted to eager delivery if the join rewrite succeeds.
-                in_bounds
-                    && (idx > 0
-                        || out_schema.field(col.index()).data_type()
-                            == in_schema.field(col.index()).data_type())
+                col.index() < out_schema.fields().len() && col.index() < in_schema.fields().len()
             })
         });
         return Ok(valid.then(|| ordering.clone()));

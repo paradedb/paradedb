@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Joins ordered by a text or wide `NUMERIC` column with a `LIMIT` now push the join keys into the probe-side index scan and sort there, instead of scanning every matching row first (#7353).

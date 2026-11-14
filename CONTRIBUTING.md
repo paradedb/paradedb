@@ -14,16 +14,9 @@ Ideal issues for external contributors include well-scoped, individual features 
 
 ### Claiming GitHub Issues
 
-This repository has a workflow that automatically assigns issues to new contributors. This ensures that you don't need approval
-from a maintainer to pick an issue.
+Before claiming an issue, check that it is not already assigned and that nobody else is working on it. Comment `/take` on an unassigned issue to have the workflow automatically assign it to you. If you can no longer work on an assigned issue, let us know in the issue comments and release the assignment.
 
-1. Before claiming an issue, ensure that:
-   - It's not already assigned to someone else.
-   - There are no comments indicating ongoing work.
-
-2. To claim an unassigned issue, comment `/take` on the issue. This will automatically assign the issue to you.
-
-If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://paradedb.com/slack). If you no longer wish to work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release them.
+If you are an external contributor, please work on one pull request at a time. Wait until it is merged or closed before opening another.
 
 ### Development Workflow
 
@@ -88,11 +81,21 @@ All changes to ParadeDB happen through GitHub pull requests. Here is the recomme
 
 7. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 8. Keep your pull request focused on the scope of its associated issue. Pull requests that balloon in scope (e.g. bundling unrelated refactors, tangential cleanups, or additional features into a single change) will not be reviewed or merged. If you discover related work that should be done, please open a separate issue and pull request for it.
-9. Congratulations! Our team will review your pull request.
+9. Include evidence that the change solves the problem:
+   - Bug fixes need a reproducer and a regression test that fails before the fix and passes with it.
+   - Performance changes need a reproducible benchmark with before and after results.
+   - Features need a clear description of the intended behavior and relevant tests.
+   - Explain what you tested, the results, and any limitations. Passing CI alone does not establish correctness or usefulness.
+
+### Review Expectations
+
+Maintainer time is limited, and not every pull request will be reviewed. We may close pull requests that lack tests or evidence, go beyond the scope of the issue, or need substantial work from maintainers before they can be merged. Repeated spam may result in an account being blocked.
 
 ### Use of AI Tools
 
 We don't care what tools you use to write your code. You are free to use AI agents and assistants to help you write, refactor, or debug your contributions. However, by submitting a pull request, you confirm that you fully understand the code you are submitting and that you stand behind it. AI slop will be rejected.
+
+Write pull request descriptions and review replies in your own words. You should be able to explain your changes and answer questions yourself. Do not use an AI agent to respond to maintainers on your behalf. Pull requests whose authors cannot explain their code or engage in the review themselves will be closed.
 
 ### Documentation
 

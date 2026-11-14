@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::MetricsLine;
-use crate::runner::{HARDCODED_IGNORE_ERRORS, SuiteRunner};
+use crate::runner::{HARDCODED_IGNORE_ERRORS, SuiteRunner, WorkerState};
 use postgres::Row;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -161,11 +161,14 @@ pub fn run(
         }
     }
 
-    suite_runner.terminate();
+    let terminate_start = std::time::Instant::now();
+    let shutdown_timeout = std::time::Duration::from_secs(60);
+    suite_runner.terminate_with_timeout(shutdown_timeout);
 
     let finished = Arc::new(AtomicBool::new(false));
     {
         let finished = finished.clone();
+        let suite_runner = suite_runner.clone();
         std::thread::spawn(move || {
             let errors = suite_runner
                 .wait_for_finish()
@@ -198,8 +201,7 @@ pub fn run(
         })
     };
 
-    let terminate_start = std::time::Instant::now();
-    while terminate_start.elapsed() < std::time::Duration::from_secs(60) {
+    while terminate_start.elapsed() < shutdown_timeout {
         if finished.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
@@ -207,6 +209,29 @@ pub fn run(
     }
 
     if !finished.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut any_worker_active = false;
+        for runner in suite_runner.runners().chain(suite_runner.monitor_runners()) {
+            match runner.worker_state() {
+                WorkerState::Stopped => {}
+                WorkerState::RunningQuery => {
+                    any_worker_active = true;
+                    eprintln!(
+                        "job still active at shutdown timeout (running query): {}",
+                        runner.title()
+                    );
+                }
+                WorkerState::Active => {
+                    any_worker_active = true;
+                    eprintln!(
+                        "job still active at shutdown timeout (connecting or idle): {}",
+                        runner.title()
+                    );
+                }
+            }
+        }
+        if !any_worker_active {
+            eprintln!("all job workers exited; suite still running teardown at shutdown timeout");
+        }
         eprintln!("suite did not finish after 60 seconds");
         std::process::exit(1);
     }

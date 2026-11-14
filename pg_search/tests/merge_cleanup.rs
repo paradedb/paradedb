@@ -14,7 +14,6 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-#![allow(unused_crate_dependencies)]
 
 use postgres::{Client, Error, NoTls, Row, types::FromSqlOwned};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -388,6 +387,41 @@ fn merger_admission_and_vacuum_waits_remain_interruptible() {
     fixture.release(&retry);
     retry.finish().1.unwrap();
     fixture.assert_rows(500);
+}
+
+#[test]
+fn cancelled_vacuum_does_not_make_retired_segments_mergeable() {
+    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
+    for mutable in [false, true] {
+        let mut fixture = Fixture::new("merge_cancelled_vacuum", mutable);
+        let live_docs = if mutable { 300 } else { 500 };
+        fixture.segments();
+        let vacuum = fixture.actor("vacuum", format!("VACUUM {}", fixture.table));
+        fixture.stage(&vacuum);
+        let merger = fixture.actor(
+            "selection",
+            format!("SELECT paradedb.test_merge_index('{}')", fixture.index),
+        );
+        // The merger has cached the original segments but has not selected inputs.
+        fixture.stage(&merger);
+        fixture.release(&vacuum);
+        wait_until("segment metadata publication", || {
+            fixture.value::<i64>(&format!(
+                "SELECT paradedb.test_live_docs('{}')",
+                fixture.index
+            )) == live_docs
+        });
+        fixture.waiting(&vacuum, "page");
+        fixture.cancel(&vacuum, false);
+        assert_error(vacuum.finish().1, "57014");
+        assert!(!fixture.value::<bool>(&format!(
+            "SELECT paradedb.test_vacuum_active('{}')",
+            fixture.index
+        )));
+        fixture.release(&merger);
+        assert_eq!(merger.finish().1.unwrap()[0].get::<_, i64>(0), 0);
+        fixture.assert_rows(live_docs);
+    }
 }
 
 #[test]

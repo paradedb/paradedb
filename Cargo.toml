@@ -89,7 +89,7 @@ pgrx-tests = "=0.20.0"
 
 # Keep the Git revisions for `tantivy`, `tantivy-common`, and the crates.io
 # patches in sync.
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "56b7934b939327ea1cdb4eb9a7f492dda9b2e315", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -98,7 +98,7 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stemmer",
   "stopwords",
 ], default-features = false }
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "56b7934b939327ea1cdb4eb9a7f492dda9b2e315" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
 tantivy-jieba = "0.21.0"
 
 async-trait = "0.1.92"
@@ -112,7 +112,6 @@ arrow-select = "59.1.0"
 base64 = "0.23.1"
 bitpacking = "0.9.3"
 chrono = "0.4.45"
-time = "0.3.47"
 env_logger = "0.11.10"
 log = "0.4.34"
 once_cell = "1.21.4"
@@ -185,11 +184,13 @@ rstest = "0.28.0"
 postgres = "0.19.14"
 
 [patch.crates-io]
-tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "56b7934b939327ea1cdb4eb9a7f492dda9b2e315" }
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "56b7934b939327ea1cdb4eb9a7f492dda9b2e315" }
+tantivy-common = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-common", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "3df23dd559e4731e83e81c04cbbc797a0a79479c" }
 
-[workspace.lints.rust]
-unused_crate_dependencies = "warn"
+[workspace.lints.cargo]
+missing_lints_inheritance = "deny"
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
 
 [workspace.lints.clippy]
 large_futures = "warn"

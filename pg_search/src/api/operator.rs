@@ -141,12 +141,17 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
                     && get_expr_result_type(rhs) != searchqueryinput_typoid());
 
         // The LHS must identify a ParadeDB index, optionally with a specific field.
-        let Some((indexrel, field)) = tantivy_field_name_from_node((*request).root, lhs) else {
+        let Some((indexrel, field)) = tantivy_field_name_from_node(
+            (*request).root,
+            lhs,
+            matches!(rhs_rewrite, SimplifyRhs::Rewrite(_)),
+        ) else {
             return Self::unsupported();
         };
 
         let inferred_field = original_lhs.and_then(|_| field.clone());
         let search_query_input_typoid = searchqueryinput_typoid();
+        let mut selectivity_now = None;
         let rhs = match rhs_rewrite {
             SimplifyRhs::SearchQueryInput => {
                 // The canonical search function only accepts an already typed RHS.
@@ -158,8 +163,16 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
             SimplifyRhs::Rewrite(operator) => {
                 let rhs = match (&field, operator) {
                     (Some(field), SearchOperator::Conjunction | SearchOperator::Disjunction) => {
-                        expand::replace_expand_subquery((*request).root, rhs, &indexrel, field)
-                            .unwrap_or(rhs)
+                        let root = (*request).root;
+                        match expand::replace_expand_subquery(root, rhs, &indexrel, field) {
+                            Some(replaced) => replaced,
+                            None => {
+                                selectivity_now = expand::selectivity_now(
+                                    root, operator, lhs, rhs, &indexrel, field,
+                                );
+                                rhs
+                            }
+                        }
                     }
                     _ => rhs,
                 };
@@ -258,6 +271,23 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
             );
             fields.push(tableoid.cast());
             names.push(pg_sys::makeString(pg_sys::pstrdup(c"tableoid".as_ptr())).cast());
+        }
+        // The estimate of a subquery that has no value until the query runs. The restriction
+        // estimator of the operator returns it, so `EXPLAIN` shows it in the `rows` of the scan.
+        if let Some(selectivity) = selectivity_now.and_then(IntoDatum::into_datum) {
+            fields.push(
+                pg_sys::makeConst(
+                    pg_sys::FLOAT8OID,
+                    -1,
+                    pg_sys::Oid::INVALID,
+                    size_of::<f64>() as _,
+                    selectivity,
+                    false,
+                    true,
+                )
+                .cast(),
+            );
+            names.push(pg_sys::makeString(pg_sys::pstrdup(c"selectivity".as_ptr())).cast());
         }
         // A non-null record preserves strictness even when the original LHS is NULL.
         args.push(

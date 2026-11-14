@@ -561,8 +561,8 @@ impl MainThreadExecutor {
     /// background Tokio worker thread.
     ///
     /// - Stack-lifetime safety: `task` and `result` live on this worker thread's stack frame, and
-    ///   `JobSlotDropGuard` guarantees this frame cannot return or unwind while the slot is
-    ///   `Pending` (cancelling it to `Aborted` under the mutex) or `Running` (waiting on `cvar`
+    ///   `_slot_guard` (`DropGuard`) guarantees this frame cannot return or unwind while the slot
+    ///   is `Pending` (cancelling it to `Aborted` under the mutex) or `Running` (waiting on `cvar`
     ///   until the main thread finishes calling `task_ptr`).
     /// - Panic routing: on an MPP parallel worker (`in_mpp_worker`), panics (including `pgrx`
     ///   `CaughtError` from `ereport(ERROR)`) are returned in `result` and resumed on the worker
@@ -577,16 +577,12 @@ impl MainThreadExecutor {
     where
         F: FnOnce() -> R,
     {
-        struct InFlightJobGuard<'a>(&'a AtomicUsize);
+        self.in_flight_jobs.fetch_add(1, Ordering::AcqRel);
         // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this guard only
         // decrements `in_flight_jobs` on normal return or unwind.
-        impl Drop for InFlightJobGuard<'_> {
-            fn drop(&mut self) {
-                self.0.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
-        self.in_flight_jobs.fetch_add(1, Ordering::AcqRel);
-        let _in_flight_guard = InFlightJobGuard(&self.in_flight_jobs);
+        let _in_flight_guard = std::mem::DropGuard::new(&self.in_flight_jobs, |in_flight_jobs| {
+            in_flight_jobs.fetch_sub(1, Ordering::AcqRel);
+        });
 
         let is_worker = self.in_mpp_worker();
         if self.shutting_down.load(Ordering::Acquire)
@@ -628,28 +624,24 @@ impl MainThreadExecutor {
             cvar: parking_lot::Condvar::new(),
         });
 
-        struct JobSlotDropGuard<'a>(&'a JobSlot);
         // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this guard upholds memory
         // safety on unwind: `task` on this stack frame must not be dropped while `slot` is still
         // `Pending(task_ptr)` or `Running` on the main thread.
-        impl Drop for JobSlotDropGuard<'_> {
-            fn drop(&mut self) {
-                let mut state = self.0.state.lock();
-                loop {
-                    match *state {
-                        JobState::Pending(_) => {
-                            *state = JobState::Aborted;
-                            break;
-                        }
-                        JobState::Running => {
-                            self.0.cvar.wait(&mut state);
-                        }
-                        JobState::Done | JobState::Aborted => break,
+        let _slot_guard = std::mem::DropGuard::new(&slot, |slot| {
+            let mut state = slot.state.lock();
+            loop {
+                match *state {
+                    JobState::Pending(_) => {
+                        *state = JobState::Aborted;
+                        break;
                     }
+                    JobState::Running => {
+                        slot.cvar.wait(&mut state);
+                    }
+                    JobState::Done | JobState::Aborted => break,
                 }
             }
-        }
-        let _slot_guard = JobSlotDropGuard(&slot);
+        });
 
         let wait_for_slot = || {
             {
@@ -1394,20 +1386,15 @@ mod tests {
         assert!(is_main_thread());
 
         let dropped_on_main = Arc::new(AtomicUsize::new(0));
-        struct MainThreadDropChecker {
-            main_tid: std::thread::ThreadId,
-            counter: Arc<AtomicUsize>,
-        }
-        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this test helper only
-        // asserts the drop thread and increments an atomic counter.
-        impl Drop for MainThreadDropChecker {
-            fn drop(&mut self) {
-                assert_eq!(std::thread::current().id(), self.main_tid);
+        let make_drop_checker = move |counter: Arc<AtomicUsize>| {
+            // NOTE: We intentionally do NOT use `impl_safe_drop!` here because this test helper
+            // only asserts the drop thread and increments an atomic counter.
+            std::mem::DropGuard::new(counter, move |counter| {
+                assert_eq!(std::thread::current().id(), main_tid);
                 assert!(is_main_thread());
-                self.counter.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
+                counter.fetch_add(1, Ordering::SeqCst);
+            })
+        };
         let rt = PgTokioRuntime::new().expect("create runtime");
 
         // 1. Concurrent background tasks running non-'static closures on the main thread and
@@ -1428,7 +1415,7 @@ mod tests {
                 assert_eq!(observed_tid, main_tid);
                 assert_eq!(local_stack_val, i * 10 + 5);
 
-                drop_on_main_thread(MainThreadDropChecker { main_tid, counter });
+                drop_on_main_thread(make_drop_checker(counter));
                 local_stack_val
             }));
         }
@@ -1483,10 +1470,7 @@ mod tests {
         let counter_for_shutdown = Arc::clone(&dropped_on_main);
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         rt.spawn(async move {
-            let _guard = MainThread::new(MainThreadDropChecker {
-                main_tid,
-                counter: counter_for_shutdown,
-            });
+            let _guard = MainThread::new(make_drop_checker(counter_for_shutdown));
             let _ = started_tx.send(());
             std::future::pending::<()>().await;
         });

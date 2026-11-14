@@ -1622,5 +1622,61 @@ LIMIT 2;
  40 |         4
 (2 rows)
 
+-- Edge Case 7: Selective parent filter (2 / 100 = 2% < rank_join_unscored_selectivity_threshold)
+-- over an IVF segment where build distinct-key count exceeds
+-- `hash_join_inlist_pushdown_max_distinct_values` (`HashTableLookupExpr` fallback).
+INSERT INTO vsp_parents
+SELECT i, 'gamma', '{"score": 0}'::jsonb
+FROM generate_series(5, 100) i;
+REINDEX INDEX vsp_parents_idx;
+ANALYZE vsp_parents;
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 5;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+   Relation Tree: c INNER p
+   Join Cond: p.id = c.parent_id
+   Limit: 5
+   Order By: vec <=> vector asc, c.id asc
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=5, output_bytes=552.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=5, metrics=[output_rows=5, output_bytes=644.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=23, avg_fanout=100% (23/23), probe_hit_rate=100% (23/23)]
+     :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, ctids_fetched=23, ctids_lazy=0]
+     :       CooperativeExec
+     :         PgSearchScan: table=c, segments=1, lazy_sort=10, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, queries=5, rows_pruned=253, rows_scanned=276]
+(14 rows)
+
+SELECT c.id, c.parent_id
+FROM vsp_children c
+JOIN vsp_parents p ON p.id = c.parent_id
+WHERE c.id @@@ pdb.all()
+  AND p.id @@@ pdb.all()
+  AND p.category = ANY('{alpha}')
+  AND (p.metadata->>'score')::float8 BETWEEN 20 AND 30
+ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
+LIMIT 5;
+ id  | parent_id 
+-----+-----------
+  20 |         2
+  40 |         4
+ 401 |         4
+ 402 |         4
+ 403 |         4
+(5 rows)
+
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
 DROP TABLE vsp_children, vsp_parents;
 DROP TABLE vsp;

@@ -5,10 +5,6 @@ backup `20261102-224214F`, builds pg_search from the requested revision, and
 creates an eight-segment cosine index with a 0.32 training sample ratio and
 quantized vector routing. It uses the same runner and cluster setup as Cohere.
 
-The shared `benchmark-vector-k6` action profiles CPU time and branch misses for
-every k6 run. Reports print in CI and upload with raw profiles as
-`msmarco-113m-perf`, retained for 30 days.
-
 Apply `benchmark-cohere-msmarco` to a PR to benchmark its head. The label is
 removed when the run starts so it can be applied again. This large dataset is
 opt-in on PRs; the generic `benchmarks` and Cohere labels do not start it.

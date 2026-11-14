@@ -17,15 +17,6 @@ parallel workers in a 32-process pool. k6 runs on CPUs 64–67. Wikipedia and
 Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.
 
-Cohere, HN, and MS MARCO share the `benchmark-vector-k6` action. Each k6 run
-profiles all `postgres` processes in the database container, including
-new backends and workers, sampling user-space CPU time and branch misses with
-host `perf` at 99 Hz per event with DWARF stacks. Profiles
-include warmup and sampling overhead. Reports print after each run; the
-`<dataset>-<size>-perf` artifact retains text reports and raw profiles for 30 days.
-Future backends can reuse `.github/scripts/profile-postgres.sh` with their
-container name. Symbol resolution uses the live container before shutdown.
-
 The benchmark index enables `vector_router_quantization = true` in its
 `CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false
 and is stored in the index definition, so parallel builds, REINDEX, and

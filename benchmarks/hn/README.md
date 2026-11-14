@@ -6,10 +6,6 @@ stanza `bench`, backup `20261018-214625F`. No copy or snapshot generation is
 needed. The heap contains 28,736,557 HN rows, including 24,138,153 non-null
 1,536-dimensional `text-embedding-3-small` embeddings of the `text` column.
 
-The shared `benchmark-vector-k6` action profiles CPU time and branch misses for
-every k6 run. Reports print in CI and upload with raw profiles as
-`hackernews-vector-28m-perf`, retained for 30 days.
-
 Apply `benchmark-hn-vector` to a PR to benchmark its head. The label is removed
 when the run starts so it can be applied again. Runs also execute daily on main.
 After merging, start a manual main run to establish the initial baseline:

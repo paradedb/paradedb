@@ -51,5 +51,5 @@ runs:
       with:
         name: ${{ inputs.dataset }}-perf
         path: benchmark-profiles/
-        retention-days: 30
+        retention-days: 7
         if-no-files-found: warn

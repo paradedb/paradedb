@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794660165526,
+  "lastUpdate": 1794660189867,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -85303,6 +85303,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14034050681-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794660188633,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.613,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.67,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.65,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.635,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.188,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.623,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.168,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14112363499-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -85685,6 +85753,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14034050681-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794660189854,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6892.101331058041,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7728.3123269706175,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.033707604576314,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14112363499-throughput"
       }
     ],
     "benchmarker msmarco-113m (latency)": [

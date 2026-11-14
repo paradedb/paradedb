@@ -6,7 +6,7 @@ INSERT INTO issue_6930_e VALUES (1, 'x', 1, 1.0), (2, 'y', 0, 0.0);
 CREATE INDEX issue_6930_i_idx ON issue_6930_i USING paradedb (id, body, f, r);
 CREATE INDEX issue_6930_e_idx ON issue_6930_e USING paradedb (id, tag, b, z);
 SET paradedb.enable_join_custom_scan = on;
--- Float division in a Join Scan is evaluated by PostgreSQL
+-- Float division in a Join Scan is evaluated natively
 EXPLAIN (COSTS OFF)
 SELECT i.id FROM issue_6930_i i JOIN issue_6930_e e ON e.id = i.id
 WHERE i.body @@@ 'beta' AND (i.f / e.b) > 0 LIMIT 10;
@@ -21,7 +21,7 @@ WHERE i.body @@@ 'beta' AND (i.f / e.b) > 0 LIMIT 10;
      : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
      :   GlobalLimitExec: skip=0, fetch=10
      :     VisibilityFilterExec: tables=[i, e]
-     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_eval_expr_opexpr_9c511f53(f@0, b@1) > 0
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(f@0, CAST(b@1 AS Float64)) > 0
      :         CooperativeExec
      :           PgSearchScan: table=i, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"beta","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
@@ -49,6 +49,497 @@ WHERE i.body @@@ 'alpha' AND (i.f / e.b) >= 0 LIMIT 10;
   1 | 0 | 0
 (1 row)
 
+-- Float division runs natively (#7135): x and d are float8, y and e are float4
+CREATE TABLE issue_6930_a (id int PRIMARY KEY, body text, x float8, y float4);
+CREATE TABLE issue_6930_b (id int PRIMARY KEY, tag text, d float8, e float4);
+INSERT INTO issue_6930_a VALUES
+    (1, 'ok', 6, 6), (2, 'ok', '-0', '-0'), (3, 'ok', 1, 1), (4, 'ok', -1, -1),
+    (5, 'ok', 'Infinity', 'Infinity'), (6, 'ok', '-Infinity', '-Infinity'),
+    (7, 'ok', 'Infinity', 'Infinity'), (8, 'ok', 'NaN', 'NaN'), (9, 'ok', 1, 1),
+    (10, 'ok', NULL, NULL), (11, 'ok', 1, 1), (12, 'ok', 3e38, 3e38), (13, 'ok', 0.1, 0.1),
+    (20, 'negzero', 1, 1), (21, 'zerozero', 0, 0), (22, 'infzero', 'Infinity', 'Infinity'),
+    (23, 'big', 1e308, 3e38), (24, 'tiny', 1e-308, 1e-38),
+    (30, 'round', 6, 6), (31, 'roundzero', 6, 6), (32, 'lnzero', 6, 6),
+    (33, 'addover', 1, 3e38), (34, 'chain', 6, 6);
+INSERT INTO issue_6930_b VALUES
+    (1, 'x', 3, 3), (2, 'x', 5, 5), (3, 'x', 'Infinity', 'Infinity'),
+    (4, 'x', 'Infinity', 'Infinity'), (5, 'x', 2, 2), (6, 'x', 2, 2),
+    (7, 'x', 'Infinity', 'Infinity'), (8, 'x', 0, 0), (9, 'x', 'NaN', 'NaN'),
+    (10, 'x', 0, 0), (11, 'x', NULL, NULL), (12, 'x', 0.5, 0.5), (13, 'x', 0.1, 0.1),
+    (20, 'x', '-0', '-0'), (21, 'x', 0, 0), (22, 'x', 0, 0),
+    (23, 'x', 0.5, 0.5), (24, 'x', 1e300, 1e30),
+    (30, 'x', 2.5, 2.5), (31, 'x', 0.5, 0.5), (32, 'x', 0, 0),
+    (33, 'x', 1, 1), (34, 'x', 1, 1);
+CREATE INDEX issue_6930_a_idx ON issue_6930_a USING paradedb (id, body, x, y);
+CREATE INDEX issue_6930_b_idx ON issue_6930_b USING paradedb (id, tag, d, e);
+-- All float type mixes use pdb_float_div
+EXPLAIN (COSTS OFF)
+SELECT a.id, a.x / b.d, a.y / b.e, a.y / b.d FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND (a.x / b.e) > 0 LIMIT 20;
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Join Predicate: heap:((a.x / b.e) > '0'::double precision)
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@3 as col_1, pdb_float_div(x@4, __common_expr_1@0) as col_2, pdb_float_div(__common_expr_2@1, CAST(e@6 AS Float32)) as col_3, pdb_float_div(CAST(__common_expr_2@1 AS Float64), __common_expr_1@0) as col_4, ctid_0@2 as ctid_0, ctid_1@5 as ctid_1]
+     :   ProjectionExec: expr=[d@7 as __common_expr_1, CAST(y@3 AS Float32) as __common_expr_2, ctid_0@0 as ctid_0, id@1 as id, x@2 as x, ctid_1@4 as ctid_1, e@6 as e]
+     :     GlobalLimitExec: skip=0, fetch=20
+     :       VisibilityFilterExec: tables=[a, b]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(x@0, CAST(CAST(e@1 AS Float32) AS Float64)) > 0
+     :           CooperativeExec
+     :             PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"ok","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(15 rows)
+
+-- Signed zero, infinities, NaN, NULL and exact float4 widening (id 13).
+-- 3e38 / 0.5 overflows float4 but not float8 (id 12).
+SELECT a.id, a.x / b.d AS f8, a.y / b.e AS f4, a.y / b.d AS f48, a.x / b.e AS f84
+FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND a.id <> 12 ORDER BY a.id LIMIT 20;
+ id |    f8     |    f4     |        f48         |        f84        
+----+-----------+-----------+--------------------+-------------------
+  1 |         2 |         2 |                  2 |                 2
+  2 |        -0 |        -0 |                 -0 |                -0
+  3 |         0 |         0 |                  0 |                 0
+  4 |        -0 |        -0 |                 -0 |                -0
+  5 |  Infinity |  Infinity |           Infinity |          Infinity
+  6 | -Infinity | -Infinity |          -Infinity |         -Infinity
+  7 |       NaN |       NaN |                NaN |               NaN
+  8 |       NaN |       NaN |                NaN |               NaN
+  9 |       NaN |       NaN |                NaN |               NaN
+ 10 |           |           |                    |                  
+ 11 |           |           |                    |                  
+ 13 |         1 |         1 | 1.0000000149011612 | 0.999999985098839
+(12 rows)
+
+SELECT a.id, a.y / b.d AS f48, a.x / b.e AS f84
+FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND a.id = 12 LIMIT 20;
+ id |          f48           |  f84  
+----+------------------------+-------
+ 12 | 6.0000000109955115e+38 | 6e+38
+(1 row)
+
+-- real to double precision casts widen the exact float4 (id 13)
+EXPLAIN (COSTS OFF)
+SELECT a.id, a.y::float8 AS w, a.y::float8 / b.d AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND a.id = 13 LIMIT 20;
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, __common_expr_1@0 as col_2, pdb_float_div(__common_expr_1@0, d@3) as col_3, ctid_0@1 as ctid_0]
+     :   ProjectionExec: expr=[pdb_eval_expr_funcexpr_fb73fc48(y@2) as __common_expr_1, ctid_0@0 as ctid_0, id@1 as id, d@4 as d]
+     :     GlobalLimitExec: skip=0, fetch=20
+     :       VisibilityFilterExec: tables=[a, b]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=a, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"ok","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"id","value":13}}]}}
+     :           CooperativeExec
+     :             PgSearchScan: table=b, segments=1, dynamic_filters=1, query={"term":{"field":"id","value":13}}
+(14 rows)
+
+SELECT a.id, a.y::float8 AS w, a.y::float8 / b.d AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND a.id = 13 LIMIT 20;
+ id |          w          |         q          
+----+---------------------+--------------------
+ 13 | 0.10000000149011612 | 1.0000000149011612
+(1 row)
+
+-- Filters with OR and IS NULL
+EXPLAIN (COSTS OFF)
+SELECT a.id FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND a.id <> 12 AND ((a.x / b.d) > 1 OR (a.x / b.d) IS NULL)
+ORDER BY a.id LIMIT 20;
+                                                                                                                                                          QUERY PLAN                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Join Predicate: heap:(((a.x / b.d) > '1'::double precision) OR ((a.x / b.d) IS NULL))
+   Limit: 20
+   Order By: b.id asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=20), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :   ProjectionExec: expr=[id@0 as col_1, ctid_0@1 as ctid_0, ctid_1@2 as ctid_1]
+     :     VisibilityFilterExec: tables=[a, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(x@0, d@1) > 1 OR pdb_float_div(x@0, d@1) IS NULL, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"ok","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"exists":{"field":"id"}}],"must_not":[{"term":{"field":"id","value":12}}]}}]}}
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(15 rows)
+
+SELECT a.id FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND a.id <> 12 AND ((a.x / b.d) > 1 OR (a.x / b.d) IS NULL)
+ORDER BY a.id LIMIT 20;
+ id 
+----
+  1
+  5
+  7
+  8
+  9
+ 10
+ 11
+(7 rows)
+
+-- -0 equals 0, as in PostgreSQL
+SELECT a.id, a.x / b.d AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'ok' AND (a.x / b.d) = 0 ORDER BY a.id LIMIT 20;
+ id | q  
+----+----
+  2 | -0
+  3 |  0
+  4 | -0
+(3 rows)
+
+-- Integer operands are cast to float natively, rounding like PostgreSQL
+CREATE TABLE issue_6930_n (id int PRIMARY KEY, body text, s int2, i int4, l int8);
+INSERT INTO issue_6930_n VALUES
+    (1, 'ok', 7, 7, 7), (2, 'ok', -3, 16777217, 9007199254740993), (3, 'ok', 0, 0, 0);
+CREATE INDEX issue_6930_n_idx ON issue_6930_n USING paradedb (id, body, s, i, l);
+EXPLAIN (COSTS OFF)
+SELECT a.x / n.i, a.y / n.s, n.l::float4 FROM issue_6930_a a JOIN issue_6930_n n ON n.id = a.id
+WHERE a.body @@@ 'ok' AND (a.x / n.l) >= 0 LIMIT 20;
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER n
+   Join Cond: n.id = a.id
+   Join Predicate: heap:((a.x / (n.l)::double precision) >= '0'::double precision)
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[pdb_float_div(x@2, CAST(i@7 AS Float64)) as col_1, pdb_float_div(CAST(CAST(y@3 AS Float32) AS Float64), CAST(s@8 AS Float64)) as col_2, CAST(l@6 AS Float32) as col_3, ctid_0@0 as ctid_0, ctid_1@4 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=20
+     :     VisibilityFilterExec: tables=[a, n]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(x@0, CAST(l@1 AS Float64)) >= 0, projection=[ctid_0@5, id@6, x@7, y@8, ctid_1@0, id@1, l@2, i@3, s@4]
+     :         CooperativeExec
+     :           PgSearchScan: table=n, segments=1, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"ok","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+SELECT a.id, a.x / n.s AS f8s, a.x / n.i AS f8i, a.x / n.l AS f8l, a.y / n.i AS f4i,
+       n.l::float8 AS l8, n.l::float4 AS l4, n.i::real AS i4, a.x > n.i AS gt
+FROM issue_6930_a a JOIN issue_6930_n n ON n.id = a.id
+WHERE a.body @@@ 'ok' AND a.id IN (1, 2) ORDER BY a.id LIMIT 20;
+ id |        f8s         |        f8i         |        f8l         |        f4i         |          l8           |      l4      |      i4       | gt 
+----+--------------------+--------------------+--------------------+--------------------+-----------------------+--------------+---------------+----
+  1 | 0.8571428571428571 | 0.8571428571428571 | 0.8571428571428571 | 0.8571428571428571 |                     7 |            7 |             7 | f
+  2 |                  0 |                 -0 |                 -0 |                 -0 | 9.007199254740992e+15 | 9.007199e+15 | 1.6777216e+07 | f
+(2 rows)
+
+SELECT a.x / n.i FROM issue_6930_a a JOIN issue_6930_n n ON n.id = a.id
+WHERE a.body @@@ 'ok' AND a.id = 3 LIMIT 20;
+ERROR:  division by zero
+-- LEFT JOIN: id 4 has no match and is NULL
+EXPLAIN (COSTS OFF)
+SELECT a.id, a.x / n.i AS q FROM issue_6930_a a LEFT JOIN issue_6930_n n ON n.id = a.id
+WHERE a.body @@@ 'ok' AND a.id IN (1, 2, 4) ORDER BY a.id LIMIT 20;
+                                                                                                                                                            QUERY PLAN                                                                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a LEFT n
+   Join Cond: n.id = a.id
+   Limit: 20
+   Order By: a.id asc
+   DataFusion Physical Plan: 
+     : SortExec: TopK(fetch=20), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+     :   ProjectionExec: expr=[id@1 as col_1, pdb_float_div(x@2, CAST(i@3 AS Float64)) as col_2, ctid_0@0 as ctid_0]
+     :     VisibilityFilterExec: tables=[a]
+     :       HashJoinExec: mode=CollectLeft, join_type=Right, on=[(id@0, id@1)], projection=[ctid_0@2, id@3, x@4, i@1]
+     :         CooperativeExec
+     :           PgSearchScan: table=n, segments=1, visibility=eager, query="all"
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"ok","lenient":null,"conjunction_mode":null}}}},{"term_set":{"terms":[{"field":"id","value":1},{"field":"id","value":2},{"field":"id","value":4}]}}]}}
+(14 rows)
+
+SELECT a.id, a.x / n.i AS q FROM issue_6930_a a LEFT JOIN issue_6930_n n ON n.id = a.id
+WHERE a.body @@@ 'ok' AND a.id IN (1, 2, 4) ORDER BY a.id LIMIT 20;
+ id |         q          
+----+--------------------
+  1 | 0.8571428571428571
+  2 |                 -0
+  4 |                   
+(3 rows)
+
+-- Domains over float4
+CREATE DOMAIN issue_6930_real AS real;
+CREATE TABLE issue_6930_dm (id int PRIMARY KEY, body text, v issue_6930_real);
+INSERT INTO issue_6930_dm VALUES (13, 'ok', 0.1);
+CREATE INDEX issue_6930_dm_idx ON issue_6930_dm USING paradedb (id, body, v);
+EXPLAIN (COSTS OFF)
+SELECT dm.id, dm.v / b.d AS q
+FROM issue_6930_dm dm JOIN issue_6930_b b ON b.id = dm.id
+WHERE dm.body @@@ 'ok' LIMIT 20;
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: dm INNER b
+   Join Cond: b.id = dm.id
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, pdb_float_div(CAST(CAST(v@2 AS Float32) AS Float64), d@4) as col_2, ctid_0@0 as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=20
+     :     VisibilityFilterExec: tables=[dm, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=dm, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"ok","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(13 rows)
+
+SELECT dm.id, dm.v / b.d AS q
+FROM issue_6930_dm dm JOIN issue_6930_b b ON b.id = dm.id
+WHERE dm.body @@@ 'ok' LIMIT 20;
+ id |         q          
+----+--------------------
+ 13 | 1.0000000149011612
+(1 row)
+
+-- Errors: division by zero, overflow and underflow
+EXPLAIN (COSTS OFF)
+SELECT a.x / b.d, a.y / b.e FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'big' LIMIT 20;
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[pdb_float_div(x@1, d@5) as col_1, pdb_float_div(CAST(y@2 AS Float32), CAST(e@6 AS Float32)) as col_2]
+     :   GlobalLimitExec: skip=0, fetch=20
+     :     VisibilityFilterExec: tables=[a, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"big","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(13 rows)
+
+SELECT a.x / b.d FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'negzero' LIMIT 20;
+ERROR:  division by zero
+SELECT a.x / b.d FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'zerozero' LIMIT 20;
+ERROR:  division by zero
+SELECT a.y / b.e FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'infzero' LIMIT 20;
+ERROR:  division by zero
+SELECT a.x / b.d FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'big' LIMIT 20;
+ERROR:  value out of range: overflow
+SELECT a.y / b.e FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'big' LIMIT 20;
+ERROR:  value out of range: overflow
+SELECT a.x / b.d FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'tiny' LIMIT 20;
+ERROR:  value out of range: underflow
+SELECT a.y / b.e FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'tiny' LIMIT 20;
+ERROR:  value out of range: underflow
+-- Operands DataFusion evaluates differently from PostgreSQL use the fallback
+EXPLAIN (COSTS OFF)
+SELECT a.x / round(b.d), a.x / ln(b.d), (a.y + a.y) / b.d
+FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'round' LIMIT 20;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[pdb_eval_expr_opexpr_f5110c90(x@1, d@5) as col_1, pdb_eval_expr_opexpr_6d1af088(x@1, d@5) as col_2, pdb_eval_expr_opexpr_d5fe5a62(y@2, d@5) as col_3]
+     :   GlobalLimitExec: skip=0, fetch=20
+     :     VisibilityFilterExec: tables=[a, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"round","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(13 rows)
+
+SELECT a.x / round(b.d) FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'round' LIMIT 20;
+ ?column? 
+----------
+        3
+(1 row)
+
+SELECT a.x / round(b.d) FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'roundzero' LIMIT 20;
+ERROR:  division by zero
+SELECT a.x / ln(b.d) FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'lnzero' LIMIT 20;
+ERROR:  cannot take logarithm of zero
+SELECT (a.y + a.y) / b.d FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'addover' LIMIT 20;
+ERROR:  value out of range: overflow
+-- Long division chains use the fallback every ninth division
+EXPLAIN (COSTS OFF)
+SELECT a.id FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'chain'
+  AND a.x / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d > 0 LIMIT 20;
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Join Predicate: heap:(((((((((((a.x / b.d) / b.d) / b.d) / b.d) / b.d) / b.d) / b.d) / b.d) / b.d) / b.d) > '0'::double precision)
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=20
+     :     VisibilityFilterExec: tables=[a, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(pdb_eval_expr_opexpr_bba5785c(x@0, d@1), d@1) > 0
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"chain","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
+-- The limit is on depth, so two shorter chains stay native
+EXPLAIN (COSTS OFF)
+SELECT a.id FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id
+WHERE a.body @@@ 'chain'
+  AND (a.x / b.d / b.d / b.d / b.d) / (a.x / b.d / b.d / b.d / b.d) > 0 LIMIT 20;
+                                                                                                                                     QUERY PLAN                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Join Predicate: heap:((((((a.x / b.d) / b.d) / b.d) / b.d) / ((((a.x / b.d) / b.d) / b.d) / b.d)) > '0'::double precision)
+   Limit: 20
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=20
+     :     VisibilityFilterExec: tables=[a, b]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(pdb_float_div(pdb_float_div(pdb_float_div(pdb_float_div(x@0, d@1), d@1), d@1), d@1), pdb_float_div(pdb_float_div(pdb_float_div(pdb_float_div(x@0, d@1), d@1), d@1), d@1)) > 0
+     :         CooperativeExec
+     :           PgSearchScan: table=a, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"chain","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=b, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
+SELECT format('SELECT a.id, a.x%s AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id '
+              'WHERE a.body @@@ %L AND a.x%s > 0 LIMIT 20',
+              repeat(' / b.d', 100), 'chain', repeat(' / b.d', 100)) \gexec
+SELECT a.id, a.x / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id WHERE a.body @@@ 'chain' AND a.x / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d / b.d > 0 LIMIT 20
+ id | q 
+----+---
+ 34 | 6
+(1 row)
+
+SELECT format('SELECT a.id, a.y%s AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id '
+              'WHERE a.body @@@ %L AND a.y%s > 0 LIMIT 20',
+              repeat(' / b.e', 100), 'chain', repeat(' / b.e', 100)) \gexec
+SELECT a.id, a.y / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e AS q FROM issue_6930_a a JOIN issue_6930_b b ON b.id = a.id WHERE a.body @@@ 'chain' AND a.y / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e / b.e > 0 LIMIT 20
+ id | q 
+----+---
+ 34 | 6
+(1 row)
+
+-- MPP
+CREATE TABLE issue_6930_ma (id int PRIMARY KEY, body text, x float8);
+CREATE TABLE issue_6930_mb (id int PRIMARY KEY, d float8);
+CREATE INDEX issue_6930_ma_idx ON issue_6930_ma USING paradedb (id, body, x);
+CREATE INDEX issue_6930_mb_idx ON issue_6930_mb USING paradedb (id, d);
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO issue_6930_ma SELECT g, 'mpp', g FROM generate_series(1, 50) g;
+INSERT INTO issue_6930_ma SELECT g, 'mpp', g FROM generate_series(51, 100) g;
+INSERT INTO issue_6930_ma VALUES (101, 'mppzero', 1);
+INSERT INTO issue_6930_mb SELECT g, 1 + g % 4 FROM generate_series(1, 50) g;
+INSERT INTO issue_6930_mb SELECT g, 1 + g % 4 FROM generate_series(51, 100) g;
+INSERT INTO issue_6930_mb VALUES (101, 0);
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE issue_6930_ma;
+ANALYZE issue_6930_mb;
+SET paradedb.mpp_min_rows TO 0;
+SET paradedb.enable_range_partitioned_join TO on;
+SET max_parallel_workers_per_gather TO 3;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+EXPLAIN (COSTS OFF)
+SELECT a.id, a.x / b.d AS q FROM issue_6930_ma a JOIN issue_6930_mb b ON b.id = a.id
+WHERE a.body @@@ 'mpp' AND a.x / b.d > 30 ORDER BY a.id LIMIT 5;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: a INNER b
+   Join Cond: b.id = a.id
+   Join Predicate: heap:((a.x / b.d) > '30'::double precision)
+   Limit: 5
+   Order By: b.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, pdb_float_div(x@2, d@5) as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : │   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=5
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[a, b]
+     :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_float_div(x@0, d@1) > 30
+     :   │       CoalescePartitionsExec
+     :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=3
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=b, segments=3, dynamic_filters=1, query="all"
+     :   │         t1: PgSearchScan: table=b, segments=3, dynamic_filters=1, query="all"
+     :   │         t2: PgSearchScan: table=b, segments=3, dynamic_filters=1, query="all"
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=a, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"mpp","lenient":null,"conjunction_mode":null}}}}
+     :     │     t1: PgSearchScan: table=a, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"mpp","lenient":null,"conjunction_mode":null}}}}
+     :     │     t2: PgSearchScan: table=a, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"mpp","lenient":null,"conjunction_mode":null}}}}
+     :     └──────────────────────────────────────────────────
+(30 rows)
+
+SELECT a.id, a.x / b.d AS q FROM issue_6930_ma a JOIN issue_6930_mb b ON b.id = a.id
+WHERE a.body @@@ 'mpp' AND a.x / b.d > 30 ORDER BY a.id LIMIT 5;
+ id | q  
+----+----
+ 32 | 32
+ 36 | 36
+ 40 | 40
+ 44 | 44
+ 48 | 48
+(5 rows)
+
+SELECT a.id, a.x / b.d AS q FROM issue_6930_ma a JOIN issue_6930_mb b ON b.id = a.id
+WHERE a.body @@@ 'mppzero' ORDER BY a.id LIMIT 5;
+ERROR:  division by zero
+-- A worker reports the error like the fallback does
+SELECT a.id FROM issue_6930_ma a JOIN issue_6930_mb b ON b.id = a.id
+WHERE a.body @@@ 'mppzero' AND a.x / b.d > 0 ORDER BY a.id LIMIT 5;
+ERROR:  DataFusion execution failed: Execution error: division by zero
+RESET paradedb.mpp_min_rows;
+RESET paradedb.enable_range_partitioned_join;
+RESET max_parallel_workers_per_gather;
+RESET max_parallel_workers;
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
 RESET paradedb.enable_join_custom_scan;
 DROP TABLE issue_6930_i;
 DROP TABLE issue_6930_e;
+DROP TABLE issue_6930_a;
+DROP TABLE issue_6930_b;
+DROP TABLE issue_6930_n;
+DROP TABLE issue_6930_dm;
+DROP TABLE issue_6930_ma;
+DROP TABLE issue_6930_mb;
+DROP DOMAIN issue_6930_real;

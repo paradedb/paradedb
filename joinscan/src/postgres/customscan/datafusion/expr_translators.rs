@@ -26,24 +26,64 @@
 //! (`try_wrap_as_udf`) for opaque expressions.
 
 use datafusion::common::ScalarValue;
+use datafusion::common::tree_node::TreeNode;
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
-use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, col, lit};
+use datafusion::logical_expr::{BinaryExpr, Expr, Operator, ScalarUDF, cast, col, lit};
 use pgrx::{PgList, pg_sys};
 use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
+use crate::postgres::customscan::datafusion::float_div::{FLOAT_DIV_UDF_NAME, float_div_udf};
 use crate::postgres::customscan::datafusion::translator::{
     PredicateTranslator, node_tag_debug, type_name,
 };
 use crate::postgres::customscan::expr_eval::InputVarInfo;
-use crate::postgres::customscan::pg_expr_udf::{InputDecode, PgExprUdf};
+use crate::postgres::customscan::pg_expr_udf::{InputDecode, PG_EXPR_UDF_PREFIX, PgExprUdf};
 use crate::postgres::node::NodeExt;
+use crate::postgres::types_arrow::udf_pg_type_to_arrow;
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
     | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
+
+/// UDFs that return PostgreSQL's results and raise its errors.
+const CHECKED_UDFS: &[&str] = &[FLOAT_DIV_UDF_NAME];
+
+/// Each nested checked UDF call adds about four of the 100 levels prost decodes.
+const MAX_NESTED_CHECKED_UDFS: usize = 8;
+
+/// Whether `args` can feed a checked UDF. Native `round`, `ln` or float `+`
+/// can differ from PostgreSQL, so only exact nodes qualify.
+fn can_call_checked_udf(args: &[&Expr]) -> bool {
+    args.iter().all(|arg| {
+        let inexact = arg
+            .exists(|e| {
+                Ok(match e {
+                    Expr::Column(_) | Expr::Literal(..) | Expr::Cast(_) => false,
+                    Expr::ScalarFunction(f) => {
+                        !(CHECKED_UDFS.contains(&f.name())
+                            || f.name().starts_with(PG_EXPR_UDF_PREFIX))
+                    }
+                    _ => true,
+                })
+            })
+            .expect("inspecting an expression cannot fail");
+        !inexact && checked_udf_depth(arg) < MAX_NESTED_CHECKED_UDFS
+    })
+}
+
+/// The most checked UDF calls nested in `expr`.
+fn checked_udf_depth(expr: &Expr) -> usize {
+    match expr {
+        Expr::Cast(c) => checked_udf_depth(&c.expr),
+        Expr::ScalarFunction(f) if CHECKED_UDFS.contains(&f.name()) => {
+            1 + f.args.iter().map(checked_udf_depth).max().unwrap_or(0)
+        }
+        _ => 0,
+    }
+}
 
 /// Short, `&'static str` label for the subset of PG node tags that reach
 /// `try_wrap_as_udf`. Used only for building human-readable UDF names — a
@@ -82,6 +122,22 @@ impl<'a> PredicateTranslator<'a> {
         let df_args = df_args?;
 
         let funcid = (*func).funcid;
+
+        // Integer to float casts match PostgreSQL's. Other float and numeric
+        // casts stay with the UDF fallback.
+        if matches!(
+            funcid.to_u32(),
+            pg_sys::F_FLOAT8_INT2
+                | pg_sys::F_FLOAT8_INT4
+                | pg_sys::F_FLOAT8_INT8
+                | pg_sys::F_FLOAT4_INT2
+                | pg_sys::F_FLOAT4_INT4
+                | pg_sys::F_FLOAT4_INT8
+        ) {
+            let target = udf_pg_type_to_arrow((*func).funcresulttype)?;
+            return Some(cast(df_args.into_iter().next()?, target));
+        }
+
         let namespace_oid = pg_sys::get_func_namespace(funcid);
         let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
         let func_name = crate::postgres::catalog::lookup_func_name(funcid);
@@ -617,21 +673,42 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
-        // Arrow divides floats by zero to Infinity or NaN where PostgreSQL raises an
-        // error, so let the UDF fallback evaluate float division.
+        // Arrow divides floats per IEEE-754 where PostgreSQL raises an error, so
+        // float division uses the checked UDF at the result type.
         if op == Operator::Divide
             && matches!(
                 (*op_expr).opresulttype,
                 pg_sys::FLOAT4OID | pg_sys::FLOAT8OID
             )
         {
-            pgrx::debug1!(
-                "PredicateTranslator: float division left to PostgreSQL [OpExpr] types=({}, {}) | {}",
-                type_name(left_type),
-                type_name(right_type),
-                self.deparse_for_debug(node)
+            let is_float = |t| matches!(t, pg_sys::FLOAT4OID | pg_sys::FLOAT8OID);
+            if !is_float(left_type)
+                || !is_float(right_type)
+                || !can_call_checked_udf(&[&left, &right])
+            {
+                pgrx::debug1!(
+                    "PredicateTranslator: float division left to PostgreSQL [OpExpr] types=({}, {}) | {}",
+                    type_name(left_type),
+                    type_name(right_type),
+                    self.deparse_for_debug(node)
+                );
+                return None;
+            }
+            let result_type = (*op_expr).opresulttype;
+            let ty = udf_pg_type_to_arrow(result_type)?;
+            // float4 is indexed as the f64 nearest its text form, so cast to the
+            // operand's own type first, then widen only if the result needs it.
+            let operand = |expr: Expr, type_oid| -> Option<Expr> {
+                let expr = cast(expr, udf_pg_type_to_arrow(type_oid)?);
+                Some(if type_oid == result_type {
+                    expr
+                } else {
+                    cast(expr, ty.clone())
+                })
+            };
+            return Some(
+                float_div_udf().call(vec![operand(left, left_type)?, operand(right, right_type)?]),
             );
-            return None;
         }
 
         let collid = (*op_expr).inputcollid;
@@ -858,6 +935,27 @@ mod tests {
     #[allow(dead_code)]
     fn placeholder_args(arity: usize) -> Vec<Expr> {
         (0..arity).map(|i| col(format!("c{i}"))).collect()
+    }
+
+    #[test]
+    fn checked_udf_rejects_inexact_or_long_operands() {
+        let div = |l, r| float_div_udf().call(vec![l, r]);
+        let round =
+            PredicateTranslator::translate_known_func("pg_catalog", "round", vec![col("d")])
+                .unwrap();
+        let x = cast(col("x"), datafusion::arrow::datatypes::DataType::Float64);
+        assert!(can_call_checked_udf(&[&x, &div(col("x"), col("d"))]));
+        assert!(!can_call_checked_udf(&[&x, &round]));
+        assert!(!can_call_checked_udf(&[&x, &(col("x") + col("x"))]));
+
+        let chain = |n| (0..n).fold(col("x"), |e, _| div(e, col("d")));
+        assert!(!can_call_checked_udf(&[
+            &chain(MAX_NESTED_CHECKED_UDFS),
+            &col("d")
+        ]));
+        // The limit is on depth, so two shorter chains are fine.
+        let half = chain(MAX_NESTED_CHECKED_UDFS / 2);
+        assert!(can_call_checked_udf(&[&half, &half]));
     }
 
     // ---------- Test 1: translate_known_func coverage (pure Rust) ----------

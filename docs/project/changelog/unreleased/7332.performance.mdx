@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Join Scan evaluates `float4` and `float8` division, and integer to float casts, natively instead of through a PostgreSQL expression per row, while still raising PostgreSQL's `division by zero`, overflow and underflow errors (#7135).

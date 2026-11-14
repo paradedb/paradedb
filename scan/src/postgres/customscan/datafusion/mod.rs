@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 pub mod cardinality_agg;
 pub mod carry_value;
+pub mod float_div;
 pub mod memory;
 pub mod numeric_agg;
 pub mod spill;

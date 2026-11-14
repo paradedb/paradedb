@@ -55,6 +55,7 @@ mod pdb {
             transposition_cost_one: None,
             prefix: None,
             synonyms: None,
+            max_expansions: None,
         }
     }
     #[builder_fn]
@@ -66,6 +67,7 @@ mod pdb {
             distance: None,
             transposition_cost_one: None,
             prefix: None,
+            max_expansions: None,
         }
     }
 
@@ -80,6 +82,7 @@ mod pdb {
             transposition_cost_one: None,
             prefix: None,
             synonyms: None,
+            max_expansions: None,
         }
     }
 
@@ -92,6 +95,7 @@ mod pdb {
             distance: None,
             transposition_cost_one: None,
             prefix: None,
+            max_expansions: None,
         }
     }
 
@@ -126,6 +130,7 @@ mod pdb {
             distance: distance.map(|n| n as u8),
             transposition_cost_one,
             prefix,
+            max_expansions: None,
         }
     }
 
@@ -147,6 +152,7 @@ mod pdb {
             prefix,
             conjunction_mode,
             synonyms: None,
+            max_expansions: None,
         }
     }
 

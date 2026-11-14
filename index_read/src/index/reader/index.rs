@@ -4111,6 +4111,7 @@ mod tests {
                 prefix: None,
                 conjunction_mode: Some(true),
                 synonyms: None,
+                max_expansions: None,
             },
         };
         let boolean = |must, should, must_not| SearchQueryInput::Boolean {

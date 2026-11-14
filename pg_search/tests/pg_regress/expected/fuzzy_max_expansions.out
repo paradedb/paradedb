@@ -1,0 +1,224 @@
+-- Tests the `max_expansions` argument of `pdb.fuzzy`, which caps how many terms each fuzzy
+-- token expands to, keeping the terms with the smallest edit distance.
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CREATE TABLE fuzzy_max_expansions (id SERIAL PRIMARY KEY, word TEXT);
+-- Edit distance from `japan`: japan 0, jaban 1, japon 1, jason 2, korea > 2
+INSERT INTO fuzzy_max_expansions (word) VALUES ('japan'), ('japon'), ('jaban'), ('jason'), ('korea');
+-- 72 distinct terms are within distance 1 of `qqq`: `qq` + any of 36 characters, and `qqq` + any
+-- of 36 characters.
+INSERT INTO fuzzy_max_expansions (word)
+SELECT prefix || c
+FROM unnest(ARRAY['qq', 'qqq']) AS prefix,
+     regexp_split_to_table('abcdefghijklmnopqrstuvwxyz0123456789', '') AS c;
+-- One segment, as the cap applies to each segment's terms.
+CREATE INDEX fuzzy_max_expansions_idx ON fuzzy_max_expansions
+USING paradedb (id, word) WITH (target_segment_count = 1);
+--
+-- the typmod round-trips the 4th argument
+--
+SELECT 'japan'::pdb.fuzzy(2, f, f, 3);
+                                                                  fuzzy                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------
+ {"unclassified_string":{"string":"japan","fuzzy_data":{"distance":2,"prefix":false,"transposition_cost_one":false,"max_expansions":3}}}
+(1 row)
+
+SELECT 'japan'::pdb.fuzzy(2, f, f);
+                                                        fuzzy                                                         
+----------------------------------------------------------------------------------------------------------------------
+ {"unclassified_string":{"string":"japan","fuzzy_data":{"distance":2,"prefix":false,"transposition_cost_one":false}}}
+(1 row)
+
+SELECT 'japan'::pdb.fuzzy(2, f, f, -1);
+                                                                  fuzzy                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------
+ {"unclassified_string":{"string":"japan","fuzzy_data":{"distance":2,"prefix":false,"transposition_cost_one":false,"max_expansions":-1}}}
+(1 row)
+
+--
+-- -1: no limit, every term within distance 2
+--
+SELECT id, word FROM fuzzy_max_expansions WHERE word === 'japan'::pdb.fuzzy(2, f, f, -1) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  2 | japon
+  3 | jaban
+  4 | jason
+(4 rows)
+
+--
+-- the closest terms win; ties go to the earlier term (`jaban` before `japon`)
+--
+SELECT id, word FROM fuzzy_max_expansions WHERE word === 'japan'::pdb.fuzzy(2, f, f, 1) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+(1 row)
+
+SELECT id, word FROM fuzzy_max_expansions WHERE word === 'japan'::pdb.fuzzy(2, f, f, 2) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  3 | jaban
+(2 rows)
+
+SELECT id, word FROM fuzzy_max_expansions WHERE word === 'japan'::pdb.fuzzy(2, f, f, 3) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  2 | japon
+  3 | jaban
+(3 rows)
+
+SELECT id, word FROM fuzzy_max_expansions WHERE word === 'japan'::pdb.fuzzy(2, f, f, 50) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  2 | japon
+  3 | jaban
+  4 | jason
+(4 rows)
+
+--
+-- match operators cap each token
+--
+SELECT id, word FROM fuzzy_max_expansions WHERE word ||| 'japan korea'::pdb.fuzzy(2, f, f, 1) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  5 | korea
+(2 rows)
+
+SELECT id, word FROM fuzzy_max_expansions WHERE word &&& 'japan'::pdb.fuzzy(2, f, f, 1) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+(1 row)
+
+SELECT id, word FROM fuzzy_max_expansions WHERE word === ARRAY['japan', 'korea']::pdb.fuzzy(2, f, f, 1) ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  5 | korea
+(2 rows)
+
+--
+-- the query JSON carries the cap
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM fuzzy_max_expansions WHERE word ||| 'japan'::pdb.fuzzy(2, f, f, 1);
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on fuzzy_max_expansions
+   Table: fuzzy_max_expansions
+   Index: fuzzy_max_expansions_idx
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"word","value":"japan","tokenizer":null,"distance":2,"transposition_cost_one":false,"prefix":false,"conjunction_mode":false,"max_expansions":1}}}}
+(7 rows)
+
+--
+-- a JSON query without `max_expansions` still parses
+--
+SELECT id, word FROM fuzzy_max_expansions
+WHERE id @@@ '{"fuzzy_term": {"field": "word", "value": "japan", "distance": 2}}'::jsonb ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+  2 | japon
+  3 | jaban
+  4 | jason
+(4 rows)
+
+SELECT id, word FROM fuzzy_max_expansions
+WHERE id @@@ '{"fuzzy_term": {"field": "word", "value": "japan", "distance": 2, "max_expansions": 1}}'::jsonb ORDER BY id;
+ id | word  
+----+-------
+  1 | japan
+(1 row)
+
+--
+-- error conditions
+--
+SELECT 'japan'::pdb.fuzzy(2, f, f, 0);
+ERROR:  max_expansions must be -1 for no limit, or an integer from 1 to 134217726, got: 0 at character 17
+SELECT 'japan'::pdb.fuzzy(2, f, f, -2);
+ERROR:  max_expansions must be -1 for no limit, or an integer from 1 to 134217726, got: -2 at character 17
+SELECT 'japan'::pdb.fuzzy(2, f, f, 134217727);
+ERROR:  max_expansions must be -1 for no limit, or an integer from 1 to 134217726, got: 134217727 at character 17
+SELECT 'japan'::pdb.fuzzy(2, f, f, lots);
+ERROR:  max_expansions must be -1 for no limit, or an integer from 1 to 134217726, got: lots at character 17
+SELECT 'japan'::pdb.fuzzy(2, f, f, 3, 4);
+ERROR:  pdb.fuzzy takes at most 4 arguments: distance, prefix, transposition_cost_one and max_expansions at character 17
+SELECT id FROM fuzzy_max_expansions WHERE word @@@ 'japan'::pdb.fuzzy(2, f, f, 1);
+ERROR:  `max_expansions` of `pdb.fuzzy` is not supported by the `@@@` operator; use `|||`, `&&&` or `===`
+SELECT id FROM fuzzy_max_expansions
+WHERE id @@@ '{"fuzzy_term": {"field": "word", "value": "japan", "distance": 2, "max_expansions": 0}}'::jsonb;
+ERROR:  max_expansions must be -1 for no limit, or at least 1, got: 0
+--
+-- without max_expansions, a token expands to at most 50 terms
+--
+-- 72 distinct terms (ids 6 to 77) are within distance 1 of `qqq`, as inserted above.
+SELECT count(*) FROM fuzzy_max_expansions WHERE word === 'qqq'::pdb.fuzzy(1);
+ count 
+-------
+    50
+(1 row)
+
+SELECT count(*) FROM fuzzy_max_expansions WHERE word ||| 'qqq'::pdb.fuzzy(1);
+ count 
+-------
+    50
+(1 row)
+
+SELECT count(*) FROM fuzzy_max_expansions WHERE word === ARRAY['qqq']::pdb.fuzzy(1);
+ count 
+-------
+    50
+(1 row)
+
+SELECT count(*) FROM fuzzy_max_expansions
+WHERE id @@@ '{"fuzzy_term": {"field": "word", "value": "qqq", "distance": 1}}'::jsonb;
+ count 
+-------
+    50
+(1 row)
+
+SELECT count(*) FROM fuzzy_max_expansions WHERE word === 'qqq'::pdb.fuzzy(1, f, f, -1);
+ count 
+-------
+    72
+(1 row)
+
+-- the exact term is always kept
+SELECT count(*) FROM fuzzy_max_expansions WHERE word === 'qqq'::pdb.fuzzy(1, f, f, 1) AND word = 'qqq';
+ count 
+-------
+     1
+(1 row)
+
+-- distance 0 is an exact match, unaffected by the limit
+SELECT count(*) FROM fuzzy_max_expansions WHERE word === 'qqq'::pdb.fuzzy(0, f, f, 1);
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE fuzzy_max_expansions;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

@@ -2555,6 +2555,7 @@ mod tests {
                 prefix: None,
                 conjunction_mode: None,
                 synonyms: None,
+                max_expansions: None,
             },
         }
     }
@@ -2576,6 +2577,7 @@ mod tests {
                 distance: Some(1),
                 transposition_cost_one: None,
                 prefix: None,
+                max_expansions: None,
             },
         }
     }

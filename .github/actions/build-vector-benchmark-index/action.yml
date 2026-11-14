@@ -5,6 +5,9 @@ inputs:
   config:
     description: "Load config path relative to the pdbench checkout"
     required: true
+  report_memory:
+    description: "Include peak container memory in the published metrics"
+    default: "true"
 
 runs:
   using: composite
@@ -13,6 +16,7 @@ runs:
       shell: bash
       env:
         LOAD_CONFIG: ${{ inputs.config }}
+        REPORT_MEMORY: ${{ inputs.report_memory }}
       run: |
         set -euo pipefail
         psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
@@ -24,8 +28,7 @@ runs:
                              'paradedb.vector_router_aps')
               ORDER BY name;" \
           | tee benchmark-artifacts/index-build-settings.log
-        # The index definition, its options and the Postgres settings it is built under come
-        # from pdbench's load config and dataset files.
+        # The load config owns index definitions and PostgreSQL settings.
         (
           cd pdbench
           pdbench-load finalize "$LOAD_CONFIG" \
@@ -34,7 +37,7 @@ runs:
         ) 2>&1 | tee benchmark-artifacts/index-build.log
         runs=(benchmark-artifacts/load/*/*_load)
         test "${#runs[@]}" -eq 1
-        # Writes report.html into the run directory, which is uploaded with the diagnostics.
+        # Keep the HTML report with the build diagnostics.
         pdbench-report html "${runs[0]}"
         index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
         # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
@@ -43,12 +46,17 @@ runs:
         build_seconds=$(( $(date -d "$finished" +%s) - $(date -d "$created" +%s) ))
         size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
           -c "SELECT pg_total_relation_size('${index}'::regclass)")"
-        # Container memory in use, excluding inactive page cache, sampled once a second.
-        peak_bytes="$(jq -n '[inputs | select(.type == "Point" and .metric == "container_memory") | .value] | max' \
-          "${runs[0]}/points.jsonl")"
         jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \
-          --argjson size_bytes "$size_bytes" --argjson peak_bytes "$peak_bytes" '[
+          --argjson size_bytes "$size_bytes" '[
           {name: ($index + " build time"), unit: "min", value: ($build_seconds / 60)},
-          {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)},
-          {name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
+          {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)}
         ]' > benchmark-artifacts/index-metrics.json
+        if [ "$REPORT_MEMORY" = true ]; then
+          # Container memory excluding inactive page cache, sampled once a second.
+          peak_bytes="$(jq -n '[inputs | select(.type == "Point" and .metric == "container_memory") | .value] | max' \
+            "${runs[0]}/points.jsonl")"
+          jq --arg index "$index" --argjson peak_bytes "$peak_bytes" \
+            '. + [{name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}]' \
+            benchmark-artifacts/index-metrics.json > benchmark-artifacts/index-metrics.tmp
+          mv benchmark-artifacts/index-metrics.tmp benchmark-artifacts/index-metrics.json
+        fi

@@ -1,7 +1,7 @@
 # MS MARCO vector CI
 
 The MS MARCO workflow benchmarks ParadeDB, pg_vectorsearch, and VectorChord
-using `.github/workflows/benchmark-msmarco.yml`.
+in `.github/workflows/benchmark-pg_search-benchmarker-msmarco.yml`.
 Each restores the same PostgreSQL 18 heap backup
 `20261102-224214F`: 113,520,750 rows with 1,024-dimensional vectors. Every job has
 its own `c8gd.metal-24xl` runner and a 64-CPU / 128-GiB database container; k6 runs

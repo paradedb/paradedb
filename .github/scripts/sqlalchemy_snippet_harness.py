@@ -86,6 +86,21 @@ class ArrayDemo(Base):
     categories: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
 
 
+class ShopSynonym(Base):
+    """Read-only model used by docs snippets that target `shop_synonyms`."""
+
+    __tablename__ = "shop_synonyms"
+    rule: Mapped[str] = mapped_column(Text, primary_key=True)
+
+
+class Synonym(Base):
+    """Read-only model used by docs snippets that target `synonyms`."""
+
+    __tablename__ = "synonyms"
+    set_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule: Mapped[str] = mapped_column(Text, primary_key=True)
+
+
 class MockItemGeo(Base):
     """Read-only geometric-filter fixture; location is referenced as raw SQL."""
 
@@ -112,5 +127,7 @@ __all__ = [
     "MockItemGeo",
     "MockItemPath",
     "Order",
+    "ShopSynonym",
+    "Synonym",
     "engine",
 ]

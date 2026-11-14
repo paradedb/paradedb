@@ -13,8 +13,17 @@ if (vectors.length !== 100)
 
 const session = {
   ...point.session,
-  "paradedb.vector_cluster_max_probe": point.probe,
+  [point.param || "paradedb.vector_cluster_max_probe"]: point.probe,
 };
+if (point.engine === "vectorchord") {
+  const prefilter = session["vchordrq.prefilter"];
+  if (!["on", "off"].includes(prefilter))
+    throw new Error("VectorChord requires an explicit prefilter setting");
+  const mode =
+    prefilter === "on" ? "vchordrq-prefilter" : "vchordrq-postfilter";
+  if (point.plan_mode !== mode)
+    throw new Error("VectorChord filter mode differs from its verified plan");
+}
 const settings = Object.entries(session)
   .map(([key, value]) => `-c ${key}=${value}`)
   .join(" ");
@@ -22,7 +31,7 @@ const url = `${__ENV.PARADEDB_URL}?default_query_exec_mode=exec&options=${encode
 const backends = db.backends({
   backends: [
     {
-      type: "paradedb",
+      type: point.backend || "paradedb",
       connection: url,
       container: "paradedb",
     },
@@ -43,15 +52,24 @@ const scenarios = {
     tags: { warmup: "true" },
   },
 };
+const requiredChecks =
+  point.require_full_neighbors === false
+    ? "checks{check:query succeeds}"
+    : "checks";
 export const collectMetrics = backends.addMetricsCollector(
   scenarios,
   `${warmup + duration}s`,
 );
-export const options = { scenarios, thresholds: { checks: ["rate==1"] } };
+export const options = {
+  scenarios,
+  thresholds: { [requiredChecks]: ["rate==1"] },
+};
 
 export function search() {
   const vector = vectors[exec.scenario.iterationInTest % vectors.length];
-  const result = backends.get("paradedb").query(point.sql, vector);
+  const result = backends
+    .get(point.backend || "paradedb")
+    .query(point.sql, vector);
   if (result.deadlineReached) return;
   check(result, {
     "query succeeds": (r) => !r.error,

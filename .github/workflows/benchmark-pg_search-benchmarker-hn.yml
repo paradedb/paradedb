@@ -7,12 +7,21 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      engine:
+        description: "Vector index to benchmark"
+        type: choice
+        options:
+          - pg_search
+          - pg_vectorsearch
+          - vectorchord
+          - vectorchord-prefilter
+        default: pg_search
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
         default: ""
       pdbench_ref:
         description: "pdbench ref"
-        default: "625852ddcdfb16661cf91260549a2263e125eefa"
+        default: "df22afd6d48f43653b61c24b928dcf0e929c471c"
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
@@ -29,9 +38,17 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    name: HN vector 28m (ParadeDB)
-    if: github.event_name != 'pull_request' || github.event.label.name == 'benchmark-hn-vector'
-    timeout-minutes: 720
+    name: HN vector 28m (${{ matrix.engine }}${{ matrix.engine == 'vectorchord' && format(', prefilter {0}', matrix.prefilter) || '' }})
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["benchmark-hn-vector", "benchmark-hn-pg_vectorsearch", "benchmark-hn-vectorchord", "benchmark-hn-vectorchord-prefilter"]'), github.event.label.name)
+    timeout-minutes: ${{ matrix.engine != 'pg_search' && 1440 || 720 }}
+    strategy:
+      matrix:
+        engine: >-
+          ${{ fromJSON((inputs.engine == 'pg_vectorsearch' || github.event.label.name == 'benchmark-hn-pg_vectorsearch') && '["pg_vectorsearch"]' || (startsWith(inputs.engine, 'vectorchord') || startsWith(github.event.label.name, 'benchmark-hn-vectorchord')) && '["vectorchord"]' || '["pg_search"]') }}
+        prefilter: >-
+          ${{ fromJSON((inputs.engine == 'vectorchord-prefilter' || github.event.label.name == 'benchmark-hn-vectorchord-prefilter') && '["on"]' || '["off"]') }}
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
@@ -40,10 +57,15 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '625852ddcdfb16661cf91260549a2263e125eefa' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'df22afd6d48f43653b61c24b928dcf0e929c471c' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
-      HN_CONFIG: benchmarks/hn/28m.toml
+      BENCHMARK_ENGINE: ${{ matrix.engine }}
+      PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
+      VECTORCHORD_PREFILTER: ${{ matrix.prefilter }}
+      VECTORCHORD_REF: f9b5e234c44cee69b266b8431f92b7deed4e99d3
+      RESULTS_DATASET: hackernews-vector-28m${{ matrix.engine == 'pg_vectorsearch' && '-pg-vectorsearch' || matrix.engine == 'vectorchord' && (matrix.prefilter == 'on' && '-vectorchord-prefilter' || '-vectorchord') || '' }}
+      HN_CONFIG: benchmarks/hn/${{ matrix.engine == 'pg_vectorsearch' && '28m-pgvectorsearch' || matrix.engine == 'vectorchord' && (matrix.prefilter == 'on' && '28m-vectorchord-prefilter' || '28m-vectorchord') || '28m' }}.toml
 
     steps:
       - name: Remove benchmark label
@@ -91,7 +113,8 @@ jobs:
           cp "$HN_CONFIG" benchmark-artifacts/config.toml
 
       - name: Test vector benchmark helpers
-        run: python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 
       - name: Configure RunsOn caching
         uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2
@@ -104,7 +127,7 @@ jobs:
           client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           owner: paradedb
-          repositories: pdbench
+          repositories: ${{ matrix.engine == 'pg_vectorsearch' && 'pdbench,pg_vectorsearch' || 'pdbench' }}
           permission-contents: read
 
       - name: Checkout pdbench
@@ -124,6 +147,37 @@ jobs:
           size: ${{ env.HN_SIZE }}/39152428323-1
           backup: "20261018-214625F"
           compose_file: pdbench/datasets/hn/docker-compose.yml
+
+      - name: Set up pg_vectorsearch
+        if: matrix.engine == 'pg_vectorsearch'
+        uses: ./.github/actions/setup-pg-vectorsearch
+        with:
+          ref: ${{ env.PG_VECTORSEARCH_REF }}
+          github_token: ${{ steps.pdbench_token.outputs.token }}
+
+      - name: Set up VectorChord
+        if: matrix.engine == 'vectorchord'
+        uses: ./.github/actions/setup-vectorchord
+        with:
+          ref: ${{ env.VECTORCHORD_REF }}
+
+      - name: Verify VectorChord filter mode
+        if: matrix.engine == 'vectorchord'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path(os.environ["HN_CONFIG"]).read_text())
+          assert config["search"]["session"]["vchordrq.prefilter"] == os.environ["VECTORCHORD_PREFILTER"]
+          PY
+          PGOPTIONS="-c vchordrq.prefilter=$VECTORCHORD_PREFILTER" \
+            psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+              -c "SELECT json_build_object('vchordrq.prefilter', current_setting('vchordrq.prefilter'))" \
+            > benchmark-artifacts/vectorchord-filter-settings.json
+          jq -e --arg expected "$VECTORCHORD_PREFILTER" \
+            '."vchordrq.prefilter" == $expected' benchmark-artifacts/vectorchord-filter-settings.json
 
       - name: Install pdbench toolchain
         run: rustup toolchain install 1.97.1 --profile minimal
@@ -169,6 +223,7 @@ jobs:
             -f benchmark-artifacts/fixtures/import_ground_truth.sql
 
       - name: Refresh pg_search and build index
+        if: matrix.engine == 'pg_search'
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 --single-transaction \
@@ -210,7 +265,33 @@ jobs:
             {name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}
           ]' > benchmark-artifacts/index-metrics.json
 
+      - name: Build comparison index
+        if: matrix.engine != 'pg_search'
+        run: |
+          set -euo pipefail
+          if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
+            psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+              -c 'CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;'
+          fi
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+            -c 'ALTER TABLE hn_items SET (parallel_workers = 8);'
+          pdbench build --url "$PARADEDB_URL" --config "$HN_CONFIG" \
+            --assets-dir benchmarks/hn/assets --runs-dir benchmark-artifacts/search \
+            --set dataset.s3_base_path=benchmark-artifacts/fixtures \
+            --force-rebuild \
+            2>&1 | tee benchmark-artifacts/index-build.log
+          profile="$(basename "$HN_CONFIG" .toml)"
+          jq '.data | [
+            {name: (.index.name + " build time"), unit: "min", value: (.build_seconds / 60)},
+            {name: (.index.name + " index size"), unit: "MiB", value: (.index.size_bytes / 1048576)},
+            {name: (.index.name + " parallel workers"), unit: "workers", value: .metrics.workers.max_parallel_workers}
+          ]' benchmark-artifacts/search/"$profile"/*_build.json > benchmark-artifacts/index-metrics.json
+          psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 -c '\timing on' \
+            -c 'VACUUM (ANALYZE) hn_items;' \
+            | tee benchmark-artifacts/index-vacuum.log
+
       - name: Verify eight-segment index
+        if: matrix.engine == 'pg_search'
         run: |
           set -euo pipefail
           psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
@@ -224,7 +305,36 @@ jobs:
           jq -e 'index("target_segment_count=8") != null
             and index("vector_router_quantization=true") != null' benchmark-artifacts/index-options.json
 
-      - name: Sweep max_probe with pdbench
+      - name: Verify PRISM index and parallel build
+        if: matrix.engine == 'pg_vectorsearch'
+        run: |
+          set -euo pipefail
+          profile="$(basename "$HN_CONFIG" .toml)"
+          jq -e '.data.index.access_method == "prism" and .data.metrics.workers.max_parallel_workers > 0' \
+            benchmark-artifacts/search/"$profile"/*_build.json
+          psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT json_agg(s) FROM prism_index_settings('hn_items_prism_idx') AS s" \
+            > benchmark-artifacts/prism-settings.json
+
+      - name: Verify VectorChord index and parallel build
+        if: matrix.engine == 'vectorchord'
+        run: |
+          set -euo pipefail
+          profile="$(basename "$HN_CONFIG" .toml)"
+          jq -e '.data.index.access_method == "vchordrq" and .data.metrics.workers.max_parallel_workers > 0' \
+            benchmark-artifacts/search/"$profile"/*_build.json
+
+      - name: Restore recall starting values
+        if: matrix.engine != 'pg_search'
+        id: recall-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: benchmark-artifacts/search/**/sweep_cache*.json
+          key: pdbench-hints-v1-hn-28m-${{ matrix.engine }}-${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || env.PG_VECTORSEARCH_REF }}-${{ hashFiles(env.HN_CONFIG, 'benchmarks/hn/assets/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            pdbench-hints-v1-hn-28m-${{ matrix.engine }}-${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || env.PG_VECTORSEARCH_REF }}-${{ hashFiles(env.HN_CONFIG, 'benchmarks/hn/assets/**') }}-
+
+      - name: Sweep recall with pdbench
         run: |
           set -euo pipefail
           for sql in benchmarks/hn/assets/hn/queries/*.sql; do
@@ -234,6 +344,13 @@ jobs:
               --set dataset.s3_base_path=benchmark-artifacts/fixtures \
               --query "$query" --no-compare --html
           done
+
+      - name: Save recall starting values
+        if: always() && matrix.engine != 'pg_search' && steps.recall-cache.outcome == 'success' && hashFiles('benchmark-artifacts/search/**/sweep_cache*.json') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: benchmark-artifacts/search/**/sweep_cache*.json
+          key: ${{ steps.recall-cache.outputs.cache-primary-key }}
 
       - name: Prepare k6 operating points
         env:
@@ -255,22 +372,24 @@ jobs:
             git -C benchmarker rev-parse HEAD
           } > benchmark-artifacts/tool-commits.txt
           {
-            cat <<CONTEXT
-          HN vector 28m: six top-10 workloads at R90/R95/R99. Time ranges: range_10pct, range_1pct, range_0.1pct. Exact authors: single_term_0.1pct, single_term_0.01pct, single_term_0.001pct. Selectivity is relative to rows with embeddings.
-
-          pg_search: \`$BENCHMARK_REF\`; tantivy: \`$TANTIVY_SHA\`; pdbench: \`$PDBENCH_REF\`; Benchmarker: \`$BENCHMARKER_REF\`.
-
-          Uses heap backup \`20261018-214625F\`, eight index segments, a 0.32 training sample ratio, and quantized vector routing.
-
-          The heap has 28,736,557 rows and 24,138,153 non-null 1,536-dimensional embeddings. Uses query IDs 0–99 from the 1,000 published held-out queries. Fixture checksums, holdout exclusion, and scalar predicate pushdown are verified. Published boundary-tie diagnostics are retained; strict ID recall may leave targets unreached on tied vectors.
-
-          Integer probe-work budgets are selected independently for each workload at R90/R95/R99, with adaptive probing and rerank factor 2. The sweep starts at 100 and searches from 1 to 100,000.
-
-          Builds use eight parallel maintenance workers and queries up to eight workers, from 16 parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
-
-          CONTEXT
+            printf '%s\n\n' "HN vector 28m: six filtered top-10 workloads using the same exact-author and timestamp predicates and published ground truth. Strict ID recall may leave targets unreached on tied vectors."
+            printf "Engine: \`%s\`; pg_search source: \`%s\`; pdbench: \`%s\`; Benchmarker: \`%s\`.\n\n" "$BENCHMARK_ENGINE" "$BENCHMARK_REF" "$PDBENCH_REF" "$BENCHMARKER_REF"
+            if [[ "$BENCHMARK_ENGINE" == pg_vectorsearch ]]; then
+              printf "PRISM revision: \`%s\`. Automatic nlist, default replication, integer nprobe sweep 1..4096.\n\n" "$PG_VECTORSEARCH_REF"
+              printf 'HN uses one global PRISM index with PostgreSQL post-filtering and no scalar filter indexes. Sequential scans, bitmap scans, and sorts are disabled; executed plans must use PRISM. k6 series are marked prism-postfilter. work_mem is 1 GiB.\n\n'
+            elif [[ "$BENCHMARK_ENGINE" == vectorchord ]]; then
+              printf 'VectorChord revision: %s. One global cosine vchordrq index, 80,000 lists, residual quantization, spherical centroids, and integer probes 1..80000.\n\n' "$VECTORCHORD_REF"
+              printf 'Partitioning uses eight threads, hierarchical k-means in 100 dimensions, and sampling_factor=64. epsilon=1.9; max_scan_tuples=-1. vchordrq.prefilter=%s throughout the sweep and k6 for all six predicates. Executed plans must use vchordrq; result names identify prefilter or postfilter mode.\n\n' "$VECTORCHORD_PREFILTER"
+            else
+              printf "Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: \`%s\`.\n\n" "$TANTIVY_SHA"
+            fi
+            printf 'Uses the existing heap snapshot and 100 held-out vectors. All engines use the shared pg_search Docker service: 64 CPUs on cores 0-63, 128 GiB RAM, 64 GiB shared memory, 32 GiB shared buffers, 1 GiB work_mem, eight build/query workers, 16 parallel workers and a 32-process pool. k6 runs on cores 64-67. Scheduled/manual main runs without a commit override update a separate baseline per engine.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
+          if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then
+            echo '::error::No operating point passed full 100-vector validation. See operating_points.md for recall and budget outcomes.'
+            exit 1
+          fi
 
       - name: Verify k6 vector query plans
         run: |
@@ -279,17 +398,17 @@ jobs:
       - name: Measure selected operating points with k6
         uses: ./.github/actions/benchmark-vector-k6
         with:
-          dataset: hackernews-vector-${{ env.HN_SIZE }}
+          dataset: ${{ env.RESULTS_DATASET }}
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"pg_search","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","vectorchord_prefilter":"${{ matrix.engine == 'vectorchord' && matrix.prefilter || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
 
       - name: Stage Benchmarker results
         uses: ./.github/actions/stage-benchmark-results
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"hackernews-vector-${{ env.HN_SIZE }}",
+            {"dataset":"${{ env.RESULTS_DATASET }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && inputs.commit == '' }}",
              "context_file":"benchmark-artifacts/result-context.md",
@@ -306,7 +425,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: hackernews-vector-${{ env.HN_SIZE }}-diagnostics
+          name: ${{ env.RESULTS_DATASET }}-diagnostics
           path: |
             benchmark-artifacts/
             benchmarker/results/

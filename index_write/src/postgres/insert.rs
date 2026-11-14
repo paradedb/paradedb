@@ -448,6 +448,16 @@ pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
             .expect("index should belong to a heap relation");
         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
 
+        // `index_insert` checked for conflicting reads before these rows were searchable, so
+        // check again now that they all are (#7258).
+        for rel in [heaprel.as_ptr(), state.indexrel.as_ptr()] {
+            pg_sys::CheckForSerializableConflictIn(
+                rel,
+                std::ptr::null_mut(),
+                pg_sys::InvalidBlockNumber,
+            );
+        }
+
         if created_segment {
             do_merge(
                 &state.indexrel,

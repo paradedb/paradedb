@@ -46,6 +46,9 @@ pub enum GroupingPushdownDeclineReason {
     MissingPathKeys,
     NondeterministicCollation,
     NondeterministicAggregateKey,
+    // TODO(https://github.com/paradedb/paradedb/issues/7187): restore `GROUP BY unnest(...)`
+    // pushdown once fast fields preserve inner array NULLs and empty arrays.
+    UnnestNullElements,
 }
 
 impl GroupingPushdownDeclineReason {
@@ -56,6 +59,9 @@ impl GroupingPushdownDeclineReason {
             Self::NondeterministicCollation => "GROUP BY uses a nondeterministic collation",
             Self::NondeterministicAggregateKey => {
                 "an aggregate has a DISTINCT or ORDER BY key with a nondeterministic collation"
+            }
+            Self::UnnestNullElements => {
+                "GROUP BY unnest() needs the NULL elements of the array, which the index does not store"
             }
         }
     }

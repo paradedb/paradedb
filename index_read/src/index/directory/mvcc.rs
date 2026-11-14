@@ -1142,6 +1142,9 @@ pub fn index_memory_segment(
         }
     }
 
+    // This must precede the replacement segment's metadata WAL record.
+    unsafe { fetcher.log_snapshot_conflict(indexrel) };
+
     writer.finalize_nocommit()?.expect(
         "Segment should be non-empty because we created a `SegmentMeta` for it in the first place.",
     );

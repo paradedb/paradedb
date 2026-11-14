@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794643692698,
+  "lastUpdate": 1794643716987,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -183309,6 +183309,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14019591579-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643714402,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 155.08334303074474,
+            "unit": "median tps",
+            "extra": "avg tps: 152.9801520741215, max tps: 161.67570530864765, count: 59064"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 542.451591991974,
+            "unit": "median tps",
+            "extra": "avg tps: 558.1610819778416, max tps: 4983.900549603262, count: 59064"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3044.55627581832,
+            "unit": "median tps",
+            "extra": "avg tps: 3041.505029858817, max tps: 3459.927765358079, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 191.10236627274884,
+            "unit": "median tps",
+            "extra": "avg tps: 189.00151308930367, max tps: 208.8720295277375, count: 59064"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 264.1954391254618,
+            "unit": "median tps",
+            "extra": "avg tps: 371.3397660503227, max tps: 2825.5033891610424, count: 118128"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.26609548581693,
+            "unit": "median tps",
+            "extra": "avg tps: 29.665576823326585, max tps: 46.70602271827651, count: 59064"
+          }
+        ],
+        "publication_id": "14105246760-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -233194,6 +233253,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14019591579-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f75ab7f49c9ce950c1e94c2440244ae50e59731d",
+          "message": "feat: estimate the rows of a match from its `pdb.expand` subquery (#7421)\n\n# Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR gives the planner a row estimate for a match whose `pdb.expand`\nsubquery runs as written.\n\n## Why\n\nSuch a subquery has no value at plan time, so the scan got the estimate\nof an unknown value. A filtered subquery on a table of 1,000 rows\nplanned 1 row, and the query returns 300. With this PR it plans 271.\n\n## How\n\n- The planner runs the subquery once at plan time and estimates the\nmatch with the rules it returns.\n- The plan keeps the subquery, so a cached plan still reads the rules of\neach run.\n- The run is skipped for a generic plan, a volatile subquery, a subquery\nin a view, and a rules table of more than 16 blocks. Those keep the\nestimate of an unknown value.\n\n## Tests\n\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-14T06:41:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f75ab7f49c9ce950c1e94c2440244ae50e59731d"
+        },
+        "date": 1794643716889,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.492419,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.81408971927007, max cpu: 36.97641, count: 59064"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 49.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.000494960974535, max mem: 49.015625, count: 59064"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.327068686484655, max cpu: 27.586206, count: 59064"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.18909810756129, max mem: 31.22265625, count: 59064"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.671575538952848, max cpu: 13.668723, count: 59064"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.8128188411088, max mem: 49.8671875, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2553,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2545.1397467154275, max block_count: 2553.0, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.4336285465929355, max cpu: 4.685212, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.621760267464108, max mem: 28.6484375, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.630891913856157, max segment_count: 36.0, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.217475,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.669462050647171, max cpu: 33.51621, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 59.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.20551885454761, max mem: 59.20703125, count: 59064"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.410800773344277, max cpu: 27.759037, count: 118128"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.20034845014518, max mem: 56.875, count: 118128"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.113197704723945, max cpu: 22.673594, count: 59064"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 45.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.319080917521674, max mem: 45.37109375, count: 59064"
+          }
+        ],
+        "publication_id": "14105246760-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

@@ -23,7 +23,7 @@ use tantivy::vector::{
     AtomicVectorWork, Candidate, ClusterRef, LocatedPath, ProbeParams, SharedVectorWork,
     VectorRoutingStats, VectorSearchBudget,
 };
-use tantivy::{Score, SegmentReader};
+use tantivy::{Result as TantivyResult, Score, SegmentReader};
 
 use crate::api::HashMap;
 use crate::gucs;
@@ -228,7 +228,7 @@ impl tantivy::query::Weight for VectorFilterWeight {
         reader: &SegmentReader,
         boost: Score,
         candidate_size: u32,
-    ) -> tantivy::Result<Box<dyn Scorer>> {
+    ) -> TantivyResult<Box<dyn Scorer>> {
         if self.visible_docs.contains_key(&reader.segment_id()) {
             self.scorer(reader, boost)
         } else {

@@ -55,7 +55,17 @@ pub fn all_pg_search_udafs() -> Vec<Arc<AggregateUDF>> {
 
 /// All stateless pg_search scalar UDFs registered into SessionState.
 pub fn all_pg_search_udfs() -> Vec<Arc<ScalarUDF>> {
-    vec![timestamp_to_date::timestamp_to_date_udf()]
+    vec![
+        timestamp_to_date::timestamp_to_date_udf(),
+        float_div::float_div_udf(),
+    ]
+}
+
+/// Resolve a stateless pg_search scalar UDF by name, for the plan codecs.
+pub fn udf_by_name(name: &str) -> Option<Arc<ScalarUDF>> {
+    all_pg_search_udfs()
+        .into_iter()
+        .find(|udf| udf.name() == name)
 }
 
 /// Resolve a pg_search aggregate UDAF by name, for the plan codecs.

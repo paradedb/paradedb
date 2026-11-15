@@ -31,7 +31,7 @@ impl WorkerPathPolicy {
     pub(super) fn for_vector_topk(
         query: &SearchQueryInput,
         vectors: f64,
-        selectivity: f64,
+        matches: f64,
         field: &FieldName,
         options: &BM25IndexOptions,
         workers: usize,
@@ -46,16 +46,13 @@ impl WorkerPathPolicy {
         let Some(nworkers) = NonZeroUsize::new(workers) else {
             return Self::SerialOnly { reason };
         };
-        if !query.is_text_only() && vectors * selectivity < MIN_BATCHED_FILTER_MATCHES as f64 {
+        if !query.is_text_only() && matches < MIN_BATCHED_FILTER_MATCHES as f64 {
             return Self::ParallelOnly { nworkers, reason };
         }
         let Some(SearchFieldType::Vector(_, dimensions, _)) = options.get_field_type(field) else {
             return Self::SerialOnly { reason };
         };
-        let stats = VectorSearchStats {
-            vectors,
-            matches: vectors * selectivity,
-        };
+        let stats = VectorSearchStats { vectors, matches };
         let layers = options.field_config_or_default(field).quantization_layers();
         let full_row_bytes = (dimensions * size_of::<f32>()) as f64;
         let row_bytes = layers.as_ref().map_or(full_row_bytes, |layers| {

@@ -1137,6 +1137,19 @@ impl CustomScan for BaseScan {
             let mut precomputed_segment_count: Option<usize> = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
+            let vector_reader = if is_vector_topk && !query.is_text_only() {
+                estimation_query.resolve(&query).ok().and_then(|indexable| {
+                    SearchIndexReader::open(
+                        source_context.indexrel().unwrap(),
+                        indexable.clone(),
+                        false,
+                        MvccSatisfies::Snapshot,
+                    )
+                    .ok()
+                })
+            } else {
+                None
+            };
 
             let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
@@ -1144,13 +1157,10 @@ impl CustomScan for BaseScan {
             } else {
                 match estimation_query.resolve(&query) {
                     Ok(indexable) => {
-                        // Ask the index. This is the one branch that opens, so reuse that same
-                        // open's cost and segment count for the worker decision instead of opening
-                        // twice.
                         let estimated = estimate_selectivity_and_cost(
                             source_context.indexrel().unwrap(),
                             indexable.clone(),
-                            None,
+                            vector_reader.as_ref(),
                         );
                         precomputed_query_cost = estimated.query_cost;
                         precomputed_segment_count = estimated.segment_count;
@@ -1274,7 +1284,10 @@ impl CustomScan for BaseScan {
                     WorkerPathPolicy::for_vector_topk(
                         estimation_query.resolve(&query).unwrap_or(&query),
                         (*rel).tuples.max(1.0),
-                        selectivity,
+                        vector_reader.as_ref().map_or(
+                            (*rel).tuples.max(1.0) * selectivity,
+                            SearchIndexReader::estimate_vector_matches,
+                        ),
                         field,
                         source_context.indexrel().unwrap().options(),
                         available_workers(segment_count),

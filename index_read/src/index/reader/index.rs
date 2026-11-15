@@ -5085,7 +5085,13 @@ mod tests {
         .map(|(predicate, workers, parallel)| (predicate, workers, 200, parallel))
         .chain([
             ("AND id > 1", 2, MIN_BATCHED_FILTER_MATCHES / 2, true),
-            ("AND id > 1", 2, 2 * MIN_BATCHED_FILTER_MATCHES, false),
+            ("AND id > 1", 2, 2 * MIN_BATCHED_FILTER_MATCHES, true),
+            (
+                "AND id BETWEEN 100 AND 101",
+                2,
+                20 * MIN_BATCHED_FILTER_MATCHES,
+                true,
+            ),
         ]) {
             Spi::run(&format!(
                 "SET max_parallel_workers_per_gather = {workers};

@@ -709,6 +709,7 @@ impl LazySortStreamState {
         let queries = MetricBuilder::new(&plan_metrics).counter("queries", target_partition);
         let filter_metrics = FilterStepMetrics::init(
             &mut reader,
+            schema.as_ref(),
             &mut dynamic_filters,
             InListLinearFallback::PushToIndex,
         );

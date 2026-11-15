@@ -82,9 +82,10 @@
 //! - Startup & execution ([`glue`], [`worker`]): workers wait for the leader's `GO_RUN` flag,
 //!   read their leader-assigned wakeup slot from the DSM mesh, and run `serve_with_incoming_shutdown`. The leader
 //!   executes
-//!   `DistributedExec`; `QueryCoordinator` dispatches stage plans over `coordinator_channel`, leader
+//!   `DistributedExec`; `QueryCoordinator` dispatches stage plans and routes cross-stage
+//!   `ProducedDynamicFilter` / `ApplyDynamicFilter` updates over `coordinator_channel`, leader
 //!   and workers stream batches over `execute_task`, and `c2w_stream` EOF triggers
-//!   `Worker::coordinator_channel` to send `TaskMetrics` and `TaskCompletedDynamicFilters` back to
+//!   `Worker::coordinator_channel` to send `TaskMetrics` back to
 //!   the leader's `DistributedExec::metrics_store`.
 //! - Teardown ([`glue::finish_leader_execution`]): on `EXPLAIN ANALYZE`, the leader awaits
 //!   `DistributedExec::wait_for_metrics()`; then it detaches its client DSM streams, sets the DSM

@@ -1119,6 +1119,11 @@ impl ExecutionPlan for RankJoinExec {
                 return Ok(TreeNodeRecursion::Stop);
             }
         }
+        // Note: `left_lookup_filter` and `right_lookup_filter` are intentionally NOT returned from
+        // `dynamic_expressions_produced()`. They carry intra-stage `RankLookupPhysicalExpr` RPCs
+        // (never crossing a `NetworkBoundary` and not protobuf-serializable), and
+        // `datafusion-distributed` rejects 2-child dynamic-filter producers other than
+        // `HashJoinExec`.
         if f(&self.left_lookup_filter)? == TreeNodeRecursion::Stop {
             return Ok(TreeNodeRecursion::Stop);
         }

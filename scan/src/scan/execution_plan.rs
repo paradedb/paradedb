@@ -2087,6 +2087,7 @@ pub(super) struct FilterStepMetrics {
 impl FilterStepMetrics {
     pub(super) fn init(
         reader: &mut SearchIndexReader,
+        arrow_schema: &arrow_schema::Schema,
         dynamic_filters: &mut Vec<Arc<dyn PhysicalExpr>>,
         linear_fallback: InListLinearFallback,
     ) -> Self {
@@ -2098,6 +2099,7 @@ impl FilterStepMetrics {
         let pushed = if !dynamic_filters.is_empty() {
             try_dynamic_filter_pushdown(
                 reader,
+                arrow_schema,
                 dynamic_filters,
                 Some(strategy_sink.clone()),
                 linear_fallback,
@@ -2238,6 +2240,7 @@ fn build_standard_stream(ctx: ScanStreamContext) -> impl Stream<Item = Result<Re
                 let ss = scan_state.get_mut(token);
                 let filter_metrics = FilterStepMetrics::init(
                     &mut ss.reader,
+                    schema.as_ref(),
                     &mut dynamic_filters,
                     InListLinearFallback::KeepAsPreFilter,
                 );

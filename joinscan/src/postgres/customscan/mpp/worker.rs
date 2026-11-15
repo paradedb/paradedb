@@ -24,15 +24,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+use datafusion::common::{DataFusionError, HashSet, Result};
+use datafusion::execution::config::SessionConfig;
 use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::execution::{SessionState, SessionStateBuilder};
+use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
 use datafusion_distributed::{
-    ChannelResolver, DistributedConfig, DistributedExt, SessionStateBuilderExt, Worker,
-    WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse, WorkerQueryContext,
-    WorkerResolver,
+    ChannelResolver, DistributedConfig, DistributedExt, DistributedTaskContext, NetworkBoundaryExt,
+    SessionStateBuilderExt, Worker, WorkerChannel, WorkerPlanRewriteEvent,
+    WorkerPlanRewriteEventResponse, WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
 use parking_lot::Mutex;
@@ -308,16 +313,99 @@ pub(crate) fn build_mpp_session_context(
         .expect("with_distributed_worker_connection_buffer_budget_bytes")
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // Disable the use of distributed dynamic filters until we fix
-        // https://github.com/paradedb/datafusion-distributed/issues/107
-        .with_distributed_remote_dynamic_filters(false)
-        .expect("with_distributed_remote_dynamic_filters")
+        // `PgSearchScanPlan::fmt_as` renders `dynamic_filters=N` and `EXPLAIN ANALYZE` reports
+        // pushdown via `dynamic_filter_pushdown_*` task metrics rather than rewriting filter
+        // expressions via `rewrite_distributed_plan_with_dynamic_filters`. Keeping filter
+        // collection disabled avoids leader-side `roundtrip_pb` opening Tantivy index readers on
+        // filtered leaf variants during `DistributedExec::execute`.
         .with_distributed_dynamic_filter_collection(false)
         .expect("with_distributed_dynamic_filter_collection")
         .with_distributed_metrics_collection(metrics.is_enabled())
         .expect("with_distributed_metrics_collection")
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
+}
+
+/// Scales DataFusion's per-partition `hash_join_inlist_pushdown_max_*` settings down by the
+/// global partition count (`local_join_partitions * task_count`) whenever a worker stage contains
+/// a `HashJoinExec(PartitionMode::Partitioned)` whose dynamic filter is exported across a
+/// `NetworkBoundary`.
+///
+/// ParadeDB's `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`20,000`) and
+/// `paradedb.hash_join_inlist_pushdown_max_size` (`16 MiB`) bound the total `TermSetQuery` /
+/// `InListExpr` size consumed by a `PgSearchScan` (`scan::pre_filter::try_convert_in_list_to_query`).
+/// Upstream DataFusion, however, evaluates those thresholds *per join partition*: on an 8-worker x
+/// 8-partition (`64` global partitions) shuffled hash join, unscaled settings allow up to
+/// `64 x 20,000 = 1,280,000` literals to be serialized to the coordinator and merged into a
+/// multi-megabyte filter that exceeds `PgSearchScan`'s global `20,000` cap anyway.
+///
+/// `CollectLeft` broadcast joins (which share a single replicated hash table under
+/// `ForwardFirstComplete`) and intra-stage `range_partitioned` joins (whose dynamic filter stays
+/// local to its co-partitioned `PgSearchScan` and is not anchored on a `NetworkBoundary`) keep the
+/// unscaled thresholds.
+fn scale_inlist_thresholds_for_cross_stage_joins(
+    plan: &Arc<dyn ExecutionPlan>,
+    session_config: &SessionConfig,
+) -> Result<Option<SessionConfig>> {
+    let mut remote_anchor_ids = HashSet::new();
+    let mut partitioned_join_producers: Vec<(u64, usize)> = Vec::new();
+
+    plan.apply(|node| {
+        if node.is_network_boundary() {
+            node.apply_expressions(&mut |root| {
+                root.apply(|expr| {
+                    if expr.is::<DynamicFilterPhysicalExpr>()
+                        && let Some(id) = expr.expression_id()
+                    {
+                        remote_anchor_ids.insert(id);
+                    }
+                    Ok(TreeNodeRecursion::Continue)
+                })
+            })?;
+        } else if let Some(join) = node.downcast_ref::<HashJoinExec>()
+            && matches!(join.partition_mode(), PartitionMode::Partitioned)
+        {
+            let local_partitions = join.left().properties().partitioning.partition_count();
+            for expr in node.dynamic_expressions_produced() {
+                if expr.is::<DynamicFilterPhysicalExpr>()
+                    && let Some(id) = expr.expression_id()
+                {
+                    partitioned_join_producers.push((id, local_partitions));
+                }
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+
+    let max_local_partitions = partitioned_join_producers
+        .into_iter()
+        .filter(|(id, _)| remote_anchor_ids.contains(id))
+        .map(|(_, partitions)| partitions.max(1))
+        .max();
+    let Some(local_partitions) = max_local_partitions else {
+        return Ok(None);
+    };
+
+    let task_count = session_config
+        .get_extension::<DistributedTaskContext>()
+        .map_or(1, |ctx| ctx.task_count)
+        .max(1);
+    let global_partitions = local_partitions.saturating_mul(task_count);
+    if global_partitions <= 1 {
+        return Ok(None);
+    }
+
+    let mut cfg = session_config.clone();
+    let opt = &mut cfg.options_mut().optimizer;
+    // `div_ceil` preserves `0 -> 0` (the disable kill-switch) while ensuring small positive test
+    // overrides such as `1` do not round down to `0`.
+    opt.hash_join_inlist_pushdown_max_distinct_values = opt
+        .hash_join_inlist_pushdown_max_distinct_values
+        .div_ceil(global_partitions);
+    opt.hash_join_inlist_pushdown_max_size = opt
+        .hash_join_inlist_pushdown_max_size
+        .div_ceil(global_partitions);
+    Ok(Some(cfg))
 }
 
 #[derive(Clone, Copy)]
@@ -481,7 +569,15 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
                 .with_distributed_worker_plan_rewrite_handler(
                     move |ev: WorkerPlanRewriteEvent<'_>| {
                         stage_pool.resize_for_plan(&ev.plan, work_mem_bytes, hash_mem_multiplier);
-                        Ok(WorkerPlanRewriteEventResponse::new(ev.plan))
+                        let updated_cfg = scale_inlist_thresholds_for_cross_stage_joins(
+                            &ev.plan,
+                            ev.session_config,
+                        )?;
+                        let mut resp = WorkerPlanRewriteEventResponse::new(ev.plan);
+                        if let Some(cfg) = updated_cfg {
+                            resp = resp.with_session_config(cfg);
+                        }
+                        Ok(resp)
                     },
                 )
                 .build())
@@ -519,6 +615,303 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
         Ok(Ok(())) => {}
         Ok(Err(e)) => pgrx::error!("mpp worker (proc={this_proc}): gRPC server error: {e}"),
         Err(e) => pgrx::error!("mpp worker (proc={this_proc}): gRPC server task failed: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use arrow_schema::{DataType, Field, Schema};
+    use async_trait::async_trait;
+    use datafusion::common::NullEquality;
+    use datafusion::logical_expr::JoinType;
+    use datafusion::physical_expr::Partitioning;
+    use datafusion::physical_expr::expressions::Column;
+    use datafusion::physical_optimizer::PhysicalOptimizerRule;
+    use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
+    use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+    use datafusion::physical_plan::collect;
+    use datafusion::physical_plan::empty::EmptyExec;
+    use datafusion::physical_plan::execution_plan::{
+        ChildrenPropertiesMode, ReplaceChildrenOptions,
+    };
+    use datafusion::physical_plan::filter::FilterExec;
+    use datafusion::physical_plan::repartition::RepartitionExec;
+    use datafusion_distributed::{
+        TaskFinishedEvent, TaskFinishedEventResponse, create_distributed_plan, grpc,
+    };
+    use hyper_util::rt::TokioIo;
+    use parking_lot::Mutex;
+    use tonic::transport::{Endpoint, Server};
+
+    #[derive(Clone)]
+    struct DuplexChannelResolver {
+        channel: grpc::BoxCloneSyncChannel,
+    }
+
+    #[async_trait]
+    impl ChannelResolver for DuplexChannelResolver {
+        async fn get_worker_client_for_url(
+            &self,
+            _: &url::Url,
+        ) -> Result<Box<dyn datafusion_distributed::WorkerChannel>> {
+            Ok(grpc::create_worker_client(self.channel.clone()))
+        }
+    }
+
+    #[test]
+    fn scale_inlist_thresholds_matrix() -> Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("k", DataType::Int64, false)]));
+        let col_k: Arc<dyn datafusion::physical_expr::PhysicalExpr> = Arc::new(Column::new("k", 0));
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+
+        let (captured_join_stage_plan, observed_join_stage_distinct_limit) =
+            rt.block_on(async {
+                let (client_io, server_io) = tokio::io::duplex(1024 * 1024);
+                let mut client_io = Some(client_io);
+                let channel = Endpoint::try_from("http://localhost:50051")
+                    .expect("dummy endpoint")
+                    .connect_with_connector_lazy(tower::service_fn(move |_| {
+                        let io = client_io.take().expect("duplex client taken once");
+                        async move { Ok::<_, std::io::Error>(TokioIo::new(io)) }
+                    }));
+                let resolver = DuplexChannelResolver {
+                    channel: grpc::BoxCloneSyncChannel::new(channel),
+                };
+                let worker_resolver_clone = resolver.clone();
+
+                let captured_join_stage: Arc<Mutex<Option<Arc<dyn ExecutionPlan>>>> =
+                    Arc::new(Mutex::new(None));
+                let captured_for_rewrite = Arc::clone(&captured_join_stage);
+                let observed_distinct: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+                let observed_for_finished = Arc::clone(&observed_distinct);
+
+                let mut worker_base_cfg = SessionConfig::new();
+                worker_base_cfg
+                    .options_mut()
+                    .optimizer
+                    .hash_join_inlist_pushdown_max_distinct_values = 20_000;
+                worker_base_cfg
+                    .options_mut()
+                    .optimizer
+                    .hash_join_inlist_pushdown_max_size = 16 * 1024 * 1024;
+                let worker_base_state = SessionStateBuilder::new()
+                    .with_default_features()
+                    .with_config(worker_base_cfg)
+                    .build();
+
+                let worker = Worker::from_session_builder(move |ctx: WorkerQueryContext| {
+                    let peer_resolver = worker_resolver_clone.clone();
+                    let captured_for_rewrite = Arc::clone(&captured_for_rewrite);
+                    let observed_for_finished = Arc::clone(&observed_for_finished);
+                    async move {
+                        Ok(ctx
+                            .builder
+                            .with_distributed_channel_resolver(peer_resolver)
+                            .with_distributed_worker_plan_rewrite_handler(
+                                move |ev: WorkerPlanRewriteEvent<'_>| {
+                                    let mut has_join = false;
+                                    ev.plan.apply(|node| {
+                                        if node.downcast_ref::<HashJoinExec>().is_some() {
+                                            has_join = true;
+                                            return Ok(TreeNodeRecursion::Stop);
+                                        }
+                                        Ok(TreeNodeRecursion::Continue)
+                                    })?;
+                                    if has_join {
+                                        let mut guard = captured_for_rewrite.lock();
+                                        if guard.is_none() {
+                                            *guard = Some(Arc::clone(&ev.plan));
+                                        }
+                                    }
+                                    let updated_cfg =
+                                        scale_inlist_thresholds_for_cross_stage_joins(
+                                            &ev.plan,
+                                            ev.session_config,
+                                        )?;
+                                    let mut resp = WorkerPlanRewriteEventResponse::new(ev.plan);
+                                    if let Some(cfg) = updated_cfg {
+                                        resp = resp.with_session_config(cfg);
+                                    }
+                                    Ok(resp)
+                                },
+                            )
+                            .with_distributed_task_finished_handler(
+                                move |ev: TaskFinishedEvent<'_>| {
+                                    let mut has_join = false;
+                                    let _ = ev.plan.apply(|node| {
+                                        if node.downcast_ref::<HashJoinExec>().is_some() {
+                                            has_join = true;
+                                            return Ok(TreeNodeRecursion::Stop);
+                                        }
+                                        Ok(TreeNodeRecursion::Continue)
+                                    });
+                                    if has_join {
+                                        observed_for_finished.lock().push(
+                                            ev.session_config
+                                                .options()
+                                                .optimizer
+                                                .hash_join_inlist_pushdown_max_distinct_values,
+                                        );
+                                    }
+                                    Ok(TaskFinishedEventResponse::new(
+                                        datafusion::physical_plan::metrics::MetricsSet::new(),
+                                    ))
+                                },
+                            )
+                            .build())
+                    }
+                })
+                .with_base_session_state(worker_base_state);
+
+                tokio::spawn(async move {
+                    let _ = Server::builder()
+                        .add_service(worker.into_worker_server())
+                        .serve_with_incoming(tokio_stream::once(Ok::<_, std::io::Error>(server_io)))
+                        .await;
+                });
+
+                let mut cfg = SessionConfig::new().with_target_partitions(8);
+                cfg.options_mut()
+                    .optimizer
+                    .hash_join_inlist_pushdown_max_distinct_values = 20_000;
+                cfg.options_mut()
+                    .optimizer
+                    .hash_join_inlist_pushdown_max_size = 16 * 1024 * 1024;
+                let state = SessionStateBuilder::new()
+                    .with_default_features()
+                    .with_config(cfg)
+                    .with_distributed_option_extension(DistributedConfig::default())
+                    .with_distributed_worker_resolver(MppWorkerResolver::new(8))
+                    .with_distributed_channel_resolver(resolver)
+                    .with_distributed_desired_task_count_handler(8usize)
+                    .with_distributed_remote_dynamic_filters(true)?
+                    .with_distributed_planner()
+                    .build();
+                let ctx = SessionContext::new_with_state(state);
+
+                let build_repart: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+                    Arc::new(EmptyExec::new(Arc::clone(&schema))),
+                    Partitioning::Hash(vec![Arc::clone(&col_k)], 8),
+                )?);
+                let empty_probe: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+                    Arc::new(EmptyExec::new(Arc::clone(&schema))),
+                    Partitioning::Hash(vec![Arc::clone(&col_k)], 8),
+                )?);
+                let base_join: Arc<dyn ExecutionPlan> = Arc::new(HashJoinExec::try_new(
+                    Arc::clone(&build_repart),
+                    empty_probe,
+                    vec![(Arc::clone(&col_k), Arc::clone(&col_k))],
+                    None,
+                    &JoinType::Inner,
+                    None,
+                    PartitionMode::Partitioned,
+                    NullEquality::NullEqualsNothing,
+                    false,
+                )?);
+                // Run post-optimization `FilterPushdown` so `HashJoinExec` creates its produced
+                // `DynamicFilterPhysicalExpr`, then attach a consumer `FilterExec` in the probe
+                // child stage so `prepare_static_plan` anchors that filter on `NetworkShuffleExec`.
+                let join_with_producer = FilterPushdown::new_post_optimization()
+                    .optimize(base_join, ctx.state().config_options())?;
+                let join_df = Arc::clone(
+                    &join_with_producer
+                        .dynamic_expressions_produced()
+                        .into_iter()
+                        .next()
+                        .expect("HashJoinExec dynamic filter producer"),
+                );
+                let probe_repart: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+                    Arc::new(FilterExec::try_new(
+                        join_df,
+                        Arc::new(EmptyExec::new(Arc::clone(&schema))),
+                    )?),
+                    Partitioning::Hash(vec![Arc::clone(&col_k)], 8),
+                )?);
+                let wired_join = join_with_producer.replace_children(
+                    vec![build_repart, probe_repart],
+                    ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
+                )?;
+                let distributed_plan = create_distributed_plan(wired_join, &ctx.state()).await?;
+                collect(distributed_plan, ctx.task_ctx()).await?;
+
+                let stage_plan = captured_join_stage
+                    .lock()
+                    .take()
+                    .expect("worker join stage plan captured");
+                let observed = observed_distinct.lock().clone();
+                Ok::<_, datafusion::common::DataFusionError>((stage_plan, observed))
+            })?;
+
+        // End-to-end check: all 8 worker tasks in the join stage received `TaskContext`s with
+        // `ceil(20,000 / 64) = 313`.
+        assert_eq!(observed_join_stage_distinct_limit, vec![313; 8]);
+
+        // Wrap the worker-decoded join stage plan in `CoalescePartitionsExec` (1 output partition,
+        // matching `join_distinct_parent_sort`'s partial-sort stage topology) to verify scaling
+        // uses the join's own partition count rather than the stage root's partition count.
+        let wrapped_stage_plan: Arc<dyn ExecutionPlan> =
+            Arc::new(CoalescePartitionsExec::new(captured_join_stage_plan));
+
+        let make_cfg = |max_distinct: usize, max_size: usize, task_count: usize| {
+            let mut cfg = SessionConfig::new().with_extension(Arc::new(DistributedTaskContext {
+                task_index: 0,
+                task_count,
+            }));
+            cfg.options_mut()
+                .optimizer
+                .hash_join_inlist_pushdown_max_distinct_values = max_distinct;
+            cfg.options_mut()
+                .optimizer
+                .hash_join_inlist_pushdown_max_size = max_size;
+            cfg
+        };
+
+        // 8 local partitions x 8 tasks = 64 global partitions:
+        // - 20,000 -> ceil(20,000 / 64) = 313; 16 MiB -> 262,144
+        // - 0 -> 0 (kill switch preserved)
+        // - 1 -> 1 (small positive test override never rounds down to 0)
+        for (in_distinct, in_size, expected_distinct, expected_size) in [
+            (20_000, 16 * 1024 * 1024, 313, 262_144),
+            (0, 0, 0, 0),
+            (1, 1, 1, 1),
+        ] {
+            let cfg = make_cfg(in_distinct, in_size, 8);
+            let scaled = scale_inlist_thresholds_for_cross_stage_joins(&wrapped_stage_plan, &cfg)?
+                .expect("cross-stage Partitioned join should scale thresholds");
+            let opt = &scaled.options().optimizer;
+            assert_eq!(
+                opt.hash_join_inlist_pushdown_max_distinct_values,
+                expected_distinct
+            );
+            assert_eq!(opt.hash_join_inlist_pushdown_max_size, expected_size);
+        }
+
+        // Intra-stage `Partitioned` join (no `NetworkBoundary` anchor) and `CollectLeft` broadcast
+        // join must NOT scale.
+        for mode in [PartitionMode::Partitioned, PartitionMode::CollectLeft] {
+            let non_scaling_join: Arc<dyn ExecutionPlan> = Arc::new(HashJoinExec::try_new(
+                Arc::new(EmptyExec::new(Arc::clone(&schema))),
+                Arc::new(EmptyExec::new(Arc::clone(&schema))),
+                vec![(Arc::clone(&col_k), Arc::clone(&col_k))],
+                None,
+                &JoinType::Inner,
+                None,
+                mode,
+                NullEquality::NullEqualsNothing,
+                false,
+            )?);
+            let cfg = make_cfg(20_000, 16 * 1024 * 1024, 8);
+            assert!(
+                scale_inlist_thresholds_for_cross_stage_joins(&non_scaling_join, &cfg)?.is_none(),
+                "mode {mode:?} without remote anchor must keep unscaled thresholds"
+            );
+        }
+        Ok(())
     }
 }
 

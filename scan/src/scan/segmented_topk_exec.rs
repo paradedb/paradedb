@@ -415,6 +415,18 @@ impl ExecutionPlan for SegmentedTopKExec {
         apply_expression_roots([&self.dynamic_filter], f)
     }
 
+    fn dynamic_expressions_produced(&self) -> Vec<Arc<dyn PhysicalExpr>> {
+        if self.dynamic_filter.is::<DynamicFilterPhysicalExpr>() {
+            vec![Arc::clone(&self.dynamic_filter)]
+        } else {
+            vec![]
+        }
+    }
+
+    fn fetch(&self) -> Option<usize> {
+        Some(self.k)
+    }
+
     fn with_new_children(
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
@@ -1690,5 +1702,49 @@ mod tests {
             let expected_ids: Vec<i64> = all_selected_ids.into_iter().take(expected_limit).collect();
             prop_assert_eq!(result_ids, expected_ids);
         });
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::physical_expr::expressions::{Column, lit};
+    use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
+    use datafusion::physical_plan::empty::EmptyExec;
+
+    #[test]
+    fn dynamic_expressions_produced_and_fetch() {
+        let schema = Arc::new(Schema::new(vec![Field::new("s", DataType::Utf8, true)]));
+        let input: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
+        let sort_exprs = LexOrdering::new(vec![PhysicalSortExpr::new_default(Arc::new(
+            Column::new("s", 0),
+        ))])
+        .unwrap();
+
+        let with_df = SegmentedTopKExec::new(
+            Arc::clone(&input),
+            sort_exprs.clone(),
+            vec![],
+            Arc::new(FFHelper::empty()),
+            17,
+            None,
+        );
+        assert_eq!(with_df.fetch(), Some(17));
+        let produced = with_df.dynamic_expressions_produced();
+        assert_eq!(produced.len(), 1);
+        assert!(Arc::ptr_eq(&produced[0], &with_df.dynamic_filter));
+        assert!(produced[0].expression_id().is_some());
+
+        let with_static = SegmentedTopKExec::new(
+            input,
+            sort_exprs,
+            vec![],
+            Arc::new(FFHelper::empty()),
+            5,
+            Some(lit(true)),
+        );
+        assert_eq!(with_static.fetch(), Some(5));
+        assert!(with_static.dynamic_expressions_produced().is_empty());
     }
 }

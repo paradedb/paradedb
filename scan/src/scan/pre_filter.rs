@@ -87,7 +87,8 @@
 //! confirms that pre-filtering is working. The `dynamic_filters=N` annotation
 //! in the non-ANALYZE plan shows how many filters were pushed down.
 
-use std::ops::Bound;
+use std::cmp::Ordering;
+use std::ops::{Bound, RangeInclusive};
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
@@ -100,7 +101,7 @@ use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, Tr
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::{
-    BinaryExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
+    BinaryExpr, CaseExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr, lit,
 };
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
@@ -660,6 +661,12 @@ impl PreFilter {
 /// `LazySortStreamState::take_pending_ra_lookup` consumes any pending `RA` request and resets its
 /// [`DynamicFilterPhysicalExpr`] to `lit(true)` at the top of `poll_next`, before `SA` window
 /// pre-filter collection runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PartitionedCaseFlattenPass {
+    Enabled,
+    AlreadyFlattened,
+}
+
 pub fn collect_filters(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
@@ -667,25 +674,61 @@ pub fn collect_filters(
     score_col_schema_idx: Option<usize>,
     score_threshold: &mut Option<Score>,
 ) -> datafusion::error::Result<()> {
+    collect_filters_with_pass(
+        expr,
+        schema,
+        out,
+        score_col_schema_idx,
+        score_threshold,
+        PartitionedCaseFlattenPass::Enabled,
+    )
+}
+
+fn collect_filters_with_pass(
+    expr: &Arc<dyn PhysicalExpr>,
+    schema: &SchemaRef,
+    out: &mut Vec<PreFilter>,
+    score_col_schema_idx: Option<usize>,
+    score_threshold: &mut Option<Score>,
+    flatten_pass: PartitionedCaseFlattenPass,
+) -> datafusion::error::Result<()> {
     // Split top-level ANDs to maximize early pruning
     if let Some(binary) = expr.downcast_ref::<BinaryExpr>()
         && matches!(binary.op(), Operator::And)
     {
-        collect_filters(
+        collect_filters_with_pass(
             binary.left(),
             schema,
             out,
             score_col_schema_idx,
             score_threshold,
+            flatten_pass,
         )?;
-        collect_filters(
+        collect_filters_with_pass(
             binary.right(),
             schema,
             out,
             score_col_schema_idx,
             score_threshold,
+            flatten_pass,
         )?;
         return Ok(());
+    }
+
+    // Unpack DataFusion `HashJoinExec(Partitioned)` `CASE (hash(key) % P) ...` dynamic filters
+    // (and cross-stage MPP `OR` disjunctions of per-worker `CASE` expressions) into flat
+    // `InListExpr` / global min-max bounds that `PreFilter` can evaluate over fast fields.
+    if flatten_pass == PartitionedCaseFlattenPass::Enabled
+        && let Some(flattened) = try_flatten_partitioned_join_filter(expr, schema.as_ref())?
+    {
+        return collect_filters_with_pass(
+            &flattened,
+            schema,
+            out,
+            score_col_schema_idx,
+            score_threshold,
+            PartitionedCaseFlattenPass::AlreadyFlattened,
+        );
     }
 
     // Ignore trivial `true` literals (e.g. uninitialized TopK dynamic filters or
@@ -1362,6 +1405,337 @@ fn try_convert_in_list_to_query(
     InListPushdown::Query(Box::new(const_score_query) as Box<dyn Query>)
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum PartitionWrapperState {
+    #[default]
+    None,
+    SingleNonCaseDisjunct,
+    Wrapped,
+}
+
+impl PartitionWrapperState {
+    fn record_leaf_disjunct(&mut self) {
+        *self = match *self {
+            Self::None => Self::SingleNonCaseDisjunct,
+            Self::SingleNonCaseDisjunct | Self::Wrapped => Self::Wrapped,
+        };
+    }
+}
+
+#[derive(Default)]
+struct CollectedPartitionDisjuncts {
+    null_guards: Vec<Arc<dyn PhysicalExpr>>,
+    branches: Vec<Arc<dyn PhysicalExpr>>,
+    wrapper_state: PartitionWrapperState,
+}
+
+impl CollectedPartitionDisjuncts {
+    /// Collects disjuncts across top-level `OR`s and `CaseExpr` branches. Returns `false` if any
+    /// branch is unconditionally `true` (e.g. `ELSE true` when a partition was canceled), in which
+    /// case the disjunction cannot prune non-null rows.
+    fn collect(&mut self, node: &Arc<dyn PhysicalExpr>) -> bool {
+        if let Some(binary) = node.downcast_ref::<BinaryExpr>()
+            && matches!(binary.op(), Operator::Or)
+        {
+            return self.collect(binary.left()) && self.collect(binary.right());
+        }
+        if let Some(lit_node) = node.downcast_ref::<Literal>() {
+            match lit_node.value() {
+                ScalarValue::Boolean(Some(false)) => {
+                    self.wrapper_state = PartitionWrapperState::Wrapped;
+                    return true;
+                }
+                ScalarValue::Boolean(Some(true)) => return false,
+                _ => {}
+            }
+        }
+        if node.is::<IsNullExpr>() {
+            if !self.null_guards.iter().any(|existing| existing == node) {
+                self.null_guards.push(Arc::clone(node));
+            }
+            return true;
+        }
+        if let Some(case_expr) = node.downcast_ref::<CaseExpr>() {
+            self.wrapper_state = PartitionWrapperState::Wrapped;
+            for (_when_expr, then_expr) in case_expr.when_then_expr() {
+                if !self.collect(then_expr) {
+                    return false;
+                }
+            }
+            if let Some(else_expr) = case_expr.else_expr()
+                && !self.collect(else_expr)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        self.wrapper_state.record_leaf_disjunct();
+        self.branches.push(Arc::clone(node));
+        true
+    }
+
+    fn has_partition_wrapper(&self) -> bool {
+        self.wrapper_state == PartitionWrapperState::Wrapped
+    }
+}
+
+#[derive(Default)]
+struct ParsedPartitionBranch {
+    in_list: Option<Arc<dyn PhysicalExpr>>,
+    lower_bounds: Vec<(Arc<dyn PhysicalExpr>, ScalarValue)>,
+    upper_bounds: Vec<(Arc<dyn PhysicalExpr>, ScalarValue)>,
+}
+
+impl ParsedPartitionBranch {
+    /// Extracts conjunctive `InListExpr` and `>= min` / `<= max` bounds from a single partition's
+    /// predicate. Returns `None` if the branch contains a contradiction on non-null rows (such as
+    /// `lit(false)` or `col >= NULL` from an all-NULL build partition).
+    fn parse(branch: &Arc<dyn PhysicalExpr>) -> Option<Self> {
+        let mut parsed = Self::default();
+        if parsed.visit_conjunct(branch) {
+            Some(parsed)
+        } else {
+            None
+        }
+    }
+
+    fn visit_conjunct(&mut self, node: &Arc<dyn PhysicalExpr>) -> bool {
+        if let Some(binary) = node.downcast_ref::<BinaryExpr>() {
+            match binary.op() {
+                Operator::And => {
+                    return self.visit_conjunct(binary.left())
+                        && self.visit_conjunct(binary.right());
+                }
+                Operator::GtEq => {
+                    if let Some(lit_node) = binary.right().downcast_ref::<Literal>() {
+                        if lit_node.value().is_null() {
+                            return false;
+                        }
+                        self.lower_bounds
+                            .push((Arc::clone(binary.left()), lit_node.value().clone()));
+                    }
+                    return true;
+                }
+                Operator::LtEq => {
+                    if let Some(lit_node) = binary.right().downcast_ref::<Literal>() {
+                        if lit_node.value().is_null() {
+                            return false;
+                        }
+                        self.upper_bounds
+                            .push((Arc::clone(binary.left()), lit_node.value().clone()));
+                    }
+                    return true;
+                }
+                _ => return true,
+            }
+        }
+        if let Some(lit_node) = node.downcast_ref::<Literal>()
+            && matches!(lit_node.value(), ScalarValue::Boolean(Some(false)))
+        {
+            return false;
+        }
+        if let Some(in_list) = node.downcast_ref::<InListExpr>()
+            && !in_list.negated()
+            && in_list.list().iter().all(|e| e.is::<Literal>())
+            && self.in_list.is_none()
+        {
+            self.in_list = Some(Arc::clone(node));
+        }
+        true
+    }
+}
+
+fn or_chain(exprs: Vec<Arc<dyn PhysicalExpr>>) -> Arc<dyn PhysicalExpr> {
+    exprs
+        .into_iter()
+        .reduce(|acc, next| Arc::new(BinaryExpr::new(acc, Operator::Or, next)))
+        .expect("or_chain called with non-empty exprs")
+}
+
+/// Unpacks partitioned `HashJoinExec` dynamic filters (`CASE (hash(key) % P) WHEN p THEN ...`
+/// and cross-stage MPP `OR` disjunctions of per-worker `CASE` predicates, see
+/// `apache/datafusion#23817`) into a `CaseExpr`-free predicate suitable for Tantivy `TermSetQuery`
+/// pushdown and vectorized fast-field `PreFilter` evaluation:
+///
+/// - For any row where `CASE ... WHEN w_i THEN t_i ELSE e END` evaluates to `true`, at least one
+///   branch `t_i` (or `e`) evaluates to `true`, so replacing `CASE` with the union of its branches
+///   is unconditionally sound regardless of hash seed or shuffle mode.
+/// - When every live branch carries a non-negated `InListExpr` on the same target expression,
+///   concatenating their literal lists into a single `InListExpr` is exact (zero false positives
+///   for hash/range-partitioned build keys).
+/// - When every live branch carries `col >= min_b` and `col <= max_b` bounds (including when
+///   `HashTableLookupExpr` was relaxed to `lit(true)` during protobuf serialization), widening to
+///   global `col >= min_all AND col <= max_all` strips `CaseExpr` and `HashExpr` so fast-field
+///   range pruning still applies.
+/// - Preserves and deduplicates any outer `key IS NULL OR (...)` guards emitted by
+///   `SharedBuildAccumulator::preserve_probe_nulls` for null-equal / null-aware anti joins.
+fn try_flatten_partitioned_join_filter(
+    expr: &Arc<dyn PhysicalExpr>,
+    schema: &Schema,
+) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
+    let is_case_or_or = expr.is::<CaseExpr>()
+        || expr
+            .downcast_ref::<BinaryExpr>()
+            .is_some_and(|b| matches!(b.op(), Operator::Or));
+    if !is_case_or_or {
+        return Ok(None);
+    }
+
+    let mut collected = CollectedPartitionDisjuncts::default();
+    if !collected.collect(expr) || !collected.has_partition_wrapper() {
+        return Ok(None);
+    }
+
+    let live_branches: Vec<ParsedPartitionBranch> = collected
+        .branches
+        .iter()
+        .filter_map(ParsedPartitionBranch::parse)
+        .collect();
+
+    if live_branches.is_empty() {
+        return Ok(Some(if collected.null_guards.is_empty() {
+            lit(false)
+        } else {
+            or_chain(collected.null_guards)
+        }));
+    }
+
+    // 1. Try widening per-column `[min, max]` bounds across all live branches.
+    let mut bound_predicates: Vec<Arc<dyn PhysicalExpr>> = Vec::new();
+    for (col_expr, min_0) in &live_branches[0].lower_bounds {
+        let Some((_, max_0)) = live_branches[0]
+            .upper_bounds
+            .iter()
+            .find(|(c, _)| c == col_expr)
+        else {
+            continue;
+        };
+        let mut global_range: Option<RangeInclusive<ScalarValue>> =
+            Some(min_0.clone()..=max_0.clone());
+        for branch in &live_branches[1..] {
+            let Some((_, min_b)) = branch.lower_bounds.iter().find(|(c, _)| c == col_expr) else {
+                global_range = None;
+                break;
+            };
+            let Some((_, max_b)) = branch.upper_bounds.iter().find(|(c, _)| c == col_expr) else {
+                global_range = None;
+                break;
+            };
+            let cur = global_range.take().unwrap();
+            let (cur_min, cur_max) = cur.into_inner();
+            let Some(min_ord) = min_b.partial_cmp(&cur_min) else {
+                break;
+            };
+            let Some(max_ord) = max_b.partial_cmp(&cur_max) else {
+                break;
+            };
+            let next_min = if min_ord == Ordering::Less {
+                min_b.clone()
+            } else {
+                cur_min
+            };
+            let next_max = if max_ord == Ordering::Greater {
+                max_b.clone()
+            } else {
+                cur_max
+            };
+            global_range = Some(next_min..=next_max);
+        }
+        if let Some(range) = global_range {
+            let (global_min, global_max) = range.into_inner();
+            let min_pred: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+                Arc::clone(col_expr),
+                Operator::GtEq,
+                lit(global_min),
+            ));
+            let max_pred: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+                Arc::clone(col_expr),
+                Operator::LtEq,
+                lit(global_max),
+            ));
+            bound_predicates.push(Arc::new(BinaryExpr::new(min_pred, Operator::And, max_pred)));
+        }
+    }
+    let merged_bounds = bound_predicates
+        .into_iter()
+        .reduce(|acc, pred| Arc::new(BinaryExpr::new(acc, Operator::And, pred)));
+
+    // 2. Try unioning `InListExpr` across all live branches when every branch targets the same expr.
+    let merged_in_list = if let Some(first_arc) = &live_branches[0].in_list {
+        let first_il = first_arc
+            .downcast_ref::<InListExpr>()
+            .expect("ParsedPartitionBranch stores InListExpr");
+        let all_match = live_branches[1..].iter().all(|b| {
+            b.in_list.as_ref().is_some_and(|arc| {
+                arc.downcast_ref::<InListExpr>()
+                    .is_some_and(|il| il.expr() == first_il.expr())
+            })
+        });
+        if all_match {
+            if live_branches.len() == 1 {
+                Some(Arc::clone(first_arc))
+            } else {
+                let total_len: usize = live_branches
+                    .iter()
+                    .map(|b| {
+                        b.in_list
+                            .as_ref()
+                            .unwrap()
+                            .downcast_ref::<InListExpr>()
+                            .unwrap()
+                            .list()
+                            .len()
+                    })
+                    .sum();
+                let mut merged_list = Vec::with_capacity(total_len);
+                for branch in &live_branches {
+                    let il = branch
+                        .in_list
+                        .as_ref()
+                        .unwrap()
+                        .downcast_ref::<InListExpr>()
+                        .unwrap();
+                    merged_list.extend(il.list().iter().cloned());
+                }
+                Some(Arc::new(InListExpr::try_new(
+                    Arc::clone(first_il.expr()),
+                    merged_list,
+                    false,
+                    schema,
+                )?) as Arc<dyn PhysicalExpr>)
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let combined = match (merged_bounds, merged_in_list) {
+        (Some(bounds), Some(in_list)) => {
+            Some(Arc::new(BinaryExpr::new(bounds, Operator::And, in_list)) as Arc<dyn PhysicalExpr>)
+        }
+        (Some(bounds), None) => Some(bounds),
+        (None, Some(in_list)) => Some(in_list),
+        (None, None) => None,
+    };
+
+    let Some(combined) = combined else {
+        return Ok(None);
+    };
+
+    Ok(Some(if collected.null_guards.is_empty() {
+        combined
+    } else {
+        Arc::new(BinaryExpr::new(
+            or_chain(collected.null_guards),
+            Operator::Or,
+            combined,
+        ))
+    }))
+}
+
 /// Try to push down `InList` expressions from `dynamic_filters` into the search query.
 ///
 /// This is called during the first `poll_next` of the scan stream to convert eligible `InList`
@@ -1382,6 +1756,7 @@ fn try_convert_in_list_to_query(
 /// 3. Returns `true` to indicate that a pushdown occurred.
 pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
+    arrow_schema: &Schema,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
     linear_fallback: InListLinearFallback,
@@ -1402,8 +1777,13 @@ pub fn try_dynamic_filter_pushdown(
         let Some(dynamic) = df.downcast_ref::<DynamicFilterPhysicalExpr>() else {
             continue;
         };
-        let Ok(current_expr) = dynamic.current() else {
+        let Ok(raw_expr) = dynamic.current() else {
             continue;
+        };
+        let current_expr = match try_flatten_partitioned_join_filter(&raw_expr, arrow_schema) {
+            Ok(Some(flattened)) => flattened,
+            Ok(None) => raw_expr,
+            Err(_) => continue,
         };
 
         let mut extracted_in_lists = Vec::new();
@@ -1662,6 +2042,249 @@ mod tests {
                 &mut threshold,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn flatten_partitioned_join_filter_matrix() {
+        use super::{collect_filters, try_flatten_partitioned_join_filter};
+        use datafusion::arrow::array::{Array, BooleanArray, Float32Array, Int64Array};
+        use datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use datafusion::arrow::record_batch::RecordBatch;
+        use datafusion::physical_expr::expressions::CaseExpr;
+        use datafusion::physical_plan::expressions::InListExpr;
+        use datafusion::physical_plan::joins::{HashExpr, SeededRandomState};
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("pdb.score()", DataType::Float32, true),
+            Field::new("id", DataType::Int64, true),
+        ]));
+
+        // Probe batch covering negative, below-min, boundary, interior-miss, match, above-max,
+        // and NULL values.
+        let probe_ids = vec![
+            Some(-50),
+            Some(0),
+            Some(3),
+            Some(7),
+            Some(10),
+            Some(15),
+            Some(22),
+            Some(100),
+            None,
+        ];
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(Float32Array::from(vec![1.0f32; probe_ids.len()])),
+                Arc::new(Int64Array::from(probe_ids.clone())),
+            ],
+        )
+        .unwrap();
+
+        let eval_truthy = |expr: &Arc<dyn PhysicalExpr>| -> Vec<bool> {
+            let arr = expr
+                .evaluate(&batch)
+                .unwrap()
+                .into_array(batch.num_rows())
+                .unwrap();
+            let bools = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+            (0..bools.len())
+                .map(|i| bools.is_valid(i) && bools.value(i))
+                .collect()
+        };
+
+        let eval_pre_filters = |expr: &Arc<dyn PhysicalExpr>| -> (usize, Vec<bool>) {
+            let mut pre_filters = Vec::new();
+            let mut threshold = None;
+            collect_filters(
+                expr,
+                &schema,
+                &mut pre_filters,
+                Some(SCORE_IDX),
+                &mut threshold,
+            )
+            .unwrap();
+            let mut keep = vec![true; batch.num_rows()];
+            for pf in &pre_filters {
+                for (row, pass) in eval_truthy(&pf.expr).into_iter().enumerate() {
+                    keep[row] &= pass;
+                }
+            }
+            (pre_filters.len(), keep)
+        };
+
+        let bounds_branch = |min_v: i64, max_v: i64| -> Arc<dyn PhysicalExpr> {
+            bin(
+                bin(id(), Operator::GtEq, int_lit(min_v)),
+                Operator::And,
+                bin(id(), Operator::LtEq, int_lit(max_v)),
+            )
+        };
+        let inlist_branch = |vals: &[i64]| -> Arc<dyn PhysicalExpr> {
+            let min_v = *vals.iter().min().unwrap();
+            let max_v = *vals.iter().max().unwrap();
+            let arr = Arc::new(Int64Array::from(vals.to_vec()));
+            let il = Arc::new(InListExpr::try_new_from_array(id(), arr, false, &schema).unwrap())
+                as Arc<dyn PhysicalExpr>;
+            bin(bounds_branch(min_v, max_v), Operator::And, il)
+        };
+        let hash_mod = |modulus: u64| -> Arc<dyn PhysicalExpr> {
+            let h = Arc::new(HashExpr::new(
+                vec![id()],
+                SeededRandomState::with_seed(0),
+                "hash_repartition".to_string(),
+            )) as Arc<dyn PhysicalExpr>;
+            bin(h, Operator::Modulo, lit(ScalarValue::UInt64(Some(modulus))))
+        };
+        let u64_lit = |v: u64| lit(ScalarValue::UInt64(Some(v)));
+
+        // Partition keys `[3, 7, 10, 22]` by `HashExpr(id) % 4` exactly as `HashJoinExec` does so
+        // `CASE (hash(id) % 4)` has true hash-consistent buckets.
+        let build_keys = [3i64, 7, 10, 22];
+        let key_batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(Float32Array::from(vec![1.0f32; build_keys.len()])),
+                Arc::new(Int64Array::from(build_keys.to_vec())),
+            ],
+        )
+        .unwrap();
+        let bucket_arr = hash_mod(4)
+            .evaluate(&key_batch)
+            .unwrap()
+            .into_array(build_keys.len())
+            .unwrap();
+        let buckets = bucket_arr
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::UInt64Array>()
+            .unwrap();
+        let mut by_bucket: [Vec<i64>; 4] = Default::default();
+        for (idx, &k) in build_keys.iter().enumerate() {
+            by_bucket[buckets.value(idx) as usize].push(k);
+        }
+
+        // Split the 4 buckets across 2 simulated MPP workers (buckets 0..2 on worker 0, 2..4 on
+        // worker 1) plus a 3rd empty worker (`lit(false)`).
+        let worker_expr = |slice: &[(usize, &[i64])]| -> Arc<dyn PhysicalExpr> {
+            let non_empty: Vec<(usize, &[i64])> = slice
+                .iter()
+                .copied()
+                .filter(|(_, ks)| !ks.is_empty())
+                .collect();
+            match non_empty.as_slice() {
+                [] => lit(false),
+                [(_, ks)] => inlist_branch(ks),
+                many => Arc::new(
+                    CaseExpr::try_new(
+                        Some(hash_mod(4)),
+                        many.iter()
+                            .map(|(b, ks)| (u64_lit(*b as u64), inlist_branch(ks)))
+                            .collect(),
+                        Some(lit(false)),
+                    )
+                    .unwrap(),
+                ),
+            }
+        };
+        let w0 = worker_expr(&[(0, &by_bucket[0]), (1, &by_bucket[1])]);
+        let w1 = worker_expr(&[(2, &by_bucket[2]), (3, &by_bucket[3])]);
+        let mpp_inlist = bin(bin(w0, Operator::Or, w1), Operator::Or, lit(false));
+
+        // 1. Exact equivalence for MPP `InList` union (both nullable-rejecting and `IS NULL OR`).
+        for preserve_nulls in [false, true] {
+            let expr = if preserve_nulls {
+                bin(
+                    is_null(id()).unwrap(),
+                    Operator::Or,
+                    bin(
+                        is_null(id()).unwrap(),
+                        Operator::Or,
+                        Arc::clone(&mpp_inlist),
+                    ),
+                )
+            } else {
+                Arc::clone(&mpp_inlist)
+            };
+            let expected = eval_truthy(&expr);
+            let flattened = try_flatten_partitioned_join_filter(&expr, &schema)
+                .unwrap()
+                .expect("should flatten partitioned InList filter");
+            assert_eq!(eval_truthy(&flattened), expected);
+            let (pf_count, pf_keep) = eval_pre_filters(&expr);
+            assert!(pf_count >= 1);
+            assert_eq!(pf_keep, expected);
+        }
+
+        // 2. Bounds-only relaxation (e.g. `PushdownStrategy::Map` serialized as `bounds AND true`)
+        //    plus an all-NULL build partition (`id >= NULL AND id <= NULL`).
+        let null_bound = bin(
+            bin(id(), Operator::GtEq, lit(ScalarValue::Int64(None))),
+            Operator::And,
+            bin(id(), Operator::LtEq, lit(ScalarValue::Int64(None))),
+        );
+        let bounds_case: Arc<dyn PhysicalExpr> = Arc::new(
+            CaseExpr::try_new(
+                Some(hash_mod(4)),
+                vec![
+                    (
+                        u64_lit(0),
+                        bin(bounds_branch(3, 10), Operator::And, lit(true)),
+                    ),
+                    (
+                        u64_lit(1),
+                        bin(bounds_branch(15, 22), Operator::And, lit(true)),
+                    ),
+                    (u64_lit(2), null_bound),
+                ],
+                Some(lit(false)),
+            )
+            .unwrap(),
+        );
+        let (pf_count, pf_keep) = eval_pre_filters(&bounds_case);
+        assert_eq!(pf_count, 2); // `id >= 3` and `id <= 22`
+        let expected_bounds: Vec<bool> = probe_ids
+            .iter()
+            .map(|v| v.is_some_and(|x| (3..=22).contains(&x)))
+            .collect();
+        assert_eq!(pf_keep, expected_bounds);
+
+        // 3. Empty build side across all workers (`false OR false`) and with `preserve_probe_nulls`.
+        let all_empty = bin(lit(false), Operator::Or, lit(false));
+        assert_eq!(
+            eval_pre_filters(&all_empty),
+            (1, vec![false; probe_ids.len()])
+        );
+        let all_empty_keep_nulls = bin(is_null(id()).unwrap(), Operator::Or, all_empty);
+        let expected_only_null: Vec<bool> = probe_ids.iter().map(Option::is_none).collect();
+        assert_eq!(
+            eval_pre_filters(&all_empty_keep_nulls),
+            (1, expected_only_null)
+        );
+
+        // 4. `ELSE true` (`has_canceled_unknown`) and unrelated `OR` predicates return `None`.
+        let canceled_case: Arc<dyn PhysicalExpr> = Arc::new(
+            CaseExpr::try_new(
+                Some(hash_mod(4)),
+                vec![(u64_lit(0), lit(false))],
+                Some(lit(true)),
+            )
+            .unwrap(),
+        );
+        assert!(
+            try_flatten_partitioned_join_filter(&canceled_case, &schema)
+                .unwrap()
+                .is_none()
+        );
+        let unrelated_or = bin(
+            bin(id(), Operator::Eq, int_lit(3)),
+            Operator::Or,
+            bin(score(), Operator::Gt, f32_lit(2.0)),
+        );
+        assert!(
+            try_flatten_partitioned_join_filter(&unrelated_or, &schema)
+                .unwrap()
+                .is_none()
         );
     }
 }

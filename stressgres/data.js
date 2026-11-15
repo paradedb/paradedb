@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794729803152,
+  "lastUpdate": 1794729831152,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113094,6 +113094,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14105676335-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e4744a6e3c2ba95eb2464edcbceba72a3b55a24",
+          "message": "fix: read PL/pgSQL variables through paramFetch in generic plans (#7427)\n\n# Ticket(s) Closed\n\n- Closes #7289\n\n## What\n\nOnce a PL/pgSQL statement switches to a generic plan, its variables now\nkeep their values when used as `LIMIT`/`OFFSET`, as `pdb.snippet()`\narguments, or as a vector `ORDER BY` operand. Before, the reporter's\n`LIMIT n` loop returned 0 rows, a snippet tag crashed the backend, and a\nvector operand could return wrong rows, raise an error, or crash.\n\n## Why\n\nIn a generic plan, PL/pgSQL variables are extern `Param`s. PL/pgSQL\nbuilds its `ParamListInfo` with `makeParamList(0)` in `pl_exec.c` and\nserves values only through the `paramFetch` hook, so the list has no\n`params[]` storage. `ParameterizedValue::resolve` read `params[param_id\n- 1]` anyway, which reads memory past the allocation.\n`QueryVector::resolve` read the same slot's flags before it tried the\nhook. `PREPARE`/`EXECUTE` fills a real `params[]` array, which is why\nthe reporter's prepared statement worked.\n\n## How\n\nA new helper, `fetch_extern_param` in\n`common/src/postgres/customscan/parameterized_value.rs`, reads a\nparameter the way `ExecEvalParamExtern` does. It applies the same\n`1..=numParams` bounds check, calls `paramFetch` when the list has one,\nand otherwise reads `params[]`. `ParameterizedValue::resolve` (LIMIT,\nOFFSET, snippet arguments) and `QueryVector::resolve` (vector `ORDER\nBY`) both use it. Lists without a hook, such as those from\n`PREPARE`/`EXECUTE` and SQL functions, are read from the same slot as\nbefore.\n\n## Tests\n\n- `issue_7289` runs the reporter's `LIMIT n` loop across the switch to a\ngeneric plan, a `pdb.snippet(start_tag => tag)` call, and a vector\n`ORDER BY vec <=> q` from a DO block and from a function argument. On\n`main` it fails with `LIMIT 6, matched 0` and then a backend crash at\nthe snippet call. With only the LIMIT fix, the vector cases failed in 15\nof 16 runs with `query vector length 1 does not match field \"vec\" dim\n3`. That failure depends on what memory follows the list, so it can pass\nby luck.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I also ran 621 generated PL/pgSQL vector `ORDER BY` shapes with\ndifferent variable layouts and function arguments, each in its own\nbackend. All return the right rows. On `main`, 164 of them return wrong\nrows, raise an error, or crash the backend.\n- `cargo fmt --all -- --check`, `cargo clippy -p common --all-targets --\n-D warnings --no-deps`, and `cargo doc -p common --no-deps` with `-D\nwarnings` are clean.\n\nA NULL `LIMIT` parameter in a generic plan still raises `LIMIT must be\nresolvable from EState`, as `EXECUTE p(NULL)` already does on `main`.\nThat is a separate bug. The changelog entry is in\n`docs/project/changelog/unreleased/7427.bugfix.mdx`. 0.26.x reads these\nparameters the same way, so could a maintainer add `cherry-pick/0.26.x`?",
+          "timestamp": "2026-11-14T18:56:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e4744a6e3c2ba95eb2464edcbceba72a3b55a24"
+        },
+        "date": 1794729828524,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1675.4598331086315,
+            "unit": "median tps",
+            "extra": "avg tps: 1713.6723273768514, max tps: 1888.488968772306, count: 59261"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.890642517694705,
+            "unit": "median tps",
+            "extra": "avg tps: 5.935517399657265, max tps: 6.9661787043088035, count: 59261"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1708.995673998118,
+            "unit": "median tps",
+            "extra": "avg tps: 1623.0124758578158, max tps: 1856.1073047730986, count: 59261"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2423.4700989852713,
+            "unit": "median tps",
+            "extra": "avg tps: 2409.4346366714235, max tps: 2776.8715004509086, count: 59261"
+          }
+        ],
+        "publication_id": "14152973155-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158366,6 +158413,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14105676335-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e4744a6e3c2ba95eb2464edcbceba72a3b55a24",
+          "message": "fix: read PL/pgSQL variables through paramFetch in generic plans (#7427)\n\n# Ticket(s) Closed\n\n- Closes #7289\n\n## What\n\nOnce a PL/pgSQL statement switches to a generic plan, its variables now\nkeep their values when used as `LIMIT`/`OFFSET`, as `pdb.snippet()`\narguments, or as a vector `ORDER BY` operand. Before, the reporter's\n`LIMIT n` loop returned 0 rows, a snippet tag crashed the backend, and a\nvector operand could return wrong rows, raise an error, or crash.\n\n## Why\n\nIn a generic plan, PL/pgSQL variables are extern `Param`s. PL/pgSQL\nbuilds its `ParamListInfo` with `makeParamList(0)` in `pl_exec.c` and\nserves values only through the `paramFetch` hook, so the list has no\n`params[]` storage. `ParameterizedValue::resolve` read `params[param_id\n- 1]` anyway, which reads memory past the allocation.\n`QueryVector::resolve` read the same slot's flags before it tried the\nhook. `PREPARE`/`EXECUTE` fills a real `params[]` array, which is why\nthe reporter's prepared statement worked.\n\n## How\n\nA new helper, `fetch_extern_param` in\n`common/src/postgres/customscan/parameterized_value.rs`, reads a\nparameter the way `ExecEvalParamExtern` does. It applies the same\n`1..=numParams` bounds check, calls `paramFetch` when the list has one,\nand otherwise reads `params[]`. `ParameterizedValue::resolve` (LIMIT,\nOFFSET, snippet arguments) and `QueryVector::resolve` (vector `ORDER\nBY`) both use it. Lists without a hook, such as those from\n`PREPARE`/`EXECUTE` and SQL functions, are read from the same slot as\nbefore.\n\n## Tests\n\n- `issue_7289` runs the reporter's `LIMIT n` loop across the switch to a\ngeneric plan, a `pdb.snippet(start_tag => tag)` call, and a vector\n`ORDER BY vec <=> q` from a DO block and from a function argument. On\n`main` it fails with `LIMIT 6, matched 0` and then a backend crash at\nthe snippet call. With only the LIMIT fix, the vector cases failed in 15\nof 16 runs with `query vector length 1 does not match field \"vec\" dim\n3`. That failure depends on what memory follows the list, so it can pass\nby luck.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I also ran 621 generated PL/pgSQL vector `ORDER BY` shapes with\ndifferent variable layouts and function arguments, each in its own\nbackend. All return the right rows. On `main`, 164 of them return wrong\nrows, raise an error, or crash the backend.\n- `cargo fmt --all -- --check`, `cargo clippy -p common --all-targets --\n-D warnings --no-deps`, and `cargo doc -p common --no-deps` with `-D\nwarnings` are clean.\n\nA NULL `LIMIT` parameter in a generic plan still raises `LIMIT must be\nresolvable from EState`, as `EXECUTE p(NULL)` already does on `main`.\nThat is a separate bug. The changelog entry is in\n`docs/project/changelog/unreleased/7427.bugfix.mdx`. 0.26.x reads these\nparameters the same way, so could a maintainer add `cherry-pick/0.26.x`?",
+          "timestamp": "2026-11-14T18:56:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e4744a6e3c2ba95eb2464edcbceba72a3b55a24"
+        },
+        "date": 1794729831061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.992524594590034, max background_merging: 2.0, count: 59261"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.427652789374186, max cpu: 9.831029, count: 59261"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.20818247350703, max mem: 27.2109375, count: 59261"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6087375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.749768214309533, max cpu: 29.149797, count: 59261"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 53.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.205652813929056, max mem: 53.76953125, count: 59261"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45311,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45042.38507618839, max block_count: 45314.0, count: 59261"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.765343143045174, max segment_count: 20.0, count: 59261"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.110256,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.783943424727255, max cpu: 33.768845, count: 59261"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 36.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 36.069939415256236, max mem: 36.08984375, count: 59261"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6087375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.774438824367268, max cpu: 32.19933, count: 59261"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 53.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.30350470271342, max mem: 61.40234375, count: 59261"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606788841761264, max cpu: 27.732307, count: 59261"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 57.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.83149462757969, max mem: 57.6484375, count: 59261"
+          }
+        ],
+        "publication_id": "14152973155-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

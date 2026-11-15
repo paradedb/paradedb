@@ -31,7 +31,7 @@ runs:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
         apt-get install -y --no-install-recommends \
-          postgresql-server-dev-18 build-essential pkg-config meson ninja-build libopenblas-dev
+          postgresql-server-dev-18 build-essential pkg-config meson ninja-build libopenblas-dev git
         pg_config="/usr/lib/postgresql/18/bin/pg_config"
         CC="$("$pg_config" --cc)" meson setup /tmp/pg-vectorsearch/build /tmp/pg-vectorsearch --buildtype=release \
           -Dnative=true -Dblas=enabled -Dpostgresql=enabled -Dtools=disabled -Dpg_config="$pg_config"

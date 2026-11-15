@@ -184,6 +184,17 @@ jobs:
           jq -e --arg expected "$VECTORCHORD_PREFILTER" \
             '."vchordrq.prefilter" == $expected' benchmark-artifacts/vectorchord-filter-settings.json
 
+      - name: Recover VectorChord Timeout Cleanup
+        if: matrix.engine == 'vectorchord'
+        run: |
+          set -euo pipefail
+          patch="$PWD/benchmarks/hn/pdbench-timeout-cleanup.patch"
+          git -C pdbench apply --check "$patch"
+          git -C pdbench apply "$patch"
+          cp "$patch" benchmark-artifacts/pdbench-timeout-cleanup.patch
+          sha256sum "$patch" > benchmark-artifacts/pdbench-patch-sha256.txt
+          echo "PDBENCH_PATCH_SHA=$(cut -d ' ' -f 1 benchmark-artifacts/pdbench-patch-sha256.txt)" >> "$GITHUB_ENV"
+
       - name: Build pdbench
         uses: ./.github/actions/build-pdbench
 
@@ -341,6 +352,7 @@ jobs:
             elif [[ "$BENCHMARK_ENGINE" == vectorchord ]]; then
               printf 'VectorChord revision: %s. One global cosine vchordrq index, 30,000 lists, residual quantization, spherical centroids, and integer probes 1..30000.\n\n' "$VECTORCHORD_REF"
               printf 'Partitioning uses eight threads, hierarchical k-means in 100 dimensions, and sampling_factor=64. epsilon=1.9; max_scan_tuples=-1. vchordrq.prefilter=%s throughout the sweep and k6 for all six predicates. Executed plans must use vchordrq; result names identify prefilter or postfilter mode.\n\n' "$VECTORCHORD_PREFILTER"
+              printf 'pdbench timeout-cleanup patch SHA256: %s. Retries only the known VectorChord cleanup error after a budget-exhausted sweep, verifies timeout restoration, and preserves all recall outcomes.\n\n' "$PDBENCH_PATCH_SHA"
             else
               printf "Eight index segments, training_sample_ratio=0.32, and quantized routing. Tantivy: \`%s\`.\n\n" "$TANTIVY_SHA"
             fi
@@ -362,7 +374,7 @@ jobs:
           dataset: ${{ env.RESULTS_DATASET }}
         env:
           BENCHMARKER_META: >-
-            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","vectorchord_prefilter":"${{ matrix.engine == 'vectorchord' && matrix.prefilter || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+            {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","pdbench_patch":"${{ env.PDBENCH_PATCH_SHA }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","vectorchord_prefilter":"${{ matrix.engine == 'vectorchord' && matrix.prefilter || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
 
       - name: Stage Benchmarker Results
         uses: ./.github/actions/stage-benchmark-results

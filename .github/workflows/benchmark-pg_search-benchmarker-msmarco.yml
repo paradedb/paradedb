@@ -45,7 +45,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       contains(fromJSON('["benchmark-msmarco-pg_search", "benchmark-msmarco-pg_vectorsearch", "benchmark-msmarco-vectorchord", "benchmark-msmarco-vectorchord-prefilter"]'), github.event.label.name)
-    timeout-minutes: 720
+    timeout-minutes: ${{ matrix.engine == 'vectorchord' && 1440 || 720 }}
     strategy:
       fail-fast: false
       matrix:

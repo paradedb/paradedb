@@ -48,7 +48,7 @@ impl VectorWork {
             strategy,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: true
-            }
+            } | VectorFilterStrategy::Late { .. }
         ) || query.is_match_all()
         {
             return None;
@@ -161,6 +161,9 @@ mod tests {
                         VectorFilterStrategy::Post {
                             estimated_selectivity: 0.1,
                         },
+                        VectorFilterStrategy::Late {
+                            estimated_selectivity: 0.1,
+                        },
                         VectorFilterStrategy::Pre {
                             uses_fast_fields: false,
                         },
@@ -176,6 +179,7 @@ mod tests {
                         let parallel = workers > 0
                             && match strategy {
                                 VectorFilterStrategy::Post { .. } => !cheap,
+                                VectorFilterStrategy::Late { .. } => false,
                                 VectorFilterStrategy::Pre { uses_fast_fields } => {
                                     uses_fast_fields || !cheap
                                 }

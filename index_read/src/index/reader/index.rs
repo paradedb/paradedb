@@ -1001,6 +1001,7 @@ impl SearchIndexReader {
             field,
             self.weight().as_ref(),
             self.estimate_vector_matches().ceil() as usize,
+            gucs::vector_max_scan_levels(),
             &segments,
         )?)
     }
@@ -5382,6 +5383,9 @@ mod tests {
         let post = VectorFilterStrategy::Post {
             estimated_selectivity: 0.5,
         };
+        let late = VectorFilterStrategy::Late {
+            estimated_selectivity: 0.5,
+        };
         for (lo, hi, expected_rows, expected_segments) in [
             (1, 10, 10, 1),
             (11, 20, 10, 1),
@@ -5398,6 +5402,10 @@ mod tests {
                     (true, false, post),
                     (false, true, post),
                     (true, true, post),
+                    (false, false, late),
+                    (true, false, late),
+                    (false, true, late),
+                    (true, true, late),
                 ] {
                     let trace = io_stats::Trace::default();
                     let mut reader = SearchIndexReader::open_with_context(

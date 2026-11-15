@@ -94,6 +94,7 @@ impl WorkerPathPolicy {
             return Self::SerialOnly { reason };
         };
         let parallel = match strategy {
+            VectorFilterStrategy::Late { .. } => false,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: true,
             } => true,
@@ -559,6 +560,12 @@ mod vector_filter_tests {
                 ),
                 (
                     VectorFilterStrategy::Post {
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Late {
                         estimated_selectivity: 0.1,
                     },
                     false,

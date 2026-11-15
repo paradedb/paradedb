@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794729953244,
+  "lastUpdate": 1794731066016,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -377976,6 +377976,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14104892567-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e4744a6e3c2ba95eb2464edcbceba72a3b55a24",
+          "message": "fix: read PL/pgSQL variables through paramFetch in generic plans (#7427)\n\n# Ticket(s) Closed\n\n- Closes #7289\n\n## What\n\nOnce a PL/pgSQL statement switches to a generic plan, its variables now\nkeep their values when used as `LIMIT`/`OFFSET`, as `pdb.snippet()`\narguments, or as a vector `ORDER BY` operand. Before, the reporter's\n`LIMIT n` loop returned 0 rows, a snippet tag crashed the backend, and a\nvector operand could return wrong rows, raise an error, or crash.\n\n## Why\n\nIn a generic plan, PL/pgSQL variables are extern `Param`s. PL/pgSQL\nbuilds its `ParamListInfo` with `makeParamList(0)` in `pl_exec.c` and\nserves values only through the `paramFetch` hook, so the list has no\n`params[]` storage. `ParameterizedValue::resolve` read `params[param_id\n- 1]` anyway, which reads memory past the allocation.\n`QueryVector::resolve` read the same slot's flags before it tried the\nhook. `PREPARE`/`EXECUTE` fills a real `params[]` array, which is why\nthe reporter's prepared statement worked.\n\n## How\n\nA new helper, `fetch_extern_param` in\n`common/src/postgres/customscan/parameterized_value.rs`, reads a\nparameter the way `ExecEvalParamExtern` does. It applies the same\n`1..=numParams` bounds check, calls `paramFetch` when the list has one,\nand otherwise reads `params[]`. `ParameterizedValue::resolve` (LIMIT,\nOFFSET, snippet arguments) and `QueryVector::resolve` (vector `ORDER\nBY`) both use it. Lists without a hook, such as those from\n`PREPARE`/`EXECUTE` and SQL functions, are read from the same slot as\nbefore.\n\n## Tests\n\n- `issue_7289` runs the reporter's `LIMIT n` loop across the switch to a\ngeneric plan, a `pdb.snippet(start_tag => tag)` call, and a vector\n`ORDER BY vec <=> q` from a DO block and from a function argument. On\n`main` it fails with `LIMIT 6, matched 0` and then a backend crash at\nthe snippet call. With only the LIMIT fix, the vector cases failed in 15\nof 16 runs with `query vector length 1 does not match field \"vec\" dim\n3`. That failure depends on what memory follows the list, so it can pass\nby luck.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I also ran 621 generated PL/pgSQL vector `ORDER BY` shapes with\ndifferent variable layouts and function arguments, each in its own\nbackend. All return the right rows. On `main`, 164 of them return wrong\nrows, raise an error, or crash the backend.\n- `cargo fmt --all -- --check`, `cargo clippy -p common --all-targets --\n-D warnings --no-deps`, and `cargo doc -p common --no-deps` with `-D\nwarnings` are clean.\n\nA NULL `LIMIT` parameter in a generic plan still raises `LIMIT must be\nresolvable from EState`, as `EXECUTE p(NULL)` already does on `main`.\nThat is a separate bug. The changelog entry is in\n`docs/project/changelog/unreleased/7427.bugfix.mdx`. 0.26.x reads these\nparameters the same way, so could a maintainer add `cherry-pick/0.26.x`?",
+          "timestamp": "2026-11-14T18:56:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e4744a6e3c2ba95eb2464edcbceba72a3b55a24"
+        },
+        "date": 1794731062786,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 16.19928691863405,
+            "unit": "median tps",
+            "extra": "avg tps: 14.126552471247713, max tps: 19.05791331702713, count: 58968"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.9845103114065967,
+            "unit": "median tps",
+            "extra": "avg tps: 3.348032188188544, max tps: 12.061538564793478, count: 58968"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 140.5686855202403,
+            "unit": "median tps",
+            "extra": "avg tps: 147.4792426415453, max tps: 326.43979051765115, count: 58968"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 160.858983363108,
+            "unit": "median tps",
+            "extra": "avg tps: 166.31071942693617, max tps: 319.84603940571714, count: 58968"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 155.289131325283,
+            "unit": "median tps",
+            "extra": "avg tps: 154.77819737349142, max tps: 420.0481140508276, count: 58968"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 151.57373395720668,
+            "unit": "median tps",
+            "extra": "avg tps: 148.38257519408756, max tps: 256.5695996909945, count: 58968"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 137.20384366982407,
+            "unit": "median tps",
+            "extra": "avg tps: 147.45255352443007, max tps: 335.59239263156, count: 58968"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 151.85260109371933,
+            "unit": "median tps",
+            "extra": "avg tps: 162.26638220506265, max tps: 305.05370105927403, count: 58968"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 142.9955545394333,
+            "unit": "median tps",
+            "extra": "avg tps: 158.3145311841814, max tps: 366.04798623338655, count: 58968"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 144.3113893479345,
+            "unit": "median tps",
+            "extra": "avg tps: 153.0889184282459, max tps: 470.3496625494974, count: 58968"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 146.9295570895512,
+            "unit": "median tps",
+            "extra": "avg tps: 159.3702686593451, max tps: 427.6065144795126, count: 58968"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 164.4826493869788,
+            "unit": "median tps",
+            "extra": "avg tps: 173.4981439131512, max tps: 304.7531078074334, count: 58968"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 131.30842361246374,
+            "unit": "median tps",
+            "extra": "avg tps: 140.56964082715507, max tps: 364.864374096587, count: 58968"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 143.56883976025512,
+            "unit": "median tps",
+            "extra": "avg tps: 154.98960915776084, max tps: 348.21964045281663, count: 58968"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 169.23323755679584,
+            "unit": "median tps",
+            "extra": "avg tps: 168.2139561884467, max tps: 349.31601176993775, count: 58968"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 163.19271946746528,
+            "unit": "median tps",
+            "extra": "avg tps: 168.71672666350452, max tps: 335.4653108664055, count: 58968"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 158.1302403561664,
+            "unit": "median tps",
+            "extra": "avg tps: 164.39877214831273, max tps: 353.0096895206237, count: 58968"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 169.97472502530445,
+            "unit": "median tps",
+            "extra": "avg tps: 184.09948722542293, max tps: 303.9671036574244, count: 58968"
+          }
+        ],
+        "publication_id": "14153507077-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [
@@ -391966,6 +392097,275 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14104892567-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e4744a6e3c2ba95eb2464edcbceba72a3b55a24",
+          "message": "fix: read PL/pgSQL variables through paramFetch in generic plans (#7427)\n\n# Ticket(s) Closed\n\n- Closes #7289\n\n## What\n\nOnce a PL/pgSQL statement switches to a generic plan, its variables now\nkeep their values when used as `LIMIT`/`OFFSET`, as `pdb.snippet()`\narguments, or as a vector `ORDER BY` operand. Before, the reporter's\n`LIMIT n` loop returned 0 rows, a snippet tag crashed the backend, and a\nvector operand could return wrong rows, raise an error, or crash.\n\n## Why\n\nIn a generic plan, PL/pgSQL variables are extern `Param`s. PL/pgSQL\nbuilds its `ParamListInfo` with `makeParamList(0)` in `pl_exec.c` and\nserves values only through the `paramFetch` hook, so the list has no\n`params[]` storage. `ParameterizedValue::resolve` read `params[param_id\n- 1]` anyway, which reads memory past the allocation.\n`QueryVector::resolve` read the same slot's flags before it tried the\nhook. `PREPARE`/`EXECUTE` fills a real `params[]` array, which is why\nthe reporter's prepared statement worked.\n\n## How\n\nA new helper, `fetch_extern_param` in\n`common/src/postgres/customscan/parameterized_value.rs`, reads a\nparameter the way `ExecEvalParamExtern` does. It applies the same\n`1..=numParams` bounds check, calls `paramFetch` when the list has one,\nand otherwise reads `params[]`. `ParameterizedValue::resolve` (LIMIT,\nOFFSET, snippet arguments) and `QueryVector::resolve` (vector `ORDER\nBY`) both use it. Lists without a hook, such as those from\n`PREPARE`/`EXECUTE` and SQL functions, are read from the same slot as\nbefore.\n\n## Tests\n\n- `issue_7289` runs the reporter's `LIMIT n` loop across the switch to a\ngeneric plan, a `pdb.snippet(start_tag => tag)` call, and a vector\n`ORDER BY vec <=> q` from a DO block and from a function argument. On\n`main` it fails with `LIMIT 6, matched 0` and then a backend crash at\nthe snippet call. With only the LIMIT fix, the vector cases failed in 15\nof 16 runs with `query vector length 1 does not match field \"vec\" dim\n3`. That failure depends on what memory follows the list, so it can pass\nby luck.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I also ran 621 generated PL/pgSQL vector `ORDER BY` shapes with\ndifferent variable layouts and function arguments, each in its own\nbackend. All return the right rows. On `main`, 164 of them return wrong\nrows, raise an error, or crash the backend.\n- `cargo fmt --all -- --check`, `cargo clippy -p common --all-targets --\n-D warnings --no-deps`, and `cargo doc -p common --no-deps` with `-D\nwarnings` are clean.\n\nA NULL `LIMIT` parameter in a generic plan still raises `LIMIT must be\nresolvable from EState`, as `EXECUTE p(NULL)` already does on `main`.\nThat is a separate bug. The changelog entry is in\n`docs/project/changelog/unreleased/7427.bugfix.mdx`. 0.26.x reads these\nparameters the same way, so could a maintainer add `cherry-pick/0.26.x`?",
+          "timestamp": "2026-11-14T18:56:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e4744a6e3c2ba95eb2464edcbceba72a3b55a24"
+        },
+        "date": 1794731065895,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.451658,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.037907123015286, max cpu: 32.076374, count: 58968"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.58891700265398, max mem: 52.6015625, count: 58968"
+          },
+          {
+            "name": "Background Merging - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.190458896154764, max cpu: 4.5823393, count: 58968"
+          },
+          {
+            "name": "Background Merging - Primary - mem",
+            "value": 32.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.533647486772487, max mem: 34.4609375, count: 58968"
+          },
+          {
+            "name": "Background Merging - Primary - merged_away",
+            "value": 1227,
+            "unit": "median merged_away",
+            "extra": "avg merged_away: 1221.6727547144214, max merged_away: 1650.0, count: 58968"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.846264,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.754250056243478, max cpu: 32.307693, count: 58968"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 137.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 136.02314741946904, max mem: 166.6640625, count: 58968"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 16368,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16089.9680674264, max block_count: 16371.0, count: 58968"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 15,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.010904219237553, max segment_count: 25.0, count: 58968"
+          },
+          {
+            "name": "Upsert 1 - Primary - cpu",
+            "value": 18.062088,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.3389833943643, max cpu: 32.061066, count: 58968"
+          },
+          {
+            "name": "Upsert 1 - Primary - mem",
+            "value": 74.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.98608706470034, max mem: 216.7109375, count: 58968"
+          },
+          {
+            "name": "Upsert 10 - Primary - cpu",
+            "value": 18.079096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.459444731379744, max cpu: 32.276657, count: 58968"
+          },
+          {
+            "name": "Upsert 10 - Primary - mem",
+            "value": 90.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 96.72892865357058, max mem: 254.625, count: 58968"
+          },
+          {
+            "name": "Upsert 11 - Primary - cpu",
+            "value": 18.019709,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.218079667717625, max cpu: 32.061066, count: 58968"
+          },
+          {
+            "name": "Upsert 11 - Primary - mem",
+            "value": 96.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.20186822725886, max mem: 218.48828125, count: 58968"
+          },
+          {
+            "name": "Upsert 12 - Primary - cpu",
+            "value": 18.036636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.376236653594813, max cpu: 32.18391, count: 58968"
+          },
+          {
+            "name": "Upsert 12 - Primary - mem",
+            "value": 110.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 127.46900662753528, max mem: 302.75, count: 58968"
+          },
+          {
+            "name": "Upsert 13 - Primary - cpu",
+            "value": 18.079096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.444186552129725, max cpu: 32.19933, count: 58968"
+          },
+          {
+            "name": "Upsert 13 - Primary - mem",
+            "value": 138.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 123.75797512792956, max mem: 202.51171875, count: 58968"
+          },
+          {
+            "name": "Upsert 14 - Primary - cpu",
+            "value": 17.695852,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.66373518894769, max cpu: 32.18391, count: 58968"
+          },
+          {
+            "name": "Upsert 14 - Primary - mem",
+            "value": 114.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 104.20571585171194, max mem: 114.66015625, count: 58968"
+          },
+          {
+            "name": "Upsert 15 - Primary - cpu",
+            "value": 18.087612,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.486172740625864, max cpu: 32.19933, count: 58968"
+          },
+          {
+            "name": "Upsert 15 - Primary - mem",
+            "value": 69.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.27937736092034, max mem: 247.5234375, count: 58968"
+          },
+          {
+            "name": "Upsert 16 - Primary - cpu",
+            "value": 17.927172,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.85453450690438, max cpu: 32.061066, count: 58968"
+          },
+          {
+            "name": "Upsert 16 - Primary - mem",
+            "value": 92.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.00230083742454, max mem: 199.31640625, count: 58968"
+          },
+          {
+            "name": "Upsert 2 - Primary - cpu",
+            "value": 17.994377,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.11068702342241, max cpu: 32.18391, count: 58968"
+          },
+          {
+            "name": "Upsert 2 - Primary - mem",
+            "value": 120.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.9132684384963, max mem: 163.41796875, count: 58968"
+          },
+          {
+            "name": "Upsert 3 - Primary - cpu",
+            "value": 17.952314,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.924658539468556, max cpu: 32.076374, count: 58968"
+          },
+          {
+            "name": "Upsert 3 - Primary - mem",
+            "value": 98.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 109.06058165286682, max mem: 236.6875, count: 58968"
+          },
+          {
+            "name": "Upsert 4 - Primary - cpu",
+            "value": 18.268316,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.394339873505935, max cpu: 32.061066, count: 58968"
+          },
+          {
+            "name": "Upsert 4 - Primary - mem",
+            "value": 142.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 131.66671793917888, max mem: 256.7734375, count: 58968"
+          },
+          {
+            "name": "Upsert 5 - Primary - cpu",
+            "value": 18.104668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.68666177713133, max cpu: 32.19933, count: 58968"
+          },
+          {
+            "name": "Upsert 5 - Primary - mem",
+            "value": 124.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 117.49390387053147, max mem: 240.6328125, count: 58968"
+          },
+          {
+            "name": "Upsert 6 - Primary - cpu",
+            "value": 17.927172,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.93134652996767, max cpu: 32.061066, count: 58968"
+          },
+          {
+            "name": "Upsert 6 - Primary - mem",
+            "value": 98.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 104.34829132696971, max mem: 214.8984375, count: 58968"
+          },
+          {
+            "name": "Upsert 7 - Primary - cpu",
+            "value": 17.935545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.728131221267265, max cpu: 32.15311, count: 58968"
+          },
+          {
+            "name": "Upsert 7 - Primary - mem",
+            "value": 106.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.94203967088082, max mem: 218.765625, count: 58968"
+          },
+          {
+            "name": "Upsert 8 - Primary - cpu",
+            "value": 18.011257,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.16444073969999, max cpu: 32.19933, count: 58968"
+          },
+          {
+            "name": "Upsert 8 - Primary - mem",
+            "value": 96.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 96.61034222215862, max mem: 209.8046875, count: 58968"
+          },
+          {
+            "name": "Upsert 9 - Primary - cpu",
+            "value": 17.802504,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.644118993992404, max cpu: 32.061066, count: 58968"
+          },
+          {
+            "name": "Upsert 9 - Primary - mem",
+            "value": 86.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 83.53721529844577, max mem: 243.6953125, count: 58968"
+          }
+        ],
+        "publication_id": "14153507077-other"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - TPS": [

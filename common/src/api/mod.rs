@@ -369,11 +369,13 @@ mod query_vector_bytes {
             _ => Err(D::Error::custom("query vector bytes are not lowercase hex")),
         };
         text.as_bytes()
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|digits| {
                 let mut bytes = [0u8; 4];
-                for (byte, pair) in bytes.iter_mut().zip(digits.chunks_exact(2)) {
-                    *byte = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+                for (byte, [high, low]) in bytes.iter_mut().zip(digits.as_chunks::<2>().0) {
+                    *byte = (nibble(*high)? << 4) | nibble(*low)?;
                 }
                 Ok(f32::from_le_bytes(bytes))
             })

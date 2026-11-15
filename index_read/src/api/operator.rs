@@ -178,10 +178,20 @@ pub fn estimate_selectivity_and_cost(
     }
 }
 
+/// The fraction of heap rows matching `search_query_input`, or `None` when it cannot be estimated.
+///
+/// A query that matches every indexed row of an index without a predicate matches every row, so
+/// it is answered without opening the index.
 pub fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
+    // SAFETY: `indexrel` is an open index; its predicate list comes from the relcache.
+    if search_query_input.is_match_all()
+        && unsafe { pg_sys::RelationGetIndexPredicate(indexrel.as_ptr()) }.is_null()
+    {
+        return Some(crate::FULL_RELATION_SELECTIVITY);
+    }
     estimate_selectivity_and_cost(indexrel, search_query_input, None).selectivity
 }
 

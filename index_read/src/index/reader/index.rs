@@ -30,6 +30,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::gucs;
+use crate::index::directory::utils::load_metas;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -67,7 +68,7 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
-use tantivy::index::{Index, Order, SegmentId};
+use tantivy::index::{Index, Order, SegmentId, SegmentMetaInventory};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
@@ -1637,8 +1638,8 @@ impl SearchIndexReader {
     /// Tantivy `Query` or `TokenizerManager`.
     ///
     /// When `search_query_input` contains a prunable predicate, opens `MvccSatisfies::Snapshot`
-    /// and counts segments that survive [`SegmentPruner`]. Otherwise, opens
-    /// `MvccSatisfies::LargestSegment` and returns `total_segment_count`.
+    /// and counts segments that survive [`SegmentPruner`]. Otherwise, counts the segments of the
+    /// segment list visible to the snapshot, without opening the index.
     pub fn estimate_segment_count(
         index_relation: &PgSearchRelation,
         schema: &SearchIndexSchema,
@@ -1667,10 +1668,18 @@ impl SearchIndexReader {
                 })
                 .count()
         } else {
-            let directory = MvccSatisfies::LargestSegment.directory(index_relation);
-            let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-            crate::index::open_index(directory).expect("custom_scan: should be able to open index");
-            segment_count.load(std::sync::atomic::Ordering::Relaxed)
+            // SAFETY: `index_relation` is an open pg_search index whose schema is `schema`, read
+            // in a transaction during planning.
+            unsafe {
+                load_metas(
+                    index_relation,
+                    &SegmentMetaInventory::default(),
+                    &MvccSatisfies::LargestSegment,
+                    schema.tantivy_schema(),
+                )
+            }
+            .expect("custom_scan: should be able to read the segment list")
+            .total_segments
         }
     }
 
@@ -3871,6 +3880,43 @@ mod tests {
                 assert_eq!(reader.collect(DocSetCollector).len(), 10);
             }
             assert_eq!(calls.load(Relaxed), 2);
+        }
+    }
+
+    #[pg_test]
+    fn match_all_selectivity_opens_only_partial_indexes() {
+        Spi::run(
+            "CREATE TABLE match_all_full (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX match_all_full_idx ON match_all_full USING paradedb (id, title);
+             INSERT INTO match_all_full SELECT g, 'row ' || g FROM generate_series(1, 20) g;
+             CREATE TABLE match_all_partial (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX match_all_partial_idx ON match_all_partial USING paradedb (id, title)
+             WHERE id > 5;
+             INSERT INTO match_all_partial SELECT g, 'row ' || g FROM generate_series(1, 20) g;",
+        )
+        .unwrap();
+        // SAFETY: this backend's own buffer usage counters, read on its main thread.
+        let blocks = || unsafe {
+            pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+        };
+        for (name, partial) in [
+            ("match_all_full_idx", false),
+            ("match_all_partial_idx", true),
+        ] {
+            let index = open_index(name);
+            let all = SearchQueryInput::WithIndex {
+                oid: index.oid(),
+                query: Box::new(SearchQueryInput::All),
+            };
+            let before = blocks();
+            let selectivity = crate::api::operator::estimate_selectivity(&index, all);
+            let read = blocks() - before;
+            if partial {
+                assert!(read > 0, "a partial index is opened for its estimate");
+            } else {
+                assert_eq!(selectivity, Some(1.0));
+                assert_eq!(read, 0, "the estimate reads no buffers");
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794729926440,
+  "lastUpdate": 1794729953244,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -409856,6 +409856,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14105283869-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e4744a6e3c2ba95eb2464edcbceba72a3b55a24",
+          "message": "fix: read PL/pgSQL variables through paramFetch in generic plans (#7427)\n\n# Ticket(s) Closed\n\n- Closes #7289\n\n## What\n\nOnce a PL/pgSQL statement switches to a generic plan, its variables now\nkeep their values when used as `LIMIT`/`OFFSET`, as `pdb.snippet()`\narguments, or as a vector `ORDER BY` operand. Before, the reporter's\n`LIMIT n` loop returned 0 rows, a snippet tag crashed the backend, and a\nvector operand could return wrong rows, raise an error, or crash.\n\n## Why\n\nIn a generic plan, PL/pgSQL variables are extern `Param`s. PL/pgSQL\nbuilds its `ParamListInfo` with `makeParamList(0)` in `pl_exec.c` and\nserves values only through the `paramFetch` hook, so the list has no\n`params[]` storage. `ParameterizedValue::resolve` read `params[param_id\n- 1]` anyway, which reads memory past the allocation.\n`QueryVector::resolve` read the same slot's flags before it tried the\nhook. `PREPARE`/`EXECUTE` fills a real `params[]` array, which is why\nthe reporter's prepared statement worked.\n\n## How\n\nA new helper, `fetch_extern_param` in\n`common/src/postgres/customscan/parameterized_value.rs`, reads a\nparameter the way `ExecEvalParamExtern` does. It applies the same\n`1..=numParams` bounds check, calls `paramFetch` when the list has one,\nand otherwise reads `params[]`. `ParameterizedValue::resolve` (LIMIT,\nOFFSET, snippet arguments) and `QueryVector::resolve` (vector `ORDER\nBY`) both use it. Lists without a hook, such as those from\n`PREPARE`/`EXECUTE` and SQL functions, are read from the same slot as\nbefore.\n\n## Tests\n\n- `issue_7289` runs the reporter's `LIMIT n` loop across the switch to a\ngeneric plan, a `pdb.snippet(start_tag => tag)` call, and a vector\n`ORDER BY vec <=> q` from a DO block and from a function argument. On\n`main` it fails with `LIMIT 6, matched 0` and then a backend crash at\nthe snippet call. With only the LIMIT fix, the vector cases failed in 15\nof 16 runs with `query vector length 1 does not match field \"vec\" dim\n3`. That failure depends on what memory follows the list, so it can pass\nby luck.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I also ran 621 generated PL/pgSQL vector `ORDER BY` shapes with\ndifferent variable layouts and function arguments, each in its own\nbackend. All return the right rows. On `main`, 164 of them return wrong\nrows, raise an error, or crash the backend.\n- `cargo fmt --all -- --check`, `cargo clippy -p common --all-targets --\n-D warnings --no-deps`, and `cargo doc -p common --no-deps` with `-D\nwarnings` are clean.\n\nA NULL `LIMIT` parameter in a generic plan still raises `LIMIT must be\nresolvable from EState`, as `EXECUTE p(NULL)` already does on `main`.\nThat is a separate bug. The changelog entry is in\n`docs/project/changelog/unreleased/7427.bugfix.mdx`. 0.26.x reads these\nparameters the same way, so could a maintainer add `cherry-pick/0.26.x`?",
+          "timestamp": "2026-11-14T18:56:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e4744a6e3c2ba95eb2464edcbceba72a3b55a24"
+        },
+        "date": 1794729949804,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 445.8462977948359,
+            "unit": "median tps",
+            "extra": "avg tps: 445.7529945542499, max tps: 447.73535475841743, count: 57188"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - tps",
+            "value": 421.2710426171,
+            "unit": "median tps",
+            "extra": "avg tps: 421.14722247033524, max tps: 424.0926285924343, count: 57188"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3657.615190756183,
+            "unit": "median tps",
+            "extra": "avg tps: 3654.9414692092937, max tps: 3829.5027825592715, count: 57188"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - tps",
+            "value": 446.8158131543573,
+            "unit": "median tps",
+            "extra": "avg tps: 446.63094914910414, max tps: 449.23998056459124, count: 57188"
+          },
+          {
+            "name": "Insert value A - Primary - tps",
+            "value": 3377.209827315765,
+            "unit": "median tps",
+            "extra": "avg tps: 3368.8065239412613, max tps: 3500.121665687483, count: 57188"
+          },
+          {
+            "name": "Insert value B - Primary - tps",
+            "value": 3380.095228370399,
+            "unit": "median tps",
+            "extra": "avg tps: 3375.6166658271136, max tps: 3569.927820521879, count: 57188"
+          },
+          {
+            "name": "JoinScan - Primary - tps",
+            "value": 180.1108801273948,
+            "unit": "median tps",
+            "extra": "avg tps: 180.3555984922439, max tps: 182.68501437503687, count: 57188"
+          },
+          {
+            "name": "Normal Base Scan - Primary - tps",
+            "value": 350.83200302134344,
+            "unit": "median tps",
+            "extra": "avg tps: 350.8957943380229, max tps: 352.37705910651687, count: 57188"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - tps",
+            "value": 526.8525300572775,
+            "unit": "median tps",
+            "extra": "avg tps: 525.0288316339328, max tps: 546.7721436407028, count: 57188"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - tps",
+            "value": 615.4874440648432,
+            "unit": "median tps",
+            "extra": "avg tps: 613.4177277300628, max tps: 617.3437833439252, count: 57188"
+          },
+          {
+            "name": "Rotate join keys - Primary - tps",
+            "value": 1376.912128579102,
+            "unit": "median tps",
+            "extra": "avg tps: 1376.3621641837656, max tps: 1383.1630298570228, count: 57188"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - tps",
+            "value": 450.84977381034025,
+            "unit": "median tps",
+            "extra": "avg tps: 450.7537545940496, max tps: 452.8373413001781, count: 57188"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 546.1432228110907,
+            "unit": "median tps",
+            "extra": "avg tps: 545.8183388275975, max tps: 549.2844816100057, count: 57188"
+          },
+          {
+            "name": "Update joined rows - Primary - tps",
+            "value": 2410.392114691799,
+            "unit": "median tps",
+            "extra": "avg tps: 2405.246733898349, max tps: 2416.030433325798, count: 57188"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1729.369531816059,
+            "unit": "median tps",
+            "extra": "avg tps: 1737.9423725179875, max tps: 2140.763827076983, count: 57188"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.80288655048565,
+            "unit": "median tps",
+            "extra": "avg tps: 24.12168477642653, max tps: 1329.1315056002954, count: 57188"
+          }
+        ],
+        "publication_id": "14153008043-tps"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - Other Metrics": [
@@ -443946,6 +444065,233 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14105283869-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9e4744a6e3c2ba95eb2464edcbceba72a3b55a24",
+          "message": "fix: read PL/pgSQL variables through paramFetch in generic plans (#7427)\n\n# Ticket(s) Closed\n\n- Closes #7289\n\n## What\n\nOnce a PL/pgSQL statement switches to a generic plan, its variables now\nkeep their values when used as `LIMIT`/`OFFSET`, as `pdb.snippet()`\narguments, or as a vector `ORDER BY` operand. Before, the reporter's\n`LIMIT n` loop returned 0 rows, a snippet tag crashed the backend, and a\nvector operand could return wrong rows, raise an error, or crash.\n\n## Why\n\nIn a generic plan, PL/pgSQL variables are extern `Param`s. PL/pgSQL\nbuilds its `ParamListInfo` with `makeParamList(0)` in `pl_exec.c` and\nserves values only through the `paramFetch` hook, so the list has no\n`params[]` storage. `ParameterizedValue::resolve` read `params[param_id\n- 1]` anyway, which reads memory past the allocation.\n`QueryVector::resolve` read the same slot's flags before it tried the\nhook. `PREPARE`/`EXECUTE` fills a real `params[]` array, which is why\nthe reporter's prepared statement worked.\n\n## How\n\nA new helper, `fetch_extern_param` in\n`common/src/postgres/customscan/parameterized_value.rs`, reads a\nparameter the way `ExecEvalParamExtern` does. It applies the same\n`1..=numParams` bounds check, calls `paramFetch` when the list has one,\nand otherwise reads `params[]`. `ParameterizedValue::resolve` (LIMIT,\nOFFSET, snippet arguments) and `QueryVector::resolve` (vector `ORDER\nBY`) both use it. Lists without a hook, such as those from\n`PREPARE`/`EXECUTE` and SQL functions, are read from the same slot as\nbefore.\n\n## Tests\n\n- `issue_7289` runs the reporter's `LIMIT n` loop across the switch to a\ngeneric plan, a `pdb.snippet(start_tag => tag)` call, and a vector\n`ORDER BY vec <=> q` from a DO block and from a function argument. On\n`main` it fails with `LIMIT 6, matched 0` and then a backend crash at\nthe snippet call. With only the LIMIT fix, the vector cases failed in 15\nof 16 runs with `query vector length 1 does not match field \"vec\" dim\n3`. That failure depends on what memory follows the list, so it can pass\nby luck.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I also ran 621 generated PL/pgSQL vector `ORDER BY` shapes with\ndifferent variable layouts and function arguments, each in its own\nbackend. All return the right rows. On `main`, 164 of them return wrong\nrows, raise an error, or crash the backend.\n- `cargo fmt --all -- --check`, `cargo clippy -p common --all-targets --\n-D warnings --no-deps`, and `cargo doc -p common --no-deps` with `-D\nwarnings` are clean.\n\nA NULL `LIMIT` parameter in a generic plan still raises `LIMIT must be\nresolvable from EState`, as `EXECUTE p(NULL)` already does on `main`.\nThat is a separate bug. The changelog entry is in\n`docs/project/changelog/unreleased/7427.bugfix.mdx`. 0.26.x reads these\nparameters the same way, so could a maintainer add `cherry-pick/0.26.x`?",
+          "timestamp": "2026-11-14T18:56:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/9e4744a6e3c2ba95eb2464edcbceba72a3b55a24"
+        },
+        "date": 1794729953123,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.782943811290826, max cpu: 13.826212, count: 57188"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 49.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.24483604241711, max mem: 49.26953125, count: 57188"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.913521079118042, max cpu: 14.0625, count: 57188"
+          },
+          {
+            "name": "Columnar Base Scan - Primary - mem",
+            "value": 56.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.367076025564806, max mem: 56.37890625, count: 57188"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.5779686,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.613305097715959, max cpu: 9.217475, count: 57188"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 31.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.72078481827481, max mem: 31.7265625, count: 57188"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.780664568669855, max cpu: 13.826212, count: 57188"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Primary - mem",
+            "value": 46.5,
+            "unit": "median mem",
+            "extra": "avg mem: 46.471298611596836, max mem: 46.5, count: 57188"
+          },
+          {
+            "name": "Insert value A - Primary - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.577165517726452, max cpu: 9.204219, count: 57188"
+          },
+          {
+            "name": "Insert value A - Primary - mem",
+            "value": 39.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 39.83946807022452, max mem: 39.84375, count: 57188"
+          },
+          {
+            "name": "Insert value B - Primary - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.591541788518809, max cpu: 9.213051, count: 57188"
+          },
+          {
+            "name": "Insert value B - Primary - mem",
+            "value": 39.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 39.83883528887179, max mem: 39.84375, count: 57188"
+          },
+          {
+            "name": "JoinScan - Primary - cpu",
+            "value": 9.18221,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.981597207137824, max cpu: 27.415518, count: 57188"
+          },
+          {
+            "name": "JoinScan - Primary - mem",
+            "value": 81.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 81.11186288808403, max mem: 81.11328125, count: 57188"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 756,
+            "unit": "median block_count",
+            "extra": "avg block_count: 722.117734489753, max block_count: 756.0, count: 57188"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.618888578023362, max segment_count: 14.0, count: 57188"
+          },
+          {
+            "name": "Normal Base Scan - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.864734646518559, max cpu: 18.768328, count: 57188"
+          },
+          {
+            "name": "Normal Base Scan - Primary - mem",
+            "value": 44.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.3741966600292, max mem: 44.37890625, count: 57188"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.152156855361008, max cpu: 4.6087375, count: 57188"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Primary - mem",
+            "value": 42.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.74916626412009, max mem: 42.15234375, count: 57188"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.17491454460394, max cpu: 13.9738, count: 57188"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Primary - mem",
+            "value": 42.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 42.14298761595527, max mem: 42.18359375, count: 57188"
+          },
+          {
+            "name": "Rotate join keys - Primary - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.527769129591386, max cpu: 4.613167, count: 57188"
+          },
+          {
+            "name": "Rotate join keys - Primary - mem",
+            "value": 40.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 40.34865439701073, max mem: 40.55078125, count: 57188"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.766113233194023, max cpu: 13.9738, count: 57188"
+          },
+          {
+            "name": "Score-ordered Top K Base Scan - Primary - mem",
+            "value": 57.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.71234390846856, max mem: 57.74609375, count: 57188"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 4.5779686,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3836275132108335, max cpu: 13.81295, count: 57188"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 56.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.84666220131409, max mem: 56.84765625, count: 57188"
+          },
+          {
+            "name": "Update joined rows - Primary - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.555379729614416, max cpu: 4.626506, count: 57188"
+          },
+          {
+            "name": "Update joined rows - Primary - mem",
+            "value": 40.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 40.50044384857837, max mem: 40.55859375, count: 57188"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.56187914172723, max cpu: 4.64666, count: 57188"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 41.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.097805702245225, max mem: 41.1171875, count: 57188"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.556241,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.114340771132573, max cpu: 4.6021094, count: 57188"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 44.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 44.285613144912396, max mem: 44.890625, count: 57188"
+          }
+        ],
+        "publication_id": "14153008043-other"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - TPS": [

@@ -4279,6 +4279,7 @@ mod tests {
                 },
                 1,
             ),
+            (range_query("id", 1, 5), 5),
         ] {
             for query in [
                 query.clone(),
@@ -4329,7 +4330,6 @@ mod tests {
             *distance = Some(1);
         }
         for unsupported in [
-            range_query("id", 1, 5),
             fuzzy_match,
             SearchQueryInput::Parse {
                 query_string: "title:silver".into(),

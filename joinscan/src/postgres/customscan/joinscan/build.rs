@@ -447,27 +447,44 @@ impl JoinSourceCandidate {
             return;
         }
 
-        // `expr_context` only lives until the end of this function,
-        // which is fine because it is only used to get estimates
-        let expr_context = ExprContextGuard::new();
-        let needs_tokenizer_manager = query.needs_tokenizer();
-        let mvcc_style = SearchIndexReader::mvcc_for_estimation(&index_rel, &query);
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query,
-            false,
-            mvcc_style,
-            NonNull::new(expr_context.as_ptr()),
-            None,
-            needs_tokenizer_manager,
-            None,
-        )
-        .expect("Failed to open index reader for estimation");
-
-        let estimate = reader.estimate_docs(row_estimate);
-        self.segment_count = Some(reader.estimated_segment_count());
-        self.estimate = Some(RowEstimate::Known(estimate.matching_docs as u64));
+        let (segment_count, estimate) = estimate_resolved_query(&index_rel, row_estimate, query);
+        self.segment_count = Some(segment_count);
+        self.estimate = Some(estimate);
     }
+}
+
+/// Opens `index_rel` to compute `(estimated_segment_count, RowEstimate::Known(matching_docs))`
+/// for a `query` that contains no unresolved `PostgresExpression`s or heap filters.
+///
+/// Shared by plan-time `JoinSourceCandidate::estimate_rows` and execution-time
+/// `JoinSource::reestimate_solved_rows`.
+fn estimate_resolved_query(
+    index_rel: &PgSearchRelation,
+    row_estimate: RowEstimate,
+    query: SearchQueryInput,
+) -> (usize, RowEstimate) {
+    // `expr_context` only lives until the end of this function,
+    // which is fine because it is only used to get estimates.
+    let expr_context = ExprContextGuard::new();
+    let needs_tokenizer_manager = query.needs_tokenizer();
+    let mvcc_style = SearchIndexReader::mvcc_for_estimation(index_rel, &query);
+    let reader = SearchIndexReader::open_with_context(
+        index_rel,
+        query,
+        false,
+        mvcc_style,
+        NonNull::new(expr_context.as_ptr()),
+        None,
+        needs_tokenizer_manager,
+        None,
+    )
+    .expect("Failed to open index reader for estimation");
+
+    let estimate = reader.estimate_docs(row_estimate);
+    (
+        reader.estimated_segment_count(),
+        RowEstimate::Known(estimate.matching_docs as u64),
+    )
 }
 
 /// Represents the validated source of data for a join side used during execution.
@@ -517,6 +534,30 @@ impl JoinSource {
             }
             false
         })
+    }
+
+    /// Re-estimates `scan_info` once runtime `PostgresExpression`s (`Param` / `InitPlan`) have
+    /// been solved into concrete `SearchQueryInput` predicates. Only runs when planning-time
+    /// estimation fell back to `total_docs` (`estimate_from_total_docs == true`) and no residual
+    /// `PostgresExpression` or heap filter remains.
+    pub(super) fn reestimate_solved_rows(&mut self) -> bool {
+        if !self.scan_info.estimate_from_total_docs
+            || self.scan_info.indexrelid == pg_sys::InvalidOid
+        {
+            return false;
+        }
+        let query = self.scan_info.mode.query().clone();
+        if query.has_postgres_expressions() || query.has_heap_filters() {
+            return false;
+        }
+        let index_rel = PgSearchRelation::open(self.scan_info.indexrelid);
+        let heap_rel = PgSearchRelation::open(self.scan_info.heaprelid);
+        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+        let (segment_count, estimate) = estimate_resolved_query(&index_rel, row_estimate, query);
+        self.scan_info.segment_count = segment_count;
+        self.scan_info.estimate = estimate;
+        self.scan_info.estimate_from_total_docs = false;
+        true
     }
 
     /// Check if this source contains the given RTI.
@@ -1760,9 +1801,9 @@ impl RelNode {
             }
         }
     }
-    /// Visit every `SearchQueryInput` reachable from this subtree's `Scan` nodes.
-    /// Does NOT include `JoinCSClause::join_level_predicates` - those live outside
-    /// the tree and must be visited separately (see `JoinCSClause::visit_queries_mut`).
+    /// Visit every `SearchQueryInput` reachable from this subtree (`Scan`, `Join.filter`, and
+    /// `Filter.predicate` nodes). Does not include `JoinCSClause::window_aggs`, which live
+    /// outside `RelNode` and are visited by `JoinCSClause::visit_queries_mut`.
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
             RelNode::Scan(source) => source.scan_info.mode.queries_mut().for_each(f),

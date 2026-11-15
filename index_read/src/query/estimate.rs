@@ -15,23 +15,548 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::ops::Bound;
+//! Per-segment document-count and cost estimation (`QueryEstimate`) without building Tantivy
+//! scorers.
+//!
+//! Inverted-index queries (`TermQuery`, `SynonymQuery`, `PhraseQuery`, `BooleanQuery`) derive
+//! their estimates from segment `doc_freq` counts, combining `Occur::Must` clauses with
+//! correlation backoff (`s_1 * s_2^0.5 * s_3^0.25 ...`) rather than naive independence.
+//!
+//! Range queries (`RangeQueryWithEstimate`) use a three-part strategy:
+//! 1. Same-field `Occur::Must` range bounds inside a `BooleanQuery` are intersected into a single
+//!    interval before estimation (`peel_range_query` / `CoalescedMustRange`). PostgreSQL lowers
+//!    `col >= a AND col < b` into two separate range clauses; estimating them separately under
+//!    correlation backoff would treat a narrow interval as the intersection of two wide half-open
+//!    ranges.
+//! 2. For analyzed scalar heap columns, PostgreSQL's `pg_statistic` (`null_frac`, MCVs, and
+//!    equi-depth histogram) estimates the range's selectivity, conditioned on the segment's
+//!    `.stats` `[empirical.min, empirical.max]` (`estimate_fraction_from_column_stats`). Segment
+//!    `.stats` alone cannot estimate nullable or skewed columns (`view_count`, `score`), while
+//!    table-wide `pg_statistic` alone ignores `partition_by` or key-ordered segment value bounds;
+//!    conditioning on `[empirical.min, empirical.max]` (plus `null_frac` when nullable) combines
+//!    both.
+//! 3. When `pg_statistic` is unavailable, not applicable (e.g. JSON subpaths), or stale relative
+//!    to `[empirical.min, empirical.max]`, estimation falls back to uniform interpolation over
+//!    non-nullable segment `.stats` (`estimate_uniform_from_empirical`), or returns `None` so
+//!    callers fall back to Tantivy scorer `size_hint`.
 
-use crate::index::stats::SegmentStats;
+use std::cmp::Ordering;
+use std::ops::Bound;
+use std::sync::{Arc, OnceLock};
+
+use crate::index::stats::{
+    EmpiricalStats, SegmentStats, comparable, ends_before, lower_bound_ge, upper_bound_le,
+};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::schema::SearchField;
+use crate::schema::{HeapStatTarget, SearchField, SearchFieldType};
 use tantivy::SegmentReader;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, EmptyQuery, EnableScoring, Occur,
     PhraseQuery, Query, RangeQuery, SynonymQuery, TermQuery, Weight,
 };
 
+/// Wraps a Tantivy `RangeQuery` with the logical field metadata, canonicalized bounds, and lazily
+/// loaded `pg_statistic` summary needed by [`QueryEstimate`].
 #[derive(Clone, Debug)]
 pub(super) struct RangeQueryWithEstimate {
-    pub query: RangeQuery,
-    pub field: SearchField,
-    pub lower_bound: Bound<PdbOwnedValue>,
-    pub upper_bound: Bound<PdbOwnedValue>,
+    query: RangeQuery,
+    field: SearchField,
+    field_path: Option<String>,
+    stat_target: Option<HeapStatTarget>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+    col_stats: OnceLock<Option<Arc<ColumnStats>>>,
+}
+
+impl RangeQueryWithEstimate {
+    pub(super) fn new(
+        query: RangeQuery,
+        field: SearchField,
+        field_path: Option<String>,
+        stat_target: Option<HeapStatTarget>,
+        bounds: (Bound<PdbOwnedValue>, Bound<PdbOwnedValue>),
+    ) -> Self {
+        Self {
+            query,
+            field,
+            field_path,
+            stat_target,
+            lower_bound: bounds.0,
+            upper_bound: bounds.1,
+            col_stats: OnceLock::new(),
+        }
+    }
+
+    fn cached_column_stats(&self) -> Option<&Arc<ColumnStats>> {
+        self.col_stats
+            .get_or_init(|| {
+                if !is_supported_stat_field(&self.field) {
+                    return None;
+                }
+                self.stat_target.and_then(load_pg_column_stats)
+            })
+            .as_ref()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ColumnStats {
+    null_frac: f64,
+    mcvs: Vec<(PdbOwnedValue, f64)>,
+    histogram: Vec<PdbOwnedValue>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RangeBoundsRef<'a> {
+    lower: &'a Bound<PdbOwnedValue>,
+    upper: &'a Bound<PdbOwnedValue>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum CdfCutoff {
+    Below,
+    AtOrBelow,
+}
+
+impl RangeBoundsRef<'_> {
+    fn contains(self, value: &PdbOwnedValue) -> Option<bool> {
+        let pt = Bound::Included(value.clone());
+        if !bound_pair_comparable(&pt, self.lower) || !bound_pair_comparable(&pt, self.upper) {
+            return None;
+        }
+        let pt_ref = Bound::Included(value);
+        Some(
+            lower_bound_ge(pt_ref, self.lower.as_ref())
+                && upper_bound_le(pt_ref, self.upper.as_ref()),
+        )
+    }
+}
+
+fn scalar_diff(a: &PdbOwnedValue, b: &PdbOwnedValue) -> Option<f64> {
+    let diff = match (a, b) {
+        (PdbOwnedValue::I64(a), PdbOwnedValue::I64(b)) => (i128::from(*a) - i128::from(*b)) as f64,
+        (PdbOwnedValue::U64(a), PdbOwnedValue::U64(b)) => (i128::from(*a) - i128::from(*b)) as f64,
+        (PdbOwnedValue::I64(a), PdbOwnedValue::U64(b)) => (i128::from(*a) - i128::from(*b)) as f64,
+        (PdbOwnedValue::U64(a), PdbOwnedValue::I64(b)) => (i128::from(*a) - i128::from(*b)) as f64,
+        (PdbOwnedValue::Date(a), PdbOwnedValue::Date(b)) => {
+            (i128::from(a.into_inner()) - i128::from(b.into_inner())) as f64
+        }
+        (PdbOwnedValue::F64(a), PdbOwnedValue::F64(b)) => a - b,
+        _ => return None,
+    };
+    diff.is_finite().then_some(diff)
+}
+
+fn discrete_step(sample: &PdbOwnedValue) -> f64 {
+    if matches!(sample, PdbOwnedValue::F64(_)) {
+        0.0
+    } else {
+        1.0
+    }
+}
+
+impl ColumnStats {
+    /// Estimates `P(X in bounds)` across all rows (including NULLs), summing matching MCV
+    /// frequencies and interpolating the remaining `1 - null_frac - sum(mcv_freqs)` mass across
+    /// the equi-depth histogram (mirroring PostgreSQL's `clauselist_selectivity` /
+    /// `ineq_histogram_selectivity`).
+    fn estimate_range_selectivity(&self, bounds: RangeBoundsRef<'_>) -> Option<f64> {
+        if ends_before(bounds.upper.as_ref(), bounds.lower.as_ref()) {
+            return Some(0.0);
+        }
+        if matches!(
+            (bounds.lower, bounds.upper),
+            (Bound::Unbounded, Bound::Unbounded)
+        ) {
+            return Some((1.0 - self.null_frac).clamp(0.0, 1.0));
+        }
+        for bound in [bounds.lower, bounds.upper] {
+            if let Bound::Included(PdbOwnedValue::F64(v)) | Bound::Excluded(PdbOwnedValue::F64(v)) =
+                bound
+                && !v.is_finite()
+            {
+                return None;
+            }
+        }
+        let mut mcv_total = 0.0;
+        let mut mcv_match = 0.0;
+        for (val, freq) in &self.mcvs {
+            mcv_total += *freq;
+            if bounds.contains(val)? {
+                mcv_match += *freq;
+            }
+        }
+        if self.null_frac >= 1.0 - 1e-9 {
+            return Some(0.0);
+        }
+        let other_frac = (1.0 - self.null_frac - mcv_total).max(0.0);
+        // When MCVs account for the entire non-null population, PostgreSQL omits the histogram
+        // slot; `stanullfrac` + `MCV` `float4` rounding can leave a tiny positive residual.
+        if (!self.mcvs.is_empty() && other_frac < 1e-4 && self.histogram.len() < 2)
+            || other_frac <= 1e-9
+        {
+            return Some(mcv_match.clamp(0.0, 1.0));
+        }
+        if self.histogram.len() < 2 {
+            return None;
+        }
+        let cdf_lo = match bounds.lower {
+            Bound::Unbounded => 0.0,
+            Bound::Included(v) => self.hist_cdf(CdfCutoff::Below, v)?,
+            Bound::Excluded(v) => self.hist_cdf(CdfCutoff::AtOrBelow, v)?,
+        };
+        let cdf_hi = match bounds.upper {
+            Bound::Unbounded => 1.0,
+            Bound::Included(v) => self.hist_cdf(CdfCutoff::AtOrBelow, v)?,
+            Bound::Excluded(v) => self.hist_cdf(CdfCutoff::Below, v)?,
+        };
+        let hist_frac = (cdf_hi - cdf_lo).clamp(0.0, 1.0);
+        Some((mcv_match + other_frac * hist_frac).clamp(0.0, 1.0))
+    }
+
+    /// Fraction of the equi-depth histogram strictly below (`Below`) or at-or-below (`AtOrBelow`)
+    /// `value`. Bucket `i` spans `[b_i, b_{i+1})`, except the final bucket `[b_{n-1}, b_n]` which
+    /// includes the maximum endpoint (`+ step` on discrete integer/date domains so adjacent
+    /// intervals partition `[b_0, b_n]` additively).
+    fn hist_cdf(&self, cutoff: CdfCutoff, value: &PdbOwnedValue) -> Option<f64> {
+        let nbuckets = self.histogram.len().checked_sub(1)?;
+        if nbuckets == 0 || !comparable(value, &self.histogram[0]) {
+            return None;
+        }
+        let step = discrete_step(&self.histogram[0]);
+        let mut sum = 0.0;
+        for idx in 0..nbuckets {
+            let lo = &self.histogram[idx];
+            let hi = &self.histogram[idx + 1];
+            let bucket_extra = if idx + 1 == nbuckets { step } else { 0.0 };
+            let (before_lo, past_hi, cutoff_step) = match cutoff {
+                CdfCutoff::Below => (
+                    value.total_cmp(lo) != Ordering::Greater,
+                    bucket_extra == 0.0 && value.total_cmp(hi) != Ordering::Less,
+                    0.0,
+                ),
+                CdfCutoff::AtOrBelow => (
+                    value.total_cmp(lo) == Ordering::Less,
+                    value.total_cmp(hi) != Ordering::Less,
+                    step,
+                ),
+            };
+            sum += if before_lo {
+                0.0
+            } else if past_hi {
+                1.0
+            } else {
+                let span = scalar_diff(hi, lo)? + bucket_extra;
+                if span <= 0.0 {
+                    1.0
+                } else {
+                    ((scalar_diff(value, lo)? + cutoff_step) / span).clamp(0.0, 1.0)
+                }
+            };
+        }
+        Some((sum / nbuckets as f64).clamp(0.0, 1.0))
+    }
+}
+
+fn is_supported_stat_field(field: &SearchField) -> bool {
+    use pgrx::pg_sys;
+    let oid = match field.field_type() {
+        SearchFieldType::I64(oid)
+        | SearchFieldType::U64(oid)
+        | SearchFieldType::F64(oid)
+        | SearchFieldType::Date(oid) => oid,
+        _ => return false,
+    };
+    matches!(
+        oid,
+        pg_sys::INT2OID
+            | pg_sys::INT4OID
+            | pg_sys::INT8OID
+            | pg_sys::OIDOID
+            | pg_sys::FLOAT4OID
+            | pg_sys::FLOAT8OID
+            | pg_sys::DATEOID
+            | pg_sys::TIMESTAMPOID
+            | pg_sys::TIMESTAMPTZOID
+    )
+}
+
+#[cfg(test)]
+fn load_pg_column_stats(_target: HeapStatTarget) -> Option<Arc<ColumnStats>> {
+    None
+}
+
+#[cfg(not(test))]
+fn load_pg_column_stats(target: HeapStatTarget) -> Option<Arc<ColumnStats>> {
+    use crate::postgres::datetime::PostgresDateTime;
+    use pgrx::{FromDatum, pg_sys};
+
+    unsafe fn datum_to_stat_value(
+        datum: pg_sys::Datum,
+        typoid: pg_sys::Oid,
+    ) -> Option<PdbOwnedValue> {
+        unsafe {
+            match typoid {
+                pg_sys::INT2OID => {
+                    i16::from_datum(datum, false).map(|v| PdbOwnedValue::I64(i64::from(v)))
+                }
+                pg_sys::INT4OID => {
+                    i32::from_datum(datum, false).map(|v| PdbOwnedValue::I64(i64::from(v)))
+                }
+                pg_sys::INT8OID => i64::from_datum(datum, false).map(PdbOwnedValue::I64),
+                pg_sys::OIDOID => {
+                    u32::from_datum(datum, false).map(|v| PdbOwnedValue::U64(u64::from(v)))
+                }
+                pg_sys::FLOAT4OID => f32::from_datum(datum, false)
+                    .map(f64::from)
+                    .filter(|v| v.is_finite())
+                    .map(PdbOwnedValue::F64),
+                pg_sys::FLOAT8OID => f64::from_datum(datum, false)
+                    .filter(|v| v.is_finite())
+                    .map(PdbOwnedValue::F64),
+                pg_sys::DATEOID => pgrx::datum::Date::from_datum(datum, false)
+                    .and_then(|d| PostgresDateTime::try_from(d).ok())
+                    .map(PdbOwnedValue::Date),
+                pg_sys::TIMESTAMPOID => pgrx::datum::Timestamp::from_datum(datum, false)
+                    .map(|ts| PdbOwnedValue::Date(PostgresDateTime::from(ts))),
+                pg_sys::TIMESTAMPTZOID => {
+                    pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+                        .map(|ts| PdbOwnedValue::Date(PostgresDateTime::from(ts)))
+                }
+                _ => None,
+            }
+        }
+    }
+
+    unsafe fn read_stat_slot<T>(
+        tuple: pg_sys::HeapTuple,
+        kind: u32,
+        flags: u32,
+        mut map_entry: impl FnMut(&pg_sys::AttStatsSlot, usize, PdbOwnedValue) -> T,
+    ) -> Option<Vec<T>> {
+        unsafe {
+            let mut slot = pg_sys::AttStatsSlot::default();
+            if !pg_sys::get_attstatsslot(
+                &mut slot,
+                tuple,
+                kind as _,
+                pg_sys::InvalidOid,
+                flags as _,
+            ) {
+                return Some(Vec::new());
+            }
+            let count = if (flags & pg_sys::ATTSTATSSLOT_NUMBERS) != 0 {
+                slot.nvalues.min(slot.nnumbers).max(0) as usize
+            } else {
+                slot.nvalues.max(0) as usize
+            };
+            let mut entries = Vec::with_capacity(count);
+            let mut ok = true;
+            for idx in 0..count {
+                let datum = *slot.values.add(idx);
+                if let Some(val) = datum_to_stat_value(datum, slot.valuetype) {
+                    entries.push(map_entry(&slot, idx, val));
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            pg_sys::free_attstatsslot(&mut slot);
+            ok.then_some(entries)
+        }
+    }
+
+    crate::postgres::customscan::mpp::run_on_main_thread(|_| unsafe {
+        let tuple = pg_sys::SearchSysCache3(
+            pg_sys::SysCacheIdentifier::STATRELATTINH as _,
+            target.relid.into(),
+            pg_sys::Datum::from(target.attnum),
+            false.into(),
+        );
+        if tuple.is_null() {
+            return None;
+        }
+        let result = (|| {
+            if (*tuple).t_data.is_null() {
+                return None;
+            }
+            let stat = &*pgrx::GETSTRUCT!(tuple)
+                .get()
+                .cast::<pg_sys::FormData_pg_statistic>();
+            let null_frac = f64::from(stat.stanullfrac).clamp(0.0, 1.0);
+            let mcvs = read_stat_slot(
+                tuple,
+                pg_sys::STATISTIC_KIND_MCV,
+                pg_sys::ATTSTATSSLOT_VALUES | pg_sys::ATTSTATSSLOT_NUMBERS,
+                |slot, idx, val| (val, f64::from(*slot.numbers.add(idx)).max(0.0)),
+            )?;
+            let histogram = read_stat_slot(
+                tuple,
+                pg_sys::STATISTIC_KIND_HISTOGRAM,
+                pg_sys::ATTSTATSSLOT_VALUES,
+                |_, _, val| val,
+            )?;
+
+            Some(Arc::new(ColumnStats {
+                null_frac,
+                mcvs,
+                histogram,
+            }))
+        })();
+        pg_sys::ReleaseSysCache(tuple);
+        result
+    })
+}
+
+fn bound_pair_comparable(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> bool {
+    match (a, b) {
+        (Bound::Included(x) | Bound::Excluded(x), Bound::Included(y) | Bound::Excluded(y)) => {
+            comparable(x, y)
+        }
+        _ => true,
+    }
+}
+
+fn ranges_comparable(a: RangeBoundsRef<'_>, b: RangeBoundsRef<'_>) -> bool {
+    bound_pair_comparable(a.lower, b.lower)
+        && bound_pair_comparable(a.lower, b.upper)
+        && bound_pair_comparable(a.upper, b.lower)
+        && bound_pair_comparable(a.upper, b.upper)
+}
+
+fn tighter_lower(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
+    if lower_bound_ge(b.as_ref(), a.as_ref()) {
+        b.clone()
+    } else {
+        a.clone()
+    }
+}
+
+fn tighter_upper(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
+    if upper_bound_le(b.as_ref(), a.as_ref()) {
+        b.clone()
+    } else {
+        a.clone()
+    }
+}
+
+/// Conditions table-wide `ColumnStats` on this segment's observed `[empirical.min, empirical.max]`
+/// and nullability, so range-partitioned or key-ordered segments reflect their slice of the table
+/// distribution.
+fn estimate_fraction_from_column_stats(
+    col_stats: &ColumnStats,
+    empirical: Option<&EmpiricalStats>,
+    bounds: RangeBoundsRef<'_>,
+) -> Option<f64> {
+    let Some(empirical_stats) = empirical else {
+        return col_stats.estimate_range_selectivity(bounds);
+    };
+    let segment_lower = Bound::Included(empirical_stats.min.clone());
+    let segment_upper = Bound::Included(empirical_stats.max.clone());
+    let segment_bounds = RangeBoundsRef {
+        lower: &segment_lower,
+        upper: &segment_upper,
+    };
+    if !ranges_comparable(segment_bounds, bounds) {
+        return col_stats.estimate_range_selectivity(bounds);
+    }
+    let non_null_in_segment = col_stats.estimate_range_selectivity(segment_bounds)?;
+    if non_null_in_segment <= 0.0 {
+        // Stale or out-of-sample statistics do not cover this segment's observed [min, max];
+        // let the caller fall back to empirical segment bounds.
+        return None;
+    }
+    let intersected_lower = tighter_lower(&segment_lower, bounds.lower);
+    let intersected_upper = tighter_upper(&segment_upper, bounds.upper);
+    let numerator = col_stats.estimate_range_selectivity(RangeBoundsRef {
+        lower: &intersected_lower,
+        upper: &intersected_upper,
+    })?;
+    let denominator = if empirical_stats.nullable {
+        non_null_in_segment + col_stats.null_frac
+    } else {
+        non_null_in_segment
+    };
+    (denominator > 0.0).then(|| (numerator / denominator).clamp(0.0, 1.0))
+}
+
+/// Fallback uniform interpolation over segment `.stats` `[min, max]` when `pg_statistic` is
+/// unavailable or stale. Only valid on non-nullable single-valued segments.
+fn estimate_uniform_from_empirical(
+    stats: &EmpiricalStats,
+    bounds: RangeBoundsRef<'_>,
+) -> Option<f64> {
+    let span = scalar_diff(&stats.max, &stats.min)?;
+    let step = discrete_step(&stats.min);
+    let lower_offset = match bounds.lower {
+        Bound::Included(value) => scalar_diff(value, &stats.min)?,
+        Bound::Excluded(value) => scalar_diff(value, &stats.min)? + step,
+        Bound::Unbounded => 0.0,
+    };
+    let upper_offset = match bounds.upper {
+        Bound::Included(value) => scalar_diff(value, &stats.min)? + step,
+        Bound::Excluded(value) => scalar_diff(value, &stats.min)?,
+        Bound::Unbounded => span + step,
+    };
+    if !stats.intersects(bounds.lower, bounds.upper) || lower_offset > upper_offset {
+        Some(0.0)
+    } else if stats.nullable {
+        // Nullability also covers multivalued fields; min/max alone cannot estimate their counts.
+        None
+    } else if span == 0.0 {
+        Some(1.0)
+    } else {
+        Some(
+            ((upper_offset.min(span + step) - lower_offset.max(0.0)) / (span + step))
+                .clamp(0.0, 1.0),
+        )
+    }
+}
+
+fn estimate_range_docs(
+    source: &RangeQueryWithEstimate,
+    bounds: RangeBoundsRef<'_>,
+    reader: &SegmentReader,
+) -> tantivy::Result<Option<Estimate>> {
+    if ends_before(bounds.upper.as_ref(), bounds.lower.as_ref()) {
+        return Ok(Some(Estimate {
+            matches: 0.0,
+            cost: 0,
+        }));
+    }
+    let empirical = SegmentStats::of_reader(reader)?
+        .map(|stats| stats.empirical_for(&source.field))
+        .transpose()?
+        .flatten();
+    if empirical
+        .as_ref()
+        .is_some_and(|emp| !emp.intersects(bounds.lower, bounds.upper))
+    {
+        return Ok(Some(Estimate {
+            matches: 0.0,
+            cost: 0,
+        }));
+    }
+    let max_doc = f64::from(reader.max_doc());
+    let fraction = source
+        .cached_column_stats()
+        .and_then(|cs| estimate_fraction_from_column_stats(cs, empirical.as_ref(), bounds))
+        .or_else(|| {
+            empirical
+                .as_ref()
+                .and_then(|emp| estimate_uniform_from_empirical(emp, bounds))
+        });
+    Ok(fraction.map(|f| {
+        let matches = (f * max_doc).clamp(0.0, max_doc);
+        Estimate {
+            matches,
+            cost: if matches <= 0.0 {
+                0
+            } else {
+                u64::from(reader.max_doc())
+            },
+        }
+    }))
 }
 
 impl Query for RangeQueryWithEstimate {
@@ -98,62 +623,14 @@ impl QueryEstimate for dyn Query {
 
 impl QueryEstimate for RangeQueryWithEstimate {
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {
-        // Assume values are uniformly distributed between the segment's minimum and maximum.
-        // TODO: Keep more granular statistics to estimate nonuniform distributions.
-        let Some(stats) = SegmentStats::of_reader(reader)? else {
-            return Ok(None);
-        };
-        Ok(stats.empirical_for(&self.field)?.and_then(|stats| {
-            let distance = |value: &PdbOwnedValue| {
-                let distance = match (&stats.min, value) {
-                    (PdbOwnedValue::I64(min), PdbOwnedValue::I64(value)) => {
-                        (i128::from(*value) - i128::from(*min)) as f64
-                    }
-                    (PdbOwnedValue::U64(min), PdbOwnedValue::U64(value)) => {
-                        (i128::from(*value) - i128::from(*min)) as f64
-                    }
-                    (PdbOwnedValue::Date(min), PdbOwnedValue::Date(value)) => {
-                        (i128::from(value.into_inner()) - i128::from(min.into_inner())) as f64
-                    }
-                    (PdbOwnedValue::F64(min), PdbOwnedValue::F64(value)) => value - min,
-                    _ => return None,
-                };
-                distance.is_finite().then_some(distance)
-            };
-            let span = distance(&stats.max)?;
-            let step = if matches!(stats.min, PdbOwnedValue::F64(_)) {
-                0.0
-            } else {
-                1.0
-            };
-            let lower_offset = match &self.lower_bound {
-                Bound::Included(value) => distance(value)?,
-                Bound::Excluded(value) => distance(value)? + step,
-                Bound::Unbounded => 0.0,
-            };
-            let upper_offset = match &self.upper_bound {
-                Bound::Included(value) => distance(value)? + step,
-                Bound::Excluded(value) => distance(value)?,
-                Bound::Unbounded => span + step,
-            };
-            let fraction = if !stats.intersects(&self.lower_bound, &self.upper_bound)
-                || lower_offset > upper_offset
-            {
-                0.0
-            } else if stats.nullable {
-                // Nullability also covers multivalued fields; min/max cannot estimate their document counts.
-                return None;
-            } else if span == 0.0 {
-                1.0
-            } else {
-                ((upper_offset.min(span + step) - lower_offset.max(0.0)) / (span + step))
-                    .clamp(0.0, 1.0)
-            };
-            Some(Estimate {
-                matches: fraction * f64::from(reader.max_doc()),
-                cost: u64::from(reader.max_doc()),
-            })
-        }))
+        estimate_range_docs(
+            self,
+            RangeBoundsRef {
+                lower: &self.lower_bound,
+                upper: &self.upper_bound,
+            },
+            reader,
+        )
     }
 }
 
@@ -253,6 +730,38 @@ impl QueryEstimate for PhraseQuery {
     }
 }
 
+/// Unwraps score-neutral wrappers (`ConstScoreQuery`, `BoostQuery`, single-clause `BooleanQuery`)
+/// so `BooleanQuery::estimate_docs` can intersect multiple `Occur::Must` bounds on the same field
+/// (e.g. `col >= a AND col < b`) into a single range estimate before applying correlation backoff.
+fn peel_range_query(mut query: &dyn Query) -> Option<&RangeQueryWithEstimate> {
+    loop {
+        if let Some(range) = query.downcast_ref::<RangeQueryWithEstimate>() {
+            return Some(range);
+        }
+        if let Some(cs) = query.downcast_ref::<ConstScoreQuery>() {
+            query = cs.query().as_ref();
+            continue;
+        }
+        if let Some(boost) = query.downcast_ref::<BoostQuery>() {
+            query = boost.query().as_ref();
+            continue;
+        }
+        if let Some(boolean) = query.downcast_ref::<BooleanQuery>()
+            && let [(Occur::Must | Occur::Should, inner)] = boolean.clauses()
+        {
+            query = inner.as_ref();
+            continue;
+        }
+        return None;
+    }
+}
+
+struct CoalescedMustRange<'a> {
+    source: &'a RangeQueryWithEstimate,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+}
+
 impl QueryEstimate for BooleanQuery {
     fn is_fast_count(&self) -> bool {
         self.clauses()
@@ -270,11 +779,41 @@ impl QueryEstimate for BooleanQuery {
         }
         let total = reader.max_doc().max(1) as f64;
         let mut required = Vec::new();
+        let mut coalesced_ranges: Vec<CoalescedMustRange<'_>> = Vec::new();
         let mut excluded = 1.0;
         let mut optional = Vec::new();
         let mut required_cost: Option<u64> = None;
         let mut optional_cost = 0u64;
         for (occur, child) in self.clauses() {
+            if matches!(occur, Occur::Must)
+                && let Some(range) = peel_range_query(child.as_ref())
+            {
+                let next_bounds = RangeBoundsRef {
+                    lower: &range.lower_bound,
+                    upper: &range.upper_bound,
+                };
+                if let Some(existing) = coalesced_ranges.iter_mut().find(|entry| {
+                    entry.source.field.field() == range.field.field()
+                        && entry.source.field_path.as_deref() == range.field_path.as_deref()
+                        && ranges_comparable(
+                            RangeBoundsRef {
+                                lower: &entry.lower_bound,
+                                upper: &entry.upper_bound,
+                            },
+                            next_bounds,
+                        )
+                }) {
+                    existing.lower_bound = tighter_lower(&existing.lower_bound, &range.lower_bound);
+                    existing.upper_bound = tighter_upper(&existing.upper_bound, &range.upper_bound);
+                } else {
+                    coalesced_ranges.push(CoalescedMustRange {
+                        source: range,
+                        lower_bound: range.lower_bound.clone(),
+                        upper_bound: range.upper_bound.clone(),
+                    });
+                }
+                continue;
+            }
             let Some(child) = child.estimate_docs(reader)? else {
                 return Ok(None);
             };
@@ -290,6 +829,21 @@ impl QueryEstimate for BooleanQuery {
                 }
                 Occur::MustNot => excluded *= 1.0 - child.matches / total,
             }
+        }
+        for entry in &coalesced_ranges {
+            let Some(child) = estimate_range_docs(
+                entry.source,
+                RangeBoundsRef {
+                    lower: &entry.lower_bound,
+                    upper: &entry.upper_bound,
+                },
+                reader,
+            )?
+            else {
+                return Ok(None);
+            };
+            required.push(child.matches);
+            required_cost = Some(required_cost.map_or(child.cost, |cost| cost.min(child.cost)));
         }
         required.sort_unstable_by(f64::total_cmp);
         let mut required = required.into_iter();
@@ -339,58 +893,21 @@ impl QueryEstimate for EmptyQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tantivy::query::{QueryClone, RegexQuery};
-    use tantivy::schema::{IndexRecordOption, Schema, TEXT};
-    use tantivy::{Index, TantivyDocument, Term, doc};
+    use crate::schema::SearchFieldConfig;
+    use proptest::prelude::*;
+    use std::collections::BTreeMap;
+    use std::sync::LazyLock;
+    use tantivy::Directory;
+    use tantivy::query::RegexQuery;
+    use tantivy::schema::{FAST, Field, INDEXED, IndexRecordOption, Schema, TEXT};
+    use tantivy::{Index, Searcher, TantivyDocument, Term, doc};
 
-    #[test]
-    fn statistics_estimates_preserve_term_document_frequency() {
-        let mut schema = Schema::builder();
-        let field = schema.add_text_field("body", TEXT);
-        let index = Index::create_in_ram(schema.build());
-        let mut writer = index
-            .writer_with_num_threads::<TantivyDocument>(1, 50_000_000)
-            .unwrap();
-        for n in 0..100 {
-            let value = if n < 7 { "rare" } else { "common" };
-            writer.add_document(doc!(field => value)).unwrap();
-        }
-        writer.commit().unwrap();
-        let reader = index.reader().unwrap();
-        let searcher = reader.searcher();
-        let query = TermQuery::new(
-            Term::from_field_text(field, "rare"),
-            IndexRecordOption::Basic,
-        );
-        let segment = searcher.segment_reader(0);
-        let estimate = query.estimate_docs(segment).unwrap().unwrap();
-        assert_eq!(estimate.live_docs(segment), 7);
-        assert_eq!(estimate.cost, 7);
-        for clauses in [
-            vec![query.box_clone(), Box::new(AllQuery)],
-            vec![Box::new(AllQuery), query.box_clone()],
-        ] {
-            let estimate = BooleanQuery::intersection(clauses)
-                .estimate_docs(segment)
-                .unwrap()
-                .unwrap();
-            assert_eq!(estimate.matches, 7.0);
-            assert_eq!(estimate.live_docs(segment), 7);
-            assert_eq!(estimate.cost, 7);
-        }
-
-        writer.delete_term(Term::from_field_text(field, "common"));
-        writer.commit().unwrap();
-        reader.reload().unwrap();
-        let searcher = reader.searcher();
-        let segment = searcher.segment_reader(0);
-        let estimate = AllQuery.estimate_docs(segment).unwrap().unwrap();
-        assert_eq!(estimate.live_docs(segment), 7);
-        assert_eq!(estimate.cost, 100);
+    struct TextFixture {
+        field: Field,
+        searcher: Searcher,
     }
 
-    #[test]
-    fn statistics_estimates_terms_phrases_and_booleans() {
+    static TEXT_FIXTURE: LazyLock<TextFixture> = LazyLock::new(|| {
         let mut schema = Schema::builder();
         let field = schema.add_text_field("body", TEXT);
         let index = Index::create_in_ram(schema.build());
@@ -403,138 +920,559 @@ mod tests {
             }
         }
         writer.commit().unwrap();
-        let reader = index.reader().unwrap();
-        let searcher = reader.searcher();
-        let segment = searcher.segment_reader(0);
-        let term = |value| -> Box<dyn Query> {
+        let searcher = index.reader().unwrap().searcher();
+        TextFixture { field, searcher }
+    });
+
+    struct RangeFixture {
+        id_search: SearchField,
+        other_search: SearchField,
+        searcher: Searcher,
+    }
+
+    static RANGE_FIXTURE: LazyLock<RangeFixture> = LazyLock::new(|| {
+        let mut schema_builder = Schema::builder();
+        let id_field = schema_builder.add_i64_field("id", INDEXED | FAST);
+        let other_field = schema_builder.add_i64_field("other", INDEXED | FAST);
+        let schema = schema_builder.build();
+        let dir = tantivy::directory::RamDirectory::create();
+        let meta = tantivy::IndexMeta {
+            index_settings: tantivy::IndexSettings::default(),
+            segments: Vec::new(),
+            schema: schema.clone(),
+            opstamp: 0,
+            payload: None,
+            persisted_custom_extensions: vec!["stats".to_string()],
+        };
+        dir.atomic_write(
+            std::path::Path::new("meta.json"),
+            &serde_json::to_vec(&meta).unwrap(),
+        )
+        .unwrap();
+        let mut index = Index::open(dir).unwrap();
+        crate::index::stats::register(&mut index);
+        let mut writer = index
+            .writer_with_num_threads::<TantivyDocument>(1, 50_000_000)
+            .unwrap();
+        for i in 1..=100i64 {
+            writer
+                .add_document(doc!(id_field => i, other_field => i))
+                .unwrap();
+        }
+        writer.commit().unwrap();
+        let searcher = index.reader().unwrap().searcher();
+        let id_search = SearchField::for_testing(
+            id_field,
+            &schema,
+            SearchFieldType::I64(pgrx::pg_sys::INT8OID),
+            SearchFieldConfig::default_numeric(),
+        );
+        let other_search = SearchField::for_testing(
+            other_field,
+            &schema,
+            SearchFieldType::I64(pgrx::pg_sys::INT8OID),
+            SearchFieldConfig::default_numeric(),
+        );
+        RangeFixture {
+            id_search,
+            other_search,
+            searcher,
+        }
+    });
+
+    fn make_bound(kind: u8, val: PdbOwnedValue) -> Bound<PdbOwnedValue> {
+        match kind % 3 {
+            0 => Bound::Unbounded,
+            1 => Bound::Included(val),
+            _ => Bound::Excluded(val),
+        }
+    }
+
+    fn make_range_query(
+        sf: &SearchField,
+        path: Option<&str>,
+        lo: Bound<i64>,
+        hi: Bound<i64>,
+        wrap: u8,
+    ) -> Box<dyn Query> {
+        let base: Box<dyn Query> = Box::new(RangeQueryWithEstimate::new(
+            RangeQuery::new(
+                lo.map(|v| Term::from_field_i64(sf.field(), v)),
+                hi.map(|v| Term::from_field_i64(sf.field(), v)),
+            ),
+            sf.clone(),
+            path.map(str::to_owned),
+            None,
+            (lo.map(PdbOwnedValue::I64), hi.map(PdbOwnedValue::I64)),
+        ));
+        match wrap % 4 {
+            0 => base,
+            1 => Box::new(ConstScoreQuery::new(base, 0.0)),
+            2 => Box::new(BoostQuery::new(base, 2.0)),
+            _ => Box::new(BooleanQuery::intersection(vec![base])),
+        }
+    }
+
+    fn bound_i64_value(bound: &Bound<PdbOwnedValue>) -> Bound<i64> {
+        bound.as_ref().map(|v| match v {
+            PdbOwnedValue::I64(x) => *x,
+            _ => unreachable!(),
+        })
+    }
+
+    #[test]
+    fn statistics_estimates_formulas_and_deletes() {
+        let segment = TEXT_FIXTURE.searcher.segment_reader(0);
+        let field = TEXT_FIXTURE.field;
+        let term = |v| -> Box<dyn Query> {
             Box::new(TermQuery::new(
-                Term::from_field_text(field, value),
+                Term::from_field_text(field, v),
                 IndexRecordOption::Basic,
             ))
         };
-        let estimate = |query: &dyn Query, segment: &SegmentReader| {
-            query
+        let estimate = |q: &dyn Query, seg: &SegmentReader| {
+            q.estimate_docs(seg)
+                .unwrap()
+                .map(|e| (e.live_docs(seg), e.cost))
+        };
+
+        for (query, expected) in [
+            (term("alpha"), Some((32, 32))),
+            (term("absent"), Some((0, 0))),
+            (
+                Box::new(PhraseQuery::new(vec![
+                    Term::from_field_text(field, "alpha"),
+                    Term::from_field_text(field, "beta"),
+                ])),
+                Some((1, 320)),
+            ),
+            (
+                Box::new(SynonymQuery::new(vec![
+                    Term::from_field_text(field, "alpha"),
+                    Term::from_field_text(field, "beta"),
+                ])),
+                Some((48, 64)),
+            ),
+            (
+                Box::new(BooleanQuery::intersection(vec![
+                    term("alpha"),
+                    term("beta"),
+                ])),
+                Some((23, 32)),
+            ),
+            (
+                Box::new(BooleanQuery::intersection(vec![
+                    term("alpha"),
+                    term("beta"),
+                    term("gamma"),
+                ])),
+                Some((20, 32)),
+            ),
+            (
+                Box::new(BooleanQuery::intersection(vec![
+                    term("alpha"),
+                    Box::new(RegexQuery::from_pattern("b.*", field).unwrap()),
+                ])),
+                None,
+            ),
+            (
+                Box::new(ConstScoreQuery::new(AllQuery, 0.0)),
+                Some((64, 64)),
+            ),
+            (Box::new(EmptyQuery), Some((0, 0))),
+        ] {
+            assert_eq!(estimate(query.as_ref(), segment), expected);
+        }
+
+        // Deletion scaling: live_docs scales by `num_docs / max_doc`, while cost reflects raw postings.
+        let mut schema = Schema::builder();
+        let del_field = schema.add_text_field("body", TEXT);
+        let index = Index::create_in_ram(schema.build());
+        let mut writer = index
+            .writer_with_num_threads::<TantivyDocument>(1, 50_000_000)
+            .unwrap();
+        for n in 0..100 {
+            writer
+                .add_document(doc!(del_field => if n < 7 { "rare" } else { "common" }))
+                .unwrap();
+        }
+        writer.commit().unwrap();
+        writer.delete_term(Term::from_field_text(del_field, "common"));
+        writer.commit().unwrap();
+        let searcher = index.reader().unwrap().searcher();
+        let del_seg = searcher.segment_reader(0);
+        assert_eq!(estimate(&AllQuery, del_seg), Some((7, 100)));
+    }
+
+    proptest! {
+        #[test]
+        fn boolean_query_estimate_properties(
+            must in prop::collection::vec(0usize..5, 0..4),
+            should in prop::collection::vec(0usize..5, 0..4),
+            must_not in prop::collection::vec(0usize..5, 0..3),
+            min_should in 0usize..=5,
+        ) {
+            const VOCAB: [&str; 5] = ["alpha", "beta", "gamma", "delta", "absent"];
+            let segment = TEXT_FIXTURE.searcher.segment_reader(0);
+            let field = TEXT_FIXTURE.field;
+            let term = |idx: usize| -> Box<dyn Query> {
+                Box::new(TermQuery::new(
+                    Term::from_field_text(field, VOCAB[idx]),
+                    IndexRecordOption::Basic,
+                ))
+            };
+            let build = |m: &[usize], s: &[usize], mn: &[usize], msm: usize| {
+                let mut clauses = Vec::new();
+                clauses.extend(m.iter().map(|&i| (Occur::Must, term(i))));
+                clauses.extend(s.iter().map(|&i| (Occur::Should, term(i))));
+                clauses.extend(mn.iter().map(|&i| (Occur::MustNot, term(i))));
+                BooleanQuery::with_minimum_required_clauses(clauses, msm)
+            };
+
+            let fwd = build(&must, &should, &must_not, min_should)
                 .estimate_docs(segment)
                 .unwrap()
-                .map(|estimate| (estimate.live_docs(segment), estimate.cost))
-        };
-        let count = |query: &dyn Query| estimate(query, segment).unwrap().0;
-        assert_eq!(estimate(term("alpha").as_ref(), segment), Some((32, 32)));
-        assert_eq!(estimate(term("absent").as_ref(), segment), Some((0, 0)));
-        let phrase = PhraseQuery::new(vec![
-            Term::from_field_text(field, "alpha"),
-            Term::from_field_text(field, "beta"),
-        ]);
-        assert_eq!(estimate(&phrase, segment), Some((1, 320)));
-        for (terms, expected) in [
-            (vec!["alpha", "beta"], 23),
-            (vec!["alpha", "beta", "gamma"], 20),
-            (vec!["alpha", "beta", "gamma", "delta"], 18),
-        ] {
-            let query = BooleanQuery::intersection(terms.into_iter().map(term).collect());
-            assert_eq!(estimate(&query, segment), Some((expected, 32)));
-        }
-        for terms in [["alpha", "absent"], ["absent", "alpha"]] {
-            let query = BooleanQuery::intersection(terms.into_iter().map(term).collect());
-            assert_eq!(estimate(&query, segment), Some((0, 0)));
-        }
-        assert_eq!(
-            count(&BooleanQuery::union(vec![term("alpha"), term("beta")])),
-            48
-        );
-        let group = SynonymQuery::new(vec![
-            Term::from_field_text(field, "alpha"),
-            Term::from_field_text(field, "beta"),
-        ]);
-        assert_eq!(estimate(&group, segment), Some((48, 64)));
-        assert_eq!(
-            count(&BooleanQuery::new(vec![
-                (Occur::Must, term("alpha")),
-                (Occur::Should, term("beta"))
-            ])),
-            32
-        );
-        assert_eq!(
-            count(&BooleanQuery::new(vec![
-                (Occur::Must, term("alpha")),
-                (Occur::MustNot, term("beta"))
-            ])),
-            16
-        );
-        assert_eq!(
-            count(&BooleanQuery::new(vec![(Occur::MustNot, term("alpha"))])),
-            0
-        );
-        assert_eq!(count(&BooleanQuery::new(vec![])), 0);
-        for (minimum, expected) in [(0, 56), (1, 56), (2, 32), (3, 8), (4, 0)] {
-            assert_eq!(
-                count(&BooleanQuery::union_with_minimum_required_clauses(
-                    vec![term("alpha"), term("beta"), term("gamma")],
-                    minimum
-                )),
-                expected
-            );
-        }
-        for occur in [Occur::Must, Occur::Should] {
-            assert_eq!(
-                count(&BooleanQuery::with_minimum_required_clauses(
-                    vec![(occur, term("alpha"))],
-                    2
-                )),
-                32
-            );
-        }
-        let mut nested = vec![
-            Box::new(BooleanQuery::union(vec![term("alpha"), term("beta")])),
-            term("gamma"),
-        ];
-        assert_eq!(
-            estimate(&BooleanQuery::intersection(nested.clone()), segment),
-            Some((28, 32))
-        );
-        nested.reverse();
-        assert_eq!(
-            estimate(&BooleanQuery::intersection(nested), segment),
-            Some((28, 32))
-        );
-        assert_eq!(
-            count(&BooleanQuery::with_minimum_required_clauses(
-                vec![
-                    (Occur::Must, term("alpha")),
-                    (Occur::Must, term("beta")),
-                    (Occur::Should, term("gamma")),
-                    (Occur::MustNot, term("delta")),
-                ],
-                1
-            )),
-            6
-        );
-        let mixed = BooleanQuery::intersection(vec![
-            term("alpha"),
-            Box::new(RegexQuery::from_pattern("b.*", field).unwrap()),
-        ]);
-        assert_eq!(estimate(&mixed, segment), None);
-        assert_eq!(estimate(&AllQuery, segment), Some((64, 64)));
-        assert_eq!(
-            estimate(&ConstScoreQuery::new(AllQuery, 0.0), segment),
-            Some((64, 64))
-        );
-        assert_eq!(
-            count(&BooleanQuery::intersection(vec![
-                Box::new(AllQuery),
-                term("alpha")
-            ])),
-            32
-        );
-        assert_eq!(estimate(&EmptyQuery, segment), Some((0, 0)));
+                .unwrap();
+            let rev_must: Vec<_> = must.iter().copied().rev().collect();
+            let rev_should: Vec<_> = should.iter().copied().rev().collect();
+            let rev_mn: Vec<_> = must_not.iter().copied().rev().collect();
+            let rev = build(&rev_must, &rev_should, &rev_mn, min_should)
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap();
+            prop_assert!((fwd.matches - rev.matches).abs() <= 1e-9);
+            prop_assert_eq!(fwd.cost, rev.cost);
 
-        writer.delete_term(Term::from_field_text(field, "gamma"));
-        writer.commit().unwrap();
-        reader.reload().unwrap();
-        let searcher = reader.searcher();
-        let segment = searcher.segment_reader(0);
-        assert_eq!(segment.num_docs(), 32);
-        assert_eq!(estimate(&AllQuery, segment), Some((32, 64)));
-        assert_eq!(estimate(term("alpha").as_ref(), segment), Some((16, 32)));
+            // When `min_should <= should.len()` and at least one `Must` clause is present (or
+            // `should` is empty), adding `Must(AllQuery)` preserves match count, while
+            // `Must(EmptyQuery)` annihilates.
+            if min_should <= should.len() && (!must.is_empty() || should.is_empty()) {
+                let mut with_all = build(&must, &should, &must_not, min_should)
+                    .clauses()
+                    .to_vec();
+                with_all.push((Occur::Must, Box::new(AllQuery)));
+                let est_all = BooleanQuery::with_minimum_required_clauses(with_all, min_should)
+                    .estimate_docs(segment)
+                    .unwrap()
+                    .unwrap();
+                if !(must.is_empty() && should.is_empty()) {
+                    prop_assert!((est_all.matches - fwd.matches).abs() <= 1e-9);
+                }
+            }
+            let mut with_empty = build(&must, &should, &must_not, min_should)
+                .clauses()
+                .to_vec();
+            with_empty.push((Occur::Must, Box::new(EmptyQuery)));
+            let est_empty = BooleanQuery::with_minimum_required_clauses(with_empty, min_should)
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap();
+            prop_assert_eq!((est_empty.live_docs(segment), est_empty.cost), (0, 0));
+
+            // For 2+ `Should` clauses, `minimum_should_match` is non-increasing (`0 == 1`,
+            // `> len == 0`); a 1-clause `BooleanQuery` delegates directly to its child.
+            if should.len() >= 2 {
+                let counts: Vec<u64> = (0..=should.len() + 1)
+                    .map(|m| {
+                        BooleanQuery::union_with_minimum_required_clauses(
+                            should.iter().map(|&i| term(i)).collect(),
+                            m,
+                        )
+                        .estimate_docs(segment)
+                        .unwrap()
+                        .unwrap()
+                        .live_docs(segment)
+                    })
+                    .collect();
+                prop_assert_eq!(counts[0], counts[1]);
+                prop_assert_eq!(*counts.last().unwrap(), 0);
+                for pair in counts.windows(2) {
+                    prop_assert!(pair[0] >= pair[1]);
+                }
+            } else if should.len() == 1 {
+                let single = BooleanQuery::with_minimum_required_clauses(
+                    vec![(Occur::Should, term(should[0]))],
+                    2,
+                )
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap();
+                let child = term(should[0]).estimate_docs(segment).unwrap().unwrap();
+                prop_assert_eq!((single.live_docs(segment), single.cost), (child.live_docs(segment), child.cost));
+            }
+        }
+
+        #[test]
+        fn column_stats_and_segment_conditioning_properties(
+            is_float in any::<bool>(),
+            w_null in 0u32..=20,
+            mcv_raw in prop::collection::vec((-40i64..=40, 1u32..=10), 0..=4),
+            w_hist in 0u32..=20,
+            f32_jitter in any::<bool>(),
+            mut hist_raw in prop::collection::vec(-40i64..=40, 2..=6),
+            lo_kind in 0u8..3,
+            lo_raw in -50i64..=50,
+            hi_kind in 0u8..3,
+            hi_raw in -50i64..=50,
+            mid_raw in -50i64..=50,
+            seg_a in -50i64..=50,
+            seg_b in -50i64..=50,
+            seg_nullable in any::<bool>(),
+        ) {
+            let val = |x: i64| {
+                if is_float {
+                    PdbOwnedValue::F64(x as f64 * 0.5)
+                } else {
+                    PdbOwnedValue::I64(x)
+                }
+            };
+            hist_raw.sort_unstable();
+            let mut mcv_map = BTreeMap::new();
+            for (k, w) in mcv_raw {
+                *mcv_map.entry(k).or_insert(0u32) += w;
+            }
+            let w_mcv: u32 = mcv_map.values().sum();
+            let w_total = w_null + w_mcv + w_hist;
+
+            let use_jitter = f32_jitter && w_hist == 0 && !mcv_map.is_empty() && w_total > 0;
+            let stats = if w_total == 0 {
+                ColumnStats {
+                    null_frac: 1.0,
+                    mcvs: Vec::new(),
+                    histogram: Vec::new(),
+                }
+            } else {
+                let scale = if use_jitter { 1.0 - 5e-5 } else { 1.0 };
+                ColumnStats {
+                    null_frac: w_null as f64 / w_total as f64,
+                    mcvs: mcv_map
+                        .iter()
+                        .map(|(&k, &w)| (val(k), (w as f64 / w_total as f64) * scale))
+                        .collect(),
+                    histogram: if w_hist == 0 {
+                        Vec::new()
+                    } else {
+                        hist_raw.iter().map(|&x| val(x)).collect()
+                    },
+                }
+            };
+
+            let lower = make_bound(lo_kind, val(lo_raw));
+            let upper = make_bound(hi_kind, val(hi_raw));
+            let bounds = RangeBoundsRef {
+                lower: &lower,
+                upper: &upper,
+            };
+            let p = stats.estimate_range_selectivity(bounds).unwrap();
+            prop_assert!((0.0..=1.0 - stats.null_frac + 1e-6).contains(&p));
+            if ends_before(upper.as_ref(), lower.as_ref()) {
+                prop_assert_eq!(p, 0.0);
+            }
+            let all_p = stats
+                .estimate_range_selectivity(RangeBoundsRef {
+                    lower: &Bound::Unbounded,
+                    upper: &Bound::Unbounded,
+                })
+                .unwrap();
+            prop_assert!((all_p - (1.0 - stats.null_frac)).abs() <= 1e-9);
+
+            // Finite additivity across an arbitrary cut point `mid` for both `< mid` / `>= mid`
+            // and `<= mid` / `> mid` splits.
+            let mid = val(mid_raw);
+            let tol = if use_jitter { 1e-4 } else { 1e-9 };
+            for (left_hi, right_lo) in [
+                (Bound::Excluded(mid.clone()), Bound::Included(mid.clone())),
+                (Bound::Included(mid.clone()), Bound::Excluded(mid)),
+            ] {
+                let r_left_hi = tighter_upper(&upper, &left_hi);
+                let r_right_lo = tighter_lower(&lower, &right_lo);
+                let p_left = stats
+                    .estimate_range_selectivity(RangeBoundsRef {
+                        lower: &lower,
+                        upper: &r_left_hi,
+                    })
+                    .unwrap();
+                let p_right = stats
+                    .estimate_range_selectivity(RangeBoundsRef {
+                        lower: &r_right_lo,
+                        upper: &upper,
+                    })
+                    .unwrap();
+                prop_assert!(
+                    (p_left + p_right - p).abs() <= tol,
+                    "additivity failed: p_left={p_left}, p_right={p_right}, p={p}"
+                );
+            }
+
+            // On a discrete uniform 1-bucket range `[lo_s, hi_s]`, `ColumnStats` and
+            // `estimate_uniform_from_empirical` both equal exact integer counting.
+            let (s_lo, s_hi) = (seg_a.min(seg_b), seg_a.max(seg_b));
+            if !is_float {
+                let exact_matches = (s_lo..=s_hi)
+                    .filter(|&x| {
+                        bounds
+                            .contains(&PdbOwnedValue::I64(x))
+                            .unwrap()
+                    })
+                    .count() as f64;
+                let exact_frac = exact_matches / (s_hi - s_lo + 1) as f64;
+                let uniform_stats = ColumnStats {
+                    null_frac: 0.0,
+                    mcvs: Vec::new(),
+                    histogram: vec![PdbOwnedValue::I64(s_lo), PdbOwnedValue::I64(s_hi)],
+                };
+                let emp_non_null = EmpiricalStats {
+                    min: PdbOwnedValue::I64(s_lo),
+                    max: PdbOwnedValue::I64(s_hi),
+                    nullable: false,
+                };
+                prop_assert!(
+                    (uniform_stats.estimate_range_selectivity(bounds).unwrap() - exact_frac).abs()
+                        <= 1e-9
+                );
+                prop_assert!(
+                    (estimate_uniform_from_empirical(&emp_non_null, bounds).unwrap() - exact_frac)
+                        .abs()
+                        <= 1e-9
+                );
+            }
+
+            // Segment conditioning invariants (`estimate_fraction_from_column_stats`).
+            let empirical = EmpiricalStats {
+                min: val(s_lo),
+                max: val(s_hi),
+                nullable: seg_nullable,
+            };
+            let segment_lower = Bound::Included(empirical.min.clone());
+            let segment_upper = Bound::Included(empirical.max.clone());
+            let segment_mass = stats
+                .estimate_range_selectivity(RangeBoundsRef {
+                    lower: &segment_lower,
+                    upper: &segment_upper,
+                })
+                .unwrap();
+            let conditioned =
+                estimate_fraction_from_column_stats(&stats, Some(&empirical), bounds);
+            if segment_mass <= 0.0 {
+                prop_assert_eq!(conditioned, None);
+            } else {
+                let conditioned_prob = conditioned.unwrap();
+                prop_assert!((0.0..=1.0).contains(&conditioned_prob));
+                let full_segment = estimate_fraction_from_column_stats(
+                    &stats,
+                    Some(&empirical),
+                    RangeBoundsRef {
+                        lower: &segment_lower,
+                        upper: &segment_upper,
+                    },
+                )
+                .unwrap();
+                if !seg_nullable {
+                    prop_assert!((full_segment - 1.0).abs() <= 1e-9);
+                }
+                let mid_cut = val(mid_raw);
+                let left_upper = tighter_upper(&upper, &Bound::Excluded(mid_cut.clone()));
+                let right_lower = tighter_lower(&lower, &Bound::Included(mid_cut));
+                let conditioned_left = estimate_fraction_from_column_stats(
+                    &stats,
+                    Some(&empirical),
+                    RangeBoundsRef {
+                        lower: &lower,
+                        upper: &left_upper,
+                    },
+                )
+                .unwrap();
+                let conditioned_right = estimate_fraction_from_column_stats(
+                    &stats,
+                    Some(&empirical),
+                    RangeBoundsRef {
+                        lower: &right_lower,
+                        upper: &upper,
+                    },
+                )
+                .unwrap();
+                prop_assert!((conditioned_left + conditioned_right - conditioned_prob).abs() <= 1e-6);
+            }
+        }
+
+        #[test]
+        fn boolean_must_range_coalescing_properties(
+            lo1_kind in 0u8..3,
+            lo1_val in -10i64..=110,
+            hi1_kind in 0u8..3,
+            hi1_val in -10i64..=110,
+            lo2_kind in 0u8..3,
+            lo2_val in -10i64..=110,
+            hi2_kind in 0u8..3,
+            hi2_val in -10i64..=110,
+            wrap1 in 0u8..4,
+            wrap2 in 0u8..4,
+            mode in 0u8..3,
+        ) {
+            let to_i64_bound = |kind: u8, v: i64| match kind % 3 {
+                0 => Bound::Unbounded,
+                1 => Bound::Included(v),
+                _ => Bound::Excluded(v),
+            };
+            let (lo1, hi1) = (to_i64_bound(lo1_kind, lo1_val), to_i64_bound(hi1_kind, hi1_val));
+            let (lo2, hi2) = (to_i64_bound(lo2_kind, lo2_val), to_i64_bound(hi2_kind, hi2_val));
+            let segment = RANGE_FIXTURE.searcher.segment_reader(0);
+
+            let (sf2, path1, path2) = match mode % 3 {
+                0 => (&RANGE_FIXTURE.id_search, None, None),
+                1 => (&RANGE_FIXTURE.other_search, None, None),
+                _ => (&RANGE_FIXTURE.id_search, Some("a"), Some("b")),
+            };
+            let q1 = make_range_query(&RANGE_FIXTURE.id_search, path1, lo1, hi1, wrap1);
+            let q2 = make_range_query(sf2, path2, lo2, hi2, wrap2);
+            let combined = BooleanQuery::intersection(vec![q1, q2])
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap();
+
+            if mode % 3 == 0 {
+                let pdb_lo = tighter_lower(&lo1.map(PdbOwnedValue::I64), &lo2.map(PdbOwnedValue::I64));
+                let pdb_hi = tighter_upper(&hi1.map(PdbOwnedValue::I64), &hi2.map(PdbOwnedValue::I64));
+                let single = make_range_query(
+                    &RANGE_FIXTURE.id_search,
+                    None,
+                    bound_i64_value(&pdb_lo),
+                    bound_i64_value(&pdb_hi),
+                    0,
+                )
+                .estimate_docs(segment)
+                .unwrap()
+                .unwrap();
+                prop_assert_eq!(
+                    (combined.live_docs(segment), combined.cost),
+                    (single.live_docs(segment), single.cost)
+                );
+                let b_ref = RangeBoundsRef {
+                    lower: &pdb_lo,
+                    upper: &pdb_hi,
+                };
+                let exact = (1..=100i64)
+                    .filter(|&x| b_ref.contains(&PdbOwnedValue::I64(x)).unwrap())
+                    .count() as u64;
+                if exact == 0 {
+                    prop_assert_eq!((combined.live_docs(segment), combined.cost), (0, 0));
+                } else {
+                    prop_assert!(combined.live_docs(segment).abs_diff(exact) <= 1);
+                    prop_assert_eq!(combined.cost, 100);
+                }
+            } else {
+                let e1 = make_range_query(&RANGE_FIXTURE.id_search, path1, lo1, hi1, 0)
+                    .estimate_docs(segment)
+                    .unwrap()
+                    .unwrap();
+                let e2 = make_range_query(sf2, path2, lo2, hi2, 0)
+                    .estimate_docs(segment)
+                    .unwrap()
+                    .unwrap();
+                let (m_min, m_max) = (e1.matches.min(e2.matches), e1.matches.max(e2.matches));
+                let expected = ((m_min * (m_max / 100.0).sqrt()).ceil() as u64).min(100);
+                prop_assert_eq!(combined.live_docs(segment), expected);
+            }
+        }
     }
 }

@@ -391,7 +391,11 @@ pub fn launch_mpp(
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),
     };
-    unsafe { (*scan_ptr).create_and_populate(args) };
+    unsafe {
+        (*scan_ptr).create_and_populate(args);
+        (*scan_ptr).inlist_pushdown_mode =
+            crate::scan::execution_plan::plan_inlist_pushdown_mode(physical);
+    };
 
     timing.prepare_us = t_prepare.elapsed().as_micros() as u64;
 

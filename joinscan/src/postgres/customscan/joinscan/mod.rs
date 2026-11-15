@@ -1069,14 +1069,16 @@ impl JoinScan {
         )
     }
 
-    /// First-exec solve of Param/SubPlan-backed expressions on the leader, and rebaking of the
-    /// logical plan when either expressions were solved or the target execution mode (`Serial` vs
-    /// `Mpp`) differs from the mode `logical_plan` was baked in (e.g. a cached generic plan built
-    /// before MPP became eligible, or vice versa). Called before `build_plan` in `exec_custom_scan`,
-    /// ahead of the plan-first MPP launch (#5667). Rebaking failures abort at the operation that
-    /// violated the invariant rather than being represented as a recoverable absence of plan bytes.
+    /// First-exec solve of Param/SubPlan-backed expressions on the leader, re-estimation of
+    /// affected `JoinSource`s (`reestimate_solved_rows`) and `mpp_eligible` (`target_mode`), and
+    /// rebaking of the logical plan when either expressions were solved or the target execution
+    /// mode (`Serial` vs `Mpp`) differs from the mode `logical_plan` was baked in (e.g. a cached
+    /// generic plan built before MPP became eligible, or vice versa). Called before `build_plan`
+    /// in `exec_custom_scan`, ahead of the plan-first MPP launch (#5667). Rebaking failures abort
+    /// at the operation that violated the invariant rather than being represented as a recoverable
+    /// absence of plan bytes.
     fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) {
-        let target_mode = if matches!(state.custom_state().mpp, MppLifecycle::Pending) {
+        let mut target_mode = if matches!(state.custom_state().mpp, MppLifecycle::Pending) {
             LogicalPlanMode::Mpp
         } else {
             LogicalPlanMode::Serial
@@ -1108,9 +1110,31 @@ impl JoinScan {
             for ob in &mut custom_state.join_clause.order_by {
                 unsafe { ob.resolve_query_vector(estate, planstate) };
             }
+            let mut any_reestimated = false;
             for source in custom_state.join_clause.plan.sources_mut() {
                 if let Some(ref mut vec_ob) = source.scan_info.vector_order_by {
                     unsafe { vec_ob.resolve_query_vector(estate, planstate) };
+                }
+                any_reestimated |= source.reestimate_solved_rows();
+            }
+            if any_reestimated {
+                custom_state.source_manifests.clear();
+                if unsafe { pg_sys::ParallelWorkerNumber } == -1
+                    && !matches!(custom_state.mpp, MppLifecycle::Launched(_))
+                {
+                    custom_state.mpp = if mpp_eligible(
+                        custom_state.parallel_mode_ok,
+                        &custom_state.join_clause.plan,
+                    ) {
+                        MppLifecycle::Pending
+                    } else {
+                        MppLifecycle::Inactive
+                    };
+                    target_mode = if matches!(custom_state.mpp, MppLifecycle::Pending) {
+                        LogicalPlanMode::Mpp
+                    } else {
+                        LogicalPlanMode::Serial
+                    };
                 }
             }
         }

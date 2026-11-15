@@ -58,12 +58,13 @@
 //!
 //! 3. **Gate 3 (Cardinality, Unscored Selectivity & Initial Window Scaling)**:
 //!    - Requires `K <= 1,000` ([`MAX_RANK_JOIN_K`]), estimated rows `>=`
-//!      `paradedb.rank_join_min_rows` on every joined input, and combined unscored (`RA`)
+//!      `paradedb.rank_join_min_rows` on every joined input, and combined unscored
 //!      selectivity `>= paradedb.rank_join_unscored_selectivity_threshold` (default `0.08`,
-//!      [`UNSCORED_SELECTIVITY_THRESHOLD`]) in single-sided (`NRJN`) joins.
+//!      [`UNSCORED_SELECTIVITY_THRESHOLD`]) across unscored (`RA`) inputs of single-sided
+//!      (`NRJN`) joins and unscored `base_query` filters of `ScanMode::Disjunctive` joins.
 //!    - Scales each `SA` leaf's `initial_window` inversely by the subtree survival probability
-//!      `p_survive = p_unscored * p_tagged` via
-//!      [`TopKSelectivity::compute_initial_window`].
+//!      `p_survive = p_unscored * p_tagged` (including any `ScanMode::Disjunctive` `base_query`
+//!      selectivity) via [`TopKSelectivity::compute_initial_window`].
 //!    - When `RankJoinExec` is declined on a single-sided top-K join (e.g. when the unscored
 //!      build side is selective `< paradedb.rank_join_unscored_selectivity_threshold`, or for
 //!      `OrderByFeature::VectorDistance` when `K > 1,000` or `paradedb.enable_rank_join = false`),
@@ -328,8 +329,9 @@ pub enum RankJoinDeclineReason {
         estimated_rows: u64,
         min_rows: usize,
     },
-    /// Unscored (`RA`) input selectivity in a single-sided join falls below
-    /// `paradedb.rank_join_unscored_selectivity_threshold` and `lazy_sort` probe join also declined.
+    /// Unscored (`RA`) input selectivity in a single-sided join or unscored `base_query`
+    /// selectivity in a `ScanMode::Disjunctive` join falls below
+    /// `paradedb.rank_join_unscored_selectivity_threshold`, and `lazy_sort` probe join also declined.
     LowUnscoredSelectivity { selectivity: f64, threshold: f64 },
 }
 
@@ -440,7 +442,8 @@ pub struct SubtreeScoreStats {
 
 impl SubtreeScoreStats {
     /// Combined survival probability of a candidate row pulled from the `SA` scan across
-    /// all unscored (`RA`) inputs and any cross-table `ScanMode::Tagged` disjunction.
+    /// all unscored (`RA`) inputs, `ScanMode::Disjunctive` `base_query` filters, and any
+    /// cross-table `ScanMode::Tagged` disjunction.
     pub fn survival_selectivity(&self) -> TopKSelectivity {
         match self.tagged_selectivity {
             Some(tagged) => self.unscored_selectivity.and(tagged),
@@ -548,7 +551,8 @@ impl SubtreeScoreStats {
             Self::combine_tagged(left.tagged_selectivity, right.tagged_selectivity);
 
         // Gate 3: Both inputs must meet the minimum row threshold (`rank_join_min_rows`),
-        // and any unscored (`RA`) inputs in a single-sided (`NRJN`) join must meet
+        // and any unscored (`RA`) inputs in a single-sided (`NRJN`) join or unscored
+        // `base_query` filters in a `ScanMode::Disjunctive` join must meet
         // `UNSCORED_SELECTIVITY_THRESHOLD`.
         if min_rows > 0 {
             if min_matched < min_rows as u64 {
@@ -680,6 +684,7 @@ fn try_rewrite_under_sort(
             min_rows,
             non_vector_eligibility,
             max_inlist_distinct,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
         },
         &mut eager_fields,
         &mut Vec::new(),
@@ -1624,6 +1629,7 @@ fn try_rewrite_unscored_branch(
             orderby_info: None,
             ordering: None,
             initial_window: 0.0,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         },
@@ -1661,14 +1667,21 @@ fn try_rewrite_scored_leaf(
             })
         }
         ScanMode::Disjunctive {
-            disjunct_queries, ..
+            base_query,
+            disjunct_queries,
         } => SubtreeScoreStats::from_leaf_queries(
             order_by.is_score(),
             // The base scores `0.0` on both `SA` and `RA` (`prepare_sa_and_ra`).
             &SearchQueryInput::All,
             disjunct_queries,
             scan.planner_estimated_rows(),
-        ),
+        )
+        .map(|mut s| {
+            if !matches!(base_query.as_ref(), SearchQueryInput::All) {
+                s.unscored_selectivity = scan.estimated_selectivity();
+            }
+            s
+        }),
         ScanMode::Tagged { .. } => {
             return Err(RankJoinDeclineReason::DisjunctiveSingleSidedScoreSort);
         }
@@ -1695,6 +1708,7 @@ fn try_rewrite_scored_leaf(
             orderby_info,
             ordering: leaf_ordering,
             initial_window: 1.0,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         },
@@ -1719,6 +1733,7 @@ struct LazySortProbeContext {
     min_rows: usize,
     non_vector_eligibility: NonVectorProbeEligibility,
     max_inlist_distinct: usize,
+    unpushed_join_selectivity: TopKSelectivity,
 }
 
 /// A per-table MVCC visibility check extracted from an outer [`VisibilityFilterExec`] above a
@@ -1802,6 +1817,22 @@ fn estimate_subtree_rows(plan: &Arc<dyn ExecutionPlan>) -> Option<u64> {
     None
 }
 
+/// Estimates the combined selectivity `[0.0, 1.0]` of a build-side subtree from its leaf
+/// `PgSearchScanPlan::estimated_selectivity()`.
+fn estimate_subtree_selectivity(plan: &Arc<dyn ExecutionPlan>) -> TopKSelectivity {
+    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
+        return scan.estimated_selectivity();
+    }
+    if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
+        return estimate_subtree_selectivity(join.left())
+            .and(estimate_subtree_selectivity(join.right()));
+    }
+    if plan.children().len() == 1 {
+        return estimate_subtree_selectivity(plan.children()[0]);
+    }
+    TopKSelectivity::ALL
+}
+
 /// Routes `parent_key_sets` through `join` to `probe_side` and appends `join`'s own probe-side
 /// equi-join key, returning `None` if `join` has composite join keys (`join.on().len() != 1`)
 /// or if any parent key cannot be unprojected cleanly.
@@ -1878,6 +1909,9 @@ fn advance_probe_join_context(
 ) -> Result<(LazySortProbeContext, JoinKeySets)> {
     let mut child_ctx = ctx;
     child_ctx.level = BranchLevel::ChildBranch;
+    child_ctx.unpushed_join_selectivity = child_ctx
+        .unpushed_join_selectivity
+        .and(estimate_subtree_selectivity(build_input));
     if join.filter().is_some()
         || !estimate_subtree_rows(build_input)
             .is_some_and(|rows| rows <= ctx.max_inlist_distinct as u64)
@@ -1913,7 +1947,21 @@ fn advance_probe_join_context(
 ///
 /// For `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite requires the build
 /// side's estimated row count to fit within `paradedb.hash_join_inlist_pushdown_max_distinct_values`
-/// and the probe leaf to support indexed `InList` pushdown on the join keys.
+/// (`20,000`) and the probe leaf to support indexed `InList` pushdown on the join keys; above that
+/// size, standard `DocId`-order `HashJoinExec` (`HashTableLookupExpr` fast-field `PreFilter`) +
+/// post-join `SortExec(TopK)` is faster.
+///
+/// `OrderByFeature::VectorDistance` has no post-join `SortExec` fallback because `PgSearchScan`
+/// must evaluate vector similarity inside Tantivy, so it always uses this `lazy_sort`-probe shape
+/// when `RankJoinExec` is declined, relying on `paradedb.lazy_sort_inlist_pushdown_max_distinct_values`
+/// (`131,072`, matching the `CollectLeft` broadcast threshold) to push `InList` filters into
+/// Tantivy's IVF collector.
+///
+/// TODO: When a selective (`< rank_join_unscored_selectivity_threshold`) build side on a large
+/// table exceeds `lazy_sort_inlist_pushdown_max_distinct_values` (`131,072` rows), neither
+/// `RankJoinExec` (`SA -> RA` miss amplification) nor `TermSetQuery` `InList` pushdown fits well;
+/// push `HashTableLookupExpr` / roaring-bitmap membership directly into Tantivy's vector scorer so
+/// candidates can be filtered lazily during vector scoring without materializing an `InList`.
 fn try_rewrite_lazy_sort_probe_join(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
@@ -2022,6 +2070,7 @@ fn try_rewrite_lazy_sort_probe_join(
             orderby_info: Some(order_bys),
             ordering: Some(required_ordering.clone()),
             initial_window,
+            unpushed_join_selectivity: ctx.unpushed_join_selectivity,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: None,
         })) as Arc<dyn ExecutionPlan>;

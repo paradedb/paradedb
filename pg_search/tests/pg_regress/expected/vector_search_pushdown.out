@@ -1170,8 +1170,8 @@ LIMIT 2;
 (2 rows)
 
 RESET paradedb.term_set_bitset_max_density_multi;
--- Edge Case 2: Build distinct-key count exceeding `hash_join_inlist_pushdown_max_distinct_values`
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
+-- Edge Case 2: Build distinct-key count exceeding `lazy_sort_inlist_pushdown_max_distinct_values`
+SET paradedb.lazy_sort_inlist_pushdown_max_distinct_values = 1;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1190,14 +1190,14 @@ LIMIT 2;
    Limit: 2
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=48.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=2, output_bytes=72.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=2, metrics=[output_rows=2, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
-     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, queries=1, rows_pruned=2, rows_scanned=4]
+     :         PgSearchScan: table=c, segments=1, lazy_sort=4, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, queries=1, rows_pruned=3, rows_scanned=6]
 (14 rows)
 
 SELECT c.id, c.parent_id
@@ -1215,7 +1215,7 @@ LIMIT 2;
  40 |         4
 (2 rows)
 
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.lazy_sort_inlist_pushdown_max_distinct_values;
 -- Edge Case 3: Sparse join where total matching rows < K (exhausts LazySort cleanly)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1253,14 +1253,14 @@ LIMIT 1;
    Limit: 1
    Order By: vec <=> vector asc, c.id asc
    DataFusion Physical Plan: 
-     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=72.0 B, output_batches=1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=1, metrics=[output_rows=1, output_bytes=84.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=3, avg_fanout=100% (3/3), probe_hit_rate=100% (3/3)]
+     : ProjectionExec: expr=[id@3 as col_1, parent_id@1 as col_2, NULL as col_3, ctid_0@0 as ctid_0], metrics=[output_rows=1, output_bytes=48.0 B, output_batches=1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, parent_id@1)], projection=[ctid_0@2, parent_id@3, pdb.vector_score(c)@4, id@5], fetch=1, metrics=[output_rows=1, output_bytes=56.0 B, output_batches=1, build_mem_used=44.0 B, array_map_created_count=1, build_input_batches=1, build_input_rows=2, input_batches=1, input_rows=2, avg_fanout=100% (2/2), probe_hit_rate=100% (2/2)]
      :     VisibilityFilterExec: tables=[p], metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
-     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, ctids_fetched=3, ctids_lazy=0]
+     :     VisibilityFilterExec: tables=[c], metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, ctids_fetched=2, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=c, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=3, output_bytes=84.0 B, output_batches=1, queries=2, rows_pruned=3, rows_scanned=6]
+     :         PgSearchScan: table=c, segments=1, lazy_sort=2, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=2, output_bytes=160.0 B, output_batches=1, queries=1, rows_pruned=2, rows_scanned=4]
 (14 rows)
 
 SELECT c.id, c.parent_id
@@ -1624,13 +1624,13 @@ LIMIT 2;
 
 -- Edge Case 7: Selective parent filter (2 / 100 = 2% < rank_join_unscored_selectivity_threshold)
 -- over an IVF segment where build distinct-key count exceeds
--- `hash_join_inlist_pushdown_max_distinct_values` (`HashTableLookupExpr` fallback).
+-- `lazy_sort_inlist_pushdown_max_distinct_values` (`HashTableLookupExpr` fallback).
 INSERT INTO vsp_parents
 SELECT i, 'gamma', '{"score": 0}'::jsonb
 FROM generate_series(5, 100) i;
 REINDEX INDEX vsp_parents_idx;
 ANALYZE vsp_parents;
-SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
+SET paradedb.lazy_sort_inlist_pushdown_max_distinct_values = 1;
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
 FROM vsp_children c
@@ -1656,7 +1656,7 @@ LIMIT 5;
      :         PgSearchScan: table=p, segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"alpha"}]}},{"range":{"field":"metadata.score","lower_bound":{"included":20.0},"upper_bound":null}},{"range":{"field":"metadata.score","lower_bound":null,"upper_bound":{"included":30.0}}}]}}, metrics=[output_rows=2, output_bytes=32.0 B, output_batches=1]
      :     VisibilityFilterExec: tables=[c], metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, ctids_fetched=23, ctids_lazy=0]
      :       CooperativeExec
-     :         PgSearchScan: table=c, segments=1, lazy_sort=10, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, queries=5, rows_pruned=253, rows_scanned=276]
+     :         PgSearchScan: table=c, segments=1, lazy_sort=10, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}, metrics=[output_rows=23, output_bytes=644.0 B, output_batches=1, queries=1, rows_pruned=253, rows_scanned=276]
 (14 rows)
 
 SELECT c.id, c.parent_id
@@ -1677,6 +1677,6 @@ LIMIT 5;
  403 |         4
 (5 rows)
 
-RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+RESET paradedb.lazy_sort_inlist_pushdown_max_distinct_values;
 DROP TABLE vsp_children, vsp_parents;
 DROP TABLE vsp;

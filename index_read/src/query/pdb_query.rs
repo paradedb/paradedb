@@ -1769,15 +1769,38 @@ pub fn canonicalize_range_bounds_for_field(
     Ok(bounds)
 }
 
+/// Converts raw `I64` bounds on datetime fields into [`PdbOwnedValue::Date`] so range estimation
+/// can compare them against `.stats` (`EmpiricalStats`) and `pg_statistic` datums, both of which
+/// decode datetime values into `PdbOwnedValue::Date`.
+fn lift_datetime_bound_for_estimate(
+    search_field: &SearchField,
+    bound: Bound<PdbOwnedValue>,
+) -> Bound<PdbOwnedValue> {
+    if !matches!(search_field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+        return bound;
+    }
+    bound.map(|v| match v {
+        PdbOwnedValue::I64(raw) => PostgresDateTime::try_from_raw(raw)
+            .map(PdbOwnedValue::Date)
+            .unwrap_or(PdbOwnedValue::I64(raw)),
+        other => other,
+    })
+}
+
 /// The bounds must already be in the field's stored form.
 fn range_query_from_bounds(
     search_field: &SearchField,
     field: &FieldName,
+    stat_target: Option<crate::schema::HeapStatTarget>,
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<RangeQueryWithEstimate> {
-    let bounds = (lower_bound.clone(), upper_bound.clone());
+    let bounds = (
+        lift_datetime_bound_for_estimate(search_field, lower_bound.clone()),
+        lift_datetime_bound_for_estimate(search_field, upper_bound.clone()),
+    );
+    let field_path = field.path();
     let field_type = search_field.field_entry().field_type();
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1815,12 +1838,13 @@ fn range_query_from_bounds(
         Bound::Unbounded => Bound::Unbounded,
     };
 
-    Ok(RangeQueryWithEstimate {
-        query: RangeQuery::new(lower_bound, upper_bound),
-        field: search_field.clone(),
-        lower_bound: bounds.0,
-        upper_bound: bounds.1,
-    })
+    Ok(RangeQueryWithEstimate::new(
+        RangeQuery::new(lower_bound, upper_bound),
+        search_field.clone(),
+        field_path,
+        stat_target,
+        bounds,
+    ))
 }
 
 /// Creates a range query for the given field and bounds.
@@ -1859,6 +1883,7 @@ fn range(
     range_query_from_bounds(
         &search_field,
         field,
+        schema.heap_stat_target(field),
         index_created_by_version,
         lower_bound,
         upper_bound,
@@ -1882,6 +1907,7 @@ fn stored_range(
     range_query_from_bounds(
         &search_field,
         field,
+        schema.heap_stat_target(field),
         index_created_by_version,
         lower_bound,
         upper_bound,

@@ -11,16 +11,21 @@ runner with a 64-CPU / 32-GiB database container on cores 0–63. All engines us
 
 Apply a PR label to run one engine:
 
-| Engine            | PR label                            |
-| ----------------- | ----------------------------------- |
-| `pg_search`       | `benchmark-msmarco-pg_search`       |
-| `pg_vectorsearch` | `benchmark-msmarco-pg_vectorsearch` |
-| `vectorchord`     | `benchmark-msmarco-vectorchord`     |
+| Engine                  | PR label                                  |
+| ----------------------- | ----------------------------------------- |
+| `pg_search`             | `benchmark-msmarco-pg_search`             |
+| `pg_vectorsearch`       | `benchmark-msmarco-pg_vectorsearch`       |
+| `vectorchord`           | `benchmark-msmarco-vectorchord`           |
+| `vectorchord-prefilter` | `benchmark-msmarco-vectorchord-prefilter` |
 
 The label is removed when the run starts. Reapply it to rerun. For an on-demand
 runner, add `benchmark-nonspot` before the engine label. Remove it to use Spot.
 
-Daily runs benchmark all three engines. Manual runs select one:
+Daily runs benchmark all three engines with VectorChord prefilter off. Manual runs
+can also select `vectorchord-prefilter` to enable it; this variant has separate
+results. Both VectorChord modes use the same unfiltered MS MARCO queries.
+
+Manual runs select one engine:
 
 ```sh
 gh workflow run benchmark-pg_search-benchmarker-msmarco.yml \

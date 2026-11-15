@@ -100,7 +100,7 @@ impl WorkerPathPolicy {
             VectorFilterStrategy::Pre {
                 uses_fast_fields: false,
             }
-            | VectorFilterStrategy::Cluster { .. } => work.is_some_and(|work| {
+            | VectorFilterStrategy::Post { .. } => work.is_some_and(|work| {
                 work.parallel_wins(parallel_divisor(nworkers, leader_participates))
             }),
         };
@@ -558,7 +558,7 @@ mod vector_filter_tests {
                     workers > 0,
                 ),
                 (
-                    VectorFilterStrategy::Cluster {
+                    VectorFilterStrategy::Post {
                         estimated_selectivity: 0.1,
                     },
                     false,

@@ -5379,7 +5379,7 @@ mod tests {
         let pre = VectorFilterStrategy::Pre {
             uses_fast_fields: true,
         };
-        let post = VectorFilterStrategy::Cluster {
+        let post = VectorFilterStrategy::Post {
             estimated_selectivity: 0.5,
         };
         for (lo, hi, expected_rows, expected_segments) in [

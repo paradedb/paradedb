@@ -30,7 +30,10 @@ benchmark another revision.
 
 Six workloads cover timestamp ranges at 10%, 1%, and 0.1% selectivity, and exact
 authors at 0.1%, 0.01%, and 0.001%. All engines use the same heap, predicates,
-query vectors, ground truth, and Docker resources.
+query vectors, ground truth, and Docker resources: 64 CPUs on cores 0–63,
+32 GiB memory, 16 GiB shared memory, 8 GiB shared buffers, 8 GiB
+`maintenance_work_mem`, 24 GiB `effective_cache_size`, and 256 MiB `work_mem`.
+k6 runs on cores 64–67.
 
 Each workload tunes probes for R90/R95/R99. Settings that meet the target on all
 100 vectors run in k6 with one VU, 10 seconds of warmup, and 50 seconds of
@@ -66,6 +69,3 @@ hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
 `build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
 capped at the list count. Both build and search use the shared 32 GiB container
 configuration, with 8 GiB shared buffers and 8 GiB `maintenance_work_mem`.
-
-These profiles accompany the comparison workflows in [PR #7361](https://github.com/paradedb/paradedb/pull/7361);
-the existing pg_search-only workflow remains unchanged.

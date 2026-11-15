@@ -3,7 +3,9 @@
 The MS MARCO workflow compares pg_search, pg_vectorsearch, and VectorChord on
 113,520,750 rows with 1,024-dimensional vectors. Each engine restores the same
 PostgreSQL 18 heap backup (`20261102-224214F`) and runs on a `c8gd.metal-24xl`
-runner with a 64-CPU / 128-GiB database container. k6 runs on cores 64–67.
+runner with a 64-CPU / 32-GiB database container on cores 0–63. All engines use
+16 GiB shared memory, 8 GiB shared buffers, 8 GiB `maintenance_work_mem`,
+24 GiB `effective_cache_size`, and 256 MiB `work_mem`. k6 runs on cores 64–67.
 
 ## Run
 
@@ -44,8 +46,9 @@ history.
 
 The TOML profiles contain index and recall settings. The workflow pins tool and
 extension revisions. Cluster setup, extension installation, build reporting,
-and k6 profiling use the same actions as HN. VectorChord's 80,000-list profile
-is a starting configuration, not a tuned 113M result.
+and k6 profiling use the same actions as HN. VectorChord's 100,000-list
+profile uses the memory-saving training settings described below; a completed
+113M run with this configuration is still pending.
 
 ## Diagnostics
 
@@ -73,6 +76,3 @@ hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
 `build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
 capped at the list count. Both build and search use the shared 32 GiB container
 configuration, with 8 GiB shared buffers and 8 GiB `maintenance_work_mem`.
-
-These profiles accompany the comparison workflows in [PR #7410](https://github.com/paradedb/paradedb/pull/7410);
-the existing pg_search-only workflow remains unchanged.

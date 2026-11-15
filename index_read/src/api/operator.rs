@@ -101,17 +101,22 @@ fn open_and_estimate_docs(
         .expect("indexrel should be an index");
     let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
-    let opened;
+    let mut opened;
     let reader = match reader {
         Some(reader) => reader,
         None => {
-            let mvcc_style = if vector_field.is_some() {
-                MvccSatisfies::Snapshot
-            } else {
-                SearchIndexReader::mvcc_for_estimation(indexrel, &search_query_input)
-            };
+            let mvcc_style = SearchIndexReader::mvcc_for_estimation(indexrel, &search_query_input);
+            let full_query = (vector_field.is_some()
+                && mvcc_style == MvccSatisfies::LargestSegment)
+                .then(|| search_query_input.clone());
             opened =
                 SearchIndexReader::open(indexrel, search_query_input, false, mvcc_style).ok()?;
+            if let Some(query) = full_query
+                && opened.weight().uses_fast_fields()
+            {
+                opened = SearchIndexReader::open(indexrel, query, false, MvccSatisfies::Snapshot)
+                    .ok()?;
+            }
             &opened
         }
     };

@@ -30,9 +30,6 @@ use crate::gucs;
 use crate::postgres::ParallelScanState;
 use crate::postgres::customscan::mpp::{MainThread, run_on_main_thread};
 
-/// Minimum estimated matches for candidate prefiltering, independent of the probe budget.
-pub const MIN_BATCHED_FILTER_MATCHES: usize = 50_000;
-
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct VectorRoutingResults {
     pub budget: VectorSearchBudget,
@@ -212,6 +209,14 @@ impl VectorFilterWeight {
 }
 
 impl tantivy::query::Weight for VectorFilterWeight {
+    fn uses_fast_fields(&self) -> bool {
+        self.base.get().uses_fast_fields()
+            || self
+                .constrained
+                .as_ref()
+                .is_some_and(|w| w.get().uses_fast_fields())
+    }
+
     fn scorer(
         &self,
         reader: &tantivy::SegmentReader,

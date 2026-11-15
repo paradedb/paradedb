@@ -64,6 +64,21 @@ const arrayDemo = definePgTable(
       .map((index) => index.build(table)),
 );
 
+const synonymRule = pgCustomType({
+  dataType() {
+    return "pdb.synonym_rule";
+  },
+});
+
+const shopSynonyms = definePgTable("shop_synonyms", {
+  rule: synonymRule("rule").notNull(),
+});
+
+const synonyms = definePgTable("synonyms", {
+  setName: pgText("set_name").notNull(),
+  rule: synonymRule("rule").notNull(),
+});
+
 const mockItemsGeo = definePgTable("mock_items_geo", {
   id: pgInteger("id"),
   description: pgText("description"),

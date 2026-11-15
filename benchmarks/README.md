@@ -1,6 +1,15 @@
 # ParadeDB Benchmarks
 
-For Cohere vector CI, see [the pdbench and k6 pipeline](cohere/README.md).
+Vector CI uses pdbench for recall calibration and k6 for latency and throughput:
+
+- [Cohere](cohere/README.md)
+- [Hacker News](hn/README.md)
+- [MS MARCO](msmarco/README.md)
+
+SQL assets live under `assets/<dataset>/`, with engine-specific queries in
+`assets/<dataset>/<engine>/`. Shared CI actions build pdbench, start the cluster,
+install comparison extensions, report index builds, and run k6 with profiling.
+Dataset workflows own fixture checks, recall profiles, and result context.
 For MS MARCO 113M vector CI, see [the MS MARCO pipeline](msmarco/README.md).
 
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.

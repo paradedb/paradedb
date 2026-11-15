@@ -1,0 +1,94 @@
+-- In a generic plan, PL/pgSQL variables are extern Params. PL/pgSQL serves
+-- them only through the parameter list's paramFetch hook and allocates no
+-- params array, so LIMIT, pdb.snippet() arguments, and vector ORDER BY
+-- operands must be read through it.
+-- https://github.com/paradedb/paradedb/issues/7289
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+CREATE TABLE issue_7289 (id int PRIMARY KEY, message text, severity int);
+INSERT INTO issue_7289 SELECT i, 'beer beverage', i FROM generate_series(1, 8) AS g(i);
+CREATE INDEX issue_7289_idx ON issue_7289 USING paradedb (id, message, severity);
+ANALYZE issue_7289;
+
+SET client_min_messages TO notice;
+
+-- The cached plan switches from custom to generic at n = 6
+SET plan_cache_mode = force_custom_plan;
+DO $$
+DECLARE
+    n int;
+    matched bigint;
+BEGIN
+    FOR n IN 1..8 LOOP
+        IF n = 6 THEN
+            PERFORM set_config('plan_cache_mode', 'force_generic_plan', false);
+        END IF;
+        SELECT count(*) INTO matched
+        FROM (
+            SELECT id FROM issue_7289
+            WHERE message @@@ 'beer'
+            ORDER BY severity LIMIT n
+        ) AS results;
+        RAISE NOTICE 'LIMIT %, matched %', n, matched;
+    END LOOP;
+END $$;
+
+SET plan_cache_mode = force_generic_plan;
+DO $$
+DECLARE
+    tag text := '<i>';
+    snippet text;
+BEGIN
+    SELECT pdb.snippet(message, start_tag => tag, end_tag => '</i>') INTO snippet
+    FROM issue_7289
+    WHERE message @@@ 'beer'
+    ORDER BY id LIMIT 1;
+    RAISE NOTICE 'snippet %', snippet;
+END $$;
+
+CREATE TABLE issue_7289_vec (id int PRIMARY KEY, vec vector(3));
+INSERT INTO issue_7289_vec VALUES
+    (1, '[1, 0, 0]'),
+    (2, '[0.9, 0, 0.1]'),
+    (3, '[0, 1, 0]'),
+    (4, '[0, 0, 1]'),
+    (5, '[0.7, 0.7, 0]');
+CREATE INDEX issue_7289_vec_idx ON issue_7289_vec
+USING paradedb (id, vec vector_cosine_ops);
+
+DO $$
+DECLARE
+    q vector := '[0, 0, 1]';
+    label text := 'up';
+    nearest int[];
+BEGIN
+    SELECT array_agg(id) INTO nearest
+    FROM (
+        SELECT id FROM issue_7289_vec
+        WHERE id @@@ pdb.all()
+        ORDER BY vec <=> q LIMIT 2
+    ) AS results;
+    RAISE NOTICE 'nearest to % %', label, nearest;
+END $$;
+
+CREATE FUNCTION issue_7289_nearest(k int, q vector) RETURNS int[]
+LANGUAGE plpgsql AS $$
+DECLARE
+    nearest int[];
+BEGIN
+    SELECT array_agg(id) INTO nearest
+    FROM (
+        SELECT id FROM issue_7289_vec
+        WHERE id @@@ pdb.all()
+        ORDER BY vec <=> q LIMIT k
+    ) AS results;
+    RETURN nearest;
+END $$;
+SELECT issue_7289_nearest(2, '[0, 0, 1]');
+SELECT issue_7289_nearest(3, '[1, 0, 0]');
+
+RESET plan_cache_mode;
+RESET client_min_messages;
+DROP FUNCTION issue_7289_nearest;
+DROP TABLE issue_7289, issue_7289_vec;

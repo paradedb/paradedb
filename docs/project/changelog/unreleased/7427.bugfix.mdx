@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- PL/pgSQL variables used as `LIMIT`/`OFFSET`, as `pdb.snippet()` arguments, or as a vector `ORDER BY` operand now keep their values once the statement switches to a generic plan, instead of returning wrong rows or crashing the backend.

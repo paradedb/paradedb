@@ -1,0 +1,62 @@
+name: Set Up pg_vectorsearch
+description: Build and install pg_vectorsearch in the benchmark container
+
+inputs:
+  ref:
+    description: "paradedb/pg_vectorsearch commit"
+    required: true
+  github_token:
+    description: "Token with read access to paradedb/pg_vectorsearch"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout pg_vectorsearch
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        repository: paradedb/pg_vectorsearch
+        ref: ${{ inputs.ref }}
+        path: pg-vectorsearch
+        token: ${{ inputs.github_token }}
+        persist-credentials: false
+
+    - name: Build and Install pg_vectorsearch
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker cp pg-vectorsearch paradedb:/tmp/pg-vectorsearch
+        docker exec -i --user root paradedb bash <<'BUILD'
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          postgresql-server-dev-18 build-essential pkg-config meson ninja-build libopenblas-dev
+        pg_config="/usr/lib/postgresql/18/bin/pg_config"
+        CC="$("$pg_config" --cc)" meson setup /tmp/pg-vectorsearch/build /tmp/pg-vectorsearch --buildtype=release \
+          -Dnative=true -Dblas=enabled -Dpostgresql=enabled -Dtools=disabled -Dpg_config="$pg_config"
+        meson compile -C /tmp/pg-vectorsearch/build -j 8
+        meson install -C /tmp/pg-vectorsearch/build
+        rm -rf /tmp/pg-vectorsearch /var/lib/apt/lists/*
+        BUILD
+        mkdir -p benchmark-artifacts
+        git -C pg-vectorsearch rev-parse HEAD > benchmark-artifacts/pg-vectorsearch-commit.txt
+
+    - name: Restart PostgreSQL
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Installing server-dev can upgrade PostgreSQL and its shared libraries.
+        # Restart the existing container so its server uses the same binaries.
+        docker restart --time 600 paradedb
+        for attempt in $(seq 1 150); do
+          if pg_isready -d "$PARADEDB_URL"; then
+            break
+          fi
+          sleep 2
+        done
+        # A connection alone does not detect a server/plpgsql library mismatch.
+        psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 \
+          -c 'DO $$ BEGIN PERFORM 1; END $$;' \
+          -c 'SHOW server_version;' \
+          | tee benchmark-artifacts/pg-vectorsearch-postgres-version.txt

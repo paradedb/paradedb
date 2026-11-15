@@ -1,0 +1,23 @@
+# Run from the pinned pdbench checkout after installing these dataset scripts.
+datasource:
+  path: s3://paradedb-benchmark/datasets/msmarco/v1/sampled/113m/parquet/msmarco/
+  region: us-east-1
+
+datastore:
+  type: timescale
+  url: ${PARADEDB_URL}
+  # The shared cluster action uses this container name for every engine.
+  container: paradedb
+  dataset: datasets/msmarco
+  table: msmarco
+  settings:
+    shared_buffers: 32GB
+    maintenance_work_mem: 52428MB
+    max_parallel_maintenance_workers: 8
+    max_wal_size: 32GB
+  vars:
+    index_name: msmarco_prism_idx
+    with_options: "nlist = 0"
+
+loader:
+  expected_rows: 113520750

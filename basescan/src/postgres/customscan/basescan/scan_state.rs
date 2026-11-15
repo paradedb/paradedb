@@ -235,13 +235,6 @@ impl BaseScanState {
     }
 
     #[inline(always)]
-    pub fn exec_method<'a>(&self) -> &'a dyn ExecMethod {
-        let ptr = self.exec_method.get();
-        assert!(!ptr.is_null());
-        unsafe { ptr.as_ref().unwrap_unchecked().as_ref() }
-    }
-
-    #[inline(always)]
     pub fn exec_method_mut<'a>(&mut self) -> &'a mut Box<dyn ExecMethod> {
         let ptr = self.exec_method.get();
         assert!(!ptr.is_null());

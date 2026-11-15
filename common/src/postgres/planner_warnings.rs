@@ -185,6 +185,17 @@ pub fn mark_contexts_successful<C: ToWarningContexts>(contexts: C) {
     });
 }
 
+/// Runs `nested`, a query that the planner executes while it plans another query. The planner
+/// hook of the nested query clears the warnings, so the ones of the outer query are kept aside.
+pub fn with_nested_planning<T>(nested: impl FnOnce() -> T) -> T {
+    let warnings = PLANNER_STATE.with(|state| std::mem::take(&mut *state.borrow_mut()));
+    let cycle = PLANNING_CYCLE_ID.with(|id| id.get());
+    let result = nested();
+    PLANNING_CYCLE_ID.with(|id| id.set(cycle));
+    PLANNER_STATE.with(|state| *state.borrow_mut() = warnings);
+    result
+}
+
 pub fn clear_planner_warnings() {
     // Increment the planning cycle counter so multiple queries planned within a single
     // top-level statement (e.g. SPI queries inside a SQL or PL/pgSQL function, which all

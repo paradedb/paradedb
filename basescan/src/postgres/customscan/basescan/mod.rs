@@ -34,6 +34,7 @@ use cost::{
     WorkerPathPolicy, costable_drive_cost, decide_scan_parallelism, estimate_path_cost,
     parallel_divisor, topk_can_prune_for_method,
 };
+use vector_cost::VectorSearchStats;
 
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
@@ -1283,7 +1284,10 @@ impl CustomScan for BaseScan {
                 let policy = if let Some(field) = vector_field.as_ref() {
                     WorkerPathPolicy::for_vector_topk(
                         estimation_query.resolve(&query).unwrap_or(&query),
-                        (*rel).tuples.max(1.0),
+                        VectorSearchStats {
+                            vectors: (*rel).tuples.max(1.0),
+                            matches: (*rel).tuples.max(1.0) * selectivity,
+                        },
                         vector_reader.as_ref().map_or(
                             (*rel).tuples.max(1.0) * selectivity,
                             SearchIndexReader::estimate_vector_matches,

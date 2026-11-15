@@ -227,6 +227,76 @@ WHERE l.status IN (SELECT s FROM lp_active_statuses)
 LIMIT 50;
 
 -- ============================================================
+-- Test 6b: Non-preserved joins alongside LEFT JOIN LATERAL
+-- ============================================================
+-- Even when the query contains a LEFT JOIN LATERAL and top-level WHERE
+-- quals only reference the BM25 table (for example after PG 18.7 strips
+-- redundant IS NULL quals on an anti-join, or via NOT EXISTS / INNER JOIN,
+-- or when the BM25 table sits on the nullable RHS of a LEFT JOIN), BaseScan
+-- must not push LIMIT into the non-preserved or inner BM25 scan.
+
+SELECT 'anti_is_null' AS shape, count(*) AS cnt FROM (
+    SELECT i.id
+    FROM lp_items i
+    LEFT JOIN lp_categories c ON c.id = 2 AND i.category_id = 999
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+    ) lat ON true
+    WHERE i.description ||| 'searchable' AND c.id IS NULL
+    ORDER BY paradedb.score(i.id) DESC
+    LIMIT 50
+) sub
+UNION ALL
+SELECT 'anti_not_exists' AS shape, count(*) AS cnt FROM (
+    SELECT i.id
+    FROM lp_items i
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+    ) lat ON true
+    WHERE i.description ||| 'searchable'
+      AND NOT EXISTS (
+          SELECT 1 FROM lp_categories c WHERE c.id = 2 AND i.category_id = 999
+      )
+    ORDER BY paradedb.score(i.id) DESC
+    LIMIT 50
+) sub
+UNION ALL
+SELECT 'inner_join' AS shape, count(*) AS cnt FROM (
+    SELECT i.id
+    FROM lp_items i
+    JOIN lp_left_table l ON l.id = i.id
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+    ) lat ON true
+    WHERE i.description ||| 'searchable'
+    ORDER BY paradedb.score(i.id) DESC
+    LIMIT 50
+) sub
+UNION ALL
+SELECT 'nullable_rhs' AS shape, count(matched_item_id) AS cnt FROM (
+    SELECT i.id AS matched_item_id
+    FROM lp_left_table l
+    LEFT JOIN lp_items i ON i.fk = l.id + 900 AND i.description ||| 'searchable'
+    LEFT JOIN LATERAL (
+        SELECT s FROM lp_active_statuses WHERE s = l.status LIMIT 1
+    ) lat ON true
+    LIMIT 50
+) sub;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM lp_items i
+LEFT JOIN LATERAL (
+    SELECT s FROM lp_active_statuses WHERE s = i.status LIMIT 1
+) lat ON true
+WHERE i.description ||| 'searchable'
+  AND NOT EXISTS (
+      SELECT 1 FROM lp_categories c WHERE c.id = 2 AND i.category_id = 999
+  )
+ORDER BY paradedb.score(i.id) DESC
+LIMIT 50;
+
+-- ============================================================
 -- Test 7: RLS-injected SubPlan (subquery-based policy)
 -- ============================================================
 -- Row-level security adds a SubPlan to baserestrictinfo that can't

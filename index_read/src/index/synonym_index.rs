@@ -17,12 +17,15 @@
 
 pub use storage::index::synonym_index::*;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::api::HashMap;
 use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::synonym_cache::{cache_rules, cached_keys, cached_rules};
 use crate::postgres::access::{IndexAccess, IndexOid};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -33,7 +36,8 @@ use tantivy::synonyms::{CompiledRule, Expansion, KeyDocs, SegmentSynonyms, Synon
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy::{DocId, SegmentOrdinal, SegmentReader};
 
-/// The role that runs the query names the index, so its rights on the rules table are checked.
+/// A query can hold the oid of any index, so the rights of the role on the rules table are
+/// checked here.
 pub fn open_synonym_index(index: pg_sys::Oid) -> anyhow::Result<IndexAccess> {
     let index = IndexOid::from(index).read();
     let name = index.name();
@@ -65,11 +69,91 @@ pub fn expand_with_index(index: &IndexAccess, tokens: &[String]) -> anyhow::Resu
     let expansions = expand(tokens, &mut source);
     source.close();
     let mut expansions = expansions?;
+    cap_alternatives(&mut expansions);
+    Ok(expansions)
+}
+
+/// Expands `tokens` with rules that a subquery read. `analyzer` is the one that made `tokens`.
+pub fn expand_with_rules(
+    rules: &[String],
+    analyzer: &mut TextAnalyzer,
+    tokens: &[String],
+) -> anyhow::Result<Vec<Expansion>> {
+    let mut source = ListedRuleSource::compile(rules, analyzer);
+    let mut expansions = expand(tokens, &mut source)?;
+    cap_alternatives(&mut expansions);
+    Ok(expansions)
+}
+
+fn cap_alternatives(expansions: &mut [Expansion]) {
     let max_alternatives = gucs::synonyms_max_alternatives();
-    for expansion in &mut expansions {
+    for expansion in expansions {
         expansion.cap(max_alternatives);
     }
-    Ok(expansions)
+}
+
+/// Rules that a subquery read, as one segment whose documents are the rules in their order.
+struct ListedRuleSource {
+    rules: Vec<Arc<[CompiledRule]>>,
+    /// The keys of the rules by their first token.
+    keys: HashMap<String, Arc<[KeyDocs]>>,
+}
+
+impl ListedRuleSource {
+    fn compile(rules: &[String], analyzer: &mut TextAnalyzer) -> Self {
+        let rules: Vec<Arc<[CompiledRule]>> = rules
+            .iter()
+            .map(|rule| {
+                CompiledRule::from_line(rule, analyzer)
+                    .into_iter()
+                    .collect()
+            })
+            .collect();
+        let mut docs_of_key: BTreeMap<&[String], Vec<DocId>> = BTreeMap::new();
+        for (doc, rule) in rules.iter().enumerate() {
+            for key in rule.iter().flat_map(|rule| &rule.keys) {
+                let docs = docs_of_key.entry(key.as_slice()).or_default();
+                if docs.last() != Some(&(doc as DocId)) {
+                    docs.push(doc as DocId);
+                }
+            }
+        }
+        // The same setting caps the rules of a key in each segment of a synonym index.
+        let max_rules_per_key = gucs::synonyms_max_rules_per_key();
+        let mut keys_of_token: HashMap<String, Vec<KeyDocs>> = HashMap::default();
+        for (key, mut docs) in docs_of_key {
+            let Some(first) = key.first() else {
+                continue;
+            };
+            docs.truncate(max_rules_per_key);
+            keys_of_token
+                .entry(first.clone())
+                .or_default()
+                .push(KeyDocs {
+                    key: key.to_vec(),
+                    docs,
+                });
+        }
+        let keys = keys_of_token
+            .into_iter()
+            .map(|(token, keys)| (token, keys.into()))
+            .collect();
+        Self { rules, keys }
+    }
+}
+
+impl SynonymSource for ListedRuleSource {
+    fn token_keys(&mut self, token: &str) -> tantivy::Result<Vec<Arc<[KeyDocs]>>> {
+        Ok(vec![self.keys.get(token).cloned().unwrap_or_default()])
+    }
+
+    fn alive_rules(
+        &mut self,
+        _segment: usize,
+        doc: DocId,
+    ) -> tantivy::Result<Option<Arc<[CompiledRule]>>> {
+        Ok(self.rules.get(doc as usize).cloned())
+    }
 }
 
 /// The rules of a synonym index, read through its table. A matched document's rule text comes
@@ -149,7 +233,11 @@ impl SynonymSource for HeapRuleSource {
     fn token_keys(&mut self, token: &str) -> tantivy::Result<Vec<Arc<[KeyDocs]>>> {
         self.segments
             .iter()
-            .map(|(synonyms, _)| Ok(synonyms.token_keys(token, self.max_rules_per_key)?.into()))
+            .map(|(synonyms, reader)| {
+                cached_keys(reader.segment_id(), token, self.max_rules_per_key, || {
+                    Ok(synonyms.token_keys(token, self.max_rules_per_key)?.into())
+                })
+            })
             .collect()
     }
 
@@ -167,6 +255,11 @@ impl SynonymSource for HeapRuleSource {
             return Ok(None);
         };
         let (slot, attnum) = (self.slot, self.attnum);
+        let segment_id = self.segments[segment].1.segment_id();
+        if let Some(rules) = cached_rules(segment_id, doc) {
+            let alive = self.visibility.exec_if_visible(ctid, slot, |_| ());
+            return Ok(alive.map(|()| rules));
+        }
         let text = self.visibility.exec_if_visible(ctid, slot, |_| unsafe {
             let mut isnull = false;
             let datum = pg_sys::slot_getattr(slot, attnum, &mut isnull);
@@ -175,10 +268,11 @@ impl SynonymSource for HeapRuleSource {
         let Some(text) = text else {
             return Ok(None);
         };
-        let rules: Vec<CompiledRule> = text
+        let rules: Arc<[CompiledRule]> = text
             .iter()
             .filter_map(|line| CompiledRule::from_line(line, &mut self.analyzer))
             .collect();
-        Ok(Some(rules.into()))
+        cache_rules(segment_id, doc, rules.clone());
+        Ok(Some(rules))
     }
 }

@@ -1,0 +1,5 @@
+---
+header: breaking
+---
+
+Prebuilt `pg_search` binary packages now require PostgreSQL `15.20`, `16.16`, `17.12`, or `18.7` (or newer within each major series) because `CVE-2026-6460` moved `DatumGetHeapTupleHeader` out of line into the server binary. Upgrade PostgreSQL to at least those point releases before installing or upgrading prebuilt `pg_search` packages; building from source continues to support earlier point releases.

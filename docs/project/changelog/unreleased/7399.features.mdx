@@ -1,0 +1,5 @@
+---
+header: features
+---
+
+Match queries expand with synonym rules that you keep in a table. Give the rules to `|||` or `&&&` with a subquery, as in `description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)`. A change to the rules applies on the next query with no reindex. See [Synonyms](/reference/tokenizers/synonyms).

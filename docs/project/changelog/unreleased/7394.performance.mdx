@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Vector searches do less work per scanned row on replicated IVF indexes (the default `replication = 2`): clusters whose rows an earlier cluster already holds are scored through the batch kernels and decoders, read planning skips pricing sparse reads that cannot beat a whole-cluster read, and each cluster's storage block is looked up fewer times. Results and the index format are unchanged.

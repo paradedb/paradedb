@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Fixed index builds and merges that produce a fast field column with more than 4 GiB of distinct string values in one segment. They failed with `assertion failed: end <= orig_range.end`.

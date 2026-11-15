@@ -40,18 +40,34 @@ thread_local! {
 
 struct TestDatabases(RefCell<Vec<String>>);
 
+fn drop_test_databases(db_names: Vec<String>) {
+    if db_names.is_empty() {
+        return;
+    }
+    // Wait for the drops, so that the process cannot exit before they finish.
+    block_on(async_std::task::spawn(async move {
+        for db_name in db_names {
+            if let Err(err) = Postgres::cleanup_test(&db_name).await {
+                // A panic in a destructor during unwind or TLS teardown aborts the process.
+                eprintln!("could not drop test database {db_name}: {err}");
+            }
+        }
+    }));
+}
+
+/// Drops all temporary databases registered on the current test thread immediately rather than
+/// deferring to thread exit, so serialized tests do not overlap `DROP DATABASE` checkpoints with
+/// the next test case.
+pub(crate) fn cleanup_current_thread_databases() {
+    let db_names = TEST_DATABASES
+        .try_with(|databases| databases.0.take())
+        .unwrap_or_default();
+    drop_test_databases(db_names);
+}
+
 impl Drop for TestDatabases {
     fn drop(&mut self) {
-        let db_names = self.0.take();
-        // Wait for the drops, so that the process cannot exit before they finish.
-        block_on(async_std::task::spawn(async move {
-            for db_name in db_names {
-                if let Err(err) = Postgres::cleanup_test(&db_name).await {
-                    // A panic in a thread-local destructor aborts the process.
-                    eprintln!("could not drop test database {db_name}: {err}");
-                }
-            }
-        }));
+        drop_test_databases(self.0.take());
     }
 }
 

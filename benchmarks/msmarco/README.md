@@ -1,62 +1,66 @@
-# MS MARCO vector CI
+# MS MARCO vector benchmarks
 
-The MS MARCO workflow restores the existing 113,520,750-row PostgreSQL 18 heap
-backup `20261102-224214F`, builds pg_search from the requested revision, and
-creates an eight-segment cosine index with a 0.32 training sample ratio and
-quantized vector routing. It uses the same runner and cluster setup as Cohere.
+The MS MARCO workflow compares pg_search, pg_vectorsearch, and VectorChord on
+113,520,750 rows with 1,024-dimensional vectors. Each engine restores the same
+PostgreSQL 18 heap backup (`20261102-224214F`) and runs on a `c8gd.metal-24xl`
+runner with a 64-CPU / 128-GiB database container. k6 runs on cores 64–67.
 
-Apply `benchmark-cohere-msmarco` to a PR to benchmark its head. The label is
-removed when the run starts so it can be applied again. This large dataset is
-opt-in on PRs; the generic `benchmarks` and Cohere labels do not start it.
-Scheduled runs execute daily on main. After merging, a manual main run can
-establish the first baseline immediately:
+## Run
+
+Apply a PR label to run one engine:
+
+| Engine            | PR label                            |
+| ----------------- | ----------------------------------- |
+| `pg_search`       | `benchmark-msmarco-pg_search`       |
+| `pg_vectorsearch` | `benchmark-msmarco-pg_vectorsearch` |
+| `vectorchord`     | `benchmark-msmarco-vectorchord`     |
+
+The label is removed when the run starts. Reapply it to rerun. For an on-demand
+runner, add `benchmark-nonspot` before the engine label. Remove it to use Spot.
+
+Daily runs benchmark all three engines. Manual runs select one:
 
 ```sh
 gh workflow run benchmark-pg_search-benchmarker-msmarco.yml \
-  --repo paradedb/paradedb --ref main
+  --repo paradedb/paradedb --ref main -f engine=vectorchord
 ```
 
-The optional `commit` input benchmarks another revision using the workflow's
-benchmark code. Backfills and PR runs do not update the main baseline.
+Set `commit` to benchmark another pg_search revision. Scheduled and manual runs
+on main update each engine's baseline unless `commit` is set.
 
-The pinned pdbench revision includes the configured-neighbor-count recall fix
-needed for top-100. It uses 100 held-out query vectors from the published 1,677
-fixtures and independently sweeps top-10 and top-100 to R90/R95/R99. The current
-configuration uses integer `paradedb.vector_cluster_max_probe` work budgets
-from 1 to 100000, starting at 100, with adaptive probing enabled. SOAR replication
-from #7315 is not part of this baseline.
+## Measurements
 
-The workflow reuses Cohere's handoff helpers and k6 script. Plan checks require
-cosine TopK execution inside ParadeDB with the correct neighbor count. Each
-reached operating point runs with one VU, 10 seconds of discarded warmup, and
-50 seconds of measurement. Unreached targets remain explicit in the results.
+All engines use the same first 100 held-out vectors and published ground truth
+for unfiltered cosine top-10 and top-100 queries returning `_id, title`.
+`pdbench-load finalize` builds and vacuums the index. `pdbench search` tunes
+probes for 90%, 95%, and 99% recall. Reached targets run in k6 with one VU,
+10 seconds of warmup, and 50 seconds of measurement. Targets that miss recall
+have no QPS or latency result.
 
-The shared publisher records latency percentiles, QPS, buffer hits, build time,
-index size, and peak container memory during the build under
-`benchmarker msmarco-113m`. Container memory excludes inactive page cache.
-Scheduled and manual main runs establish and
-refresh the baseline; subsequent PRs compare with it. Diagnostics retain
-extension/tool revisions, configuration, the verified query hash, segment
-statistics, plans, raw pdbench reports, k6 dashboards, and database logs.
+Plan checks require the expected vector index, and k6 checks the returned
+neighbor count. Results include QPS, latency, buffer counts, build time, index
+size, and peak build memory. Each engine has its own artifacts and baseline
+history.
 
-For memory time series, download the `msmarco-113m-diagnostics` artifact:
+The TOML profiles contain index and recall settings. The workflow pins tool and
+extension revisions. Cluster setup, extension installation, build reporting,
+and k6 profiling use the same actions as HN. VectorChord's 80,000-list profile
+is a starting configuration, not a tuned 113M result.
 
-- Build samples are in `benchmark-artifacts/load/*/*_load/points.jsonl`.
-  Select records with `type == "Point"` and `metric == "container_memory_usage"`;
-  `time` is a UTC timestamp and `value` is bytes. The samples cover the entire
-  finalize step, including index creation and `VACUUM ANALYZE`.
-- Query samples are in `benchmarker/results/<operating-point>.json` under
-  `containers.paradedb.memory`. Each sample has `time` in Unix milliseconds
-  and `value` in bytes; subtract the dashboard's top-level `startTime` for
-  elapsed milliseconds. A dedicated collector covers both warmup and
-  measurement; the HTML dashboard also displays memory and CPU usage.
+## Diagnostics
 
-These two memory series use the same definition: usage including page cache on
-cgroup v2, or usage minus cache on cgroup v1. The build's separate
-`container_memory` series excludes inactive page cache and supplies the published
-peak build metric.
+Download the engine's diagnostics artifact for plans, raw reports, k6 dashboards,
+database logs, and memory traces:
 
-Run the shared handoff tests locally with:
+- Build samples: `benchmark-artifacts/load/*/*_load/points.jsonl`. The published
+  peak uses `container_memory`, which excludes inactive page cache. Timestamps
+  are UTC and values are bytes.
+- Query samples: `containers.paradedb.memory` in
+  `benchmarker/results/<operating-point>.json`. Timestamps are Unix milliseconds
+  and values are bytes. The collector subtracts cache when available, so these
+  values use a different memory definition from the build peak.
+
+Run the shared Python checks locally:
 
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'

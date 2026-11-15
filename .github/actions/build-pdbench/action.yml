@@ -1,0 +1,24 @@
+name: Build pdbench
+description: Install the Rust toolchain and build the pdbench benchmark tools
+
+runs:
+  using: composite
+  steps:
+    - name: Install pdbench Toolchain
+      shell: bash
+      run: rustup toolchain install 1.97.1 --profile minimal
+
+    - name: Cache pdbench Build
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      with:
+        workspaces: pdbench -> target
+
+    - name: Build pdbench
+      shell: bash
+      working-directory: pdbench
+      run: |
+        # rust-cache saves target/duckdb-sources with its files stripped, and libduckdb-sys
+        # cannot unpack over the leftover directories when its build script reruns.
+        rm -rf target/duckdb-sources
+        cargo +1.97.1 build --locked --release -p pdbench -p pdbench-load -p pdbench-report --target-dir target -j 16
+        echo "$PWD/target/release" >> "$GITHUB_PATH"

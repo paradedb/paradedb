@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Fuzzy matches (`||| 'x'::pdb.fuzzy(1)`, `pdb.match('x', distance => 1)`) plan as fast as `pdb.fuzzy_term`. The planner uses its selectivity heuristic for them instead of building the fuzzy automaton, so their row estimate becomes a fixed fraction of the table. `paradedb.enable_heuristic_selectivity = off` gives the estimate from the index.

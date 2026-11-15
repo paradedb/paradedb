@@ -1,0 +1,68 @@
+engine = "vectorchord"
+
+[dataset]
+name = "hn"
+size = "28m"
+table = "hn_items"
+expected_rows = 28736557
+dims = 1536
+vector_field = "emb"
+s3_base_path = "s3://paradedb-benchmark/datasets/hackernews/vector/v1"
+
+[postgres.build]
+shared_buffers = "32GB"
+maintenance_work_mem = "52428MB"
+max_parallel_maintenance_workers = 8
+
+[postgres.search]
+shared_buffers = "32GB"
+max_parallel_workers = 16
+max_worker_processes = 32
+
+[index]
+options = """
+residual_quantization = true
+build.pin = 2
+[build.internal]
+lists = [80000]
+spherical_centroids = true
+build_threads = 8
+sampling_factor = 64
+kmeans_algorithm.hierarchical = {}
+kmeans_dimension = 100
+"""
+
+[search]
+queries = 100
+runs = 1
+warmup_runs = 0
+explain_sample = 10
+
+[search.session]
+enable_seqscan = "off"
+enable_bitmapscan = "off"
+enable_sort = "off"
+max_parallel_workers_per_gather = "8"
+jit = "off"
+plan_cache_mode = "force_custom_plan"
+work_mem = "1GB"
+"vchordrq.prefilter" = "off"
+"vchordrq.epsilon" = "1.9"
+"vchordrq.max_scan_tuples" = "-1"
+
+[search.sweep]
+param = "vchordrq.probes"
+integer = true
+min = 1
+max = 80000
+start = 64
+targets = [0.9, 0.95, 0.99]
+tolerance = 0.000001
+max_probes = 20
+
+[search.fast]
+pilot_queries = 25
+max_probes = 64
+bracket_ratio = 1.1
+query_timeout_seconds = 300
+budget_seconds = 10800

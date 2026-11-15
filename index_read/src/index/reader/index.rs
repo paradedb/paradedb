@@ -86,6 +86,31 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 
 const DEFAULT_VECTOR_MATCH_FRACTION: f64 = 0.01;
 
+#[cold]
+#[track_caller]
+fn report_segment_collection_error(error: tantivy::TantivyError) -> ! {
+    // Tantivy exposes this failure as a string, not a distinct error variant.
+    // Keep its quoted field name and leave unrelated collection errors intact.
+    if let tantivy::TantivyError::InvalidArgument(message) = &error
+        && let Some(field) = message
+            .strip_prefix("Field ")
+            .and_then(|message| message.strip_suffix(" is not configured as fast field"))
+    {
+        pgrx::pg_sys::panic::ErrorReport::new(
+            pgrx::PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+            format!("field {field} requires columnar storage"),
+            pgrx::function_name!(),
+        )
+        .set_hint(
+            "Recreate the index with 'columnar=true' on the field's tokenizer, or use \
+             pdb.literal or pdb.literal_normalized, which enable columnar storage by default. \
+             For a JSON path, configure its parent JSON field.",
+        )
+        .report(pgrx::PgLogLevel::ERROR);
+    }
+    panic!("should be able to collect in segment: {error:?}");
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DocsEstimate {
     pub matching_docs: usize,
@@ -3033,10 +3058,13 @@ impl SearchIndexReader {
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
     /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
-        if (gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
-            || query_input.has_postgres_expressions()
-            || query_input.has_parameters()
-        {
+        let heuristic = gucs::enable_heuristic_selectivity()
+            .then(|| query_input.expensive_selectivity_heuristic())
+            .flatten();
+        if let Some(selectivity) = heuristic {
+            return selectivity.clamp(0.0, 1.0);
+        }
+        if query_input.has_postgres_expressions() || query_input.has_parameters() {
             return query_input.selectivity_heuristic().clamp(0.0, 1.0);
         }
         let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)
@@ -3660,7 +3688,7 @@ impl SearchIndexReader {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
-                    .expect("should be able to collect in segment");
+                    .unwrap_or_else(|error| report_segment_collection_error(error));
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
                 }
@@ -3701,7 +3729,7 @@ impl SearchIndexReader {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
-                    .expect("should be able to collect in segment");
+                    .unwrap_or_else(|error| report_segment_collection_error(error));
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
                 }

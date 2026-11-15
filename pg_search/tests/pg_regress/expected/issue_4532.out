@@ -5,12 +5,14 @@ DROP TABLE IF EXISTS departments CASCADE;
 DROP TABLE IF EXISTS companies CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS regions CASCADE;
+-- Omit PRIMARY KEY on regions.id and companies.id so PG 18.7+ keeps these as
+-- Semi joins rather than reducing unique-RHS Semi joins to Inner.
 CREATE TABLE regions (
-    id INTEGER PRIMARY KEY,
+    id INTEGER,
     name TEXT
 );
 CREATE TABLE companies (
-    id INTEGER PRIMARY KEY,
+    id INTEGER,
     region_id INTEGER,
     name TEXT
 );

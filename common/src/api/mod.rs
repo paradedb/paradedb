@@ -40,6 +40,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
 
+use crate::postgres::customscan::parameterized_value::fetch_extern_param;
 use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
 
@@ -85,25 +86,13 @@ impl Regex {
 
 /// Casts `$node` to a `*mut pg_sys::$type_` when it is non-NULL and a node of that type.
 ///
-/// `OpExpr`, `DistinctExpr` and `NullIfExpr` are one type in Rust with a node tag each, so
-/// `pgrx::IsA!` accepts none of them. Name the tag for those: `nodecast!(OpExpr, T_OpExpr, node)`.
+/// `OpExpr`, `DistinctExpr` and `NullIfExpr` are one type in Rust with a node tag each. The name
+/// given selects the tag, so `nodecast!(DistinctExpr, node)` matches only a `T_DistinctExpr`.
 #[macro_export]
 macro_rules! nodecast {
     ($type_:ident, $node:expr) => {{
         let node = $node;
-        (!node.is_null() && pgrx::IsA!(node, pgrx::pg_sys::$type_).is_true())
-            .then(|| node.cast::<pgrx::pg_sys::$type_>())
-    }};
-
-    ($type_:ident, $kind:ident, $node:expr) => {{
-        let node = $node;
-        $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
-            .then(|| node.cast::<pgrx::pg_sys::$type_>())
-    }};
-
-    ($type_:ident, $kind:ident, $node:expr, true) => {{
-        let node = $node;
-        (node.is_null() || $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind))
+        (!node.is_null() && pgrx::IsA!(node, pgrx::pg_sys::$type_))
             .then(|| node.cast::<pgrx::pg_sys::$type_>())
     }};
 }
@@ -386,36 +375,9 @@ impl QueryVector {
             QueryVector::Param(paramid) => *paramid,
         };
 
-        let param_list = (*estate).es_param_list_info;
-        assert!(
-            !param_list.is_null(),
-            "es_param_list_info is NULL but vector ORDER BY references Param ${paramid}"
-        );
-        let idx = (paramid - 1) as usize;
-        assert!(
-            idx < (*param_list).numParams as usize,
-            "vector ORDER BY param_id {paramid} out of range (numParams={})",
-            (*param_list).numParams
-        );
-
-        let slot = &(*param_list)
-            .params
-            .as_slice((*param_list).numParams as usize)[idx];
-        let (value, isnull) = if (slot.pflags & pg_sys::PARAM_FLAG_CONST as u16) != 0 {
-            (slot.value, slot.isnull)
-        } else if let Some(fetch) = (*param_list).paramFetch {
-            let mut prmdata = pg_sys::ParamExternData {
-                value: pg_sys::Datum::null(),
-                isnull: true,
-                pflags: 0,
-                ptype: pg_sys::InvalidOid,
-            };
-            let prm = fetch(param_list, paramid, false, &mut prmdata);
-            assert!(!prm.is_null(), "paramFetch returned NULL for ${paramid}");
-            ((*prm).value, (*prm).isnull)
-        } else {
-            (slot.value, slot.isnull)
-        };
+        let pg_sys::ParamExternData { value, isnull, .. } =
+            fetch_extern_param((*estate).es_param_list_info, paramid)
+                .expect("es_param_list_info should hold the vector ORDER BY Param");
         assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
 
         let floats = PgVector::from_datum(value, false)

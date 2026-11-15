@@ -73,9 +73,5 @@ pub(crate) fn try_encode_pg_search_udf(node: &ScalarUDF, buf: &mut Vec<u8>) -> R
         return Ok(true);
     }
 
-    if name == TIMESTAMP_TO_DATE_UDF_NAME {
-        return Ok(true);
-    }
-
-    Ok(false)
+    Ok(name == TIMESTAMP_TO_DATE_UDF_NAME)
 }

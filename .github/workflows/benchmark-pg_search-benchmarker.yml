@@ -15,6 +15,11 @@ on:
     types: [labeled] # Opt in with `benchmarks`, `benchmark-benchmarker` (all), or `benchmark-benchmarker-{hackernews,stackexchange,wikipedia}`.
   workflow_dispatch:
     inputs:
+      runner_type:
+        description: "Runner availability"
+        type: choice
+        options: [on-demand, spot]
+        default: on-demand
       dataset:
         description: "Which dataset(s) to benchmark: 'all', 'hackernews', 'stackexchange', or 'wikipedia'."
         required: false
@@ -53,6 +58,7 @@ jobs:
     name: Benchmarker (hackernews)
     runs-on:
       - runs-on=${{ github.run_id }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64
@@ -197,6 +203,7 @@ jobs:
     name: Benchmarker (${{ matrix.dataset }})
     runs-on:
       - runs-on=${{ github.run_id }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64

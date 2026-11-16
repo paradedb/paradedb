@@ -14,6 +14,11 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      runner_type:
+        description: "Runner availability"
+        type: choice
+        options: [on-demand, spot]
+        default: on-demand
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
@@ -51,6 +56,7 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - retry=when-interrupted
       - family=c8gd.metal-24xl # We use metal instances for benchmarks to keep variance low
       - image=ubuntu26-full-arm64

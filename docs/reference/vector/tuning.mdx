@@ -27,10 +27,12 @@ all clusters, but adaptive stopping can still end the scan early.
 
 <ParamField body="paradedb.vector_adaptive_probing" default="on">
   Stop opening clusters early when competitive-candidate admission has
-  sufficiently decayed. This does not widen routing or change the work ceiling.
-  The stopping rule is a heuristic, so measure recall for your workload. Set to
-  `off` to probe until the work budget or the router's candidate list is
-  exhausted.
+  sufficiently decayed. Applies only when `paradedb.vector_cluster_max_probe` is
+  at least `100`; lower budgets disable adaptive stopping even when this setting
+  is `on`. This does not widen routing or change the work ceiling. The stopping
+  rule is a heuristic, so measure recall for your workload. Set to `off` to
+  probe until the work budget or the router's candidate list is exhausted.
+  Threshold pruning remains active when adaptive stopping is disabled.
 </ParamField>
 
 <Note>

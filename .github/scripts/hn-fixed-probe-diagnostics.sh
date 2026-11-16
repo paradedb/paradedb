@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IFS=',' read -r -a probes <<< "$DIAGNOSTIC_PROBES"
+IFS=',' read -r -a probes <<<"$DIAGNOSTIC_PROBES"
 for probe in "${probes[@]}"; do
   if [[ ! "$probe" =~ ^[1-9][0-9]*$ ]]; then
     echo "Expected comma-separated positive integers for diagnostic_probes" >&2
@@ -20,7 +20,7 @@ if [[ -n "$comparison_commit" ]]; then
   phases=(current comparison comparison current)
   repetitions=1
   mkdir -p "$output"
-  cat > "$output/index-identity.sql" <<'SQL'
+  cat >"$output/index-identity.sql" <<'SQL'
 SELECT json_build_object(
   'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
   'index', (SELECT json_build_object('oid', oid, 'relfilenode', relfilenode,
@@ -28,7 +28,7 @@ SELECT json_build_object(
   'segments', (SELECT json_agg(v ORDER BY v.segno)
     FROM paradedb.vector_info('hn_items_bm25_idx', 'emb') AS v));
 SQL
-  psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -f "$output/index-identity.sql" > "$output/index-before.json"
+  psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -f "$output/index-identity.sql" >"$output/index-before.json"
 fi
 
 for phase in "${!phases[@]}"; do
@@ -47,8 +47,8 @@ for phase in "${!phases[@]}"; do
     image_id="$(docker inspect paradedb --format '{{.Image}}')"
     test "$image_id" = "$(docker image inspect "$image" --format '{{.Id}}')"
     jq -n --arg commit "$commit" --arg image "$image_id" --arg data_dir "$PARADEDB_DATA_DIR" \
-      '{commit: $commit, image: $image, data_dir: $data_dir}' > "$destination/runtime.json"
-    psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -f "$output/index-identity.sql" > "$destination/index-before.json"
+      '{commit: $commit, image: $image, data_dir: $data_dir}' >"$destination/runtime.json"
+    psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -f "$output/index-identity.sql" >"$destination/index-before.json"
     cmp "$output/index-before.json" "$destination/index-before.json"
   fi
   for ((repeat = 1; repeat <= repetitions; repeat++)); do
@@ -71,7 +71,7 @@ for phase in "${!phases[@]}"; do
     done
   done
   if [[ -n "$comparison_commit" ]]; then
-    psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -f "$output/index-identity.sql" > "$destination/index-after.json"
+    psql "$PARADEDB_URL" -XqAt -v ON_ERROR_STOP=1 -f "$output/index-identity.sql" >"$destination/index-after.json"
     cmp "$output/index-before.json" "$destination/index-after.json"
   fi
 done

@@ -1,0 +1,43 @@
+name: Profile Stack Overflow Queries
+description: Preserve CPU profiles and timed plans separately from standard benchmark results
+
+inputs:
+  source_directory:
+    description: Source checkout containing the benchmark binary and query suite
+    default: source
+  size:
+    description: Stack Overflow dataset size
+    required: true
+  pg_version:
+    description: PostgreSQL major version of the benchmark cluster
+    default: "18"
+
+runs:
+  using: composite
+  steps:
+    - name: Install host perf
+      uses: paradedb/actions/apt-install@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
+      with:
+        packages: linux-perf
+
+    - name: Profile existing outlier queries
+      shell: bash
+      env:
+        SOURCE_DIRECTORY: ${{ inputs.source_directory }}
+        SIZE: ${{ inputs.size }}
+        PG_VERSION: ${{ inputs.pg_version }}
+      run: |
+        python3 .github/scripts/profile_stackoverflow.py \
+          --source "$SOURCE_DIRECTORY" \
+          --pgdata "/home/runner/.pgrx/data-$PG_VERSION" \
+          --url "postgresql://$(whoami)@localhost:288$PG_VERSION/postgres" \
+          --size "$SIZE" --output "benchmark-profiles/stackoverflow-$SIZE"
+
+    - name: Upload diagnostic profiles
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: stackoverflow-${{ inputs.size }}-perf-${{ github.run_attempt }}
+        path: benchmark-profiles/stackoverflow-${{ inputs.size }}/
+        retention-days: 7
+        if-no-files-found: warn

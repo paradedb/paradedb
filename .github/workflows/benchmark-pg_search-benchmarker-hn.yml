@@ -33,6 +33,9 @@ on:
       diagnostic_probes:
         description: "Comma-separated positive integer max_probe values for repeated range diagnostics after k6"
         default: ""
+      diagnostic_compare_commit:
+        description: "Optional index-compatible pg_search commit for an ABBA binary comparison on the same index"
+        default: ""
 
 permissions:
   actions: read
@@ -147,10 +150,20 @@ jobs:
           token: ${{ steps.pdbench_token.outputs.token }}
           persist-credentials: false
 
+      - name: Pin Comparison Base Image
+        if: matrix.engine == 'pg_search' && inputs.diagnostic_compare_commit != ''
+        run: |
+          set -euo pipefail
+          docker pull paradedb/paradedb:latest-pg18
+          image="$(docker image inspect paradedb/paradedb:latest-pg18 --format '{{index .RepoDigests 0}}')"
+          echo "BENCHMARK_BASE_IMAGE=$image" >> "$GITHUB_ENV"
+          printf '%s\n' "$image" > benchmark-artifacts/comparison-base-image.txt
+
       - name: Set Up Docker Benchmark Cluster
         uses: ./.github/actions/setup-docker-benchmark-cluster
         with:
           ref: ${{ env.BENCHMARK_REF }}
+          base_image: ${{ env.BENCHMARK_BASE_IMAGE || 'paradedb/paradedb:latest-pg18' }}
           dataset: hackernews/vector
           size: ${{ env.HN_SIZE }}/39152428323-1
           backup: "20261018-214625F"
@@ -367,40 +380,23 @@ jobs:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","vectorchord_prefilter":"${{ matrix.engine == 'vectorchord' && matrix.prefilter || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
 
+      - name: Build Comparison Binary
+        if: matrix.engine == 'pg_search' && inputs.diagnostic_probes != '' && inputs.diagnostic_compare_commit != ''
+        id: diagnostic_comparison
+        uses: ./.github/actions/build-paradedb-image
+        with:
+          ref: ${{ inputs.diagnostic_compare_commit }}
+          base_image: ${{ env.BENCHMARK_BASE_IMAGE }}
+          image_tag: paradedb-diagnostic-comparison:ci
+
       - name: Measure Fixed-probe Range Diagnostics
         if: matrix.engine == 'pg_search' && inputs.diagnostic_probes != ''
         env:
           DIAGNOSTIC_PROBES: ${{ inputs.diagnostic_probes }}
           DIAGNOSTIC_REPETITIONS: 3
-        run: |
-          set -euo pipefail
-          IFS=',' read -r -a probes <<< "$DIAGNOSTIC_PROBES"
-          for probe in "${probes[@]}"; do
-            if [[ ! "$probe" =~ ^[1-9][0-9]*$ ]]; then
-              echo "Expected comma-separated positive integers for diagnostic_probes" >&2
-              exit 1
-            fi
-          done
-          parallel_workers="$(python3 -c 'import os, tomllib; print(tomllib.load(open(os.environ["HN_CONFIG"], "rb"))["search"]["session"]["max_parallel_workers_per_gather"])')"
-          for ((repeat = 1; repeat <= DIAGNOSTIC_REPETITIONS; repeat++)); do
-            workers=("$parallel_workers" 0)
-            if ((repeat % 2 == 0)); then
-              workers=(0 "$parallel_workers")
-            fi
-            for sql in benchmarks/assets/hn/queries/range_*.sql; do
-              query="$(basename "$sql" .sql)"
-              for probe in "${probes[@]}"; do
-                for worker_count in "${workers[@]}"; do
-                  pdbench search --url "$PARADEDB_URL" --config "$HN_CONFIG" \
-                    --assets-dir benchmarks/assets \
-                    --runs-dir "benchmark-artifacts/fixed-probes/${query}/${probe}/workers-${worker_count}/repeat-${repeat}" \
-                    --set dataset.s3_base_path=benchmark-artifacts/fixtures \
-                    --set "search.session.max_parallel_workers_per_gather=${worker_count}" \
-                    --query "$query" --probe "$probe" --no-compare --html
-                done
-              done
-            done
-          done
+          DIAGNOSTIC_COMPARISON_COMMIT: ${{ steps.diagnostic_comparison.outputs.commit_sha }}
+          DIAGNOSTIC_COMPARISON_IMAGE: paradedb-diagnostic-comparison:ci
+        run: bash .github/scripts/hn-fixed-probe-diagnostics.sh
 
       - name: Upload Fixed-probe Range Diagnostics
         if: always() && matrix.engine == 'pg_search' && inputs.diagnostic_probes != ''

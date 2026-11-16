@@ -22,6 +22,10 @@ QUERY_PATHS = {
     "20m": (
         "join_disjunctive_permissioned_score_sort_low_selectivity/hash_partitioned.sql",
         "top_k_string.sql",
+        "join_aggregate_count/hash_partitioned.sql",
+        "join_aggregate_date_histogram/hash_partitioned.sql",
+        "join_aggregate_groupby/hash_partitioned.sql",
+        "join_aggregate_multi/hash_partitioned.sql",
     ),
 }
 

@@ -352,7 +352,7 @@ enum LoadedSegmentMetaEntry {
         entry: SegmentMetaEntryMutable,
         // Created lazily on first read so that indexing occurs in whichever parallel worker is
         // responsible for this segment.
-        directory: Arc<OnceLock<RamDirectory>>,
+        directory: Arc<OnceLock<(RamDirectory, pg_sys::TransactionId)>>,
     },
 }
 
@@ -363,6 +363,24 @@ impl LoadedSegmentMetaEntry {
             Self::Memory { entry, .. } => entry.pintest_blockno(),
         }
     }
+}
+
+/// Combine only materialized segments being retired, using PostgreSQL's wraparound order.
+fn retired_snapshot_conflict_horizon(
+    horizons: impl IntoIterator<Item = (SegmentId, pg_sys::TransactionId)>,
+    retained_ids: &HashSet<SegmentId>,
+) -> pg_sys::TransactionId {
+    let mut latest = pg_sys::InvalidTransactionId;
+    for (id, horizon) in horizons {
+        if !retained_ids.contains(&id)
+            && horizon != pg_sys::InvalidTransactionId
+            && (latest == pg_sys::InvalidTransactionId
+                || unsafe { pg_sys::TransactionIdFollows(horizon, latest) })
+        {
+            latest = horizon;
+        }
+    }
+    latest
 }
 
 type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
@@ -564,6 +582,7 @@ impl MVCCDirectory {
                             .expect("Failed to index mutable segment.")
                         })
                     })
+                    .0
                     .get_file_handle(path)
                     .map_err(|err| match err {
                         OpenReadError::FileDoesNotExist(missing) => {
@@ -832,7 +851,25 @@ impl Directory for MVCCDirectory {
             return Ok(());
         }
 
+        // Only publication retires indexed content. Lazy reads and abandoned merges must
+        // not cancel standby snapshots, and a multi-segment merge needs just one record.
+        let retained_ids = meta.segments.iter().map(|segment| segment.id()).collect();
+        let horizon = {
+            let entries = self.all_entries.lock();
+            retired_snapshot_conflict_horizon(
+                previous_meta.segments.iter().filter_map(|segment| {
+                    let LoadedSegmentMetaEntry::Memory { directory, .. } =
+                        entries.get(&segment.id())?
+                    else {
+                        return None;
+                    };
+                    directory.get().map(|(_, horizon)| (segment.id(), *horizon))
+                }),
+                &retained_ids,
+            )
+        };
         unsafe {
+            crate::postgres::storage::log_snapshot_conflict(&self.indexrel, horizon);
             save_new_metas(&self.indexrel, meta, previous_meta, payload)
                 .map_err(|err| tantivy::TantivyError::InternalError(err.to_string()))?;
         }
@@ -1058,6 +1095,7 @@ impl PinCushion {
 ///
 /// Note that between `prepare` and `index`, additional documents may have been added. We limit the
 /// number of contained docs to the `max_doc` value and ignore trailing values.
+/// Returns the directory and the conflict horizon to log only if this segment is retired.
 pub fn index_memory_segment(
     indexrel: &PgSearchRelation,
     segment_meta: &SegmentMeta,
@@ -1065,7 +1103,7 @@ pub fn index_memory_segment(
     heap_fetch_state: &HeapFetchState,
     expression_state: &ExpressionState,
     mvcc_style: &MvccSatisfies,
-) -> anyhow::Result<RamDirectory> {
+) -> anyhow::Result<(RamDirectory, pg_sys::TransactionId)> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::heap::HeapDocFetcher;
     use pgrx::PgTupleDesc;
@@ -1146,7 +1184,7 @@ pub fn index_memory_segment(
         "Segment should be non-empty because we created a `SegmentMeta` for it in the first place.",
     );
 
-    Ok(directory)
+    Ok((directory, fetcher.snapshot_conflict_horizon()))
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -1160,6 +1198,57 @@ mod tests {
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn snapshot_conflict_horizon_only_includes_retired_segments() {
+        let retired = SegmentId::generate_random();
+        let other_retired = SegmentId::generate_random();
+        let retained = SegmentId::generate_random();
+        let retained_ids = [retained].into_iter().collect();
+        assert_eq!(
+            retired_snapshot_conflict_horizon(
+                [
+                    (retired, 100.into()),
+                    (other_retired, 110.into()),
+                    (retained, 120.into())
+                ],
+                &retained_ids,
+            ),
+            110.into(),
+        );
+        assert_eq!(
+            retired_snapshot_conflict_horizon(
+                [
+                    (retained, 120.into()),
+                    (retired, pg_sys::InvalidTransactionId)
+                ],
+                &retained_ids,
+            ),
+            pg_sys::InvalidTransactionId,
+        );
+        assert_eq!(
+            retired_snapshot_conflict_horizon([], &retained_ids),
+            pg_sys::InvalidTransactionId,
+        );
+    }
+
+    #[pg_test]
+    fn snapshot_conflict_horizon_handles_xid_wraparound() {
+        let before_wrap = SegmentId::generate_random();
+        let after_wrap = SegmentId::generate_random();
+        let horizons = [
+            (before_wrap, (u32::MAX - 10).into()),
+            (after_wrap, 10.into()),
+        ];
+        assert_eq!(
+            retired_snapshot_conflict_horizon(horizons, &HashSet::default()),
+            10.into(),
+        );
+        assert_eq!(
+            retired_snapshot_conflict_horizon(horizons.into_iter().rev(), &HashSet::default()),
+            10.into(),
+        );
+    }
 
     #[pg_test]
     #[should_panic(expected = "temporary file size exceeds")]

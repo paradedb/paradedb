@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794731066016,
+  "lastUpdate": 1794817258972,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -183575,6 +183575,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14152113192-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7d94d42cce937a60cd532a2b7e5624aeee9118d7",
+          "message": "ci: run vector benchmarks with 32 GiB containers (#7448)\n\nRun Cohere, HN, and MS MARCO vector benchmarks in 32 GiB Docker\ncontainers while keeping the existing CPU allocation: 64 CPUs on cores\n0\u201363, with k6 on cores 64\u201367. All comparison engines use the shared\ncontainer settings: 16 GiB shared memory, 8 GiB shared buffers, 8 GiB\nmaintenance_work_mem, 24 GiB effective_cache_size, and 256 MiB work_mem.\n\nAlign every pg_search, pg_vectorsearch, and VectorChord build/search\nprofile and the MS MARCO pg_vectorsearch load config with those\nsettings. Remove the HN comparison profiles' old 1 GiB work_mem\noverrides so queries inherit the shared Docker default. Update result\ndescriptions and benchmark documentation to match.\n\nRetain the tuned VectorChord profiles: 30,000 lists for HN and 100,000\nfor MS MARCO, hierarchical k-means in 100 dimensions, sampling factor\n64, eight build threads, build.pin=2, residual quantization, and\nspherical centroids. Probe bounds match the list counts; prefilter modes\nand SQL predicates are unchanged.\n\nMS MARCO also accepts `vectorchord-prefilter` for a separately labeled\nprefilter-on comparison; the existing `vectorchord` variant keeps\nprefilter off. Both use the same unfiltered MS MARCO SQL. HN retains its\nexisting prefilter-on/off variants.\n\nCohere, HN, and MS MARCO all pin pdbench to\n`9372a7d18d8f24046808c512231b0ac9173047a4`, the merged commit from\nhttps://github.com/paradedb/pdbench/pull/61. This includes the shared 32\nGiB container configuration, matching load settings, and MS MARCO\nVectorChord build tuning. Manual defaults and workflow fallbacks use the\nsame revision.\n\nThe pin also includes the VectorChord timeout-cleanup recovery merged in\nhttps://github.com/paradedb/pdbench/pull/54. The recovery retries only\nthe exact PostgreSQL `XX000` buffer-pin cleanup error after a\nbudget-exhausted sweep, verifies timeout restoration, and preserves\nrecall outcomes. The workflows build the merged commit directly.\n\nValidation: all 41 existing vector benchmark helper tests pass.\nApplicable pre-commit checks pass for the pin changes, including\nactionlint, YAML validation, and formatting. Resolved Docker Compose\nchecks at the merged pin confirm 32 GiB memory, 16 GiB shared memory, 64\nCPUs, and matching PostgreSQL settings for all three datasets. All ten\nbuild/search profiles and five upstream load configs agree with those\nsettings; MS MARCO VectorChord load options exactly match both search\nprofiles. Full benchmark runs for the final 8 GiB maintenance setting\nand a live reproduction of the timeout cleanup error remain pending.",
+          "timestamp": "2026-11-16T07:32:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7d94d42cce937a60cd532a2b7e5624aeee9118d7"
+        },
+        "date": 1794817256709,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 153.62532172495398,
+            "unit": "median tps",
+            "extra": "avg tps: 151.55252915557867, max tps: 160.02084831622287, count: 59069"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 544.8742987835731,
+            "unit": "median tps",
+            "extra": "avg tps: 557.7500478094549, max tps: 4529.535247227887, count: 59069"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2835.302535141509,
+            "unit": "median tps",
+            "extra": "avg tps: 2854.227795658827, max tps: 3291.904812865422, count: 59069"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 189.28080470579147,
+            "unit": "median tps",
+            "extra": "avg tps: 187.39987661674584, max tps: 202.493984892449, count: 59069"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 262.6770287937253,
+            "unit": "median tps",
+            "extra": "avg tps: 370.4437468811692, max tps: 2812.510639431695, count: 118138"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.353488726296774,
+            "unit": "median tps",
+            "extra": "avg tps: 29.548105863690886, max tps: 45.8027735319879, count: 59069"
+          }
+        ],
+        "publication_id": "14207481451-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -233698,6 +233757,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14152113192-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7d94d42cce937a60cd532a2b7e5624aeee9118d7",
+          "message": "ci: run vector benchmarks with 32 GiB containers (#7448)\n\nRun Cohere, HN, and MS MARCO vector benchmarks in 32 GiB Docker\ncontainers while keeping the existing CPU allocation: 64 CPUs on cores\n0\u201363, with k6 on cores 64\u201367. All comparison engines use the shared\ncontainer settings: 16 GiB shared memory, 8 GiB shared buffers, 8 GiB\nmaintenance_work_mem, 24 GiB effective_cache_size, and 256 MiB work_mem.\n\nAlign every pg_search, pg_vectorsearch, and VectorChord build/search\nprofile and the MS MARCO pg_vectorsearch load config with those\nsettings. Remove the HN comparison profiles' old 1 GiB work_mem\noverrides so queries inherit the shared Docker default. Update result\ndescriptions and benchmark documentation to match.\n\nRetain the tuned VectorChord profiles: 30,000 lists for HN and 100,000\nfor MS MARCO, hierarchical k-means in 100 dimensions, sampling factor\n64, eight build threads, build.pin=2, residual quantization, and\nspherical centroids. Probe bounds match the list counts; prefilter modes\nand SQL predicates are unchanged.\n\nMS MARCO also accepts `vectorchord-prefilter` for a separately labeled\nprefilter-on comparison; the existing `vectorchord` variant keeps\nprefilter off. Both use the same unfiltered MS MARCO SQL. HN retains its\nexisting prefilter-on/off variants.\n\nCohere, HN, and MS MARCO all pin pdbench to\n`9372a7d18d8f24046808c512231b0ac9173047a4`, the merged commit from\nhttps://github.com/paradedb/pdbench/pull/61. This includes the shared 32\nGiB container configuration, matching load settings, and MS MARCO\nVectorChord build tuning. Manual defaults and workflow fallbacks use the\nsame revision.\n\nThe pin also includes the VectorChord timeout-cleanup recovery merged in\nhttps://github.com/paradedb/pdbench/pull/54. The recovery retries only\nthe exact PostgreSQL `XX000` buffer-pin cleanup error after a\nbudget-exhausted sweep, verifies timeout restoration, and preserves\nrecall outcomes. The workflows build the merged commit directly.\n\nValidation: all 41 existing vector benchmark helper tests pass.\nApplicable pre-commit checks pass for the pin changes, including\nactionlint, YAML validation, and formatting. Resolved Docker Compose\nchecks at the merged pin confirm 32 GiB memory, 16 GiB shared memory, 64\nCPUs, and matching PostgreSQL settings for all three datasets. All ten\nbuild/search profiles and five upstream load configs agree with those\nsettings; MS MARCO VectorChord load options exactly match both search\nprofiles. Full benchmark runs for the final 8 GiB maintenance setting\nand a live reproduction of the timeout cleanup error remain pending.",
+          "timestamp": "2026-11-16T07:32:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7d94d42cce937a60cd532a2b7e5624aeee9118d7"
+        },
+        "date": 1794817258882,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.584906,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.936146510249817, max cpu: 38.28514, count: 59069"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 52.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.214073266010935, max mem: 52.2265625, count: 59069"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.364369798897487, max cpu: 27.415518, count: 59069"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 31.5,
+            "unit": "median mem",
+            "extra": "avg mem: 31.44837195165823, max mem: 31.5, count: 59069"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5867176,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.973293021745893, max cpu: 13.994169, count: 59069"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 51.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.52894152389578, max mem: 51.90234375, count: 59069"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2517,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2531.6235081006957, max block_count: 2574.0, count: 59069"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.556241,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.46387713043919, max cpu: 4.562738, count: 59069"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 30.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.851204206097954, max mem: 30.921875, count: 59069"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.71658568792429, max segment_count: 39.0, count: 59069"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.613291870334894, max cpu: 32.137733, count: 59069"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 62.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.13725519889874, max mem: 62.21875, count: 59069"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.653417,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.439543492141034, max cpu: 28.713858, count: 118138"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 49.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.87081580439825, max mem: 59.484375, count: 118138"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.778678602347762, max cpu: 18.36442, count: 59069"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 47.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.26028914542738, max mem: 47.328125, count: 59069"
+          }
+        ],
+        "publication_id": "14207481451-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

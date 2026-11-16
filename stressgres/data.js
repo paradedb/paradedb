@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794817288385,
+  "lastUpdate": 1794817318134,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -529261,6 +529261,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14152528419-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b3ea916d56e87411f7fd66e4d55b077c4fb84cd9",
+          "message": "ci: add Cohere 10M vector comparison benchmarks (#7470)\n\nAdd manual Cohere 10M benchmarks for pg_vectorsearch and VectorChord with prefilter off and on, sharing the existing heap, resource limits, recall gates, plan validation, and k6 timing.",
+          "timestamp": "2026-11-16T07:48:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b3ea916d56e87411f7fd66e4d55b077c4fb84cd9"
+        },
+        "date": 1794817315154,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3833.4653516970366,
+            "unit": "median tps",
+            "extra": "avg tps: 3839.312220261531, max tps: 4260.717511300879, count: 58921"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4366.219638182773,
+            "unit": "median tps",
+            "extra": "avg tps: 4393.699594612506, max tps: 5006.133986525843, count: 58921"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.64356449146726,
+            "unit": "median tps",
+            "extra": "avg tps: 164.9929895943396, max tps: 2779.1485064978533, count: 58921"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.36965514864056,
+            "unit": "median tps",
+            "extra": "avg tps: 39.02477112947593, max tps: 527.0832827760585, count: 58921"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.3929798257061,
+            "unit": "median tps",
+            "extra": "avg tps: 39.40763968298209, max tps: 564.7751968806336, count: 58921"
+          }
+        ],
+        "publication_id": "14208201095-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -545062,6 +545115,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14152528419-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b3ea916d56e87411f7fd66e4d55b077c4fb84cd9",
+          "message": "ci: add Cohere 10M vector comparison benchmarks (#7470)\n\nAdd manual Cohere 10M benchmarks for pg_vectorsearch and VectorChord with prefilter off and on, sharing the existing heap, resource limits, recall gates, plan validation, and k6 timing.",
+          "timestamp": "2026-11-16T07:48:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b3ea916d56e87411f7fd66e4d55b077c4fb84cd9"
+        },
+        "date": 1794817318034,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.335309847685991, max cpu: 4.6332045, count: 58921"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 20.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.584668984742283, max mem: 20.6484375, count: 58921"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.518010998043895, max cpu: 9.169055, count: 58921"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 20.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.214500666146197, max mem: 20.21484375, count: 58921"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.400581676787592, max cpu: 31.954351, count: 58921"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 20.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.836994662344495, max mem: 22.8671875, count: 58921"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.033349739482, max document_count: 10002.0, count: 58921"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.03604826802, max document_count: 10002.0, count: 58921"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58921"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.25963,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.5736222210707, max cpu: 37.065636, count: 58921"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 61.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.82570020928446, max mem: 75.390625, count: 58921"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.250952,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.498383528650027, max cpu: 32.307693, count: 58921"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 60.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.722812444311025, max mem: 74.40234375, count: 58921"
+          }
+        ],
+        "publication_id": "14208201095-other"
       }
     ]
   }

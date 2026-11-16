@@ -12,18 +12,10 @@ install comparison extensions, report index builds, and run k6 with profiling.
 Dataset workflows own fixture checks, recall profiles, and result context.
 For MS MARCO 113M vector CI, see [the MS MARCO pipeline](msmarco/README.md).
 
-All PR-triggered benchmarks on RunsOn honor `benchmark-nonspot`: add it before
-the benchmark trigger label to use on-demand runners. This covers Stressgres,
-Stack Overflow queries, Benchmarker (Hacker News, Stack Exchange, and Wikipedia),
-and every PR-triggered HN, MS MARCO, and Cohere vector variant. Stack Overflow
-comment-triggered runs also honor the label. Remove it before triggering another
-run to use Spot again. The label does not start a benchmark by itself.
-Manual RunsOn benchmarks default to Spot runners. Select `runner_type` in
-**Run workflow**, or pass `-f runner_type=on-demand` / `-f runner_type=spot` with
-`gh workflow run`. The same selector applies to every RunsOn benchmark job.
-Manual runs use these inputs rather than PR labels. Scheduled benchmarks continue
-to use Spot. Retries retain the original run's selection; start a new run to
-change it.
+RunsOn benchmarks default to Spot. For on-demand, add `benchmark-nonspot`
+before the PR benchmark trigger label, or select `runner_type=on-demand` in
+**Run workflow** (CLI: `-f runner_type=on-demand`). Stack Overflow comment-triggered
+runs also honor the label. Scheduled runs remain on Spot.
 
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.
 

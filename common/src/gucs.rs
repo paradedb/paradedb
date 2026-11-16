@@ -287,15 +287,17 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// crossover. To recompute: run the benchmark suite's join queries (serial vs the MPP
 /// alternatives) across the dataset scales and set the default between the largest losing
 /// scale and the smallest winning one.
+/// TODO: Consider reconciling or replacing `paradedb.mpp_min_rows` with PostgreSQL's
+/// `min_parallel_table_scan_size` and `min_parallel_index_scan_size` size gates.
 static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 
-/// Per-query DSM ring budget divided across the `2 * W^2` SPSC byte rings in an MPP mesh with `W`
-/// producer workers (`mpp_queue_size / (2 * W^2)`, floored at `16 KiB` and rounded down to a power
-/// of two). With the default `8 MiB` setting, each ring is `1 MiB` at `W = 2`, `256 KiB` at
-/// `W = 3..=4`, `64 KiB` at `W = 8`, and `16 KiB` at `W = 16`, keeping the per-query DSM
-/// allocation bounded within Docker's default `64 MiB` `/dev/shm` across worker counts. Messages
-/// larger than a ring stream through it in chunks, so the size bounds backpressure granularity and
-/// launch cost, not what a query can carry.
+/// Per-query DSM ring budget divided across the `2 * N * (N - 1)` SPSC byte rings in an MPP mesh
+/// with `N = W + 1` processes (`1` leader plus `W` background workers), floored at `16 KiB` and
+/// rounded down to a power of two. With the default `8 MiB` setting, each ring is `2 MiB` at
+/// `W = 1`, `512 KiB` at `W = 2`, `256 KiB` at `W = 3`, `128 KiB` at `W = 4`, `32 KiB` at `W = 8`,
+/// and `16 KiB` at `W = 16`, keeping the per-query DSM allocation bounded within Docker's default
+/// `64 MiB` `/dev/shm` across worker counts. Messages larger than a ring stream through it in
+/// chunks, so the size bounds backpressure granularity and launch cost, not what a query can carry.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
 /// Maximum byte size of a build-side `InListExpr` dynamic filter materialized by DataFusion's
@@ -1188,14 +1190,14 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
         c"Queue size budget for MPP DSM SPSC byte rings",
-        c"Sets the per-query DSM ring budget divided across all 2 * W^2 SPSC rings in an MPP \
-          mesh (`mpp_queue_size / (2 * W^2)`, floored at 16kB and rounded down to a power of \
-          two). Accepts standard Postgres byte units (e.g. '64MB', '1GB', '512kB'). With the \
-          default 8MB setting, each ring is 1MB at W=2, 256kB at W=3..4, 64kB at W=8, and 16kB \
-          at W=16, keeping the per-query DSM allocation bounded within Docker's default 64MB \
-          /dev/shm across worker counts. Payloads larger than a ring stream through it in \
-          chunks. Lower this on memory-constrained boxes; raise it when shuffle batches \
-          routinely back up the ring.",
+        c"Sets the per-query DSM ring budget divided across all 2 * N * (N - 1) SPSC rings in an \
+          MPP mesh with N = W + 1 processes (`mpp_queue_size / (2 * N * (N - 1))`, floored at \
+          16kB and rounded down to a power of two). Accepts standard Postgres byte units (e.g. \
+          '64MB', '1GB', '512kB'). With the default 8MB setting, each ring is 2MB at W=1, 512kB \
+          at W=2, 256kB at W=3, 128kB at W=4, 32kB at W=8, and 16kB at W=16, keeping the \
+          per-query DSM allocation bounded within Docker's default 64MB /dev/shm across worker \
+          counts. Payloads larger than a ring stream through it in chunks. Lower this on \
+          memory-constrained boxes; raise it when shuffle batches routinely back up the ring.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,

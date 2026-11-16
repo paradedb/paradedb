@@ -21,7 +21,8 @@
 //! The leader-driven launch (`mpp::launch`) calls into this module; the shared-memory layout and
 //! SPSC byte rings live in [`super::dsm_stream`] and are reached through these entry points:
 //!
-//! - [`mpp_is_active`]: gate for the customscan path-builder.
+//! - [`bg_worker_cap`] / [`sources_and_exprs_allow_parallel`]: parallel-mode and worker-budget
+//!   helpers used by [`super::launch::mpp_budget`].
 //! - [`estimate_dsm_size`]: mesh-region sizing for the plan-first launch.
 //! - [`leader_setup`]: leader-side mesh init, called by `launch_mpp` after the workers spawn.
 //!   Returns the leader's [`MppLeaderState`], which carries the [`DsmGrpcChannelResolver`] the
@@ -40,28 +41,50 @@ use pgrx::pg_sys;
 
 use crate::parallel_worker::builder::ParallelProcessFinish;
 use crate::postgres::customscan::mpp::dsm_stream::{
-    DsmLeaderShutdownHandle, DsmWorkerDetachHandle, ServerProc, assign_wakeup_slots,
-    build_leader_streams, init_dsm_mesh,
+    DsmAsyncStream, DsmLeaderShutdownHandle, DsmWorkerDetachHandle, DsmWorkerShutdownWatcher,
+    ServerProc, assign_wakeup_slots, build_leader_streams, init_dsm_mesh,
 };
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, cancel_pending};
-use crate::postgres::customscan::mpp::launch::MppLifecycle;
 use crate::postgres::customscan::mpp::wakeup::{WakeupDispatcher, WakeupSlotReservation};
 use crate::postgres::customscan::mpp::worker::DsmGrpcChannelResolver;
 
 pub use ::scan::postgres::customscan::mpp::glue::*;
 
-/// Leader session handle holding the gRPC channel resolver, DSM shutdown handle, and wakeup slot
-/// reservation.
+type LeaderServerTask = tokio::task::JoinHandle<std::result::Result<(), tonic::transport::Error>>;
+
+/// Incoming DSM server streams and shutdown watcher for `ServerProc(0)` when the leader
+/// participates in executing stage tasks (`parallel_leader_participation = on`).
+pub struct LeaderServerStreams {
+    pub incoming_server_streams: Vec<DsmAsyncStream>,
+    pub shutdown_watcher: DsmWorkerShutdownWatcher,
+}
+
+/// Leader session handle holding the gRPC channel resolver, DSM shutdown handle, wakeup slot
+/// reservation, and optional in-process Tonic `Worker` server task.
 pub struct LeaderSession {
     pub resolver: Arc<DsmGrpcChannelResolver>,
     pub shutdown_handle: DsmLeaderShutdownHandle,
     pub wakeup_reservation: Arc<WakeupSlotReservation>,
+    server_task: parking_lot::Mutex<Option<LeaderServerTask>>,
     shutdown_signaled: AtomicBool,
 }
 
 impl LeaderSession {
-    /// Signal workers to shut down their Tonic servers and close all leader-side DSM streams.
-    /// Idempotent across `shutdown_custom_scan` and `end_custom_scan`.
+    pub fn install_server_task(&self, task: LeaderServerTask) {
+        let prev = self.server_task.lock().replace(task);
+        debug_assert!(
+            prev.is_none(),
+            "leader server task installed more than once"
+        );
+    }
+
+    pub fn take_server_task(&self) -> Option<LeaderServerTask> {
+        self.server_task.lock().take()
+    }
+
+    /// Signal workers (and any leader server task) to shut down their Tonic servers and close all
+    /// leader-side outbound DSM streams. Idempotent across `shutdown_custom_scan` and
+    /// `end_custom_scan`.
     pub fn shutdown(&self) {
         self.shutdown_signaled.store(true, Ordering::Release);
         self.shutdown_handle.signal_shutdown();
@@ -80,6 +103,9 @@ impl LeaderSession {
 impl Drop for LeaderSession {
     fn drop(&mut self) {
         self.shutdown();
+        if let Some(task) = self.server_task.get_mut().take() {
+            task.abort();
+        }
     }
 }
 
@@ -96,9 +122,16 @@ pub struct WorkerSession {
 pub struct MppLeaderState {
     /// Active leader session handle holding the gRPC channel resolver and DSM shutdown handle.
     pub session: LeaderSession,
-    /// The builder handle owning the launched producer workers. The leader controls the launch, so
-    /// it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to join
-    /// the workers and destroy the parallel context. `None` until `launch` installs it on the
+    /// Incoming server streams for `ServerProc(0)` when `leader_participation.is_participating()`,
+    /// consumed by `setup_leader_worker` before execution starts.
+    pub server_streams: Option<LeaderServerStreams>,
+    /// Number of attached parallel background workers (`1..=W`) in this mesh.
+    pub bg_workers: BgWorkerCount,
+    /// Leader participation mode captured when this MPP launch was planned and initialized.
+    pub leader_participation: LeaderParticipation,
+    /// The builder handle owning the launched background workers. The leader controls the launch,
+    /// so it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to
+    /// join the workers and destroy the parallel context. `None` until `launch` installs it on the
     /// success path.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
@@ -110,34 +143,49 @@ pub struct MppLeaderState {
 /// builder-allocated region.
 ///
 /// # Safety
-/// - `coordinate` must point to a DSM byte region of at least `estimate_dsm_size(n_procs)` bytes.
-/// - `n_procs` is the total mesh participant count including the leader: 1 (leader, proc 0)
-///   plus the launched producer workers. It must not exceed the count passed to
-///   [`estimate_dsm_size`] for this region. A short launch may use fewer processes than the
+/// - `coordinate` must point to a DSM byte region of at least `estimate_dsm_size(bg_workers)`
+///   bytes.
+/// - `bg_workers` (`>= 1`) must not exceed the background worker count passed to
+///   [`estimate_dsm_size`] for this region. A short launch may use fewer workers than the
 ///   preallocated region was sized for.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
-    n_procs: u32,
+    bg_workers: BgWorkerCount,
+    leader_participation: LeaderParticipation,
     wakeup_reservation: WakeupSlotReservation,
 ) -> Result<MppLeaderState, String> {
     // `mpp_trace` reads a pgrx GucSetting, which requires the backend thread. Safe here
     // because this runs synchronously on the leader backend from `launch_mpp`.
     let t_setup = crate::gucs::mpp_trace().then(std::time::Instant::now);
     let base = coordinate as *mut u8;
+    let n_procs = bg_workers.mesh_procs();
     let slots = wakeup_reservation.slots();
     let Some(&leader_slot) = slots.first() else {
         return Err("mpp: wakeup reservation is empty".into());
     };
     unsafe {
-        init_dsm_mesh(base, n_procs, spsc_ring_capacity(n_procs)?)?;
+        init_dsm_mesh(base, n_procs, spsc_ring_capacity(bg_workers)?)?;
         assign_wakeup_slots(base, &slots)?;
     }
     let dispatcher = WakeupDispatcher::new(leader_slot);
-    let (streams, shutdown_handle) = unsafe { build_leader_streams(base, &dispatcher)? };
+    let leader_streams = unsafe { build_leader_streams(base, &dispatcher)? };
+    let server_streams = if leader_participation.is_participating() {
+        Some(LeaderServerStreams {
+            incoming_server_streams: leader_streams.incoming_server_streams,
+            shutdown_watcher: leader_streams.shutdown_watcher,
+        })
+    } else {
+        // When `parallel_leader_participation = off`, no worker routes requests to `ServerProc(0)`.
+        // Dropping `incoming_server_streams` immediately closes those rings and decrements
+        // `active_streams` to track only the outbound client streams.
+        drop(leader_streams.incoming_server_streams);
+        drop(leader_streams.shutdown_watcher);
+        None
+    };
     let resolver = Arc::new(DsmGrpcChannelResolver::new(
-        (n_procs - 1) as usize,
+        bg_workers,
         dispatcher,
-        streams,
+        leader_streams.client_streams,
     ));
     if let Some(t) = t_setup {
         pgrx::warning!(
@@ -148,10 +196,14 @@ pub unsafe fn leader_setup(
     Ok(MppLeaderState {
         session: LeaderSession {
             resolver,
-            shutdown_handle,
+            shutdown_handle: leader_streams.shutdown_handle,
             wakeup_reservation: Arc::new(wakeup_reservation),
+            server_task: parking_lot::Mutex::new(None),
             shutdown_signaled: AtomicBool::new(false),
         },
+        server_streams,
+        bg_workers,
+        leader_participation,
         finish: None,
         timing: MppLaunchTiming::default(),
     })
@@ -298,8 +350,9 @@ pub(crate) fn mpp_plan_has_data_parallelism(plan: &Arc<dyn ExecutionPlan>) -> bo
 }
 
 /// Wait briefly for worker `TaskMetrics` to arrive over `coordinator_channel` (after the leader
-/// stream has been dropped, triggering `EndStreamNotifier`), then signal all workers to shut down
-/// their Tonic servers and close all leader DSM streams.
+/// stream has been dropped, triggering `EndStreamNotifier`), then signal all background workers
+/// (and any participating leader `ServerProc(0)` server task) to shut down their Tonic servers and
+/// close all leader DSM streams.
 pub fn finish_leader_execution(
     runtime: Option<&PgTokioRuntime>,
     plan: Option<&Arc<dyn ExecutionPlan>>,
@@ -320,10 +373,21 @@ pub fn finish_leader_execution(
         });
     }
     leader.session.shutdown();
+    let server_task = leader.session.take_server_task();
     if let Some(rt) = runtime {
         if cancel_pending() {
+            if let Some(task) = server_task {
+                task.abort();
+            }
             rt.shutdown_workers();
         } else {
+            if let Some(task) = server_task
+                && rt.is_running()
+            {
+                let _ = rt.block_on(async {
+                    tokio::time::timeout(std::time::Duration::from_millis(250), task).await
+                });
+            }
             rt.quiesce_tasks();
             if leader.session.shutdown_handle.active_streams() > 0 {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
@@ -337,6 +401,8 @@ pub fn finish_leader_execution(
                 }
             }
         }
+    } else if let Some(task) = server_task {
+        task.abort();
     }
     debug_assert_eq!(
         leader.session.shutdown_handle.active_streams(),
@@ -397,27 +463,27 @@ fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcess
 /// loop) and then resumes the scan, so a serial scan keeps its `stream` until `EndCustomScan` or
 /// `ReScanCustomScan` tears it down. An MPP launch drops `stream` (triggering `EndStreamNotifier`
 /// on `DistributedExec` so `c2w_stream` closes and workers flush their final `TaskMetrics`), shuts
-/// down the leader session, and joins the producer workers so their metrics land before
+/// down the leader session, and joins the background workers so their metrics land before
 /// `EXPLAIN ANALYZE` renders. Either way, emits the spill warning if any operator spilled.
 pub fn shutdown_mpp_scan(
     stream: &mut Option<SendableRecordBatchStream>,
     runtime: Option<&PgTokioRuntime>,
     physical_plan: Option<&Arc<dyn ExecutionPlan>>,
-    mpp: &mut MppLifecycle,
+    mpp: &mut Option<MppLeaderState>,
     spilled: &AtomicBool,
 ) {
-    if let Some(leader) = mpp.leader() {
+    if let Some(leader) = mpp.as_ref() {
         *stream = None;
         finish_leader_execution(runtime, physical_plan, leader);
     }
-    if let Some(leader) = mpp.leader_mut()
+    if let Some(leader) = mpp.as_mut()
         && let Some(finish) = leader.finish.as_mut()
     {
         let _ = finish.recv();
     }
     warn_if_spilled(
         spilled,
-        mpp.leader().and_then(|leader| leader.finish.as_ref()),
+        mpp.as_ref().and_then(|leader| leader.finish.as_ref()),
     );
 }
 
@@ -431,18 +497,16 @@ pub fn teardown_mpp_scan(
     current_batch: &mut Option<RecordBatch>,
     physical_plan: &mut Option<Arc<dyn ExecutionPlan>>,
     runtime: &mut Option<PgTokioRuntime>,
-    mpp: &mut MppLifecycle,
+    mpp: &mut Option<MppLeaderState>,
     spilled: &AtomicBool,
 ) {
     *stream = None;
-    if let Some(leader) = mpp.leader() {
+    if let Some(leader) = mpp.as_ref() {
         finish_leader_execution(runtime.as_ref(), physical_plan.as_ref(), leader);
     } else if let Some(rt) = runtime.as_ref() {
         rt.quiesce_tasks();
     }
-    let finish = mpp
-        .take_leader()
-        .and_then(|mut leader| leader.finish.take());
+    let finish = mpp.take().and_then(|mut leader| leader.finish.take());
     // Drop order: the physical plan and session hold DSM stream references, so both must go before
     // the DSM is destroyed below, and the stream/plan must go before the runtime.
     *current_batch = None;
@@ -488,47 +552,65 @@ mod tests {
 
     unsafe fn leader_setup_for_test(
         coordinate: *mut c_void,
-        n_procs: u32,
+        bg_workers: BgWorkerCount,
+        leader_participation: LeaderParticipation,
     ) -> Result<MppLeaderState, String> {
-        let reservation = reserve_wakeup_slots(n_procs as usize).ok_or_else(|| {
+        let n_procs = bg_workers.mesh_procs() as usize;
+        let reservation = reserve_wakeup_slots(n_procs).ok_or_else(|| {
             format!("mpp: failed to reserve {n_procs} wakeup slots from pre-allocated pool")
         })?;
-        unsafe { leader_setup(coordinate, n_procs, reservation) }
+        unsafe { leader_setup(coordinate, bg_workers, leader_participation, reservation) }
     }
 
     #[pg_test]
     fn mesh_can_use_fewer_processes_than_its_reserved_region() {
         // `launch_mpp` must allocate DSM before PostgreSQL tells it how many workers actually
         // attached. Pin the transport contract that lets a short launch initialize its smaller
-        // logical mesh in the region reserved for the requested width, including across
-        // power-of-two rounding boundaries (`(4, 3)` and `(6, 5)`).
-        for (requested_procs, launched_procs) in [(6, 4), (6, 5), (4, 3)] {
-            let region_bytes = estimate_dsm_size(requested_procs).unwrap();
+        // logical mesh in the region reserved for the requested width, including `BgWorkerCount(1)`
+        // and across power-of-two rounding boundaries.
+        for (requested_bg, launched_bg) in [(5, 3), (5, 4), (3, 2), (2, 1), (1, 1)] {
+            let requested = BgWorkerCount::new(requested_bg);
+            let launched = BgWorkerCount::new(launched_bg);
+            let region_bytes = estimate_dsm_size(requested).unwrap();
             assert!(
                 region_bytes
                     >= dsm_region_bytes(
-                        launched_procs,
-                        spsc_ring_capacity(launched_procs).unwrap()
+                        launched.mesh_procs(),
+                        spsc_ring_capacity(launched).unwrap()
                     )
                     .unwrap()
             );
-            let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
-
-            let state = unsafe {
-                leader_setup_for_test(region.as_mut_ptr().cast(), launched_procs).unwrap()
-            };
-            assert_eq!(
-                state.session.resolver.n_workers(),
-                (launched_procs - 1) as usize
-            );
+            for leader_mode in [
+                LeaderParticipation::CoordinatorOnly,
+                LeaderParticipation::Participating,
+            ] {
+                let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
+                let state = unsafe {
+                    leader_setup_for_test(region.as_mut_ptr().cast(), launched, leader_mode)
+                        .unwrap()
+                };
+                assert_eq!(state.session.resolver.bg_workers(), launched);
+                assert_eq!(
+                    state.server_streams.is_some(),
+                    leader_mode.is_participating()
+                );
+            }
         }
     }
 
     #[pg_test]
     fn dsm_detach_marks_handle_detached() {
-        let region_bytes = estimate_dsm_size(3).unwrap();
+        let bg = BgWorkerCount::new(2);
+        let region_bytes = estimate_dsm_size(bg).unwrap();
         let mut region = vec![0_u64; region_bytes.div_ceil(std::mem::size_of::<u64>())];
-        let state = unsafe { leader_setup_for_test(region.as_mut_ptr().cast(), 3).unwrap() };
+        let state = unsafe {
+            leader_setup_for_test(
+                region.as_mut_ptr().cast(),
+                bg,
+                LeaderParticipation::CoordinatorOnly,
+            )
+            .unwrap()
+        };
         let detach_arg = Box::into_raw(Box::new(LeaderDsmDetachArg {
             dsm_detached: Arc::clone(state.session.shutdown_handle.detached_flag()),
             wakeup_reservation: Arc::clone(&state.session.wakeup_reservation),

@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(rustdoc::private_intra_doc_links)]
 
-//! Tonic/gRPC channel resolver (`DsmGrpcChannelResolver`) and MPP worker server loop
-//! (`run_mpp_worker`) over DSM `AsyncRead`/`AsyncWrite` SPSC byte rings.
+//! Tonic/gRPC channel resolver (`DsmGrpcChannelResolver`), participating leader worker setup
+//! (`setup_leader_worker`), and MPP background worker server loop (`run_mpp_worker`) over DSM
+//! `AsyncRead`/`AsyncWrite` SPSC byte rings.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -49,11 +50,13 @@ use crate::postgres::customscan::mpp::dsm_stream::{
     DsmAsyncStream, ServerProc, build_worker_streams, proc_wakeup_slot,
 };
 use crate::postgres::customscan::mpp::glue::{
-    WorkerSession, producer_worker_cap, register_worker_streams_on_dsm_detach,
+    BgWorkerCount, LeaderParticipation, MppLeaderState, WorkerSession,
+    register_worker_streams_on_dsm_detach,
 };
 use crate::postgres::customscan::mpp::interrupt::{
     HeldInterrupts, PgTokioRuntime, check_for_interrupts,
 };
+use crate::postgres::customscan::mpp::launch::SCAN_IDX;
 use crate::postgres::customscan::mpp::wakeup::WakeupDispatcher;
 use crate::postgres::utils::ExprContextGuard;
 use crate::scan::execution_plan::{
@@ -61,17 +64,25 @@ use crate::scan::execution_plan::{
 };
 use crate::scan::physical_codec::PgSearchPhysicalExtensionCodec;
 
-/// Worker URL resolver mapping `n_workers` parallel workers to `http://worker-1` .. `http://worker-{n}`.
+/// Worker URL resolver mapping active MPP participants to `http://worker-0` (when
+/// `LeaderParticipation::Participating`) followed by `http://worker-1` .. `http://worker-{W}`.
 #[derive(Clone, Debug)]
 pub struct MppWorkerResolver {
     urls: Vec<Url>,
 }
 
 impl MppWorkerResolver {
-    pub fn new(n_workers: usize) -> Self {
-        let urls = (1..=n_workers)
-            .map(|w| Self::worker_url(ServerProc(w as u32)))
-            .collect();
+    pub fn new(bg_workers: BgWorkerCount, leader: LeaderParticipation) -> Self {
+        let participants = bg_workers.participants(leader);
+        assert!(
+            participants.is_mpp_active(),
+            "MppWorkerResolver requires at least two MPP participants"
+        );
+        let mut urls = Vec::with_capacity(participants.as_usize());
+        if leader.is_participating() {
+            urls.push(Self::worker_url(ServerProc(0)));
+        }
+        urls.extend((1..=bg_workers.get()).map(|w| Self::worker_url(ServerProc(w))));
         Self { urls }
     }
 
@@ -89,11 +100,6 @@ impl MppWorkerResolver {
         let idx: u32 = idx_str.parse().map_err(|e| {
             DataFusionError::Internal(format!("mpp: invalid worker index in '{url}': {e}"))
         })?;
-        if idx == 0 {
-            return Err(DataFusionError::Internal(format!(
-                "mpp: worker index must be >= 1 in '{url}'"
-            )));
-        }
         Ok(ServerProc(idx))
     }
 }
@@ -115,13 +121,13 @@ struct ResolverState {
 /// Each outbound `(client, server)` stream is consumed once by `Endpoint::connect_with_connector_lazy`
 /// and cached as a multiplexed HTTP/2 [`BoxCloneSyncChannel`] for the duration of the query.
 pub struct DsmGrpcChannelResolver {
-    n_workers: usize,
+    bg_workers: BgWorkerCount,
     state: Mutex<ResolverState>,
 }
 
 impl DsmGrpcChannelResolver {
     pub fn new(
-        n_workers: usize,
+        bg_workers: BgWorkerCount,
         dispatcher: WakeupDispatcher,
         streams: Vec<(ServerProc, DsmAsyncStream)>,
     ) -> Self {
@@ -130,7 +136,7 @@ impl DsmGrpcChannelResolver {
             .map(|(server, stream)| (server, Arc::new(Mutex::new(Some(stream)))))
             .collect();
         Self {
-            n_workers,
+            bg_workers,
             state: Mutex::new(ResolverState {
                 dispatcher,
                 stream_slots,
@@ -139,8 +145,23 @@ impl DsmGrpcChannelResolver {
         }
     }
 
-    pub fn n_workers(&self) -> usize {
-        self.n_workers
+    pub fn bg_workers(&self) -> BgWorkerCount {
+        self.bg_workers
+    }
+
+    /// Ensure the `AsyncFd` wakeup dispatcher is started on `handle` (required before spawning an
+    /// inbound Tonic `Worker` server on the leader, since remote peers may write to `ServerProc(0)`
+    /// before the leader opens any outbound channel).
+    pub fn ensure_dispatcher_started(&self, handle: &tokio::runtime::Handle) -> Result<()> {
+        let mut state = self.state.lock();
+        if !state.dispatcher.is_started() {
+            state.dispatcher.start(handle).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "mpp: failed to start AsyncFd wakeup dispatcher: {e}"
+                ))
+            })?;
+        }
+        Ok(())
     }
 
     /// Close all DSM streams and abort the `AsyncFd` wakeup reader task before DSM unmaps.
@@ -232,8 +253,9 @@ impl ChannelResolver for DsmGrpcChannelResolver {
     }
 }
 
-/// Whether `DistributedExec` and remote MPP workers should collect and stream `TaskMetrics` over
-/// `coordinator_channel` (enabled only under `EXPLAIN ANALYZE`).
+/// Whether `DistributedExec` and MPP workers (remote background workers and, when participating,
+/// leader `worker-0`) should collect and stream `TaskMetrics` over `coordinator_channel` (enabled
+/// only under `EXPLAIN ANALYZE`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MppMetricsCollection {
     Disabled,
@@ -261,18 +283,21 @@ impl MppMetricsCollection {
 pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
     resolver: Option<Arc<DsmGrpcChannelResolver>>,
+    bg_workers: BgWorkerCount,
+    leader: LeaderParticipation,
     metrics: MppMetricsCollection,
 ) -> SessionContext {
-    let n_workers = match resolver.as_ref() {
-        Some(r) => r.n_workers(),
-        None => producer_worker_cap() as usize,
-    };
+    if let Some(r) = resolver.as_ref() {
+        debug_assert_eq!(r.bg_workers(), bg_workers);
+    }
+    let participants = bg_workers.participants(leader);
     assert!(
-        n_workers >= 2,
-        "MPP session contexts require at least two producer workers"
+        participants.is_mpp_active(),
+        "MPP session contexts require at least two participants"
     );
+    let n_participants = participants.as_usize();
 
-    let cfg = seed.copied_config().with_target_partitions(n_workers);
+    let cfg = seed.copied_config().with_target_partitions(n_participants);
 
     debug_assert!(
         seed.state()
@@ -288,7 +313,7 @@ pub(crate) fn build_mpp_session_context(
     let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
         .with_distributed_option_extension(DistributedConfig::default())
-        .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers));
+        .with_distributed_worker_resolver(MppWorkerResolver::new(bg_workers, leader));
 
     if let Some(resolver) = resolver {
         let dyn_resolver: Arc<dyn ChannelResolver + Send + Sync> = resolver;
@@ -299,7 +324,7 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_user_codec(PgSearchPhysicalExtensionCodec::default())
         .with_distributed_desired_task_count_handler(pg_search_scan_desired_task_count)
         .with_distributed_scale_up_leaf_node_handler(pg_search_scan_scale_up_leaf_node)
-        .with_distributed_desired_task_count_handler(n_workers)
+        .with_distributed_desired_task_count_handler(n_participants)
         .with_distributed_compression(None)
         .expect("with_distributed_compression")
         .with_distributed_worker_connection_buffer_budget_bytes(
@@ -406,6 +431,129 @@ pub fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
     "unknown panic payload".to_string()
 }
 
+fn build_mpp_worker(
+    parallel_state: *mut ParallelScanState,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    peer_resolver: Arc<DsmGrpcChannelResolver>,
+    on_spill: Arc<dyn Fn() + Send + Sync>,
+) -> Worker {
+    let plan_sources_count = unsafe { (*parallel_state).source_count() };
+    let mut index_segment_views: Vec<SegmentView> =
+        vec![SegmentView::default(); plan_sources_count];
+    for (i, slot) in index_segment_views.iter_mut().enumerate() {
+        *slot = unsafe { (*parallel_state).segment_view_for_source_unlocked(i) };
+    }
+
+    let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+    let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
+    let inlist_mode = unsafe { (*parallel_state).inlist_pushdown_mode };
+    let codec = PgSearchPhysicalExtensionCodec::new_worker(
+        Some(parallel_state),
+        index_segment_views,
+        expr_context,
+    );
+
+    Worker::from_session_builder(move |ctx: WorkerQueryContext| {
+        let codec = codec.clone();
+        let peer_resolver: Arc<dyn ChannelResolver + Send + Sync> =
+            Arc::clone(&peer_resolver) as Arc<dyn ChannelResolver + Send + Sync>;
+
+        // `Worker::coordinator_channel` builds `SessionState` and `TaskContext` before decoding
+        // `request.plan`, so start the stage pool with `work_mem` and resize it from the decoded
+        // stage plan in `with_distributed_worker_plan_rewrite_handler`.
+        let stage_pool = Arc::new(WorkMemMemoryPool::new(work_mem_bytes));
+        let runtime_env = build_runtime_env(
+            Arc::clone(&stage_pool) as Arc<dyn MemoryPool>,
+            Arc::clone(&on_spill),
+        );
+        async move {
+            Ok(ctx
+                .builder
+                .with_runtime_env(runtime_env)
+                .with_distributed_user_codec(codec)
+                .with_distributed_channel_resolver(peer_resolver)
+                .with_distributed_worker_plan_rewrite_handler(
+                    move |ev: WorkerPlanRewriteEvent<'_>| {
+                        stage_pool.resize_for_plan(&ev.plan, work_mem_bytes, hash_mem_multiplier);
+                        Ok(WorkerPlanRewriteEventResponse::new(ev.plan))
+                    },
+                )
+                .build())
+        }
+    })
+    .with_base_session_state(worker_base_session_state(inlist_mode))
+}
+
+/// When `leader.leader_participation.is_participating()`, attach an in-process `Worker` at
+/// `http://worker-0` (`LocalWorkerContext`) onto `exec_ctx` and spawn a Tonic gRPC `Worker` server
+/// on `runtime` over `ServerProc(0)`'s inbound DSM SPSC streams so remote background workers can
+/// also pull shuffle partitions from `worker-0`. No-op when `CoordinatorOnly`.
+pub(crate) fn setup_leader_worker(
+    leader: &mut MppLeaderState,
+    exec_ctx: SessionContext,
+    runtime: &PgTokioRuntime,
+    leader_spilled: Arc<std::sync::atomic::AtomicBool>,
+) -> SessionContext {
+    if !leader.leader_participation.is_participating() {
+        return exec_ctx;
+    }
+
+    let finish = leader
+        .finish
+        .as_ref()
+        .expect("participating leader must hold ParallelProcessFinish");
+    let scan_ptr = match finish.state_manager().slice_mut::<u8>(SCAN_IDX) {
+        Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
+        _ => pgrx::error!("mpp leader: parallel scan state missing from parallel state"),
+    };
+    let server_streams = leader
+        .server_streams
+        .take()
+        .expect("participating leader must have inbound DSM server streams");
+
+    let spill_notifier = SpillNotifier(scan_ptr);
+    let on_spill: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        spill_notifier.mark_spilled();
+        leader_spilled.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    let worker = build_mpp_worker(
+        scan_ptr,
+        None,
+        Arc::clone(&leader.session.resolver),
+        on_spill,
+    );
+    let exec_ctx = exec_ctx.with_distributed_local_worker_context(
+        worker.to_local_worker_context(MppWorkerResolver::worker_url(ServerProc(0))),
+    );
+
+    if let Err(e) = leader
+        .session
+        .resolver
+        .ensure_dispatcher_started(runtime.handle())
+    {
+        pgrx::error!("mpp leader: {e}");
+    }
+
+    let incoming = tokio_stream::StreamExt::chain(
+        tokio_stream::iter(
+            server_streams
+                .incoming_server_streams
+                .into_iter()
+                .map(Ok::<_, std::io::Error>),
+        ),
+        tokio_stream::pending(),
+    );
+    let shutdown_watcher = server_streams.shutdown_watcher;
+    let server_task = runtime.spawn(async move {
+        mpp_grpc_server_builder()
+            .add_service(worker.into_worker_server())
+            .serve_with_incoming_shutdown(incoming, shutdown_watcher.wait())
+            .await
+    });
+    leader.session.install_server_task(server_task);
+    exec_ctx
+}
+
 /// Run a parallel worker's Tonic gRPC `Worker` server over its DSM SPSC streams until the leader
 /// signals query teardown or a Postgres cancel/die interrupt arrives.
 pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) {
@@ -417,16 +565,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
     let worker_proc = worker_session.worker_proc;
     let this_proc = worker_proc.0;
 
-    let plan_sources_count = unsafe { (*parallel_state).source_count() };
-    let mut index_segment_views: Vec<SegmentView> =
-        vec![SegmentView::default(); plan_sources_count];
-    for (i, slot) in index_segment_views.iter_mut().enumerate() {
-        *slot = unsafe { (*parallel_state).segment_view_for_source_unlocked(i) };
-    }
-
     let expr_context_guard = ExprContextGuard::new();
-    let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
-    let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
 
     let slot = match unsafe { proc_wakeup_slot(worker_session.dsm_base, this_proc) } {
         Ok(s) => s,
@@ -449,51 +588,23 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
         register_worker_streams_on_dsm_detach(worker_session.dsm_seg, detach_handle.clone());
     }
 
-    let n_workers = streams.incoming_server_streams.len();
+    // In the symmetric mesh across `0..n_procs`, every background worker sees `n_procs - 1` peers
+    // (`0` plus `n_procs - 2` sibling background workers), so total background workers is
+    // `streams.incoming_server_streams.len()`.
+    let bg_workers = BgWorkerCount::new(streams.incoming_server_streams.len() as u32);
     let peer_resolver = Arc::new(DsmGrpcChannelResolver::new(
-        n_workers,
+        bg_workers,
         dispatcher,
         streams.client_streams,
     ));
 
-    let codec = PgSearchPhysicalExtensionCodec::new_worker(
-        Some(parallel_state),
-        index_segment_views,
-        Some(expr_context_guard.as_ptr()),
-    );
     let spill_state = SpillNotifier(parallel_state);
-    let peer_resolver_for_builder = Arc::clone(&peer_resolver);
-
-    let inlist_mode = unsafe { (*parallel_state).inlist_pushdown_mode };
-    let worker = Worker::from_session_builder(move |ctx: WorkerQueryContext| {
-        let codec = codec.clone();
-        let peer_resolver: Arc<dyn ChannelResolver + Send + Sync> =
-            Arc::clone(&peer_resolver_for_builder) as Arc<dyn ChannelResolver + Send + Sync>;
-
-        // `Worker::coordinator_channel` builds `SessionState` and `TaskContext` before decoding
-        // `request.plan`, so start the stage pool with `work_mem` and resize it from the decoded
-        // stage plan in `with_distributed_worker_plan_rewrite_handler`.
-        let stage_pool = Arc::new(WorkMemMemoryPool::new(work_mem_bytes));
-        let runtime_env = build_runtime_env(
-            Arc::clone(&stage_pool) as Arc<dyn MemoryPool>,
-            Arc::new(move || spill_state.mark_spilled()),
-        );
-        async move {
-            Ok(ctx
-                .builder
-                .with_runtime_env(runtime_env)
-                .with_distributed_user_codec(codec)
-                .with_distributed_channel_resolver(peer_resolver)
-                .with_distributed_worker_plan_rewrite_handler(
-                    move |ev: WorkerPlanRewriteEvent<'_>| {
-                        stage_pool.resize_for_plan(&ev.plan, work_mem_bytes, hash_mem_multiplier);
-                        Ok(WorkerPlanRewriteEventResponse::new(ev.plan))
-                    },
-                )
-                .build())
-        }
-    })
-    .with_base_session_state(worker_base_session_state(inlist_mode));
+    let worker = build_mpp_worker(
+        parallel_state,
+        Some(expr_context_guard.as_ptr()),
+        Arc::clone(&peer_resolver),
+        Arc::new(move || spill_state.mark_spilled()),
+    );
     let incoming = tokio_stream::StreamExt::chain(
         tokio_stream::iter(
             streams
@@ -533,7 +644,8 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
 mod tests {
     use super::*;
     use crate::postgres::customscan::mpp::dsm_stream::{
-        DEFAULT_SPSC_RING_CAPACITY, build_leader_streams, dsm_region_bytes, init_dsm_mesh,
+        DEFAULT_SPSC_RING_CAPACITY, assign_wakeup_slots, build_leader_streams, dsm_region_bytes,
+        init_dsm_mesh,
     };
     use crate::postgres::customscan::mpp::wakeup::reserve_wakeup_slots;
     use arrow_array::{Int32Array, RecordBatch};
@@ -552,132 +664,190 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(async {
-            let n_procs = 3; // 1 leader + 2 workers
-            let bytes = dsm_region_bytes(n_procs, DEFAULT_SPSC_RING_CAPACITY).unwrap();
-            let mut backing = vec![AlignedBlock([0u8; 64]); bytes.div_ceil(64)];
-            let base = backing.as_mut_ptr() as *mut u8;
+        // Exercise both `(bg_workers = 2, CoordinatorOnly)` and `(bg_workers = 1, Participating)`
+        // (including two-stage shuffle between `worker-0` on the leader and `worker-1`).
+        for (bg_workers, leader_mode) in [
+            (BgWorkerCount::new(2), LeaderParticipation::CoordinatorOnly),
+            (BgWorkerCount::new(1), LeaderParticipation::Participating),
+        ] {
+            rt.block_on(async move {
+                let n_procs = bg_workers.mesh_procs();
+                let participants = bg_workers.participants(leader_mode).as_usize();
+                let bytes = dsm_region_bytes(n_procs, DEFAULT_SPSC_RING_CAPACITY).unwrap();
+                let mut backing = vec![AlignedBlock([0u8; 64]); bytes.div_ceil(64)];
+                let base = backing.as_mut_ptr() as *mut u8;
 
-            unsafe {
-                init_dsm_mesh(base, n_procs, DEFAULT_SPSC_RING_CAPACITY).unwrap();
-            }
+                unsafe {
+                    init_dsm_mesh(base, n_procs, DEFAULT_SPSC_RING_CAPACITY).unwrap();
+                }
 
-            let reservation = reserve_wakeup_slots(n_procs as usize).unwrap();
-            let slots = reservation.slots();
-            let handle = tokio::runtime::Handle::current();
+                let reservation = reserve_wakeup_slots(n_procs as usize).unwrap();
+                let slots = reservation.slots();
+                unsafe {
+                    assign_wakeup_slots(base, &slots).unwrap();
+                }
+                let handle = tokio::runtime::Handle::current();
 
-            // Spawn 2 Tonic Worker servers over the DSM streams.
-            let mut worker_tasks = Vec::new();
-            for w in 1..=2 {
-                let mut w_disp = WakeupDispatcher::new(slots[w as usize]);
-                w_disp.start(&handle).unwrap();
-                let w_streams =
-                    unsafe { build_worker_streams(base, ServerProc(w), &w_disp).unwrap() };
-                let peer_resolver = Arc::new(DsmGrpcChannelResolver::new(
-                    2,
-                    w_disp,
-                    w_streams.client_streams,
+                let mut worker_tasks = Vec::new();
+                for w in 1..=bg_workers.get() {
+                    let mut w_disp = WakeupDispatcher::new(slots[w as usize]);
+                    w_disp.start(&handle).unwrap();
+                    let w_streams =
+                        unsafe { build_worker_streams(base, ServerProc(w), &w_disp).unwrap() };
+                    let peer_resolver = Arc::new(DsmGrpcChannelResolver::new(
+                        bg_workers,
+                        w_disp,
+                        w_streams.client_streams,
+                    ));
+                    let peer_resolver_for_shutdown = Arc::clone(&peer_resolver);
+                    let worker = Worker::from_session_builder(move |ctx: WorkerQueryContext| {
+                        let peer_resolver: Arc<dyn ChannelResolver + Send + Sync> =
+                            Arc::clone(&peer_resolver) as Arc<dyn ChannelResolver + Send + Sync>;
+                        async move {
+                            Ok(ctx
+                                .builder
+                                .with_distributed_channel_resolver(peer_resolver)
+                                .build())
+                        }
+                    });
+                    let incoming = tokio_stream::StreamExt::chain(
+                        tokio_stream::iter(
+                            w_streams
+                                .incoming_server_streams
+                                .into_iter()
+                                .map(Ok::<_, std::io::Error>),
+                        ),
+                        tokio_stream::pending(),
+                    );
+                    let shutdown_watcher = w_streams.shutdown_watcher;
+                    worker_tasks.push(tokio::spawn(async move {
+                        mpp_grpc_server_builder()
+                            .add_service(worker.into_worker_server())
+                            .serve_with_incoming_shutdown(incoming, shutdown_watcher.wait())
+                            .await
+                            .unwrap();
+                        peer_resolver_for_shutdown.close_all();
+                    }));
+                }
+
+                let mut leader_disp = WakeupDispatcher::new(slots[0]);
+                leader_disp.start(&handle).unwrap();
+                let leader_streams = unsafe { build_leader_streams(base, &leader_disp).unwrap() };
+                let leader_resolver = Arc::new(DsmGrpcChannelResolver::new(
+                    bg_workers,
+                    leader_disp,
+                    leader_streams.client_streams,
                 ));
-                let peer_resolver_for_shutdown = Arc::clone(&peer_resolver);
-                let worker = Worker::from_session_builder(move |ctx: WorkerQueryContext| {
-                    let peer_resolver: Arc<dyn ChannelResolver + Send + Sync> =
-                        Arc::clone(&peer_resolver) as Arc<dyn ChannelResolver + Send + Sync>;
-                    async move {
-                        Ok(ctx
-                            .builder
-                            .with_distributed_channel_resolver(peer_resolver)
-                            .build())
-                    }
-                });
-                let incoming = tokio_stream::StreamExt::chain(
-                    tokio_stream::iter(
-                        w_streams
-                            .incoming_server_streams
-                            .into_iter()
-                            .map(Ok::<_, std::io::Error>),
-                    ),
-                    tokio_stream::pending(),
-                );
-                let shutdown_watcher = w_streams.shutdown_watcher;
-                worker_tasks.push(tokio::spawn(async move {
-                    mpp_grpc_server_builder()
-                        .add_service(worker.into_worker_server())
-                        .serve_with_incoming_shutdown(incoming, shutdown_watcher.wait())
-                        .await
-                        .unwrap();
-                    peer_resolver_for_shutdown.close_all();
-                }));
-            }
 
-            // Leader setup.
-            let mut leader_disp = WakeupDispatcher::new(slots[0]);
-            leader_disp.start(&handle).unwrap();
-            let (leader_streams, shutdown_handle) =
-                unsafe { build_leader_streams(base, &leader_disp).unwrap() };
-            let leader_resolver =
-                Arc::new(DsmGrpcChannelResolver::new(2, leader_disp, leader_streams));
+                let mut local_worker_opt = None;
+                if leader_mode.is_participating() {
+                    let leader_peer_resolver = Arc::clone(&leader_resolver);
+                    let leader_worker =
+                        Worker::from_session_builder(move |ctx: WorkerQueryContext| {
+                            let peer_resolver: Arc<dyn ChannelResolver + Send + Sync> =
+                                Arc::clone(&leader_peer_resolver)
+                                    as Arc<dyn ChannelResolver + Send + Sync>;
+                            async move {
+                                Ok(ctx
+                                    .builder
+                                    .with_distributed_channel_resolver(peer_resolver)
+                                    .build())
+                            }
+                        });
+                    local_worker_opt = Some(
+                        leader_worker
+                            .to_local_worker_context(MppWorkerResolver::worker_url(ServerProc(0))),
+                    );
+                    let incoming = tokio_stream::StreamExt::chain(
+                        tokio_stream::iter(
+                            leader_streams
+                                .incoming_server_streams
+                                .into_iter()
+                                .map(Ok::<_, std::io::Error>),
+                        ),
+                        tokio_stream::pending(),
+                    );
+                    let shutdown_watcher = leader_streams.shutdown_watcher;
+                    worker_tasks.push(tokio::spawn(async move {
+                        mpp_grpc_server_builder()
+                            .add_service(leader_worker.into_worker_server())
+                            .serve_with_incoming_shutdown(incoming, shutdown_watcher.wait())
+                            .await
+                            .unwrap();
+                    }));
+                } else {
+                    drop(leader_streams.incoming_server_streams);
+                    drop(leader_streams.shutdown_watcher);
+                }
 
-            let dyn_resolver: Arc<dyn ChannelResolver + Send + Sync> =
-                Arc::clone(&leader_resolver) as Arc<dyn ChannelResolver + Send + Sync>;
-            let seed = SessionContext::new();
-            let cfg = seed.copied_config().with_target_partitions(2);
-            let state = SessionStateBuilder::new_from_existing(seed.state())
-                .with_config(cfg)
-                .with_distributed_option_extension(DistributedConfig::default())
-                .with_distributed_worker_resolver(MppWorkerResolver::new(2))
-                .with_distributed_channel_resolver(dyn_resolver)
-                .with_distributed_desired_task_count_handler(2usize)
-                .with_distributed_compression(None)
-                .expect("with_distributed_compression")
-                .with_distributed_planner()
-                .build();
-            let ctx = SessionContext::new_with_state(state);
-            let schema = Arc::new(Schema::new(vec![
-                Field::new("k", DataType::Int32, false),
-                Field::new("v", DataType::Int32, false),
-            ]));
-            let b1 = RecordBatch::try_new(
-                Arc::clone(&schema),
-                vec![
-                    Arc::new(Int32Array::from(vec![1, 2, 1, 2])),
-                    Arc::new(Int32Array::from(vec![10, 20, 30, 40])),
-                ],
-            )
-            .unwrap();
-            let b2 = RecordBatch::try_new(
-                Arc::clone(&schema),
-                vec![
-                    Arc::new(Int32Array::from(vec![1, 2, 3])),
-                    Arc::new(Int32Array::from(vec![5, 15, 100])),
-                ],
-            )
-            .unwrap();
-            let table = MemTable::try_new(schema, vec![vec![b1], vec![b2]]).unwrap();
-            ctx.register_table("t", Arc::new(table)).unwrap();
-
-            use datafusion::functions_aggregate::expr_fn::sum;
-            use datafusion::prelude::col;
-
-            let df = ctx
-                .table("t")
-                .await
-                .unwrap()
-                .aggregate(vec![col("k")], vec![sum(col("v")).alias("s")])
-                .unwrap()
-                .sort(vec![col("k").sort(true, true)])
+                let dyn_resolver: Arc<dyn ChannelResolver + Send + Sync> =
+                    Arc::clone(&leader_resolver) as Arc<dyn ChannelResolver + Send + Sync>;
+                let seed = SessionContext::new();
+                let cfg = seed.copied_config().with_target_partitions(participants);
+                let mut builder = SessionStateBuilder::new_from_existing(seed.state())
+                    .with_config(cfg)
+                    .with_distributed_option_extension(DistributedConfig::default())
+                    .with_distributed_worker_resolver(MppWorkerResolver::new(
+                        bg_workers,
+                        leader_mode,
+                    ))
+                    .with_distributed_channel_resolver(dyn_resolver)
+                    .with_distributed_desired_task_count_handler(participants)
+                    .with_distributed_compression(None)
+                    .expect("with_distributed_compression")
+                    .with_distributed_planner();
+                if let Some(lw) = local_worker_opt {
+                    builder = builder.with_distributed_local_worker_context(lw);
+                }
+                let ctx = SessionContext::new_with_state(builder.build());
+                let schema = Arc::new(Schema::new(vec![
+                    Field::new("k", DataType::Int32, false),
+                    Field::new("v", DataType::Int32, false),
+                ]));
+                let b1 = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![
+                        Arc::new(Int32Array::from(vec![1, 2, 1, 2])),
+                        Arc::new(Int32Array::from(vec![10, 20, 30, 40])),
+                    ],
+                )
                 .unwrap();
-            let plan = df.create_physical_plan().await.unwrap();
-            let batches = collect(plan, ctx.task_ctx()).await.unwrap();
+                let b2 = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![
+                        Arc::new(Int32Array::from(vec![1, 2, 3])),
+                        Arc::new(Int32Array::from(vec![5, 15, 100])),
+                    ],
+                )
+                .unwrap();
+                let table = MemTable::try_new(schema, vec![vec![b1], vec![b2]]).unwrap();
+                ctx.register_table("t", Arc::new(table)).unwrap();
 
-            let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-            assert_eq!(total_rows, 3);
+                use datafusion::functions_aggregate::expr_fn::sum;
+                use datafusion::prelude::col;
 
-            // Shut down workers and verify clean exit.
-            shutdown_handle.signal_shutdown();
-            leader_resolver.close_all();
-            for t in worker_tasks {
-                t.await.unwrap();
-            }
-        });
+                let df = ctx
+                    .table("t")
+                    .await
+                    .unwrap()
+                    .aggregate(vec![col("k")], vec![sum(col("v")).alias("s")])
+                    .unwrap()
+                    .sort(vec![col("k").sort(true, true)])
+                    .unwrap();
+                let plan = df.create_physical_plan().await.unwrap();
+                let batches = collect(plan, ctx.task_ctx()).await.unwrap();
+
+                let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+                assert_eq!(total_rows, 3);
+
+                leader_streams.shutdown_handle.signal_shutdown();
+                leader_resolver.close_all();
+                for t in worker_tasks {
+                    t.await.unwrap();
+                }
+                assert_eq!(leader_streams.shutdown_handle.active_streams(), 0);
+                reservation.release();
+            });
+        }
     }
 }

@@ -650,6 +650,25 @@ impl PgSearchRelation {
     pub fn supports_tantivy_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
         self.schema().map(|s| s.supports_tantivy_aggregate(field))
     }
+
+    /// Return the heap relation's `parallel_workers` reloption (`ALTER TABLE ... SET
+    /// (parallel_workers = N)`), or `None` when unset (`-1`) or non-heap. Mirrors PostgreSQL's
+    /// `RelationGetParallelWorkers(relation, -1)`.
+    pub fn parallel_workers(&self) -> Option<u32> {
+        unsafe {
+            let relkind = (*self.rd_rel).relkind;
+            if relkind != pg_sys::RELKIND_RELATION as core::ffi::c_char
+                && relkind != pg_sys::RELKIND_MATVIEW as core::ffi::c_char
+            {
+                return None;
+            }
+            if self.rd_options.is_null() {
+                return None;
+            }
+            let opts = &*(self.rd_options as *const pg_sys::StdRdOptions);
+            u32::try_from(opts.parallel_workers).ok()
+        }
+    }
 }
 
 fn relation_needs_wal(relation: pg_sys::Relation) -> bool {

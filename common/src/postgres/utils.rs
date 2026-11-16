@@ -513,8 +513,8 @@ pub enum FieldSource {
 
 impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
-    /// column's value as it is, so it names that column; a computed expression or a
-    /// composite field has no single column to read back.
+    /// column's value as it is, so it names that column. A computed expression has no
+    /// column to read back, and a composite field does not record the column it reads.
     pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),

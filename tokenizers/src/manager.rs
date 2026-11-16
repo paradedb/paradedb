@@ -328,12 +328,12 @@ macro_rules! add_filters {
             builder = builder.filter_dynamic(stopword_filter);
         }
         builder
-            .filter_dynamic($filters.stemmer())
-            .filter_dynamic($filters.ascii_folding())
+            .filter($filters.stemmer())
+            .filter($filters.ascii_folding())
             $(
-                .filter_dynamic($extra_filter)
+                .filter($extra_filter)
             )*
-            .filter_dynamic($filters.alpha_num_only())
+            .filter($filters.alpha_num_only())
             .build()
     }};
 }
@@ -1723,20 +1723,23 @@ mod tests {
     }
 
     #[rstest]
-    #[case::language(r#"{"type": "default", "stemmer": "Spanish", "stopwords_language": "Spanish"}"#, &["sill", "mader"])]
-    #[case::custom(r#"{"type": "default", "stemmer": "Spanish", "stopwords": ["para"]}"#, &["sill", "mas", "mader"])]
-    #[case::accented(r#"{"type": "default", "stemmer": "Spanish", "ascii_folding": true, "stopwords": ["más"]}"#, &["sill", "par", "mader"])]
+    #[case::spanish(r#"{"type": "default", "stemmer": "Spanish", "stopwords_language": "Spanish"}"#, "silla para más madera", &["sill", "mader"])]
+    #[case::french(r#"{"type": "default", "stemmer": "French", "stopwords_language": "French"}"#, "nous avons mangé des pommes", &["mang", "pomm"])]
+    #[case::german(r#"{"type": "default", "stemmer": "German", "stopwords_language": "German"}"#, "welches Haus hatte er", &["haus"])]
+    #[case::custom(r#"{"type": "default", "stemmer": "English", "stopwords": ["running"]}"#, "she was running home", &["she", "was", "home"])]
+    #[case::folded(r#"{"type": "default", "ascii_folding": true, "stopwords_language": "German"}"#, "Stuhl für Kinder", &["stuhl", "kinder"])]
     fn test_stopwords_removed_before_stemming_and_folding(
         #[case] json: &str,
+        #[case] text: &str,
         #[case] expected: &[&str],
     ) {
         use tantivy::tokenizer::TokenStream;
 
-        // Stopword lists hold whole words: "para" stems to "par" and "más" folds to "mas", which no list holds.
+        // Stopword lists hold whole words: "para" stems to "par" and "für" folds to "fur", which no list holds.
         let tokenizer =
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
         let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
-        let mut token_stream = analyzer.token_stream("silla para más madera");
+        let mut token_stream = analyzer.token_stream(text);
         let mut tokens = Vec::new();
         while token_stream.advance() {
             tokens.push(token_stream.token().text.clone());

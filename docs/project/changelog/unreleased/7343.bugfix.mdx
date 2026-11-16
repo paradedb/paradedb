@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- Stopwords (`stopwords_language` and `stopwords`) are now removed before `stemmer` and `ascii_folding`. A stopword those filters changed used to be indexed, such as Spanish `para` stemmed to `par` or German `für` folded to `fur`. Reindex indexes that combine stopwords with `stemmer` or `ascii_folding` to drop those tokens. Existing indexes remain usable without reindexing, but until then a search for a word that shares such a token, such as Spanish `par`, still matches documents containing the stopword.

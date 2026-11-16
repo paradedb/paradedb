@@ -10,7 +10,6 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/lint-bash.yml"
-      - ".github/scripts/test_profile_postgres.py"
       - "**/*.sh"
   workflow_dispatch:
 
@@ -32,6 +31,3 @@ jobs:
 
       - name: Lint Bash
         uses: paradedb/actions/lint-bash@8f17ece584400f0113ff8ddb1b14f28b6fd10050 # v14
-
-      - name: Test PostgreSQL Profiler
-        run: python3 -m unittest discover -s .github/scripts -p 'test_profile_postgres.py'

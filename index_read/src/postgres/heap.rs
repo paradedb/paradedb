@@ -1685,34 +1685,9 @@ impl<'a> HeapDocFetcher<'a> {
         self
     }
 
-    /// Log a conflict before publishing a segment that omits dead heap versions.
-    pub unsafe fn log_snapshot_conflict(&self, indexrel: &PgSearchRelation) {
-        let xid = self.snapshot_conflict_horizon;
-        if xid == pg_sys::InvalidTransactionId
-            || !indexrel.need_wal()
-            || pg_sys::wal_level < pg_sys::WalLevel::WAL_LEVEL_REPLICA as i32
-        {
-            return;
-        }
-        let next_xid = pg_sys::ReadNextFullTransactionId();
-        // The removed XID is in this epoch or the preceding one. Mirror
-        // FullTransactionIdFromAllowableAt, also supporting PostgreSQL 15/16.
-        let mut epoch = (next_xid.value >> 32) as u32;
-        if xid.into_inner() > next_xid.value as u32 {
-            epoch -= 1;
-        }
-        let full_xid = pg_sys::FullTransactionIdFromEpochAndXid(epoch, xid);
-        // GiST's PAGE_REUSE record only resolves snapshot conflicts during redo.
-        // It registers no buffer and does not read or modify any index page.
-        #[cfg(feature = "pg15")]
-        pg_sys::gistXLogPageReuse(indexrel.as_ptr(), pg_sys::InvalidBlockNumber, full_xid);
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        pg_sys::gistXLogPageReuse(
-            indexrel.as_ptr(),
-            self.heaprel.as_ptr(),
-            pg_sys::InvalidBlockNumber,
-            full_xid,
-        );
+    /// Snapshot-conflict horizon for dead heap versions omitted during materialization.
+    pub fn snapshot_conflict_horizon(&self) -> pg_sys::TransactionId {
+        self.snapshot_conflict_horizon
     }
 
     /// Fetch `ctid` and build the document the index would hold for it, or `None` when there is

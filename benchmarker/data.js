@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794848818947,
+  "lastUpdate": 1794869925106,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -89772,6 +89772,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14240455548-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8d5419ed8e1369018d95ac089f5fcf67ccc37acb",
+          "message": "fix: retain CPU-clock samples in ARM vector profiles (#7482)\n\n## What\nRestore CPU-clock sampling in the vector benchmark profiler on ARM and\nfail profiling when either requested event has no samples.\n\n## Why\nPerf includes the SVE `vg` register when selecting default DWARF\nregisters on the benchmark runner. The software CPU-clock PMU rejects\nthat register, so perf silently drops CPU-clock and produces a\nbranch-miss-only profile.\n\n## How\nExplicitly select ARM general-purpose registers for DWARF sampling and\nrequire nonzero `cpu-clock` and `branch-misses` sample headers in the\nreport. Changes are limited to the existing profiler script.\n\n## Tests\n- Bash syntax, ShellCheck, shfmt, and commit hooks pass.\n- Native ARM recording with the explicit register set captured 198\nCPU-clock samples and 34 branch-miss samples, verified directly in\n`perf.data`.\n- Native report generation was not validated end to end: the temporary\nsmoke harness changed ownership before reporting. That harness is not\nincluded in this PR; the existing profiler reports before changing\nownership.",
+          "timestamp": "2026-11-16T18:03:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8d5419ed8e1369018d95ac089f5fcf67ccc37acb"
+        },
+        "date": 1794869921068,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p50 latency",
+            "value": 7.716,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p95 latency",
+            "value": 10.172,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) p99 latency",
+            "value": 11.359,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p50 latency",
+            "value": 22.442,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p95 latency",
+            "value": 30.011,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) p99 latency",
+            "value": 32.279,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p50 latency",
+            "value": 360.907,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p95 latency",
+            "value": 1557.935,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) p99 latency",
+            "value": 2125.273,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 4.524,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 6.168,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 6.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 6.619,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 11.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 11.881,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 30.293,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 117.658,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 159.348,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14281015596-latency"
       }
     ],
     "benchmarker msmarco-113m (throughput)": [
@@ -90365,6 +90478,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14240455548-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8d5419ed8e1369018d95ac089f5fcf67ccc37acb",
+          "message": "fix: retain CPU-clock samples in ARM vector profiles (#7482)\n\n## What\nRestore CPU-clock sampling in the vector benchmark profiler on ARM and\nfail profiling when either requested event has no samples.\n\n## Why\nPerf includes the SVE `vg` register when selecting default DWARF\nregisters on the benchmark runner. The software CPU-clock PMU rejects\nthat register, so perf silently drops CPU-clock and produces a\nbranch-miss-only profile.\n\n## How\nExplicitly select ARM general-purpose registers for DWARF sampling and\nrequire nonzero `cpu-clock` and `branch-misses` sample headers in the\nreport. Changes are limited to the existing profiler script.\n\n## Tests\n- Bash syntax, ShellCheck, shfmt, and commit hooks pass.\n- Native ARM recording with the explicit register set captured 198\nCPU-clock samples and 34 branch-miss samples, verified directly in\n`perf.data`.\n- Native report generation was not validated end to end: the temporary\nsmoke harness changed ownership before reporting. That harness is not\nincluded in this PR; the existing profiler reports before changing\nownership.",
+          "timestamp": "2026-11-16T18:03:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8d5419ed8e1369018d95ac089f5fcf67ccc37acb"
+        },
+        "date": 1794869923301,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top100_unfiltered@r90) QPS",
+            "value": 126.03616111252991,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r95) QPS",
+            "value": 51.1024706841969,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top100_unfiltered@r99) QPS",
+            "value": 1.866263738799505,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 209.24306843747036,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 135.50178681641376,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 23.396028255296443,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14281015596-throughput"
       }
     ],
     "benchmarker msmarco-113m (buffers)": [
@@ -90958,6 +91124,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14240455548-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8d5419ed8e1369018d95ac089f5fcf67ccc37acb",
+          "message": "fix: retain CPU-clock samples in ARM vector profiles (#7482)\n\n## What\nRestore CPU-clock sampling in the vector benchmark profiler on ARM and\nfail profiling when either requested event has no samples.\n\n## Why\nPerf includes the SVE `vg` register when selecting default DWARF\nregisters on the benchmark runner. The software CPU-clock PMU rejects\nthat register, so perf silently drops CPU-clock and produces a\nbranch-miss-only profile.\n\n## How\nExplicitly select ARM general-purpose registers for DWARF sampling and\nrequire nonzero `cpu-clock` and `branch-misses` sample headers in the\nreport. Changes are limited to the existing profiler script.\n\n## Tests\n- Bash syntax, ShellCheck, shfmt, and commit hooks pass.\n- Native ARM recording with the explicit register set captured 198\nCPU-clock samples and 34 branch-miss samples, verified directly in\n`perf.data`.\n- Native report generation was not validated end to end: the temporary\nsmoke harness changed ownership before reporting. That harness is not\nincluded in this PR; the existing profiler reports before changing\nownership.",
+          "timestamp": "2026-11-16T18:03:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8d5419ed8e1369018d95ac089f5fcf67ccc37acb"
+        },
+        "date": 1794869924198,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 2525.78,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 6824.98,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 33602.57,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1221.17,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2355.46,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 16955.99,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14281015596-buffers"
       }
     ],
     "benchmarker msmarco-113m (index build)": [
@@ -91441,6 +91660,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14240455548-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "8d5419ed8e1369018d95ac089f5fcf67ccc37acb",
+          "message": "fix: retain CPU-clock samples in ARM vector profiles (#7482)\n\n## What\nRestore CPU-clock sampling in the vector benchmark profiler on ARM and\nfail profiling when either requested event has no samples.\n\n## Why\nPerf includes the SVE `vg` register when selecting default DWARF\nregisters on the benchmark runner. The software CPU-clock PMU rejects\nthat register, so perf silently drops CPU-clock and produces a\nbranch-miss-only profile.\n\n## How\nExplicitly select ARM general-purpose registers for DWARF sampling and\nrequire nonzero `cpu-clock` and `branch-misses` sample headers in the\nreport. Changes are limited to the existing profiler script.\n\n## Tests\n- Bash syntax, ShellCheck, shfmt, and commit hooks pass.\n- Native ARM recording with the explicit register set captured 198\nCPU-clock samples and 34 branch-miss samples, verified directly in\n`perf.data`.\n- Native report generation was not validated end to end: the temporary\nsmoke harness changed ownership before reporting. That harness is not\nincluded in this PR; the existing profiler reports before changing\nownership.",
+          "timestamp": "2026-11-16T18:03:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8d5419ed8e1369018d95ac089f5fcf67ccc37acb"
+        },
+        "date": 1794869925091,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_bm25_idx build time",
+            "value": 233.23333333333332,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_bm25_idx index size",
+            "value": 508970.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_bm25_idx peak container memory",
+            "value": 25.48809814453125,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14281015596-index"
       }
     ],
     "benchmarker cohere-10m (router)": [

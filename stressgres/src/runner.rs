@@ -28,7 +28,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -85,7 +85,11 @@ struct ThreadHandle {
     runner: Arc<JobRunner>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct ConnGeneration(u64);
+
 pub struct Conn {
+    generation: ConnGeneration,
     server_lookup: Arc<HashMap<String, Server>>,
     clients: Vec<(postgres::Client, Server, BackendPid)>,
 }
@@ -210,7 +214,9 @@ impl Conn {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
         Ok(Self {
+            generation: ConnGeneration(NEXT_GENERATION.fetch_add(1, Ordering::Relaxed)),
             server_lookup: suite.server_lookup(),
             clients,
         })
@@ -220,7 +226,7 @@ impl Conn {
         &mut self.clients[0].0
     }
 
-    pub fn transaction(&mut self) -> Result<MultiTransaction<'_>> {
+    pub fn transaction(&mut self) -> std::result::Result<MultiTransaction<'_>, postgres::Error> {
         Ok(MultiTransaction {
             server_lookup: self.server_lookup.clone(),
             transactions: self
@@ -232,14 +238,15 @@ impl Conn {
                         // `server` binds as `&mut` here under edition 2024 binding modes;
                         // `MultiTransaction` only needs a shared reference.
                         .map(|xact| (xact, &*server, *pid))
-                        .map_err(Arc::new)
                 })
-                .collect::<PostgresResult<Vec<_>>>()?,
+                .collect::<std::result::Result<Vec<_>, postgres::Error>>()?,
         })
     }
 
-    pub fn clients(&mut self) -> impl Iterator<Item = &mut postgres::Client> {
-        self.clients.iter_mut().map(|(client, ..)| client)
+    fn rollback_best_effort(&mut self) {
+        for (client, ..) in &mut self.clients {
+            let _ = client.batch_execute("ROLLBACK");
+        }
     }
 
     pub fn query(
@@ -260,16 +267,12 @@ impl Conn {
         results
     }
 
-    pub fn execute(
-        &mut self,
-        query: &str,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Vec<PostgresResult<u64>> {
-        let mut results = Vec::new();
-        for client in self.clients() {
-            results.push(client.execute(query, params).map_err(Arc::new));
-        }
-        results
+    fn tls_connector() -> postgres_openssl::MakeTlsConnector {
+        use openssl::ssl::{SslConnector, SslMethod};
+        let mut builder =
+            SslConnector::builder(SslMethod::tls()).expect("ssl builder should not fail");
+        builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
+        postgres_openssl::MakeTlsConnector::new(builder.build())
     }
 
     #[doc(hidden)]
@@ -281,14 +284,7 @@ impl Conn {
             ServerStyle::With { .. } => server.connstr(),
             _ => format!("{} application_name={}", server.connstr(), sanitized),
         };
-        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), {
-            use openssl::ssl::{SslConnector, SslMethod};
-            use postgres_openssl::MakeTlsConnector;
-            let mut builder =
-                SslConnector::builder(SslMethod::tls()).expect("ssl builder should not fail");
-            builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
-            MakeTlsConnector::new(builder.build())
-        })?;
+        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), Self::tls_connector())?;
 
         for query in job.on_connect() {
             conn.execute(query.sql, &[])?;
@@ -344,11 +340,19 @@ impl MultiTransaction<'_> {
         results
     }
 
-    pub fn commit(self) -> Result<()> {
+    pub fn commit(self) -> std::result::Result<(), postgres::Error> {
+        let mut first_err = None;
         for (xact, ..) in self.transactions {
-            xact.commit()?;
+            if first_err.is_some() {
+                drop(xact);
+            } else if let Err(e) = xact.commit() {
+                first_err = Some(e);
+            }
         }
-        Ok(())
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 }
 
@@ -649,13 +653,14 @@ impl SuiteRunner {
         let reconnect_grace = self.reconnect_grace.clone();
 
         // The actual thread loop
+        job_runner.state.store(WorkerState::Active);
         let handle = {
             let job_runner = job_runner.clone();
             std::thread::spawn(move || {
+                let _worker = WorkerGuard(&job_runner.state);
                 match Self::job_runner_worker(paused, refresh_ms, reconnect_grace, &job_runner) {
                     Ok(()) => Ok(()),
                     Err(e) => {
-                        job_runner.running.store(false, Ordering::Relaxed);
                         kill_suite();
                         let e = Arc::new(e);
                         if !job_runner.errored() {
@@ -790,12 +795,33 @@ impl SuiteRunner {
         self.alive.load(Ordering::Relaxed)
     }
 
-    /// Ends all job threads
+    /// Ends all job threads, retrying native cancellation for up to 60 seconds.
     pub fn terminate(&self) {
-        self.alive.store(false, Ordering::Relaxed);
-        self.paused.store(false, Ordering::Relaxed);
-        for runner in self.runners() {
-            runner.cancel_query();
+        self.terminate_with_timeout(Duration::from_secs(60));
+    }
+
+    /// Stop scheduling work and retry native cancellation on active workers until `timeout`.
+    pub fn terminate_with_timeout(&self, timeout: Duration) {
+        self.alive.store(false, Ordering::Release);
+        self.paused.store(false, Ordering::Release);
+        let start = Instant::now();
+        // A failed cancellation connection must not prevent other jobs from being canceled
+        // or stop the caller from enforcing the shutdown deadline.
+        for runner in self.runners().chain(self.monitor_runners()) {
+            if !runner.worker_active() {
+                continue;
+            }
+            std::thread::spawn(move || {
+                while start.elapsed() < timeout && runner.worker_active() {
+                    if runner.running() {
+                        runner.cancel_query();
+                    }
+                    let sleep_start = Instant::now();
+                    while sleep_start.elapsed() < Duration::from_secs(1) && runner.worker_active() {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                }
+            });
         }
     }
 
@@ -929,6 +955,81 @@ impl RuntimeStats {
     }
 }
 
+/// Lifecycle state of a [`JobRunner`]'s worker thread.
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WorkerState {
+    /// Worker thread has not been spawned or has exited.
+    Stopped = 0,
+    /// Worker thread is alive (connecting, reconnecting, or sleeping between iterations).
+    Active = 1,
+    /// Worker thread is actively executing SQL statements.
+    RunningQuery = 2,
+}
+
+struct AtomicWorkerState(AtomicU8);
+
+impl AtomicWorkerState {
+    fn new(state: WorkerState) -> Self {
+        Self(AtomicU8::new(state as u8))
+    }
+
+    fn load(&self) -> WorkerState {
+        match self.0.load(Ordering::Acquire) {
+            0 => WorkerState::Stopped,
+            1 => WorkerState::Active,
+            2 => WorkerState::RunningQuery,
+            other => unreachable!("invalid WorkerState discriminant: {other}"),
+        }
+    }
+
+    fn store(&self, state: WorkerState) {
+        self.0.store(state as u8, Ordering::Release);
+    }
+
+    fn swap(&self, state: WorkerState) -> WorkerState {
+        match self.0.swap(state as u8, Ordering::AcqRel) {
+            0 => WorkerState::Stopped,
+            1 => WorkerState::Active,
+            2 => WorkerState::RunningQuery,
+            other => unreachable!("invalid WorkerState discriminant: {other}"),
+        }
+    }
+}
+
+struct WorkerGuard<'a>(&'a AtomicWorkerState);
+
+impl Drop for WorkerGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(WorkerState::Stopped);
+    }
+}
+
+struct QueryGuard<'a> {
+    state: &'a AtomicWorkerState,
+    prev: WorkerState,
+}
+
+impl<'a> QueryGuard<'a> {
+    fn enter(state: &'a AtomicWorkerState) -> Self {
+        let prev = state.swap(WorkerState::RunningQuery);
+        Self { state, prev }
+    }
+}
+
+impl Drop for QueryGuard<'_> {
+    fn drop(&mut self) {
+        self.state.store(self.prev);
+    }
+}
+
+#[derive(Clone)]
+struct CancelTarget {
+    server_name: String,
+    pid: BackendPid,
+    token: postgres::CancelToken,
+}
+
 /// A single job’s runtime state.
 pub struct JobRunner {
     suite: Arc<Suite>,
@@ -936,13 +1037,24 @@ pub struct JobRunner {
     job: Job,
     is_monitor: bool,
     alive: Arc<AtomicBool>,
-    running: AtomicBool,
+    state: AtomicWorkerState,
     paused: AtomicBool,
     worker_error: RwLock<Option<Arc<anyhow::Error>>>,
 
+    last_conn_generation: AtomicU64,
     runtime_stats: RwLock<BTreeMap<ConnInfo, RuntimeStats>>,
+    cancel_targets: RwLock<Vec<CancelTarget>>,
 
     sys: Arc<RwLock<System>>,
+}
+
+fn postgres_anyhow(error: postgres::Error) -> anyhow::Error {
+    if error.as_db_error().is_some() {
+        let msg = format_postgres_error(&error);
+        anyhow::Error::new(error).context(msg)
+    } else {
+        anyhow::Error::new(error)
+    }
 }
 
 impl JobRunner {
@@ -961,10 +1073,12 @@ impl JobRunner {
             job,
             is_monitor,
             alive,
-            running: AtomicBool::new(false),
+            state: AtomicWorkerState::new(WorkerState::Stopped),
             paused: AtomicBool::new(false),
             worker_error: Default::default(),
+            last_conn_generation: AtomicU64::new(0),
             runtime_stats: Default::default(),
+            cancel_targets: Default::default(),
             sys,
         })
     }
@@ -1029,9 +1143,19 @@ impl JobRunner {
         }
     }
 
+    /// Current lifecycle state of this job's worker thread.
+    pub fn worker_state(&self) -> WorkerState {
+        self.state.load()
+    }
+
+    /// Is this job's worker thread still running?
+    pub fn worker_active(&self) -> bool {
+        self.worker_state() != WorkerState::Stopped
+    }
+
     /// Is the job currently running a query?
     pub fn running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
+        self.worker_state() == WorkerState::RunningQuery
     }
 
     /// Is the job paused?
@@ -1081,17 +1205,22 @@ impl JobRunner {
         self.worker_error.read().clone()
     }
 
-    /// A best efforts attempt to cancel the query that this Job might currently be running.
-    ///
-    /// No errors are reported, even if the attempt to cancel failed in some generally unexpected way
+    /// Best-effort cancellation of the job's active queries.
     pub fn cancel_query(&self) {
-        if self.running() {
-            // open a new connection to everywhere the job is configured to connect to
-            if let Ok(mut conn) = Conn::open(&self.suite, &self.job) {
-                for conninfo in &mut self.runtime_stats.read().keys() {
-                    // this is a best efforts to cancel the pid.
-                    conn.execute("SELECT pg_cancel_backend($1);", &[&conninfo.pid()]);
-                }
+        if !self.running() {
+            return;
+        }
+        // Tokens retain the original connection's endpoint and cancellation key.
+        // Unlike a SQL session, a cancel request can be sent during smart shutdown.
+        let targets = self.cancel_targets.read().clone();
+        for target in targets {
+            if let Err(error) = target.token.cancel_query(Conn::tls_connector()) {
+                eprintln!(
+                    "could not send cancellation job={} server={} pid={}: {error:#}",
+                    self.title(),
+                    target.server_name,
+                    target.pid
+                );
             }
         }
     }
@@ -1112,42 +1241,113 @@ impl JobRunner {
             std::thread::yield_now();
         }
 
+        // Refresh cancellation tokens and backend IDs whenever the connection is opened or
+        // replaced after a reconnect, before the first query on it can block.
+        if self
+            .last_conn_generation
+            .swap(conn.generation.0, Ordering::Relaxed)
+            != conn.generation.0
+        {
+            *self.cancel_targets.write() = conn
+                .clients
+                .iter()
+                .map(|(client, server, pid)| CancelTarget {
+                    server_name: server.name.clone(),
+                    pid: *pid,
+                    token: client.cancel_token(),
+                })
+                .collect();
+
+            let mut stats = self.runtime_stats.write();
+            for (id, (_, server, pid)) in conn.clients.iter().enumerate() {
+                let info = ConnInfo::new(id, server, *pid);
+                if let Some((existing, _)) = stats.get_key_value(&info) {
+                    *existing.meta.write() = info.meta.read().clone();
+                } else {
+                    stats.insert(info, RuntimeStats::default());
+                }
+            }
+        }
+
         let statements = self.job.sql();
 
         let mut final_result: Option<Vec<(PostgresResult<Vec<Row>>, Duration, ConnInfo)>> = None;
 
         // If first statement is "BEGIN", treat subsequent statements until "COMMIT"
         // inside a transaction.
-        self.running.store(true, Ordering::Relaxed);
+        let _running = QueryGuard::enter(&self.state);
         if statements
             .first()
             .map(|s| s.sql.to_ascii_lowercase().starts_with("begin"))
             .unwrap_or(false)
         {
-            let mut tx = conn.transaction()?;
-            for stmt in &statements[1..] {
-                let sql = stmt.sql.to_ascii_lowercase();
-                if sql.starts_with("commit") {
-                    tx.commit()?;
-                    tx = conn.transaction()?;
-                    continue;
-                } else if sql.starts_with("abort") || sql.starts_with("rollback") {
-                    drop(tx);
-                    tx = conn.transaction()?;
-                    continue;
-                }
-
-                final_result = Some(tx.query(stmt.sql, &[]));
-                if final_result
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .any(|(results, ..)| results.is_err())
+            let mut idx = 0;
+            while idx < statements.len() {
+                if statements[idx]
+                    .sql
+                    .to_ascii_lowercase()
+                    .starts_with("begin")
                 {
-                    break;
+                    idx += 1;
+                    if idx >= statements.len() {
+                        break;
+                    }
+                }
+                let commit_res = {
+                    let mut tx = match conn.transaction() {
+                        Ok(tx) => tx,
+                        Err(e) if is_ignorable_error(&e, self.suite.ignore_errors()) => {
+                            return Ok(());
+                        }
+                        Err(e) => return Err(postgres_anyhow(e)),
+                    };
+                    let mut should_commit = true;
+                    while idx < statements.len() {
+                        let stmt = &statements[idx];
+                        idx += 1;
+                        let sql = stmt.sql.to_ascii_lowercase();
+                        if sql.starts_with("commit") {
+                            break;
+                        } else if sql.starts_with("abort") || sql.starts_with("rollback") {
+                            should_commit = false;
+                            break;
+                        }
+
+                        let results = tx.query(stmt.sql, &[]);
+                        let had_err = results.iter().any(|(r, ..)| r.is_err());
+                        final_result = Some(results);
+                        if had_err {
+                            should_commit = false;
+                            idx = statements.len();
+                            break;
+                        }
+                    }
+                    if should_commit {
+                        tx.commit()
+                    } else {
+                        drop(tx);
+                        Ok(())
+                    }
+                };
+                if let Err(e) = commit_res {
+                    if is_ignorable_error(&e, self.suite.ignore_errors()) {
+                        conn.rollback_best_effort();
+                        return Ok(());
+                    }
+                    return Err(postgres_anyhow(e));
+                }
+                while idx < statements.len() {
+                    let sql = statements[idx].sql.to_ascii_lowercase();
+                    if sql.starts_with("commit")
+                        || sql.starts_with("abort")
+                        || sql.starts_with("rollback")
+                    {
+                        idx += 1;
+                    } else {
+                        break;
+                    }
                 }
             }
-            tx.commit()?;
         } else {
             for stmt in statements {
                 final_result = Some(conn.query(stmt.sql, &[]));
@@ -1161,7 +1361,7 @@ impl JobRunner {
                 }
             }
         }
-        self.running.store(false, Ordering::Relaxed);
+        drop(_running);
 
         let mut last_error = None;
         if let Some(final_result) = final_result {
@@ -1196,7 +1396,6 @@ impl JobRunner {
                         vac.insert(new_stats);
                     }
                     Entry::Occupied(mut occ) => {
-                        *occ.key().meta.write() = conninfo.meta.read().clone();
                         occ.get_mut().update(duration, rows, assert_error.clone());
                     }
                 }
@@ -1242,7 +1441,36 @@ fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::tokio_connstr;
+    use super::{AtomicWorkerState, QueryGuard, WorkerGuard, WorkerState, tokio_connstr};
+
+    #[test]
+    fn worker_and_query_guards_restore_state_across_returns_and_panics() {
+        let state = AtomicWorkerState::new(WorkerState::Stopped);
+        assert_eq!(state.load(), WorkerState::Stopped);
+
+        // One-shot runners (setup/teardown) transition Stopped -> RunningQuery -> Stopped.
+        {
+            let _query = QueryGuard::enter(&state);
+            assert_eq!(state.load(), WorkerState::RunningQuery);
+        }
+        assert_eq!(state.load(), WorkerState::Stopped);
+
+        // Spawned workers transition Active -> RunningQuery -> Active, and unwind to Stopped.
+        state.store(WorkerState::Active);
+        let unwind_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _worker = WorkerGuard(&state);
+            {
+                let _query = QueryGuard::enter(&state);
+                assert_eq!(state.load(), WorkerState::RunningQuery);
+            }
+            assert_eq!(state.load(), WorkerState::Active);
+
+            let _query = QueryGuard::enter(&state);
+            panic!("simulated failure inside query");
+        }));
+        assert!(unwind_result.is_err());
+        assert_eq!(state.load(), WorkerState::Stopped);
+    }
 
     #[test]
     fn tokio_connstr_translates_only_the_keepalive_probe_count() {

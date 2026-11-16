@@ -202,6 +202,11 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
+        // Per-segment vector statistics are read by EXPLAIN ANALYZE's stage accounting, its I/O
+        // trace and the `paradedb.vector_stats` display; otherwise nothing reads them.
+        search_reader.vector_segment_info = gucs::vector_stats()
+            || state.custom_state().explain_stage_accounting
+            || state.custom_state().io_trace.is_some();
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -1612,6 +1617,17 @@ impl CustomScan for BaseScan {
                 .as_mut()
                 .map(|q| q.collect_expression_nodes())
                 .unwrap_or_default();
+
+            // A Top K method carries the ORDER BY, query vector included, from here on.
+            if matches!(
+                builder.custom_private().exec_method_type(),
+                ExecMethodType::TopK {
+                    orderby_info: Some(_),
+                    ..
+                }
+            ) {
+                builder.custom_private_mut().clear_maybe_orderby_info();
+            }
 
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {

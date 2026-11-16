@@ -102,6 +102,11 @@ drop_snippet_indexes() {
   run_psql_file "${SCRIPT_DIR}/drop_code_snippet_indexes.sql"
 }
 
+# The bootstrap drops the synonym tables, and the ORM snippets of the synonyms page read them.
+create_snippet_synonyms() {
+  run_psql_file "${VERIFY_DIR}/fixtures/synonyms.sql"
+}
+
 python3 "${SCRIPT_DIR}/extract_code_snippets.py"
 
 # Make the external-index fixtures available to every ORM harness.
@@ -129,6 +134,8 @@ if has_target sql; then
     fi
   done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
 fi
+
+create_snippet_synonyms
 
 django_pass_count=0
 django_fail_count=0
@@ -235,7 +242,7 @@ if has_target sqlalchemy; then
 
     if {
       cat <<PY
-from sqlalchemy_snippet_harness import MockItem, MockItemGeo, MockItemPath, Order, ArrayDemo, engine
+from sqlalchemy_snippet_harness import MockItem, MockItemGeo, MockItemPath, Order, ArrayDemo, ShopSynonym, Synonym, engine
 
 # Source: $rel_snippet
 PY
@@ -268,6 +275,7 @@ if has_target drizzle; then
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+    create_snippet_synonyms
     drop_snippet_indexes
 
     if ! grep -Eq 'paradedbIndex|CREATE INDEX' "$snippet_file"; then
@@ -310,6 +318,7 @@ if has_target efcore; then
     rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+    create_snippet_synonyms
     drop_snippet_indexes
     if ! grep -Eq 'CREATE INDEX|modelBuilder\.' "$snippet_file"; then
       create_snippet_indexes

@@ -105,6 +105,10 @@ pub fn deparse_expr(
         return "<null>".to_string();
     }
 
+    // PostgreSQL's SQL deparser cannot render PlaceHolderVar nodes. Strip them
+    // from a display copy, preserving the planner's expression and score wrappers.
+    let expr = unsafe { crate::postgres::utils::strip_placeholder_vars_deep(expr) };
+
     // For expressions containing PARAM_EXEC nodes (correlated subquery params),
     // clone and replace them with placeholder constants, then deparse
     // Note: PARAM_EXTERN (prepared statement params like $1, $2) are safe and will be
@@ -217,6 +221,7 @@ pub fn deparse_planner_expr(
     {
         return None;
     }
+    let expr = unsafe { crate::postgres::utils::strip_placeholder_vars_deep(expr) };
     let root = unsafe { &*root };
 
     let rtable = unsafe { (*root.parse).rtable };

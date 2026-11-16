@@ -213,13 +213,7 @@ impl RelationBufferAccess {
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
             } else {
-                pg_sys::ReadBufferExtended(
-                    self.rel.as_ptr(),
-                    self.rel.fork_number(),
-                    blockno,
-                    buffer_mode,
-                    strategy,
-                )
+                self.read_existing(blockno, strategy, buffer_mode, lock)
             };
 
             debug_assert!(buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
@@ -232,6 +226,39 @@ impl RelationBufferAccess {
             Some(stats) => stats.buffer(read),
             None => read(),
         }
+    }
+
+    /// Pins an existing block. A share-locked normal read of a shared relation's main fork first
+    /// tries the buffer that last held the block.
+    unsafe fn read_existing(
+        &self,
+        blockno: pg_sys::BlockNumber,
+        strategy: pg_sys::BufferAccessStrategy,
+        buffer_mode: pg_sys::ReadBufferMode::Type,
+        lock: Option<u32>,
+    ) -> pg_sys::Buffer {
+        #[cfg(feature = "pg18")]
+        if lock == Some(pg_sys::BUFFER_LOCK_SHARE)
+            && buffer_mode == pg_sys::ReadBufferMode::RBM_NORMAL
+            && strategy.is_null()
+            && self.rel.fork_number() == pg_sys::ForkNumber::MAIN_FORKNUM
+            // SAFETY: `rel` is open for this accessor's lifetime, so `rd_rel` is valid.
+            && (*(*self.rel.as_ptr()).rd_rel).relpersistence
+                != pg_sys::RELPERSISTENCE_TEMP as std::ffi::c_char
+        {
+            // SAFETY: `rel` is open and uses shared buffers, and buffer reads run in a transaction
+            // on the main thread.
+            return super::recent_buffer::read(self.rel.as_ptr(), blockno);
+        }
+        #[cfg(not(feature = "pg18"))]
+        let _ = lock;
+        pg_sys::ReadBufferExtended(
+            self.rel.as_ptr(),
+            self.rel.fork_number(),
+            blockno,
+            buffer_mode,
+            strategy,
+        )
     }
 }
 

@@ -50,6 +50,18 @@ IGNORED_CODEGROUPS = {
         "the SQL fence still runs in the standalone inventory."
     ),
 }
+EXTERNAL_INDEXES = "reference/filtering/external-indexes.mdx::fence-"
+SYNONYMS = "reference/tokenizers/synonyms.mdx::fence-"
+# The standalone fences that the SQL fence of a CodeGroup needs, on fresh tables.
+CODEGROUP_SETUP = {
+    "reference__filtering__external-indexes__group-001": [EXTERNAL_INDEXES + "001"],
+    "reference__filtering__external-indexes__group-002": [EXTERNAL_INDEXES + "012"],
+    "reference__tokenizers__synonyms__group-001": [SYNONYMS + "001", SYNONYMS + "005"],
+    "reference__tokenizers__synonyms__group-002": [SYNONYMS + "001", SYNONYMS + "005"],
+    "reference__tokenizers__synonyms__group-003": [SYNONYMS + "004", SYNONYMS + "005"],
+}
+# The rules tables that the ORM fences of the synonyms page read.
+SYNONYM_TABLES = [SYNONYMS + "001", SYNONYMS + "004"]
 SCRIPT_DIR = Path(__file__).resolve().parent
 DOCS_ROOT = SCRIPT_DIR.parent.parent / "docs"
 OUTPUT_ROOT = SCRIPT_DIR / "verify"
@@ -266,16 +278,10 @@ def main():
         except ValueError as error:
             raise ValueError(f"{name}: {error}") from error
         for target, body in snippets.items():
-            if target == "sql" and name in {
-                "reference__filtering__external-indexes__group-001",
-                "reference__filtering__external-indexes__group-002",
-            }:
-                fixture = "001" if name.endswith("001") else "012"
+            if target == "sql" and name in CODEGROUP_SETUP:
                 body = (
                     f"\\i {SCRIPT_DIR / 'bootstrap_code_snippet_tables.sql'}\n"
-                    + outside[
-                        f"reference/filtering/external-indexes.mdx::fence-{fixture}"
-                    ]["body"]
+                    + "".join(outside[key]["body"] for key in CODEGROUP_SETUP[name])
                     + body
                 )
             if target == "drizzle":
@@ -283,6 +289,13 @@ def main():
             (outputs[target] / f"{name}.{TARGET_SUFFIXES[target]}").write_text(body)
             counts[target] += 1
     counts["sql"] += write_standalone_snippets(outputs, outside, coverage)
+    fixtures = OUTPUT_ROOT / "fixtures"
+    shutil.rmtree(fixtures, ignore_errors=True)
+    fixtures.mkdir(parents=True)
+    (fixtures / "synonyms.sql").write_text(
+        "DROP TABLE IF EXISTS shop_synonyms, synonyms CASCADE;\n"
+        + "".join(outside[key]["body"] for key in SYNONYM_TABLES)
+    )
     for target in TARGET_SUFFIXES:
         if not counts[target]:
             raise ValueError(f"No snippets extracted for {target}")

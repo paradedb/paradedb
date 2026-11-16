@@ -86,10 +86,88 @@ USING paradedb (id, description, category);
 Give the rules to a [match](/reference/full-text/match) query with a subquery on the rules table. `pdb.expand` takes the
 text you search for and the rule column:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description FROM mock_items
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
 ```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({ description: mockItems.description })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      db
+        .select({ query: sql`pdb.expand(${"sofa"}, ${shopSynonyms.rule})` })
+        .from(shopSynonyms),
+    ),
+  );
+```
+
+```python Django
+from django.db.models import F, Func, Subquery, TextField, Value
+from paradedb import MatchAny, ParadeDB
+
+rules = Subquery(
+    ShopSynonym.objects.values(
+        query=Func(
+            Value('sofa'),
+            F('rule'),
+            function='pdb.expand',
+            output_field=TextField(),
+        )
+    )
+)
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny(rules))
+).values('description')
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+rules = select(func.pdb.expand("sofa", ShopSynonym.rule)).scalar_subquery()
+
+stmt = (
+    select(MockItem.description)
+    .where(search.match_any(MockItem.description, rules))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+rules = ShopSynonym.select(
+  Arel::Nodes::NamedFunction.new(
+    "pdb.expand",
+    [Arel::Nodes.build_quoted("sofa"), ShopSynonym.arel_table[:rule]]
+  )
+)
+
+MockItem.search(:description)
+        .match_any(Arel::Nodes::Grouping.new(rules.arel.ast))
+        .select(:description)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.FromSql(
+        $"SELECT * FROM mock_items WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)"
+    )
+    .Select(item => new { item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
 
 Any query can read any rules table, and a query without the subquery searches only the words you typed. A subquery that
 returns no rule does the same.
@@ -110,20 +188,185 @@ A few things stay exact:
 
 The fuzzy and boost casts go on the subquery:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description FROM mock_items
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)::pdb.fuzzy(1);
 ```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({ description: mockItems.description })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      search.fuzzy(
+        db
+          .select({ query: sql`pdb.expand(${"sofa"}, ${shopSynonyms.rule})` })
+          .from(shopSynonyms),
+        1,
+      ),
+    ),
+  );
+```
+
+```python Django
+from django.db.models import F, Func, Subquery, TextField, Value
+from paradedb import Fuzzy, MatchAny, ParadeDB
+
+rules = Subquery(
+    ShopSynonym.objects.values(
+        query=Func(
+            Value('sofa'),
+            F('rule'),
+            function='pdb.expand',
+            output_field=TextField(),
+        )
+    )
+)
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny(Fuzzy(rules, 1)))
+).values('description')
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+rules = select(func.pdb.expand("sofa", ShopSynonym.rule)).scalar_subquery()
+
+stmt = (
+    select(MockItem.description)
+    .where(search.match_any(MockItem.description, search.fuzzy(rules, 1)))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+rules = ShopSynonym.select(
+  Arel::Nodes::NamedFunction.new(
+    "pdb.expand",
+    [Arel::Nodes.build_quoted("sofa"), ShopSynonym.arel_table[:rule]]
+  )
+)
+
+MockItem.search(:description)
+        .match_any(ParadeDB.fuzzy(Arel::Nodes::Grouping.new(rules.arel.ast), 1))
+        .select(:description)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.FromSql(
+        $"SELECT * FROM mock_items WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)::pdb.fuzzy(1)"
+    )
+    .Select(item => new { item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
 
 A change to the rules is transactional. Your own transaction sees it right away, and every other session sees it once it
 commits.
 
 With several sets in one table, the subquery picks a set with the `WHERE` of its partial index:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description FROM mock_items
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM synonyms WHERE set_name = 'shop');
 ```
+
+```ts Drizzle
+import { eq, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({ description: mockItems.description })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      db
+        .select({ query: sql`pdb.expand(${"sofa"}, ${synonyms.rule})` })
+        .from(synonyms)
+        .where(eq(synonyms.setName, "shop")),
+    ),
+  );
+```
+
+```python Django
+from django.db.models import F, Func, Subquery, TextField, Value
+from paradedb import MatchAny, ParadeDB
+
+rules = Subquery(
+    Synonym.objects.filter(set_name='shop').values(
+        query=Func(
+            Value('sofa'),
+            F('rule'),
+            function='pdb.expand',
+            output_field=TextField(),
+        )
+    )
+)
+
+MockItem.objects.filter(
+    description=ParadeDB(MatchAny(rules))
+).values('description')
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, literal, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+rules = (
+    select(func.pdb.expand("sofa", Synonym.rule))
+    .where(Synonym.set_name == literal("shop", literal_execute=True))
+    .scalar_subquery()
+)
+
+stmt = (
+    select(MockItem.description)
+    .where(search.match_any(MockItem.description, rules))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+synonyms = Synonym.arel_table
+rules = Synonym.where(synonyms[:set_name].eq("shop")).select(
+  Arel::Nodes::NamedFunction.new(
+    "pdb.expand",
+    [Arel::Nodes.build_quoted("sofa"), synonyms[:rule]]
+  )
+)
+
+MockItem.search(:description)
+        .match_any(Arel::Nodes::Grouping.new(rules.arel.ast))
+        .select(:description)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.FromSql(
+        $"SELECT * FROM mock_items WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM synonyms WHERE set_name = 'shop')"
+    )
+    .Select(item => new { item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
 
 ### Which Index a Query Uses
 

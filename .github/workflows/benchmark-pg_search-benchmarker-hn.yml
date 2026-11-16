@@ -30,6 +30,9 @@ on:
       benchmarker_ref:
         description: "benchmarker ref"
         default: "ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3"
+      diagnostic_probes:
+        description: "Comma-separated positive integer max_probe values for repeated range diagnostics after k6"
+        default: ""
 
 permissions:
   actions: read
@@ -363,6 +366,50 @@ jobs:
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}","engine":"${{ matrix.engine }}","pg_vectorsearch":"${{ matrix.engine == 'pg_vectorsearch' && env.PG_VECTORSEARCH_REF || '' }}","vectorchord":"${{ matrix.engine == 'vectorchord' && env.VECTORCHORD_REF || '' }}","vectorchord_prefilter":"${{ matrix.engine == 'vectorchord' && matrix.prefilter || '' }}","tantivy":"${{ steps.commit_info.outputs.tantivy_sha }}"}
+
+      - name: Measure Fixed-probe Range Diagnostics
+        if: matrix.engine == 'pg_search' && inputs.diagnostic_probes != ''
+        env:
+          DIAGNOSTIC_PROBES: ${{ inputs.diagnostic_probes }}
+          DIAGNOSTIC_REPETITIONS: 3
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a probes <<< "$DIAGNOSTIC_PROBES"
+          for probe in "${probes[@]}"; do
+            if [[ ! "$probe" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Expected comma-separated positive integers for diagnostic_probes" >&2
+              exit 1
+            fi
+          done
+          parallel_workers="$(python3 -c 'import os, tomllib; print(tomllib.load(open(os.environ["HN_CONFIG"], "rb"))["search"]["session"]["max_parallel_workers_per_gather"])')"
+          for ((repeat = 1; repeat <= DIAGNOSTIC_REPETITIONS; repeat++)); do
+            workers=("$parallel_workers" 0)
+            if ((repeat % 2 == 0)); then
+              workers=(0 "$parallel_workers")
+            fi
+            for sql in benchmarks/assets/hn/queries/range_*.sql; do
+              query="$(basename "$sql" .sql)"
+              for probe in "${probes[@]}"; do
+                for worker_count in "${workers[@]}"; do
+                  pdbench search --url "$PARADEDB_URL" --config "$HN_CONFIG" \
+                    --assets-dir benchmarks/assets \
+                    --runs-dir "benchmark-artifacts/fixed-probes/${query}/${probe}/workers-${worker_count}/repeat-${repeat}" \
+                    --set dataset.s3_base_path=benchmark-artifacts/fixtures \
+                    --set "search.session.max_parallel_workers_per_gather=${worker_count}" \
+                    --query "$query" --probe "$probe" --no-compare --html
+                done
+              done
+            done
+          done
+
+      - name: Upload Fixed-probe Range Diagnostics
+        if: always() && matrix.engine == 'pg_search' && inputs.diagnostic_probes != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ env.RESULTS_DATASET }}-fixed-probes
+          path: benchmark-artifacts/fixed-probes/
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Stage Benchmarker Results
         uses: ./.github/actions/stage-benchmark-results

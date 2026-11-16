@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794817318134,
+  "lastUpdate": 1794817350919,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113141,6 +113141,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14152973155-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b3ea916d56e87411f7fd66e4d55b077c4fb84cd9",
+          "message": "ci: add Cohere 10M vector comparison benchmarks (#7470)\n\nAdd manual Cohere 10M benchmarks for pg_vectorsearch and VectorChord with prefilter off and on, sharing the existing heap, resource limits, recall gates, plan validation, and k6 timing.",
+          "timestamp": "2026-11-16T07:48:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b3ea916d56e87411f7fd66e4d55b077c4fb84cd9"
+        },
+        "date": 1794817348660,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1642.5815954965751,
+            "unit": "median tps",
+            "extra": "avg tps: 1662.8395140957105, max tps: 1835.4948329790207, count: 59270"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.882671791488208,
+            "unit": "median tps",
+            "extra": "avg tps: 5.927677621694178, max tps: 6.996179026330502, count: 59270"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1773.0436039576155,
+            "unit": "median tps",
+            "extra": "avg tps: 1689.7720771457477, max tps: 1838.0577345260824, count: 59270"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2826.6685039317204,
+            "unit": "median tps",
+            "extra": "avg tps: 2775.5031022466346, max tps: 3088.5059293992003, count: 59270"
+          }
+        ],
+        "publication_id": "14207449273-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158514,6 +158561,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14152973155-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b3ea916d56e87411f7fd66e4d55b077c4fb84cd9",
+          "message": "ci: add Cohere 10M vector comparison benchmarks (#7470)\n\nAdd manual Cohere 10M benchmarks for pg_vectorsearch and VectorChord with prefilter off and on, sharing the existing heap, resource limits, recall gates, plan validation, and k6 timing.",
+          "timestamp": "2026-11-16T07:48:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b3ea916d56e87411f7fd66e4d55b077c4fb84cd9"
+        },
+        "date": 1794817350829,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.9912603340644508, max background_merging: 2.0, count: 59270"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4891369822916705, max cpu: 9.866392, count: 59270"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.007047001539565, max mem: 28.03515625, count: 59270"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.733062745077216, max cpu: 27.718958, count: 59270"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 58.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.40267881622237, max mem: 58.0703125, count: 59270"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45310,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45043.93880546651, max block_count: 45313.0, count: 59270"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.706664417074405, max segment_count: 19.0, count: 59270"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.13253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.718490478191416, max cpu: 33.549675, count: 59270"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 38.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 38.118206934368146, max mem: 38.140625, count: 59270"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6087375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9080448938353225, max cpu: 32.015244, count: 59270"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 54.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.14897858845116, max mem: 62.41796875, count: 59270"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.426400035919266, max cpu: 28.09756, count: 59270"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 52.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.060419742281084, max mem: 54.21875, count: 59270"
+          }
+        ],
+        "publication_id": "14207449273-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

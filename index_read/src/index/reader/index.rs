@@ -1369,7 +1369,7 @@ impl SearchIndexReader {
     /// Returns a reader matching the same documents as `self` but scoring each one `score`.
     pub fn with_constant_score(mut self, score: Score) -> Self {
         self.query = Box::new(SharedQuery(Arc::from(ConstScoreQuery::new(
-            *self.query,
+            self.query as Box<dyn Query>,
             score,
         ))));
         self

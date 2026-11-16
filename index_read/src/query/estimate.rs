@@ -92,6 +92,10 @@ impl QueryEstimate for dyn Query {
             AllQuery, TermQuery, SynonymQuery, PhraseQuery, BooleanQuery, EmptyQuery,
             ConstScoreQuery, BoostQuery, RangeQueryWithEstimate
         }
+        // SharedQuery wraps a dyn query directly
+        if let Some(query) = self.downcast_ref::<SharedQuery>() {
+            return query.0.estimate_docs(reader);
+        }
         // SearchQueryInput::All wraps AllQuery directly, without boxing it.
         if let Some(query) = self.downcast_ref::<ConstScoreQuery<AllQuery>>() {
             return query.query().estimate_docs(reader);

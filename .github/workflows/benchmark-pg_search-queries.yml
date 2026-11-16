@@ -36,19 +36,6 @@ on:
         required: false
         type: boolean
         default: true
-      diagnostic_profiles:
-        description: "Profile existing outlier queries after each standard suite; diagnostics are not published."
-        type: boolean
-        default: false
-      size:
-        description: "Dataset size to benchmark; each selected size runs its full query suite."
-        type: choice
-        default: all
-        options:
-          - all
-          - 100k
-          - 1m
-          - 20m
 
 permissions:
   actions: write
@@ -148,7 +135,6 @@ jobs:
         needs.parse-comment.outputs.query_filter != ''
       )
     env:
-      BENCHMARK_SIZE: ${{ inputs.size || needs.parse-comment.outputs.size }}
       pg_version: 18
       BACKREST_STANZA: bench
       BACKREST_REPO_BUCKET: paradedb-benchmark
@@ -317,7 +303,7 @@ jobs:
       # heap snapshot from S3 (replacing the whole cluster), then the benchmark builds the index and
       # runs queries against it.
       - name: Restore "stackoverflow" Heap Snapshot (100K)
-        if: contains(fromJson('["", "all", "100k"]'), env.BENCHMARK_SIZE)
+        if: contains(fromJson('["", "100k"]'), needs.parse-comment.outputs.size)
         run: |
           set -euo pipefail
           (cd source/pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -334,7 +320,7 @@ jobs:
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (100K)
-        if: contains(fromJson('["", "all", "100k"]'), env.BENCHMARK_SIZE)
+        if: contains(fromJson('["", "100k"]'), needs.parse-comment.outputs.size)
         uses: ./.github/actions/benchmark-queries
         with:
           source_directory: source
@@ -346,14 +332,8 @@ jobs:
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
-      - name: Profile "stackoverflow" Outliers (100K)
-        if: inputs.diagnostic_profiles && contains(fromJson('["", "all", "100k"]'), env.BENCHMARK_SIZE)
-        uses: ./.github/actions/profile-stackoverflow
-        with:
-          size: 100k
-
       - name: Restore "stackoverflow" Heap Snapshot (1M)
-        if: contains(fromJson('["", "all", "1m"]'), env.BENCHMARK_SIZE)
+        if: contains(fromJson('["", "1m"]'), needs.parse-comment.outputs.size)
         run: |
           set -euo pipefail
           (cd source/pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -370,7 +350,7 @@ jobs:
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (1M)
-        if: contains(fromJson('["", "all", "1m"]'), env.BENCHMARK_SIZE)
+        if: contains(fromJson('["", "1m"]'), needs.parse-comment.outputs.size)
         uses: ./.github/actions/benchmark-queries
         with:
           source_directory: source
@@ -382,14 +362,8 @@ jobs:
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
-      - name: Profile "stackoverflow" Outliers (1M)
-        if: inputs.diagnostic_profiles && contains(fromJson('["", "all", "1m"]'), env.BENCHMARK_SIZE)
-        uses: ./.github/actions/profile-stackoverflow
-        with:
-          size: 1m
-
       - name: Restore "stackoverflow" Heap Snapshot (20M)
-        if: contains(fromJson('["", "all", "20m"]'), env.BENCHMARK_SIZE)
+        if: contains(fromJson('["", "20m"]'), needs.parse-comment.outputs.size)
         run: |
           set -euo pipefail
           (cd source/pg_search && cargo pgrx stop pg${{ env.pg_version }})
@@ -406,7 +380,7 @@ jobs:
           (cd source/pg_search && cargo pgrx start pg${{ env.pg_version }})
 
       - name: Benchmark "stackoverflow" Dataset (20M)
-        if: contains(fromJson('["", "all", "20m"]'), env.BENCHMARK_SIZE)
+        if: contains(fromJson('["", "20m"]'), needs.parse-comment.outputs.size)
         uses: ./.github/actions/benchmark-queries
         with:
           source_directory: source
@@ -417,12 +391,6 @@ jobs:
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
-
-      - name: Profile "stackoverflow" Outliers (20M)
-        if: inputs.diagnostic_profiles && contains(fromJson('["", "all", "20m"]'), env.BENCHMARK_SIZE)
-        uses: ./.github/actions/profile-stackoverflow
-        with:
-          size: 20m
 
   publish-results:
     name: Publish Benchmark Results

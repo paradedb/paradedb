@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 if [ "$#" -lt 4 ] || [ "$3" != -- ]; then
-  echo "Usage: $0 CONTAINER_OR_pid:POSTMASTER_PID OUTPUT_DIRECTORY -- COMMAND [ARGS...]" >&2
+  echo "Usage: $0 CONTAINER OUTPUT_DIRECTORY -- COMMAND [ARGS...]" >&2
   exit 1
 fi
 
 container="$1"
 output="$2"
 shift 3
-readonly events=cycles:u,branch-misses:u
+readonly events=cpu-clock:u,branch-misses:u
 readonly sample_frequency=99
 readonly stack_bytes=16384
 readonly startup_timeout_seconds=30
 readonly callgraph_min_percent=0.5
+
+callgraph_args=(--call-graph "dwarf,$stack_bytes")
+if [ "$(uname -m)" = aarch64 ]; then
+  # The software clock PMU rejects the SVE vg register selected by perf's hardware probe.
+  printf -v user_regs '%s,' x{0..29} lr sp pc
+  callgraph_args+=("--user-regs=${user_regs%,}")
+fi
 
 mkdir -p "$output"
 output="$(realpath "$output")"
@@ -21,33 +29,19 @@ if [ -e "$output/perf.data" ]; then
   echo "Refusing to overwrite $output/perf.data" >&2
   exit 1
 fi
-if [[ "$container" == pid:* ]]; then
-  pids="${container#pid:}"
-  if [[ ! "$pids" =~ ^[1-9][0-9]*$ ]] || [ "$(cat "/proc/$pids/comm")" != postgres ]; then
-    echo "Expected a live PostgreSQL postmaster PID: $pids" >&2
-    exit 1
-  fi
-  ps -p "$pids" -o pid,comm >"$output/processes.txt"
-  symfs=/
-else
-  docker top "$container" -eo pid,comm >"$output/processes.txt"
-  pids="$(awk '$2 == "postgres" {print $1}' "$output/processes.txt" | paste -sd, -)"
-  if [ -z "$pids" ]; then
-    echo "No PostgreSQL processes in $container" >&2
-    exit 1
-  fi
-  container_pid="$(docker inspect --format '{{.State.Pid}}' "$container")"
-  symfs="/proc/$container_pid/root"
+docker top "$container" -eo pid,comm >"$output/processes.txt"
+pids="$(awk '$2 == "postgres" {print $1}' "$output/processes.txt" | paste -sd, -)"
+if [ -z "$pids" ]; then
+  echo "No PostgreSQL processes in $container" >&2
+  exit 1
 fi
+container_pid="$(docker inspect --format '{{.State.Pid}}' "$container")"
+symfs="/proc/$container_pid/root"
 {
   date -u +%FT%TZ
   uname -a
   perf version
-  if [[ "$container" == pid:* ]]; then
-    printf 'postmaster=%s\n' "$pids"
-  else
-    docker inspect --format 'container={{.Name}} image={{.Config.Image}} image_id={{.Image}}' "$container"
-  fi
+  docker inspect --format 'container={{.Name}} image={{.Config.Image}} image_id={{.Image}}' "$container"
   printf 'pids=%s\nevents=%s\nfrequency=%s\nstack_bytes=%s\n' "$pids" "$events" "$sample_frequency" "$stack_bytes"
   printf 'command: '
   printf '%q ' "$@"
@@ -94,6 +88,17 @@ cleanup() {
       echo "::group::PostgreSQL perf report: $output"
       cat "$output/report.txt" "$output/report-callgraph.txt" "$output/report.log"
       echo '::endgroup::'
+      if ! awk '
+        /^# Samples: [1-9]/ {
+          split($0, fields, "\047")
+          split(fields[2], event, ":")
+          seen[event[1]] = 1
+        }
+        END { exit !(seen["cpu-clock"] && seen["branch-misses"]) }
+      ' "$output/report.txt"; then
+        echo "perf must record nonzero cpu-clock and branch-misses samples" >&2
+        report_status=1
+      fi
     else
       echo "perf produced no profile: $output/perf.data" >&2
       report_status=1
@@ -113,7 +118,7 @@ trap 'exit 129' HUP
 
 run_perf record --output "$output/perf.data" \
   --event "$events" --freq "$sample_frequency" \
-  --call-graph "dwarf,$stack_bytes" --inherit --namespaces --pid "$pids" \
+  "${callgraph_args[@]}" --inherit --namespaces --pid "$pids" \
   --delay=-1 --control="fifo:$control_dir/control,$control_dir/ack" \
   >"$output/record.log" 2>&1 &
 perf_pid=$!

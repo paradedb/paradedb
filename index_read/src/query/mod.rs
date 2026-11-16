@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::{match_expands_with_synonyms, pdb};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -897,6 +897,29 @@ impl SearchQueryInput {
             SearchQueryInput::FieldedQuery { query, .. } => query.estimated_selectivity(),
 
             _ => None,
+        }
+    }
+
+    /// Whether a synonym rule turns the token of this one-token match into a group of
+    /// alternatives. `is_topk_prunable` sees only the query input, and not the rules.
+    pub fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
+        match self {
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::Match {
+                        value,
+                        tokenizer: None,
+                        synonyms: Some(rules),
+                        ..
+                    },
+            } => schema
+                .search_field(field.root())
+                .is_some_and(|search_field| {
+                    match_expands_with_synonyms(&search_field, schema, value, rules)
+                }),
+            SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
+            _ => false,
         }
     }
 
@@ -3071,5 +3094,39 @@ mod tests {
             tantivy::Term::from_field_i64(field, i64::MAX)
         );
         assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
+    }
+
+    // `PdbOwnedValue`'s serde reaches Postgres's date functions, so these can't be plain tests.
+    #[pg_test]
+    fn non_finite_floats_survive_json() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let json = serde_json::to_string(&PdbOwnedValue::F64(value)).unwrap();
+            assert!(json.contains(PDB_FLOAT_TAG), "not tagged: {json}");
+            let PdbOwnedValue::F64(decoded) = serde_json::from_str(&json).unwrap() else {
+                panic!("did not decode as a float: {json}");
+            };
+            assert_eq!(decoded.to_bits(), value.to_bits());
+        }
+    }
+
+    #[pg_test]
+    fn finite_floats_stay_plain_json_numbers() {
+        assert_eq!(
+            serde_json::to_string(&PdbOwnedValue::F64(1.5)).unwrap(),
+            "1.5"
+        );
+    }
+
+    #[pg_test]
+    fn float_tag_only_decodes_non_finite_values() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for text in ["1.5", "not a float"] {
+            let value: PdbOwnedValue =
+                serde_json::from_value(serde_json::json!({ PDB_FLOAT_TAG: text })).unwrap();
+            assert!(matches!(value, PdbOwnedValue::Object(_)), "{value:?}");
+        }
     }
 }

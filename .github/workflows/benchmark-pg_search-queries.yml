@@ -36,6 +36,10 @@ on:
         required: false
         type: boolean
         default: true
+      diagnostic_profiles:
+        description: "Profile existing outlier queries after each standard suite; diagnostics are not published."
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -332,6 +336,12 @@ jobs:
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
+      - name: Profile "stackoverflow" Outliers (100K)
+        if: inputs.diagnostic_profiles && contains(fromJson('["", "100k"]'), needs.parse-comment.outputs.size)
+        uses: ./.github/actions/profile-stackoverflow
+        with:
+          size: 100k
+
       - name: Restore "stackoverflow" Heap Snapshot (1M)
         if: contains(fromJson('["", "1m"]'), needs.parse-comment.outputs.size)
         run: |
@@ -362,6 +372,12 @@ jobs:
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
 
+      - name: Profile "stackoverflow" Outliers (1M)
+        if: inputs.diagnostic_profiles && contains(fromJson('["", "1m"]'), needs.parse-comment.outputs.size)
+        uses: ./.github/actions/profile-stackoverflow
+        with:
+          size: 1m
+
       - name: Restore "stackoverflow" Heap Snapshot (20M)
         if: contains(fromJson('["", "20m"]'), needs.parse-comment.outputs.size)
         run: |
@@ -391,6 +407,12 @@ jobs:
           fail_on_error: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_on_error }}
           publish_baseline: ${{ env.PUBLISH_BASELINE }}
           query_filter: ${{ needs.parse-comment.outputs.query_filter }}
+
+      - name: Profile "stackoverflow" Outliers (20M)
+        if: inputs.diagnostic_profiles && contains(fromJson('["", "20m"]'), needs.parse-comment.outputs.size)
+        uses: ./.github/actions/profile-stackoverflow
+        with:
+          size: 20m
 
   publish-results:
     name: Publish Benchmark Results

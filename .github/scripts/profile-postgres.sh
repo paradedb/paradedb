@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -lt 4 ] || [ "$3" != -- ]; then
-  echo "Usage: $0 CONTAINER OUTPUT_DIRECTORY -- COMMAND [ARGS...]" >&2
+  echo "Usage: $0 CONTAINER_OR_pid:POSTMASTER_PID OUTPUT_DIRECTORY -- COMMAND [ARGS...]" >&2
   exit 1
 fi
 
@@ -21,19 +21,33 @@ if [ -e "$output/perf.data" ]; then
   echo "Refusing to overwrite $output/perf.data" >&2
   exit 1
 fi
-docker top "$container" -eo pid,comm >"$output/processes.txt"
-pids="$(awk '$2 == "postgres" {print $1}' "$output/processes.txt" | paste -sd, -)"
-if [ -z "$pids" ]; then
-  echo "No PostgreSQL processes in $container" >&2
-  exit 1
+if [[ "$container" == pid:* ]]; then
+  pids="${container#pid:}"
+  if [[ ! "$pids" =~ ^[1-9][0-9]*$ ]] || [ "$(cat "/proc/$pids/comm")" != postgres ]; then
+    echo "Expected a live PostgreSQL postmaster PID: $pids" >&2
+    exit 1
+  fi
+  ps -p "$pids" -o pid,comm >"$output/processes.txt"
+  symfs=/
+else
+  docker top "$container" -eo pid,comm >"$output/processes.txt"
+  pids="$(awk '$2 == "postgres" {print $1}' "$output/processes.txt" | paste -sd, -)"
+  if [ -z "$pids" ]; then
+    echo "No PostgreSQL processes in $container" >&2
+    exit 1
+  fi
+  container_pid="$(docker inspect --format '{{.State.Pid}}' "$container")"
+  symfs="/proc/$container_pid/root"
 fi
-container_pid="$(docker inspect --format '{{.State.Pid}}' "$container")"
-symfs="/proc/$container_pid/root"
 {
   date -u +%FT%TZ
   uname -a
   perf version
-  docker inspect --format 'container={{.Name}} image={{.Config.Image}} image_id={{.Image}}' "$container"
+  if [[ "$container" == pid:* ]]; then
+    printf 'postmaster=%s\n' "$pids"
+  else
+    docker inspect --format 'container={{.Name}} image={{.Config.Image}} image_id={{.Image}}' "$container"
+  fi
   printf 'pids=%s\nevents=%s\nfrequency=%s\nstack_bytes=%s\n' "$pids" "$events" "$sample_frequency" "$stack_bytes"
   printf 'command: '
   printf '%q ' "$@"

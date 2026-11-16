@@ -17,6 +17,10 @@ runs:
       with:
         packages: linux-perf
 
+    - name: Verify CPU-clock and branch-miss sampling
+      shell: bash
+      run: bash .github/scripts/profile-postgres.sh --check benchmark-profiles/preflight
+
     - name: Measure selected operating points with k6
       shell: bash
       env:

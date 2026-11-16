@@ -17,8 +17,8 @@ on:
       runner_type:
         description: "Runner availability"
         type: choice
-        options: [on-demand, spot]
-        default: on-demand
+        options: [spot, on-demand]
+        default: spot
       commit:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false

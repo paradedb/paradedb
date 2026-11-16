@@ -15,8 +15,8 @@ on:
       runner_type:
         description: "Runner availability"
         type: choice
-        options: [on-demand, spot]
-        default: on-demand
+        options: [spot, on-demand]
+        default: spot
       engine:
         description: "Vector index to benchmark"
         type: choice

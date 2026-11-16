@@ -25,7 +25,7 @@ Daily runs benchmark all three engines with VectorChord prefilter off. Manual ru
 can also select `vectorchord-prefilter` to enable it; this variant has separate
 results. Both VectorChord modes use the same unfiltered MS MARCO queries.
 
-Manual runs select one engine and default to an on-demand runner. Use the
+Manual runs select one engine and default to a Spot runner. Use the
 `runner_type` selector in **Run workflow**, or pass it through the CLI:
 
 ```sh
@@ -34,7 +34,7 @@ gh workflow run benchmark-pg_search-benchmarker-msmarco.yml \
   -f engine=vectorchord -f runner_type=on-demand
 ```
 
-Set `runner_type=spot` to opt into interruptible instances. Manual runs use this
+Set `runner_type=on-demand` to avoid interruptible instances. Manual runs use this
 input rather than PR labels. Daily scheduled runs continue to use Spot.
 
 Set `commit` to benchmark another pg_search revision. Scheduled and manual runs

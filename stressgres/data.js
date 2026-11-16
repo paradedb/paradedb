@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794817443340,
+  "lastUpdate": 1794817478743,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -378635,6 +378635,137 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14153507077-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7d94d42cce937a60cd532a2b7e5624aeee9118d7",
+          "message": "ci: run vector benchmarks with 32 GiB containers (#7448)\n\nRun Cohere, HN, and MS MARCO vector benchmarks in 32 GiB Docker\ncontainers while keeping the existing CPU allocation: 64 CPUs on cores\n0\u201363, with k6 on cores 64\u201367. All comparison engines use the shared\ncontainer settings: 16 GiB shared memory, 8 GiB shared buffers, 8 GiB\nmaintenance_work_mem, 24 GiB effective_cache_size, and 256 MiB work_mem.\n\nAlign every pg_search, pg_vectorsearch, and VectorChord build/search\nprofile and the MS MARCO pg_vectorsearch load config with those\nsettings. Remove the HN comparison profiles' old 1 GiB work_mem\noverrides so queries inherit the shared Docker default. Update result\ndescriptions and benchmark documentation to match.\n\nRetain the tuned VectorChord profiles: 30,000 lists for HN and 100,000\nfor MS MARCO, hierarchical k-means in 100 dimensions, sampling factor\n64, eight build threads, build.pin=2, residual quantization, and\nspherical centroids. Probe bounds match the list counts; prefilter modes\nand SQL predicates are unchanged.\n\nMS MARCO also accepts `vectorchord-prefilter` for a separately labeled\nprefilter-on comparison; the existing `vectorchord` variant keeps\nprefilter off. Both use the same unfiltered MS MARCO SQL. HN retains its\nexisting prefilter-on/off variants.\n\nCohere, HN, and MS MARCO all pin pdbench to\n`9372a7d18d8f24046808c512231b0ac9173047a4`, the merged commit from\nhttps://github.com/paradedb/pdbench/pull/61. This includes the shared 32\nGiB container configuration, matching load settings, and MS MARCO\nVectorChord build tuning. Manual defaults and workflow fallbacks use the\nsame revision.\n\nThe pin also includes the VectorChord timeout-cleanup recovery merged in\nhttps://github.com/paradedb/pdbench/pull/54. The recovery retries only\nthe exact PostgreSQL `XX000` buffer-pin cleanup error after a\nbudget-exhausted sweep, verifies timeout restoration, and preserves\nrecall outcomes. The workflows build the merged commit directly.\n\nValidation: all 41 existing vector benchmark helper tests pass.\nApplicable pre-commit checks pass for the pin changes, including\nactionlint, YAML validation, and formatting. Resolved Docker Compose\nchecks at the merged pin confirm 32 GiB memory, 16 GiB shared memory, 64\nCPUs, and matching PostgreSQL settings for all three datasets. All ten\nbuild/search profiles and five upstream load configs agree with those\nsettings; MS MARCO VectorChord load options exactly match both search\nprofiles. Full benchmark runs for the final 8 GiB maintenance setting\nand a live reproduction of the timeout cleanup error remain pending.",
+          "timestamp": "2026-11-16T07:32:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7d94d42cce937a60cd532a2b7e5624aeee9118d7"
+        },
+        "date": 1794817474705,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 15.889859826411895,
+            "unit": "median tps",
+            "extra": "avg tps: 13.910573375669928, max tps: 18.21458334210726, count: 58993"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 2.947811521955335,
+            "unit": "median tps",
+            "extra": "avg tps: 3.305871415476711, max tps: 12.398709039251134, count: 58993"
+          },
+          {
+            "name": "Upsert 1 - Primary - tps",
+            "value": 146.52603455890318,
+            "unit": "median tps",
+            "extra": "avg tps: 156.74511808690798, max tps: 390.9932455504116, count: 58993"
+          },
+          {
+            "name": "Upsert 10 - Primary - tps",
+            "value": 150.18879436691566,
+            "unit": "median tps",
+            "extra": "avg tps: 156.11046712163653, max tps: 264.4980310792866, count: 58993"
+          },
+          {
+            "name": "Upsert 11 - Primary - tps",
+            "value": 142.75691222492935,
+            "unit": "median tps",
+            "extra": "avg tps: 150.94522926675742, max tps: 313.010924934781, count: 58993"
+          },
+          {
+            "name": "Upsert 12 - Primary - tps",
+            "value": 132.59583060400925,
+            "unit": "median tps",
+            "extra": "avg tps: 150.20477084853738, max tps: 462.38790404396093, count: 58993"
+          },
+          {
+            "name": "Upsert 13 - Primary - tps",
+            "value": 143.51359592390907,
+            "unit": "median tps",
+            "extra": "avg tps: 155.72246516006155, max tps: 399.671487605166, count: 58993"
+          },
+          {
+            "name": "Upsert 14 - Primary - tps",
+            "value": 140.8356421539176,
+            "unit": "median tps",
+            "extra": "avg tps: 143.41087119756477, max tps: 333.4914910112559, count: 58993"
+          },
+          {
+            "name": "Upsert 15 - Primary - tps",
+            "value": 160.52371834209958,
+            "unit": "median tps",
+            "extra": "avg tps: 160.1713154901001, max tps: 246.6144237750081, count: 58993"
+          },
+          {
+            "name": "Upsert 16 - Primary - tps",
+            "value": 178.0753991162979,
+            "unit": "median tps",
+            "extra": "avg tps: 179.52369348907766, max tps: 269.4502951153071, count: 58993"
+          },
+          {
+            "name": "Upsert 2 - Primary - tps",
+            "value": 156.96161734811727,
+            "unit": "median tps",
+            "extra": "avg tps: 168.12221093751455, max tps: 298.5802186686066, count: 58993"
+          },
+          {
+            "name": "Upsert 3 - Primary - tps",
+            "value": 133.42550283480665,
+            "unit": "median tps",
+            "extra": "avg tps: 146.66743919588887, max tps: 449.6910504707039, count: 58993"
+          },
+          {
+            "name": "Upsert 4 - Primary - tps",
+            "value": 156.38634126662112,
+            "unit": "median tps",
+            "extra": "avg tps: 159.91808159460876, max tps: 293.0374913325928, count: 58993"
+          },
+          {
+            "name": "Upsert 5 - Primary - tps",
+            "value": 172.48956840996254,
+            "unit": "median tps",
+            "extra": "avg tps: 174.49650767490925, max tps: 344.6738307461169, count: 58993"
+          },
+          {
+            "name": "Upsert 6 - Primary - tps",
+            "value": 166.76963474397255,
+            "unit": "median tps",
+            "extra": "avg tps: 175.65695101544677, max tps: 342.8521023088555, count: 58993"
+          },
+          {
+            "name": "Upsert 7 - Primary - tps",
+            "value": 166.7813806049229,
+            "unit": "median tps",
+            "extra": "avg tps: 167.88585625140817, max tps: 380.6699617429716, count: 58993"
+          },
+          {
+            "name": "Upsert 8 - Primary - tps",
+            "value": 151.43226617203564,
+            "unit": "median tps",
+            "extra": "avg tps: 161.5923563716458, max tps: 355.92152806420717, count: 58993"
+          },
+          {
+            "name": "Upsert 9 - Primary - tps",
+            "value": 151.00629259192755,
+            "unit": "median tps",
+            "extra": "avg tps: 157.47494480556708, max tps: 351.5044792647327, count: 58993"
+          }
+        ],
+        "publication_id": "14206799885-tps"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - Other Metrics": [
@@ -392894,6 +393025,275 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14153507077-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7d94d42cce937a60cd532a2b7e5624aeee9118d7",
+          "message": "ci: run vector benchmarks with 32 GiB containers (#7448)\n\nRun Cohere, HN, and MS MARCO vector benchmarks in 32 GiB Docker\ncontainers while keeping the existing CPU allocation: 64 CPUs on cores\n0\u201363, with k6 on cores 64\u201367. All comparison engines use the shared\ncontainer settings: 16 GiB shared memory, 8 GiB shared buffers, 8 GiB\nmaintenance_work_mem, 24 GiB effective_cache_size, and 256 MiB work_mem.\n\nAlign every pg_search, pg_vectorsearch, and VectorChord build/search\nprofile and the MS MARCO pg_vectorsearch load config with those\nsettings. Remove the HN comparison profiles' old 1 GiB work_mem\noverrides so queries inherit the shared Docker default. Update result\ndescriptions and benchmark documentation to match.\n\nRetain the tuned VectorChord profiles: 30,000 lists for HN and 100,000\nfor MS MARCO, hierarchical k-means in 100 dimensions, sampling factor\n64, eight build threads, build.pin=2, residual quantization, and\nspherical centroids. Probe bounds match the list counts; prefilter modes\nand SQL predicates are unchanged.\n\nMS MARCO also accepts `vectorchord-prefilter` for a separately labeled\nprefilter-on comparison; the existing `vectorchord` variant keeps\nprefilter off. Both use the same unfiltered MS MARCO SQL. HN retains its\nexisting prefilter-on/off variants.\n\nCohere, HN, and MS MARCO all pin pdbench to\n`9372a7d18d8f24046808c512231b0ac9173047a4`, the merged commit from\nhttps://github.com/paradedb/pdbench/pull/61. This includes the shared 32\nGiB container configuration, matching load settings, and MS MARCO\nVectorChord build tuning. Manual defaults and workflow fallbacks use the\nsame revision.\n\nThe pin also includes the VectorChord timeout-cleanup recovery merged in\nhttps://github.com/paradedb/pdbench/pull/54. The recovery retries only\nthe exact PostgreSQL `XX000` buffer-pin cleanup error after a\nbudget-exhausted sweep, verifies timeout restoration, and preserves\nrecall outcomes. The workflows build the merged commit directly.\n\nValidation: all 41 existing vector benchmark helper tests pass.\nApplicable pre-commit checks pass for the pin changes, including\nactionlint, YAML validation, and formatting. Resolved Docker Compose\nchecks at the merged pin confirm 32 GiB memory, 16 GiB shared memory, 64\nCPUs, and matching PostgreSQL settings for all three datasets. All ten\nbuild/search profiles and five upstream load configs agree with those\nsettings; MS MARCO VectorChord load options exactly match both search\nprofiles. Full benchmark runs for the final 8 GiB maintenance setting\nand a live reproduction of the timeout cleanup error remain pending.",
+          "timestamp": "2026-11-16T07:32:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7d94d42cce937a60cd532a2b7e5624aeee9118d7"
+        },
+        "date": 1794817478625,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.527477,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.567271596585007, max cpu: 32.030506, count: 58993"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 50.375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.69230982648365, max mem: 52.375, count: 58993"
+          },
+          {
+            "name": "Background Merging - Primary - cpu",
+            "value": 4.4859815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.6620235344954852, max cpu: 4.4859815, count: 58993"
+          },
+          {
+            "name": "Background Merging - Primary - mem",
+            "value": 33.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.072314458918854, max mem: 33.63671875, count: 58993"
+          },
+          {
+            "name": "Background Merging - Primary - merged_away",
+            "value": 1170,
+            "unit": "median merged_away",
+            "extra": "avg merged_away: 1185.737223060363, max merged_away: 1628.0, count: 58993"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.813688,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.801570894018074, max cpu: 36.536633, count: 58993"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 148.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.17702292274083, max mem: 152.61328125, count: 58993"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17437,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17022.726679436542, max block_count: 17441.0, count: 58993"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 15,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.227755835438103, max segment_count: 25.0, count: 58993"
+          },
+          {
+            "name": "Upsert 1 - Primary - cpu",
+            "value": 18.087612,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.498530655372765, max cpu: 32.137733, count: 58993"
+          },
+          {
+            "name": "Upsert 1 - Primary - mem",
+            "value": 113.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.5491450654103, max mem: 213.28125, count: 58993"
+          },
+          {
+            "name": "Upsert 10 - Primary - cpu",
+            "value": 18.045115,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.11998660637394, max cpu: 31.939163, count: 58993"
+          },
+          {
+            "name": "Upsert 10 - Primary - mem",
+            "value": 117.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 108.18653192963572, max mem: 154.375, count: 58993"
+          },
+          {
+            "name": "Upsert 11 - Primary - cpu",
+            "value": 18.156029,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.097234925124134, max cpu: 40.4116, count: 58993"
+          },
+          {
+            "name": "Upsert 11 - Primary - mem",
+            "value": 109.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 129.70244880748564, max mem: 283.30078125, count: 58993"
+          },
+          {
+            "name": "Upsert 12 - Primary - cpu",
+            "value": 18.113207,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.614425271875298, max cpu: 32.24568, count: 58993"
+          },
+          {
+            "name": "Upsert 12 - Primary - mem",
+            "value": 163.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 130.67251139700898, max mem: 199.50390625, count: 58993"
+          },
+          {
+            "name": "Upsert 13 - Primary - cpu",
+            "value": 18.113207,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.80631715258403, max cpu: 36.536633, count: 58993"
+          },
+          {
+            "name": "Upsert 13 - Primary - mem",
+            "value": 123.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 127.28493250788229, max mem: 268.35546875, count: 58993"
+          },
+          {
+            "name": "Upsert 14 - Primary - cpu",
+            "value": 18.104668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.78040425671738, max cpu: 32.24568, count: 58993"
+          },
+          {
+            "name": "Upsert 14 - Primary - mem",
+            "value": 115.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 123.66159352327819, max mem: 283.4921875, count: 58993"
+          },
+          {
+            "name": "Upsert 15 - Primary - cpu",
+            "value": 18.045115,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.223054633258545, max cpu: 32.09169, count: 58993"
+          },
+          {
+            "name": "Upsert 15 - Primary - mem",
+            "value": 73.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 85.24542894654874, max mem: 235.76171875, count: 58993"
+          },
+          {
+            "name": "Upsert 16 - Primary - cpu",
+            "value": 17.994377,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.87884824076978, max cpu: 32.04578, count: 58993"
+          },
+          {
+            "name": "Upsert 16 - Primary - mem",
+            "value": 81.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 102.77844941613836, max mem: 223.59765625, count: 58993"
+          },
+          {
+            "name": "Upsert 2 - Primary - cpu",
+            "value": 17.994377,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.042414177761774, max cpu: 32.12237, count: 58993"
+          },
+          {
+            "name": "Upsert 2 - Primary - mem",
+            "value": 109.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 108.77943900653467, max mem: 185.828125, count: 58993"
+          },
+          {
+            "name": "Upsert 3 - Primary - cpu",
+            "value": 18.087612,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.618329263774843, max cpu: 35.92142, count: 58993"
+          },
+          {
+            "name": "Upsert 3 - Primary - mem",
+            "value": 143.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 125.13857463756293, max mem: 201.71484375, count: 58993"
+          },
+          {
+            "name": "Upsert 4 - Primary - cpu",
+            "value": 18.07059,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.129572292058807, max cpu: 31.98477, count: 58993"
+          },
+          {
+            "name": "Upsert 4 - Primary - mem",
+            "value": 129.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.55105591182428, max mem: 129.7265625, count: 58993"
+          },
+          {
+            "name": "Upsert 5 - Primary - cpu",
+            "value": 18.062088,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.330620004790973, max cpu: 32.24568, count: 58993"
+          },
+          {
+            "name": "Upsert 5 - Primary - mem",
+            "value": 125.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 122.20364724151594, max mem: 214.171875, count: 58993"
+          },
+          {
+            "name": "Upsert 6 - Primary - cpu",
+            "value": 18.019709,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.186626254270973, max cpu: 32.09169, count: 58993"
+          },
+          {
+            "name": "Upsert 6 - Primary - mem",
+            "value": 117.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 117.41252570485058, max mem: 238.42578125, count: 58993"
+          },
+          {
+            "name": "Upsert 7 - Primary - cpu",
+            "value": 18.036636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.0126021164006, max cpu: 32.04578, count: 58993"
+          },
+          {
+            "name": "Upsert 7 - Primary - mem",
+            "value": 133.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 127.41059380191294, max mem: 161.7265625, count: 58993"
+          },
+          {
+            "name": "Upsert 8 - Primary - cpu",
+            "value": 18.079096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.425492932505634, max cpu: 35.92142, count: 58993"
+          },
+          {
+            "name": "Upsert 8 - Primary - mem",
+            "value": 105.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 99.14781520688895, max mem: 224.140625, count: 58993"
+          },
+          {
+            "name": "Upsert 9 - Primary - cpu",
+            "value": 18.036636,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.292762395113748, max cpu: 32.137733, count: 58993"
+          },
+          {
+            "name": "Upsert 9 - Primary - mem",
+            "value": 77.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 89.68781511948451, max mem: 209.7578125, count: 58993"
+          }
+        ],
+        "publication_id": "14206799885-other"
       }
     ],
     "pg_search single-node-planner-paths.toml Performance - TPS": [

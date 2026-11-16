@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794817380223,
+  "lastUpdate": 1794817412914,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -507603,6 +507603,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14153280172-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b3ea916d56e87411f7fd66e4d55b077c4fb84cd9",
+          "message": "ci: add Cohere 10M vector comparison benchmarks (#7470)\n\nAdd manual Cohere 10M benchmarks for pg_vectorsearch and VectorChord with prefilter off and on, sharing the existing heap, resource limits, recall gates, plan validation, and k6 timing.",
+          "timestamp": "2026-11-16T07:48:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b3ea916d56e87411f7fd66e4d55b077c4fb84cd9"
+        },
+        "date": 1794817410625,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 36.87852381040451,
+            "unit": "median tps",
+            "extra": "avg tps: 55.91014748199274, max tps: 502.83419063134426, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.808991104102123,
+            "unit": "median tps",
+            "extra": "avg tps: 30.65701397267022, max tps: 318.86821514408103, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.38555098675141,
+            "unit": "median tps",
+            "extra": "avg tps: 132.10374653021222, max tps: 1374.5764457460004, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.882882244195127,
+            "unit": "median tps",
+            "extra": "avg tps: 29.749867844337636, max tps: 249.9355506469386, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 37.96153353857353,
+            "unit": "median tps",
+            "extra": "avg tps: 58.55813421132487, max tps: 512.1424282725667, count: 58767"
+          }
+        ],
+        "publication_id": "14207717533-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -521442,6 +521495,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14153280172-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b3ea916d56e87411f7fd66e4d55b077c4fb84cd9",
+          "message": "ci: add Cohere 10M vector comparison benchmarks (#7470)\n\nAdd manual Cohere 10M benchmarks for pg_vectorsearch and VectorChord with prefilter off and on, sharing the existing heap, resource limits, recall gates, plan validation, and k6 timing.",
+          "timestamp": "2026-11-16T07:48:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b3ea916d56e87411f7fd66e4d55b077c4fb84cd9"
+        },
+        "date": 1794817412821,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.484375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.644745749102388, max partition_index_size:MB: 24.515625, count: 58767"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.911695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.276554986783093, max cpu: 33.03835, count: 58767"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 50.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.5283594800228, max mem: 58.2421875, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.021584,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.94002049407381, max cpu: 36.62375, count: 58767"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 69.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 69.63332797584103, max mem: 75.05859375, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.707759,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.233683219104448, max cpu: 28.015566, count: 58767"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 49.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.073970683483076, max mem: 53.2578125, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.952028509558982, max cpu: 41.201717, count: 58767"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 67.625,
+            "unit": "median mem",
+            "extra": "avg mem: 67.10757924302754, max mem: 75.625, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.911695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.219279244055052, max cpu: 32.36994, count: 58767"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 62.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.986042669036195, max mem: 72.44921875, count: 58767"
+          }
+        ],
+        "publication_id": "14207717533-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

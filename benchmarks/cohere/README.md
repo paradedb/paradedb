@@ -117,8 +117,7 @@ daily run and `benchmark-cohere-router-quality` add the router-quality section.
 Manual runs can select a size, pg_search commit, and tool refs, and add the
 router-quality section with `router_quality`. Manual runs also accept
 `engine=pg_vectorsearch`, `vectorchord`, or `vectorchord-prefilter` with `size=10m`
-and `router_quality=false`. `runner_type` defaults to `spot`; select `on-demand`
-to avoid interruptible runners.
+and `router_quality=false`. `runner_type=on-demand` selects an on-demand runner;
 `benchmark-nonspot` controls PR-triggered pg_search runs.
 The pdbench checkout uses the ParadeDB GitHub App's read access to the private
 repository. Both tool revisions are pinned and recorded in diagnostics. The

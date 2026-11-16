@@ -2917,6 +2917,25 @@ mod tests {
     }
 
     #[pg_test]
+    fn test_is_match_all_looks_through_index_wrappers() {
+        let with_index = |query| SearchQueryInput::WithIndex {
+            oid: 12345.into(),
+            query: Box::new(query),
+        };
+        assert!(SearchQueryInput::All.is_match_all());
+        assert!(with_index(SearchQueryInput::All).is_match_all());
+        assert!(!with_index(create_term_query()).is_match_all());
+        assert!(
+            !with_index(conjunction(vec![
+                SearchQueryInput::All,
+                create_term_query()
+            ]))
+            .is_match_all()
+        );
+        assert!(!conjunction(vec![SearchQueryInput::All, create_match_query()]).is_match_all());
+    }
+
+    #[pg_test]
     fn test_is_full_scan_query_wrapper_queries() {
         // WithIndex wrapping All → full scan
         assert!(

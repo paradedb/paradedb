@@ -8,9 +8,12 @@ inputs:
   container:
     description: "Database container to profile"
     default: "paradedb"
+  profile-warmup-seconds:
+    description: "Profile warmup duration per operating point"
+    default: "5"
   profile-duration-seconds:
-    description: "Profile measurement duration per operating point, after the standard warmup"
-    default: "20"
+    description: "Profile measurement duration per operating point, after warmup"
+    default: "10"
 
 runs:
   using: composite
@@ -50,6 +53,7 @@ runs:
       shell: bash
       env:
         PROFILE_CONTAINER: ${{ inputs.container }}
+        PROFILE_WARMUP_SECONDS: ${{ inputs.profile-warmup-seconds }}
         PROFILE_DURATION_SECONDS: ${{ inputs.profile-duration-seconds }}
       run: |
         set -euo pipefail
@@ -65,6 +69,7 @@ runs:
               -e OPERATING_POINTS="$root/benchmark-artifacts/operating_points.json" \
               -e OPERATING_POINT="$point" \
               -e QUERY_VECTORS="$root/benchmark-artifacts/query_vectors.json" \
+              -e WARMUP_SECONDS="$PROFILE_WARMUP_SECONDS" \
               -e DURATION_SECONDS="$PROFILE_DURATION_SECONDS" \
               "$root/benchmarks/cohere/k6/search.js"
           )

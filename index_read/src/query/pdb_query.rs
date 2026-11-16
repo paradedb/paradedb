@@ -2351,6 +2351,41 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
         .collect()
 }
 
+/// Whether `rules` turn `value` into a group of alternatives. The planner has no searcher, so the
+/// tokens come from the tokenizer in the index options.
+pub(crate) fn match_expands_with_synonyms(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    value: &str,
+    rules: &pdb::SynonymRules,
+) -> bool {
+    let Some(mut analyzer) = query_tokenizer(search_field, schema)
+        .as_ref()
+        .and_then(SearchTokenizer::to_tantivy_tokenizer)
+    else {
+        return false;
+    };
+    let mut tokens = Vec::new();
+    {
+        let mut stream = analyzer.token_stream(value);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
+    }
+    // The selectivity estimate builds the same query first, so it has already raised any error.
+    let expansions = match rules {
+        pdb::SynonymRules::Index(index) => {
+            expand_match(*index, search_field, schema, None, &tokens)
+        }
+        pdb::SynonymRules::Rules(rules) => expand_with_rules(rules, &mut analyzer, &tokens),
+    };
+    expansions.is_ok_and(|expansions| {
+        expansions
+            .iter()
+            .any(|expansion| !expansion.is_single_term())
+    })
+}
+
 /// The tokenizer of a query on `search_field`, from the index options.
 fn query_tokenizer(
     search_field: &SearchField,

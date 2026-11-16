@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::{match_expands_with_synonyms, pdb};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -941,6 +941,29 @@ impl SearchQueryInput {
             SearchQueryInput::FieldedQuery { query, .. } => query.estimated_selectivity(),
 
             _ => None,
+        }
+    }
+
+    /// Whether a synonym rule turns the token of this one-token match into a group of
+    /// alternatives. `is_topk_prunable` sees only the query input, and not the rules.
+    pub fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
+        match self {
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::Match {
+                        value,
+                        tokenizer: None,
+                        synonyms: Some(rules),
+                        ..
+                    },
+            } => schema
+                .search_field(field.root())
+                .is_some_and(|search_field| {
+                    match_expands_with_synonyms(&search_field, schema, value, rules)
+                }),
+            SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
+            _ => false,
         }
     }
 

@@ -23,10 +23,11 @@ on:
         options:
           [pg_search, pg_vectorsearch, vectorchord, vectorchord-prefilter]
         default: pg_search
-      spot:
-        description: "Use Spot runners for manual benchmarks"
-        type: boolean
-        default: false
+      runner_type:
+        description: "Runner availability"
+        type: choice
+        options: [spot, on-demand]
+        default: spot
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
         default: ""
@@ -70,7 +71,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - spot=${{ github.event_name == 'workflow_dispatch' && inputs.spot || github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot') }}
+      - spot=${{ (github.event_name == 'workflow_dispatch' && inputs.runner_type == 'spot') || (github.event_name != 'workflow_dispatch' && !contains(github.event.pull_request.labels.*.name, 'benchmark-nonspot')) }}
       - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
@@ -466,7 +467,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - retry=when-interrupted
-      - spot=${{ inputs.spot }}
+      - spot=${{ inputs.runner_type == 'spot' }}
       - family=c8gd.metal-24xl
       - image=ubuntu26-full-arm64
       - extras=s3-cache+git-cache+apt-cache

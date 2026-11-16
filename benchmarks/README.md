@@ -18,11 +18,9 @@ Stack Overflow queries, Benchmarker (Hacker News, Stack Exchange, and Wikipedia)
 and every PR-triggered HN, MS MARCO, and Cohere vector variant. Stack Overflow
 comment-triggered runs also honor the label. Remove it before triggering another
 run to use Spot again. The label does not start a benchmark by itself.
-Manual RunsOn benchmarks default to on-demand runners. Select `runner_type` in
+Manual RunsOn benchmarks default to Spot runners. Select `runner_type` in
 **Run workflow**, or pass `-f runner_type=on-demand` / `-f runner_type=spot` with
-`gh workflow run`. Cohere keeps its existing boolean `spot` input: leave it
-unchecked (or pass `-f spot=false`) for on-demand, and check it (or pass
-`-f spot=true`) for Spot. Both Cohere benchmark jobs use that setting.
+`gh workflow run`. The same selector applies to every RunsOn benchmark job.
 Manual runs use these inputs rather than PR labels. Scheduled benchmarks continue
 to use Spot. Retries retain the original run's selection; start a new run to
 change it.

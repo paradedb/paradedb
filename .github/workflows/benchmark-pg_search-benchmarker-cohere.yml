@@ -26,7 +26,7 @@ on:
       spot:
         description: "Use Spot runners for manual benchmarks"
         type: boolean
-        default: true
+        default: false
       commit:
         description: "pg_search commit/ref to benchmark (defaults to the triggering ref)"
         default: ""

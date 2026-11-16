@@ -34,6 +34,9 @@ on:
         description: "Add the router-quality section"
         type: boolean
         default: false
+      diagnostic_probes:
+        description: "Comma-separated positive integer max_probe values to measure after k6"
+        default: ""
 
 permissions:
   actions: read
@@ -311,6 +314,36 @@ jobs:
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
+
+      - name: Measure Fixed-probe Diagnostics
+        if: inputs.diagnostic_probes != ''
+        env:
+          DIAGNOSTIC_PROBES: ${{ inputs.diagnostic_probes }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a probes <<< "$DIAGNOSTIC_PROBES"
+          for probe in "${probes[@]}"; do
+            if [[ ! "$probe" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Expected comma-separated positive integers for diagnostic_probes" >&2
+              exit 1
+            fi
+          done
+          for query in knn_top10_unfiltered knn_top10_10pct knn_top10_1pct; do
+            for probe in "${probes[@]}"; do
+              pdbench search --url "$PARADEDB_URL" --config "benchmarks/cohere/${COHERE_SIZE}.toml" \
+                --assets-dir benchmarks/assets --runs-dir "benchmark-artifacts/fixed-probes/${query}/${probe}" \
+                --query "$query" --probe "$probe" --no-compare --html
+            done
+          done
+
+      - name: Upload Fixed-probe Diagnostics
+        if: always() && inputs.diagnostic_probes != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cohere-${{ matrix.size }}-fixed-probes
+          path: benchmark-artifacts/fixed-probes/
+          retention-days: 30
+          if-no-files-found: warn
 
       # Router quality runs after k6 so its flat sweeps do not change the cache k6 measures on.
       - name: Write Router-quality Arm Profiles

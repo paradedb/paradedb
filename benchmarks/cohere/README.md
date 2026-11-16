@@ -11,8 +11,8 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. Cohere, MS MARCO, HN, Wikipedia, and Stack Exchange share
 `setup-docker-benchmark-cluster`. Cohere, MS MARCO, and HN start the `paradedb`
 service from pdbench's `datasets/<dataset>/docker-compose.yml`, which is the
-same for every dataset: CPUs 0–63, 128 GiB memory, 64 GiB shared memory, 32 GiB
-shared buffers, 52428 MB maintenance memory, a 96 GiB effective cache, and 16
+same for every dataset: CPUs 0–63, 32 GiB memory, 16 GiB shared memory, 8 GiB
+shared buffers, 8 GiB maintenance memory, a 24 GiB effective cache, and 16
 parallel workers in a 32-process pool. k6 runs on CPUs 64–67. Wikipedia and
 Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.

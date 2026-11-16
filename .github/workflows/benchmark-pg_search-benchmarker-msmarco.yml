@@ -198,6 +198,13 @@ jobs:
               > benchmark-artifacts/vectorchord-version.json
           fi
 
+      - name: Configure MS MARCO Leaf Size
+        if: matrix.engine == 'pg_search'
+        run: |
+          target_leaf_size="$(python3 -c 'import tomllib; print(tomllib.load(open("benchmarks/msmarco/113m.toml", "rb"))["index"]["target_leaf_size"])')"
+          sed -i "s/target_segment_count = 8/target_leaf_size = $target_leaf_size, target_segment_count = 8/" "pdbench/$LOAD_CONFIG"
+          cp "pdbench/$LOAD_CONFIG" benchmark-artifacts/load-config.yaml
+
       - name: Build Index and Report Metrics
         uses: ./.github/actions/build-vector-benchmark-index
         with:
@@ -216,6 +223,7 @@ jobs:
           jq -e 'length == 8 and (map(.vector_num_vectors) | add) == 113520750
             and all(.[]; .vector_format == "ivf" and .quantized)' benchmark-artifacts/vector-info.json
           jq -e 'index("target_segment_count=8") != null
+            and index("target_leaf_size=128") != null
             and index("vector_router_quantization=true") != null' benchmark-artifacts/index-options.json
 
       - name: Record PRISM Index Settings

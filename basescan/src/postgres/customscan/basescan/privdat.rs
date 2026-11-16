@@ -194,6 +194,12 @@ impl PrivateData {
         self.maybe_orderby_info = Some(OrderByStyle::extract_orderby_info(style));
     }
 
+    /// Drops the candidate ORDER BY once the chosen exec method carries it, so the plan holds
+    /// one copy of it (and of any query vector in it).
+    pub fn clear_maybe_orderby_info(&mut self) {
+        self.maybe_orderby_info = None;
+    }
+
     pub fn set_var_attname_lookup(
         &mut self,
         var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,

@@ -112,6 +112,8 @@ pub mod linked_bytes;
 pub mod linked_items;
 pub mod merge;
 pub mod metadata;
+#[cfg(feature = "pg18")]
+mod recent_buffer;
 pub mod utils;
 mod xlog;
 

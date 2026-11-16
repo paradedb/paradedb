@@ -275,8 +275,12 @@ jobs:
           RHEL_VERSION=$(echo "${{ matrix.image }}" | awk -F'ubi|:' '{print $2}')
           echo "Detected RHEL Version: $RHEL_VERSION for image: ${{ matrix.image }}"
 
-          # Install the repository RPM:
+          # Install the repository RPM, then rewrite minor-versioned baseurls
+          # (rhel-$releasever_major.$releasever_minor-$basearch) to PGDG's major-version
+          # symlinks (rhel-$releasever_major-$basearch) so UBI :latest point releases do not
+          # 404 before PGDG finishes publishing every architecture's new minor directory:
           sudo dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${RHEL_VERSION}-${{ matrix.arch }}/pgdg-redhat-repo-latest.noarch.rpm
+          sudo sed -i '/^baseurl=/s/[.][$]releasever_minor//g' /etc/yum.repos.d/pgdg-redhat-all.repo
 
           # Install PostgreSQL:
           sudo dnf install -y postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel openblas-devel pgvector_${{ matrix.pg_version }}

@@ -147,7 +147,7 @@ if has_target django; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.15.0" \
+    "django-paradedb==0.16.0" \
     "django-cte>=2.0" \
     "psycopg[binary]"
 
@@ -228,7 +228,7 @@ if has_target sqlalchemy; then
 
   echo "Installing SQLAlchemy ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "sqlalchemy-paradedb==0.13.0" \
+    "sqlalchemy-paradedb==0.14.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do

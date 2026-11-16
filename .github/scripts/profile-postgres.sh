@@ -26,7 +26,7 @@ record_args=(--event "$events" --freq "$sample_frequency" --call-graph "dwarf,$s
 if [ "$(uname -m)" = aarch64 ]; then
   # The software clock PMU rejects the SVE vg register selected by perf's hardware probe.
   printf -v user_regs '%s,' x{0..29} lr sp pc
-  record_args+=(--user-regs "${user_regs%,}")
+  record_args+=("--user-regs=${user_regs%,}")
 fi
 
 run_perf() {

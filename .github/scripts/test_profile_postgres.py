@@ -98,8 +98,10 @@ class ProfileTests(unittest.TestCase):
         result = self.run_profile("--check", self.output)
         self.assertEqual(result.returncode, 0, result.stderr)
         record = next(c for c in self.perf_calls() if c[0] == "record")
-        registers = record[record.index("--user-regs") + 1].split(",")
+        register_option = next(a for a in record if a.startswith("--user-regs="))
+        registers = register_option.split("=", 1)[1].split(",")
         self.assertEqual(registers, [f"x{i}" for i in range(30)] + ["lr", "sp", "pc"])
+        self.assertNotIn("--user-regs", record)
         self.assertEqual(
             record[record.index("--event") + 1], "cpu-clock:u,branch-misses:u"
         )
@@ -111,7 +113,7 @@ class ProfileTests(unittest.TestCase):
         result = self.run_profile("--check", self.output, TEST_ARCH="x86_64")
         self.assertEqual(result.returncode, 0, result.stderr)
         record = next(c for c in self.perf_calls() if c[0] == "record")
-        self.assertNotIn("--user-regs", record)
+        self.assertFalse(any(a.startswith("--user-regs") for a in record))
 
     def test_preflight_rejects_silently_dropped_events(self):
         """A successful perf exit cannot conceal a dropped event."""

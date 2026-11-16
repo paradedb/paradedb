@@ -12,8 +12,10 @@ SET paradedb.rank_join_min_rows = 0;
 DROP TABLE IF EXISTS lss_posts CASCADE;
 DROP TABLE IF EXISTS lss_users CASCADE;
 
+-- No primary key on `lss_users.id`: a unique inner side lets the planner pick an INNER join
+-- instead of SEMI for the `IN` subqueries depending on platform-specific cost ties.
 CREATE TABLE lss_users (
-    id INT PRIMARY KEY,
+    id INT NOT NULL,
     bio TEXT NOT NULL
 ) WITH (autovacuum_enabled = false);
 

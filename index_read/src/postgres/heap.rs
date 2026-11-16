@@ -1636,6 +1636,7 @@ pub struct HeapDocFetcher<'a> {
     categorized_fields: &'a [(SearchField, CategorizedFieldData)],
     created_by_version: Option<Version>,
     oldest_xmin: pg_sys::TransactionId,
+    snapshot_conflict_horizon: pg_sys::TransactionId,
     query_visible: bool,
     root_ctids: bool,
     values: Vec<pg_sys::Datum>,
@@ -1661,6 +1662,7 @@ impl<'a> HeapDocFetcher<'a> {
             categorized_fields,
             created_by_version,
             oldest_xmin,
+            snapshot_conflict_horizon: pg_sys::InvalidTransactionId,
             query_visible,
             root_ctids: false,
             values: vec![pg_sys::Datum::null(); heaptupdesc.len()],
@@ -1681,6 +1683,11 @@ impl<'a> HeapDocFetcher<'a> {
     pub fn with_root_ctids(mut self) -> Self {
         self.root_ctids = true;
         self
+    }
+
+    /// Snapshot-conflict horizon for dead heap versions omitted during materialization.
+    pub fn snapshot_conflict_horizon(&self) -> pg_sys::TransactionId {
+        self.snapshot_conflict_horizon
     }
 
     /// Fetch `ctid` and build the document the index would hold for it, or `None` when there is
@@ -1772,6 +1779,23 @@ impl<'a> HeapDocFetcher<'a> {
                 }
 
                 if htsv_result == pg_sys::HTSV_Result::HEAPTUPLE_DEAD {
+                    // Dropping indexed content needs the same standby snapshot conflict
+                    // as dropping the heap tuple, even if a buffer pin prevented pruning.
+                    {
+                        let buffer = (*self.fetch_state.buffer_heap_slot()).buffer;
+                        let _lock = BorrowedBuffer::from_pg(buffer);
+                        let tuple = (*self.fetch_state.buffer_heap_slot()).base.tuple;
+                        #[cfg(feature = "pg15")]
+                        pg_sys::HeapTupleHeaderAdvanceLatestRemovedXid(
+                            (*tuple).t_data,
+                            &mut self.snapshot_conflict_horizon,
+                        );
+                        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                        pg_sys::HeapTupleHeaderAdvanceConflictHorizon(
+                            (*tuple).t_data,
+                            &mut self.snapshot_conflict_horizon,
+                        );
+                    }
                     // table_index_fetch_tuple stored this dead tuple in a buffer-backed slot. Since
                     // this branch skips the tuple, clear the slot before any HOT-chain retry or ctid
                     // skip so the slot releases its buffer pin.

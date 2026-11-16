@@ -40,7 +40,7 @@ def verify_ann(plan, index_name, fields, access_method, prefilter=False):
         for key in ("Filter", "Index Cond", "Recheck Cond")
     )
     if any(not re.search(rf"\b{re.escape(field)}\b", predicates) for field in fields):
-        raise ValueError("Expected every HN predicate in the PostgreSQL plan")
+        raise ValueError("Expected every filter predicate in the PostgreSQL plan")
     scans = [
         node
         for node in nodes

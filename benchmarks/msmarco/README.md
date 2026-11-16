@@ -3,22 +3,29 @@
 The MS MARCO workflow compares pg_search, pg_vectorsearch, and VectorChord on
 113,520,750 rows with 1,024-dimensional vectors. Each engine restores the same
 PostgreSQL 18 heap backup (`20261102-224214F`) and runs on a `c8gd.metal-24xl`
-runner with a 64-CPU / 128-GiB database container. k6 runs on cores 64–67.
+runner with a 64-CPU / 32-GiB database container on cores 0–63. All engines use
+16 GiB shared memory, 8 GiB shared buffers, 8 GiB `maintenance_work_mem`,
+24 GiB `effective_cache_size`, and 256 MiB `work_mem`. k6 runs on cores 64–67.
 
 ## Run
 
 Apply a PR label to run one engine:
 
-| Engine            | PR label                            |
-| ----------------- | ----------------------------------- |
-| `pg_search`       | `benchmark-msmarco-pg_search`       |
-| `pg_vectorsearch` | `benchmark-msmarco-pg_vectorsearch` |
-| `vectorchord`     | `benchmark-msmarco-vectorchord`     |
+| Engine                  | PR label                                  |
+| ----------------------- | ----------------------------------------- |
+| `pg_search`             | `benchmark-msmarco-pg_search`             |
+| `pg_vectorsearch`       | `benchmark-msmarco-pg_vectorsearch`       |
+| `vectorchord`           | `benchmark-msmarco-vectorchord`           |
+| `vectorchord-prefilter` | `benchmark-msmarco-vectorchord-prefilter` |
 
 The label is removed when the run starts. Reapply it to rerun. For an on-demand
 runner, add `benchmark-nonspot` before the engine label. Remove it to use Spot.
 
-Daily runs benchmark all three engines. Manual runs select one:
+Daily runs benchmark all three engines with VectorChord prefilter off. Manual runs
+can also select `vectorchord-prefilter` to enable it; this variant has separate
+results. Both VectorChord modes use the same unfiltered MS MARCO queries.
+
+Manual runs select one engine:
 
 ```sh
 gh workflow run benchmark-pg_search-benchmarker-msmarco.yml \
@@ -44,8 +51,9 @@ history.
 
 The TOML profiles contain index and recall settings. The workflow pins tool and
 extension revisions. Cluster setup, extension installation, build reporting,
-and k6 profiling use the same actions as HN. VectorChord's 80,000-list profile
-is a starting configuration, not a tuned 113M result.
+and k6 profiling use the same actions as HN. VectorChord's 100,000-list
+profile uses the memory-saving training settings described below; a completed
+113M run with this configuration is still pending.
 
 ## Diagnostics
 
@@ -65,3 +73,11 @@ Run the shared Python checks locally:
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 ```
+
+## VectorChord comparison profiles
+
+The VectorChord profiles use 100,000 lists for MS MARCO,
+hierarchical k-means in 100 dimensions, sampling factor 64, eight build threads,
+`build.pin=2`, residual quantization, and spherical centroids. Probe sweeps are
+capped at the list count. Both build and search use the shared 32 GiB container
+configuration, with 8 GiB shared buffers and 8 GiB `maintenance_work_mem`.

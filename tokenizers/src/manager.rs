@@ -310,6 +310,19 @@ impl SearchTokenizerFilters {
     fn normalizer(&self) -> Option<SearchNormalizer> {
         self.normalizer
     }
+
+    /// The filters with each default written out, so that a default equals its written value.
+    fn with_defaults(&self) -> Self {
+        Self {
+            lowercase: Some(self.lower_caser().is_some()),
+            alpha_num_only: Some(self.alpha_num_only().is_some()),
+            ascii_folding: Some(self.ascii_folding().is_some()),
+            trim: Some(self.trim_filter().is_some()),
+            // The normalizer is for the columnar value, and no token depends on it.
+            normalizer: None,
+            ..self.clone()
+        }
+    }
 }
 
 macro_rules! add_filters {
@@ -807,6 +820,53 @@ impl SearchTokenizer {
     pub fn normalizer(&self) -> Option<SearchNormalizer> {
         self.filters().normalizer()
     }
+
+    /// True when the two tokenizers give the same tokens for every text. `==` compares the
+    /// options as declared, so for `==` a default and its written value are two tokenizers.
+    pub fn same_tokens_as(&self, other: &Self) -> bool {
+        self.with_defaults() == other.with_defaults()
+    }
+
+    fn with_defaults(&self) -> Self {
+        let mut tokenizer = self.clone();
+        // The default of `ascii_folding` is true for this tokenizer only.
+        if let SearchTokenizer::SourceCode(filters) = &mut tokenizer {
+            filters.ascii_folding.get_or_insert(true);
+        }
+        if let Some(filters) = tokenizer.filters_mut() {
+            *filters = filters.with_defaults();
+        }
+        tokenizer
+    }
+
+    #[allow(deprecated)]
+    fn filters_mut(&mut self) -> Option<&mut SearchTokenizerFilters> {
+        match self {
+            SearchTokenizer::Keyword | SearchTokenizer::KeywordDeprecated => None,
+            SearchTokenizer::Simple(filters)
+            | SearchTokenizer::Raw(filters)
+            | SearchTokenizer::LiteralNormalized(filters)
+            | SearchTokenizer::WhiteSpace(filters)
+            | SearchTokenizer::SourceCode(filters)
+            | SearchTokenizer::ChineseLinderaDeprecated(filters)
+            | SearchTokenizer::JapaneseLinderaDeprecated(filters)
+            | SearchTokenizer::KoreanLinderaDeprecated(filters)
+            | SearchTokenizer::ICUTokenizer(filters)
+            | SearchTokenizer::LinderaDeprecated(_, filters)
+            | SearchTokenizer::RegexTokenizer { filters, .. }
+            | SearchTokenizer::RegexTokenizerDeprecated { filters, .. }
+            | SearchTokenizer::ChineseCompatible { filters, .. }
+            | SearchTokenizer::Ngram { filters, .. }
+            | SearchTokenizer::EdgeNgram { filters, .. }
+            | SearchTokenizer::ChineseLindera { filters, .. }
+            | SearchTokenizer::JapaneseLindera { filters, .. }
+            | SearchTokenizer::KoreanLindera { filters, .. }
+            | SearchTokenizer::Lindera { filters, .. }
+            | SearchTokenizer::Jieba { filters, .. }
+            | SearchTokenizer::UnicodeWordsDeprecated { filters, .. }
+            | SearchTokenizer::UnicodeWords { filters, .. } => Some(filters),
+        }
+    }
 }
 
 pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
@@ -1114,6 +1174,69 @@ mod tests {
             out.push(stream.token().text.clone());
         }
         out
+    }
+
+    #[rstest]
+    fn test_same_tokens_as_takes_a_default_as_its_written_value() {
+        use tantivy::tokenizer::TokenStream;
+
+        fn simple(declare: impl FnOnce(&mut SearchTokenizerFilters)) -> SearchTokenizer {
+            let mut filters = SearchTokenizerFilters::default();
+            declare(&mut filters);
+            SearchTokenizer::Simple(filters)
+        }
+        fn source_code(ascii_folding: Option<bool>) -> SearchTokenizer {
+            SearchTokenizer::SourceCode(SearchTokenizerFilters {
+                ascii_folding,
+                ..Default::default()
+            })
+        }
+        fn tokens(tokenizer: &SearchTokenizer) -> Vec<String> {
+            let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+            let mut stream = analyzer.token_stream("Running SOFÁ sofa_bed");
+            let mut out = Vec::new();
+            while stream.advance() {
+                out.push(stream.token().text.clone());
+            }
+            out
+        }
+
+        let same = [
+            (simple(|_| {}), simple(|f| f.lowercase = Some(true))),
+            (simple(|_| {}), simple(|f| f.alpha_num_only = Some(false))),
+            (simple(|_| {}), simple(|f| f.ascii_folding = Some(false))),
+            (simple(|_| {}), simple(|f| f.trim = Some(false))),
+            (
+                simple(|_| {}),
+                simple(|f| f.normalizer = Some(SearchNormalizer::Lowercase)),
+            ),
+            (source_code(None), source_code(Some(true))),
+        ];
+        for (left, right) in &same {
+            assert_ne!(left, right);
+            assert!(
+                left.same_tokens_as(right),
+                "{} and {}",
+                left.name(),
+                right.name()
+            );
+            assert_eq!(tokens(left), tokens(right));
+        }
+
+        let other = [
+            simple(|f| f.lowercase = Some(false)),
+            simple(|f| f.ascii_folding = Some(true)),
+            simple(|f| f.stemmer = Some(Language::English)),
+            SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
+        ];
+        for tokenizer in &other {
+            assert!(
+                !simple(|_| {}).same_tokens_as(tokenizer),
+                "{}",
+                tokenizer.name()
+            );
+            assert_ne!(tokens(&simple(|_| {})), tokens(tokenizer));
+        }
     }
 
     #[rstest]

@@ -145,6 +145,29 @@ SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule)::pdb.boost(2) FROM shop_synonyms)
 ORDER BY id;
 
+-- A default and its written value are one tokenizer, so a field with `lowercase=true` reads the
+-- index. `lowercase=false` gives other tokens, so that subquery runs as written.
+CREATE TABLE cased_products (id int PRIMARY KEY, description text, label text);
+INSERT INTO cased_products VALUES
+    (1, 'red couch', 'Red Couch'),
+    (2, 'leather sofa', 'Leather Sofa');
+CREATE INDEX cased_products_idx ON cased_products USING bm25 (
+    id,
+    (description::pdb.unicode_words('lowercase=true')),
+    (label::pdb.unicode_words('lowercase=false'))
+);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM cased_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+SELECT id FROM cased_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM cased_products
+WHERE label ||| (SELECT pdb.expand('Sofa', rule) FROM shop_synonyms);
+SELECT id FROM cased_products
+WHERE label ||| (SELECT pdb.expand('Sofa', rule) FROM shop_synonyms) ORDER BY id;
+DROP TABLE cased_products;
+
 -- The index of a partitioned table has no storage. The query still reads the synonym index.
 CREATE TABLE parted_products (id int PRIMARY KEY, description text) PARTITION BY RANGE (id);
 CREATE TABLE parted_products_low PARTITION OF parted_products FOR VALUES FROM (0) TO (5);

@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- `paradedb.find_ctid()` now returns `NULL` instead of an internal error when a CTID is absent from the index, including after a HOT update.

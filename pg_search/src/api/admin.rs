@@ -610,15 +610,7 @@ fn find_ctid(index: IndexOid, ctid: pg_sys::ItemPointerData) -> Result<Option<Ve
         })
         .collect::<Vec<_>>();
 
-    if results.is_empty() {
-        panic!(
-            "find_ctid: didn't find segment for: {:?}.  segments={:#?}",
-            pgrx::itemptr::item_pointer_get_both(ctid),
-            search_index.segment_ids()
-        );
-    } else {
-        Ok(Some(results))
-    }
+    Ok((!results.is_empty()).then_some(results))
 }
 
 /// Deprecated: Use `pdb.verify_index` instead, which includes checksum validation

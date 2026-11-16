@@ -156,6 +156,8 @@ pub enum SearchQueryInput {
         conjunction_mode: Option<bool>,
     },
     TermSet {
+        /// Also reads the legacy `terms: [{"field": ..., "value": ...}, ...]` form.
+        #[serde(alias = "terms", deserialize_with = "deserialize_termset")]
         termset: std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>,
     },
     WithIndex {
@@ -1296,11 +1298,12 @@ impl SearchQueryInput {
     }
 }
 
-/// Legacy wire format for [`TermInput`] kept around so that JSON inputs in the
-/// 3-element positional form `[field, value, is_datetime]` still deserialize.
-/// `is_datetime` no longer affects parsing — `PdbOwnedValue::Date` carries the
-/// datetime intent now — but the slot must exist for serde's positional
-/// (array) deserialization to accept the 3-element shape.
+/// Legacy wire format for a term set entry, from when `SearchQueryInput::TermSet` was a flat
+/// `terms: Vec<TermInput>` list. Kept so values serialized by earlier versions still
+/// deserialize, including JSON inputs in the 3-element positional form
+/// `[field, value, is_datetime]`. `is_datetime` no longer affects parsing —
+/// `PdbOwnedValue::Date` carries the datetime intent now — but the slot must exist for serde's
+/// positional (array) deserialization to accept the 3-element shape.
 #[derive(Deserialize)]
 struct TermInputWire {
     field: FieldName,
@@ -1310,19 +1313,44 @@ struct TermInputWire {
     is_datetime: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(from = "TermInputWire")]
-pub struct TermInput {
-    pub field: FieldName,
-    pub value: PdbOwnedValue,
-}
-impl From<TermInputWire> for TermInput {
-    fn from(wire: TermInputWire) -> Self {
-        TermInput {
-            field: wire.field,
-            value: wire.value,
+/// Deserializes `SearchQueryInput::TermSet`'s field-grouped `termset` map, or the legacy flat
+/// `terms` list of [`TermInputWire`] entries (grouped by field as it is read).
+fn deserialize_termset<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct TermSetVisitor;
+
+    impl<'de> Visitor<'de> for TermSetVisitor {
+        type Value = std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a map of field to term values, or a legacy list of term set entries")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut termset = Self::Value::new();
+            while let Some((field, values)) = map.next_entry::<FieldName, Vec<PdbOwnedValue>>()? {
+                termset.entry(field).or_default().extend(values);
+            }
+            Ok(termset)
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut termset = Self::Value::new();
+            while let Some(TermInputWire { field, value, .. }) = seq.next_element()? {
+                termset.entry(field).or_default().push(value);
+            }
+            Ok(termset)
         }
     }
+
+    deserializer.deserialize_any(TermSetVisitor)
 }
 
 /// Serialize a `SearchQueryInput` node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -3120,5 +3148,51 @@ mod tests {
             tantivy::Term::from_field_i64(field, i64::MAX)
         );
         assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
+    }
+
+    #[pg_test]
+    fn term_set_reads_legacy_format_and_writes_grouped_format() {
+        use pgrx::IntoDatum;
+
+        // Every legacy entry shape: a map, a map with `is_datetime`, and the positional form.
+        let legacy = serde_json::json!({
+            "term_set": {
+                "terms": [
+                    {"field": "a", "value": "x"},
+                    {"field": "b", "value": 1, "is_datetime": false},
+                    ["a", "y", false],
+                ]
+            }
+        });
+        let parsed: SearchQueryInput = serde_json::from_value(legacy).unwrap();
+        let SearchQueryInput::TermSet { termset } = &parsed else {
+            panic!("expected a term set, got {parsed:?}");
+        };
+        assert_eq!(termset.len(), 2);
+        assert_eq!(
+            termset[&"a".into()],
+            vec![
+                PdbOwnedValue::Str("x".to_string()),
+                PdbOwnedValue::Str("y".to_string())
+            ]
+        );
+        assert_eq!(termset[&"b".into()], vec![PdbOwnedValue::U64(1)]);
+
+        // Serialization writes the grouped format, which also reads back.
+        let single = create_term_query();
+        let written = serde_json::to_value(&single).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!({"term_set": {"termset": {"test": ["value"]}}})
+        );
+        assert_eq!(
+            serde_json::from_value::<SearchQueryInput>(written).unwrap(),
+            single
+        );
+
+        // The CBOR datum round-trips.
+        let datum = parsed.clone().into_datum().unwrap();
+        let decoded = unsafe { SearchQueryInput::from_datum(datum, false) }.unwrap();
+        assert_eq!(decoded, parsed);
     }
 }

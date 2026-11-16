@@ -17,6 +17,7 @@
 
 use std::ops::Bound;
 
+use crate::index::reader::index::SharedQuery;
 use crate::index::stats::SegmentStats;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::schema::SearchField;
@@ -74,6 +75,9 @@ impl QueryEstimate for dyn Query {
             || self
                 .downcast_ref::<ConstScoreQuery>()
                 .is_some_and(QueryEstimate::is_fast_count)
+            || self
+                .downcast_ref::<SharedQuery>()
+                .is_some_and(|q| q.0.is_fast_count())
     }
 
     fn estimate_docs(&self, reader: &SegmentReader) -> tantivy::Result<Option<Estimate>> {

@@ -742,7 +742,7 @@ pub struct SearchIndexReader {
 }
 
 #[derive(Clone, Debug)]
-struct SharedQuery(Arc<dyn Query>);
+pub(crate) struct SharedQuery(pub Arc<dyn Query>);
 impl Query for SharedQuery {
     fn weight(&self, s: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         self.0.weight(s)

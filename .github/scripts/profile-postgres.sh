@@ -9,7 +9,7 @@ fi
 container="$1"
 output="$2"
 shift 3
-readonly events=cpu-clock:u,branch-misses:u
+readonly events=cycles:u,branch-misses:u
 readonly sample_frequency=99
 readonly stack_bytes=16384
 readonly startup_timeout_seconds=30

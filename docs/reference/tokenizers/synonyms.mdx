@@ -393,6 +393,8 @@ A group of single words scores as one term. A row that has both `sofa` and `couc
 them, and a rare synonym doesn't score above a common one. A group with a multi-word alternative scores with the best of
 its alternatives. A directed rule replaces the words you typed, so `sneakers` scores as the phrase `running shoes`.
 
+To see which words of a group a row holds, [explain its score](/reference/full-text/score#score-explanation).
+
 ## Limits
 
 Each alternative is one more term the query has to look up, so a long rule costs more.

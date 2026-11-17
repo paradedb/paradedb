@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794903264946,
+  "lastUpdate": 1794903291245,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -509700,6 +509700,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207717533-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903288642,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 37.948613400963346,
+            "unit": "median tps",
+            "extra": "avg tps: 57.8293089732207, max tps: 528.7399927694806, count: 58759"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 20.379515970741195,
+            "unit": "median tps",
+            "extra": "avg tps: 31.64681435200691, max tps: 333.7694587594457, count: 58759"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.43508071585134,
+            "unit": "median tps",
+            "extra": "avg tps: 131.82935857591488, max tps: 1377.852909035012, count: 58759"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 20.377373010609617,
+            "unit": "median tps",
+            "extra": "avg tps: 30.54777182722817, max tps: 263.2507953099822, count: 58759"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 38.588395661856076,
+            "unit": "median tps",
+            "extra": "avg tps: 60.04646260784972, max tps: 544.641767299877, count: 58759"
+          }
+        ],
+        "publication_id": "14309494182-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -523628,6 +523681,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207717533-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903291146,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 19.3359375,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 19.240044876104086, max partition_index_size:MB: 23.40625, count: 58759"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.190973970069408, max cpu: 36.588852, count: 58759"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 48.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.95549651170459, max mem: 56.28125, count: 58759"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 22.966507,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.8887933016511, max cpu: 45.73606, count: 58759"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 66.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 66.85284042923212, max mem: 72.30859375, count: 58759"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.688212,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.103733853970148, max cpu: 27.573002, count: 58759"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 52.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.03057304253391, max mem: 52.3359375, count: 58759"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 22.966507,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.882916578859422, max cpu: 45.73606, count: 58759"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 64.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.07520270830851, max mem: 72.74609375, count: 58759"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.889843,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.175282478815426, max cpu: 36.588852, count: 58759"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 59.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.24701156152675, max mem: 67.69921875, count: 58759"
+          }
+        ],
+        "publication_id": "14309494182-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

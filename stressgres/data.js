@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794903236563,
+  "lastUpdate": 1794903264946,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -531994,6 +531994,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14208201095-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903262248,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3815.5554958259713,
+            "unit": "median tps",
+            "extra": "avg tps: 3819.6064633740098, max tps: 4321.345494133053, count: 58902"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4476.756294766501,
+            "unit": "median tps",
+            "extra": "avg tps: 4502.878890668774, max tps: 5422.663331235748, count: 58902"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.6876793138279,
+            "unit": "median tps",
+            "extra": "avg tps: 166.3960091825744, max tps: 2905.5795602163207, count: 58902"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.988692962142185,
+            "unit": "median tps",
+            "extra": "avg tps: 40.32927563161815, max tps: 572.6905763811471, count: 58902"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 24.068675310028816,
+            "unit": "median tps",
+            "extra": "avg tps: 40.53492929756074, max tps: 573.7513705198987, count: 58902"
+          }
+        ],
+        "publication_id": "14310736513-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -547896,6 +547949,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14208201095-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903264849,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.495077398601693, max cpu: 4.6220512, count: 58902"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 21.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.85512131113969, max mem: 21.9375, count: 58902"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.361603374426162, max cpu: 4.703577, count: 58902"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.626703040643783, max mem: 21.62890625, count: 58902"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.414075774223718, max cpu: 32.844578, count: 58902"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.145549360590472, max mem: 22.16015625, count: 58902"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.03230790126, max document_count: 10002.0, count: 58902"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.036365488439, max document_count: 10002.0, count: 58902"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58902"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.268316,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.545880067179926, max cpu: 32.24568, count: 58902"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 58.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 58.11336620307884, max mem: 72.7421875, count: 58902"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.199053,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.364545616453004, max cpu: 32.338787, count: 58902"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 59.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.82782842687855, max mem: 73.37109375, count: 58902"
+          }
+        ],
+        "publication_id": "14310736513-other"
       }
     ]
   }

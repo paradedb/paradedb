@@ -183,8 +183,8 @@ A few things stay exact:
   both match the alternatives exactly. A directed rule drops the words you typed, with or without fuzzy, and a group with
   a fuzzy word scores with the best of its alternatives.
 - `pdb.expand` takes text. A text array, such as `ARRAY['sofa']`, has no tokenizer to match the rules with.
-- The match operators, `|||` and `&&&`, and the [phrase](#phrases) operator, `###`, expand. With
-  [term](/reference/full-text/term) or the [query parser](/reference/full-text/query-parser), `pdb.expand` is an error.
+- The match operators, `|||` and `&&&`, the [phrase](#phrases) operator, `###`, and the [query parser](#query-parser)
+  operator, `@@@`, expand. With [term](/reference/full-text/term), `pdb.expand` is an error.
 
 The fuzzy and boost casts go on the subquery:
 
@@ -462,6 +462,80 @@ await dbContext
 The [slop](/reference/full-text/phrase#adding-slop) cast goes on the subquery, and it applies to every phrase. Each word
 with a rule multiplies the phrases. The query searches at most `paradedb.synonyms_max_alternatives` of them. The phrase
 you typed stays when the rules list its words.
+
+### Query Parser
+
+The [query parser](/reference/full-text/query-parser) takes the same subquery when a text field is on its left side, and
+the query string then searches that field. It expands each word of the query string on its own, and each quoted phrase
+as a [phrase](#phrases). An operator of the query string, such as `AND` or `-`, applies to a word together with its
+alternatives:
+
+<CodeGroup>
+```sql SQL
+SELECT description FROM mock_items
+WHERE description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms);
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+const rules = db
+  .select({
+    query: sql`pdb.expand(${"sleek AND sneakers"}, ${shopSynonyms.rule})`,
+  })
+  .from(shopSynonyms);
+
+await db
+  .select({ description: mockItems.description })
+  .from(mockItems)
+  .where(sql`${mockItems.description} @@@ ${rules}`);
+```
+
+```python Django
+MockItem.objects.extra(
+    where=[
+        "description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms)"
+    ]
+).values('description')
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+rules = select(
+    func.pdb.expand("sleek AND sneakers", ShopSynonym.rule)
+).scalar_subquery()
+
+stmt = (
+    select(MockItem.description)
+    .where(MockItem.description.op("@@@")(rules))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.where(
+  "description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms)"
+).select(:description)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.FromSql(
+        $"SELECT * FROM mock_items WHERE description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms)"
+    )
+    .Select(item => new { item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+The parser makes one query for each word, so a rule with several words on its left side applies only to a quoted
+phrase. With a rule `trail shoes, hikers`, the query string `"trail shoes"` also finds `hikers`, and `trail shoes` does
+not.
 
 ### Which Index a Query Uses
 

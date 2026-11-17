@@ -26,7 +26,7 @@ use pgrx::{AnyElement, PgList, extension_sql, pg_extern, pg_sys};
 #[pgrx::pg_schema]
 pub mod pdb {
     use crate::postgres::customscan::basescan::projections::missing_scan_error;
-    use pgrx::{AnyElement, extension_sql, pg_extern};
+    use pgrx::{AnyElement, Json, extension_sql, pg_extern};
 
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
@@ -40,6 +40,20 @@ pub mod pdb {
     "#,
         name = "score_placeholder",
         requires = [score_from_relation, placeholder_support]
+    );
+
+    #[allow(unused_variables)]
+    #[pg_extern(name = "explain_score", stable, parallel_safe, cost = 1)]
+    pub fn explain_score_from_relation(relation_reference: AnyElement) -> Json {
+        missing_scan_error("pdb.explain_score")
+    }
+
+    extension_sql!(
+        r#"
+    ALTER FUNCTION pdb.explain_score SUPPORT paradedb.placeholder_support;
+    "#,
+        name = "explain_score_placeholder",
+        requires = [explain_score_from_relation, placeholder_support]
     );
 }
 

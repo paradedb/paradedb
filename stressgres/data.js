@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794903181299,
+  "lastUpdate": 1794903208910,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -183930,6 +183930,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207481451-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903206067,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 159.8395788788731,
+            "unit": "median tps",
+            "extra": "avg tps: 157.62805248541068, max tps: 165.64126779614423, count: 59064"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 545.7790577378694,
+            "unit": "median tps",
+            "extra": "avg tps: 558.9680702324931, max tps: 4670.4427795313895, count: 59064"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3016.2444722654204,
+            "unit": "median tps",
+            "extra": "avg tps: 3032.501500430691, max tps: 3425.249677437506, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 196.4615211871914,
+            "unit": "median tps",
+            "extra": "avg tps: 194.06934286096595, max tps: 205.114431982411, count: 59064"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 266.89827844280603,
+            "unit": "median tps",
+            "extra": "avg tps: 373.07662500097257, max tps: 2889.7468364263464, count: 118128"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.929953480052703,
+            "unit": "median tps",
+            "extra": "avg tps: 29.721351016365787, max tps: 48.806409960568324, count: 59064"
+          }
+        ],
+        "publication_id": "14308704419-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -234172,6 +234231,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207481451-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903208832,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 9.388753,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.710856688066853, max cpu: 33.6, count: 59064"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 51.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.32549080764086, max mem: 51.33203125, count: 59064"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.334491559835799, max cpu: 27.612656, count: 59064"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 32.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.003390323949446, max mem: 33.09765625, count: 59064"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.5823393,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.744267650557427, max cpu: 13.826212, count: 59064"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.34615403947413, max mem: 49.96875, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2534,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2542.4966984965463, max block_count: 2555.0, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 29.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.87449888838802, max mem: 29.90234375, count: 59064"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 27,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.733831098469455, max segment_count: 38.0, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.18221,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.218762926660082, max cpu: 32.12237, count: 59064"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 61.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.020140824465834, max mem: 61.02734375, count: 59064"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.430420759677039, max cpu: 27.169811, count: 118128"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.12344874971429, max mem: 58.69140625, count: 118128"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.206275363367032, max cpu: 18.285713, count: 59064"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 43.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 44.231063576163145, max mem: 47.3125, count: 59064"
+          }
+        ],
+        "publication_id": "14308704419-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

@@ -54,10 +54,10 @@
       const attribution = document.querySelector(
         '#footer a[href*="utm_campaign=poweredBy"]',
       );
-      if (!attribution || attribution.nextElementSibling === preferences)
+      if (!attribution || attribution.previousElementSibling === preferences)
         return;
       attribution.parentElement.classList.add("paradedb-cookie-footer-row");
-      attribution.after(preferences);
+      attribution.before(preferences);
     }
     // Mintlify can replace the footer during client-side navigation.
     const footerObserver = new MutationObserver(mountPreferences);

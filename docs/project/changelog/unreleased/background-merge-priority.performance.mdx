@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+- Writes above the merge-backpressure threshold now defer to successfully launched background mergers, avoiding unnecessary foreground merges that stall inserts and logical replication.

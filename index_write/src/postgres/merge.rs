@@ -325,7 +325,7 @@ fn backpressure(
 
 /// Kick off a merge of the index, if needed.
 ///
-/// Launch background work when possible; overfull indexes also need one eligible foreground merge.
+/// Prefer a background worker; help with one eligible merge when workers are busy or unavailable.
 pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
     // don't kick off merges for invalid indexes
     if !index.is_valid() {
@@ -346,12 +346,9 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
-    let needs_foreground_backpressure = matches!(style, MergeStyle::Insert { .. })
-        && layer_sizes.visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count;
-
     let background_launched =
         needs_background_merge && try_launch_background_merger(index, largest_layer_size);
-    if background_launched && !needs_foreground_backpressure {
+    if background_launched {
         return Ok(());
     }
     if let MergeStyle::Insert {
@@ -943,7 +940,7 @@ mod tests {
             .collect::<Vec<_>>();
         drop(index);
         Spi::run(&format!(
-            "ALTER INDEX backpressure_idx SET (background_layer_sizes='{bytes} bytes')"
+            "ALTER INDEX backpressure_idx SET (layer_sizes='{bytes} bytes')"
         ))
         .unwrap();
         let index = PgSearchRelation::open(oid);
@@ -979,7 +976,6 @@ mod tests {
         assert!(candidates.len() > 1);
         drop(merger);
         drop(merge_lock);
-        assert!(MergeSlot::for_layer_size(oid, bytes).is_available());
         do_merge(
             &index,
             MergeStyle::Insert {

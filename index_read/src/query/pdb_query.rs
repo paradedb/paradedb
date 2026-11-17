@@ -2413,9 +2413,11 @@ fn expand_match(
         None => query_tokenizer(search_field, schema),
     };
     let rule_tokenizer = rule_tokenizer(&index);
-    // `PartialEq` compares the declared options, so two spellings of one tokenizer differ.
-    // TODO(https://github.com/paradedb/paradedb/issues/7380): Accept the two spellings.
-    if query_tokenizer != rule_tokenizer {
+    let same_tokens = match (&query_tokenizer, &rule_tokenizer) {
+        (Some(query), Some(rule)) => query.produces_same_tokens_as(rule),
+        (query, rule) => query.is_none() && rule.is_none(),
+    };
+    if !same_tokens {
         let name_of = |tokenizer: Option<SearchTokenizer>| {
             tokenizer.map_or_else(|| "none".to_string(), |tokenizer| tokenizer.name())
         };
@@ -2469,7 +2471,9 @@ pub fn synonym_index_of_column(
                     == Some(column_index)
             });
             reads_column
-                && rule_tokenizer(candidate).as_ref() == Some(&query_tokenizer)
+                && rule_tokenizer(candidate).is_some_and(|rule_tokenizer| {
+                    rule_tokenizer.produces_same_tokens_as(&query_tokenizer)
+                })
                 && holds_rules(candidate)
         })
         .map(|candidate| candidate.oid())

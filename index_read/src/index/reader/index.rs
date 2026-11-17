@@ -4191,6 +4191,7 @@ mod tests {
             query: pdb::Query::TokenizedPhrase {
                 phrase: "silver dragon".into(),
                 slop: None,
+                synonyms: None,
             },
         };
         let match_query = SearchQueryInput::FieldedQuery {
@@ -4232,6 +4233,7 @@ mod tests {
                             query: Box::new(pdb::Query::TokenizedPhrase {
                                 phrase: "silver dragon".into(),
                                 slop: None,
+                                synonyms: None,
                             }),
                             score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
                         }),

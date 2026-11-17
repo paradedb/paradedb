@@ -471,7 +471,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.synonyms_max_alternatives",
         c"The most alternatives that one run of query tokens expands to",
-        c"Alternatives past this count are dropped. The tokens of the query stay when a rule lists them.",
+        c"Alternatives past this count are dropped. The tokens of the query stay when a rule lists them. A phrase query that expands to more phrases than this count searches only the typed phrase.",
         &SYNONYMS_MAX_ALTERNATIVES,
         1,
         i32::MAX,

@@ -252,13 +252,10 @@ modelBuilder.Entity<MockItem>()
   improve centroid quality at the cost of a slower, more memory-intensive build.
 </ParamField>
 <ParamField body="target_leaf_size" default={400}>
-  The target number of indexed vectors per cluster. Must be an integer between
-  `1` and `2147483647`. Smaller values produce more centroids and smaller
-  clusters. A segment is clustered into about `vectors / target_leaf_size`
-  clusters at any `training_sample_ratio`: training leaves are split until they
-  contain at most `target_leaf_size * training_sample_ratio` sampled vectors.
-  This is a target, not a cap on the number of indexed vectors assigned to a
-  cluster.
+  The target number of vectors per cluster. Must be an integer between `1` and
+  `2147483647`. Smaller values produce more, smaller clusters: a segment gets
+  about `vectors / target_leaf_size` clusters, whatever `training_sample_ratio`
+  is. This is a target, not a hard cap on cluster size.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the

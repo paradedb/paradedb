@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794919400223,
+  "lastUpdate": 1794927583199,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -75023,6 +75023,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14235648863-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794927575171,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 8.048,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 9.156,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 9.424,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 12.11,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 14.102,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 14.609,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 23.535,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 28.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 28.97,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 7.077,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 8.791,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 9.289,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 10.895,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 14.163,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 14.858,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 28.016,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 36.251,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 37.871,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.928,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.289,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 5.965,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 7.105,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 7.897,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 14.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 17.468,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 18.367,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14339582306-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -79297,6 +79455,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14235648863-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794927577523,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 124.80119842552544,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 83.67275400369832,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 44.34374927643496,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 143.1695317160265,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 89.05561959514596,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 34.57107749387186,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 251.99440572863938,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 167.8582811548964,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 73.84609411259478,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14339582306-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -81246,6 +81472,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14235648863-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794927583186,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 6.267021975183334,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 45931.6796875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "14339582306-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -85397,6 +85656,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14235648863-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794927579353,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 2736.95,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 5170.47,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 11427.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 3331.02,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 5990.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 16840.27,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1478.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2244.68,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 5450.9,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14339582306-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [
@@ -92726,6 +93053,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14235648863-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794927581170,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 1.0566745381302958,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 1,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 0.9086985391766268,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.9859700550159779,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 1.0579284758259564,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.8489742806898073,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "14339582306-router"
       }
     ],
     "benchmarker cohere-10m (router detail)": [
@@ -93204,6 +93584,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14235648863-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794927582312,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 34794.94,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 37001.83,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.38710807,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 72408.94,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 65117.85,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 0.59401419,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 202997.06,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 182441.61,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 1.62517137,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14339582306-router-detail"
       }
     ],
     "benchmarker cohere-1m (router)": [

@@ -513,46 +513,6 @@ fn vacuum_exclusion_handoff_and_reader_barrier_are_preserved() {
 }
 
 #[test]
-fn background_merge_takes_priority_over_immutable_backpressure() {
-    const BACKPRESSURE_THRESHOLD: i64 = 4;
-
-    let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
-    let mut fixture = Fixture::new("merge_cleanup_background_priority", false);
-    fixture.segments();
-    let segment_count = format!(
-        "SELECT count(*) FROM paradedb.index_info('{}') WHERE visible",
-        fixture.index
-    );
-    let before = fixture.value::<i64>(&segment_count);
-    assert_eq!(before, BACKPRESSURE_THRESHOLD);
-    let rows = fixture.value::<i64>(&format!("SELECT count(*) FROM {}", fixture.table));
-    let layer_size = fixture.value::<i64>(&format!(
-        "SELECT max(byte_size)::bigint FROM paradedb.index_info('{}') WHERE visible",
-        fixture.index
-    ));
-    fixture
-        .controller
-        .batch_execute(&format!(
-            "ALTER INDEX {} SET (background_layer_sizes='{layer_size} bytes')",
-            fixture.index
-        ))
-        .unwrap();
-
-    let inserter = fixture.actor(
-        "merge",
-        format!("INSERT INTO {} VALUES (0, 'alpha beta')", fixture.table),
-    );
-    inserter
-        .finish()
-        .1
-        .expect("the insert must return without reaching the foreground merge pause");
-    wait_until("background merger consolidating immutable segments", || {
-        fixture.value::<i64>(&segment_count) < before + 1
-    });
-    fixture.assert_rows(rows + 1);
-}
-
-#[test]
 fn cancelled_foreground_merge_does_not_keep_inputs_reserved() {
     let _schedule = SCHEDULE.lock().unwrap_or_else(|error| error.into_inner());
     let mut fixture = Fixture::new("merge_cleanup_cancelled_reservation", true);

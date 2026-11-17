@@ -1,5 +1,6 @@
 ---
 header: breaking
+title: Failover on ParadeDB Community requires REINDEX
 ---
 
 Failover on ParadeDB Community now requires a `REINDEX`. After a physical standby is promoted, the ParadeDB indexes it received through replication refuse queries until `REINDEX INDEX` rebuilds them on the promoted server; the table, its writes and its other indexes keep working. A standby cloned after an index was built learns of that index at the next `VACUUM` that removes rows from its table; until then it serves the index after promotion, as every release did before. Zero-downtime failover is supported on ParadeDB Enterprise.

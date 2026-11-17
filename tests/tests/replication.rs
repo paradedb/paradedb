@@ -1258,3 +1258,175 @@ async fn test_ephemeral_small_immutable_backpressure_merges_concurrent_writes() 
     );
     Ok(())
 }
+
+// Index conversion must conflict with old replica snapshots even when a heap-page
+// pin prevented pruning from logging its usual snapshot-conflict WAL record.
+#[rstest]
+#[async_std::test]
+#[ignore = "requires Enterprise WAL replay and standby index reads"]
+async fn test_replica_snapshot_conflicts_with_dead_mutable_content() -> Result<()> {
+    let config = "
+        listen_addresses = 'localhost'
+        shared_preload_libraries = 'pg_search'
+        wal_level = replica
+        max_wal_senders = 5
+        max_replication_slots = 5
+        wal_keep_size = '256MB'
+        autovacuum = off
+        paradedb.mutable_sweep_interval = 600000
+    ";
+    let primary = EphemeralPostgres::new(Some(config), None);
+    let mut source = primary.connection().await?;
+    sqlx::raw_sql(
+        "CREATE EXTENSION pg_search CASCADE;
+        CREATE TABLE test(id bigint PRIMARY KEY,message text);
+        INSERT INTO test SELECT id,CASE WHEN id IN (1,2,3,4,8,9,10,11)
+          THEN 'beer a' ELSE 'wine a' END FROM generate_series(1,14) id;
+        CREATE INDEX idxtest ON test USING paradedb(id,message)
+          WITH(key_field='id',mutable_segment_rows=32,layer_sizes='10kb,100kb,1mb',
+               background_layer_sizes='10kb,100kb,1mb');
+        UPDATE test SET message=replace(message,' a',' v1') WHERE id<10;",
+    )
+    .execute(&mut source)
+    .await?;
+    let mutable_id: String =
+        sqlx::query_scalar("SELECT segno::text FROM paradedb.index_info('idxtest') WHERE mutable")
+            .fetch_one(&mut source)
+            .await?;
+
+    let clone = |slot: &str| {
+        let directory = TempDir::new().unwrap().keep();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let backup = EphemeralPostgres::pg_basebackup_path();
+        let port = primary.port;
+        run_cmd!($backup -D $directory -h localhost -p $port -U $SUPERUSER
+                 -Xs -R -C -S $slot --checkpoint=fast &> /dev/null)
+        .unwrap();
+        let replica_config = format!(
+            "{config}\n hot_standby=on\n hot_standby_feedback=on\n
+            max_standby_streaming_delay='100ms'\n wal_retrieve_retry_interval='100ms'"
+        );
+        EphemeralPostgres::new_from_initialized(&directory, Some(&replica_config), None)
+    };
+    let candidate = clone("candidate_slot");
+    let replica = clone("reader_slot");
+    let mut old_reader = replica.connection().await?;
+    // Establish only a heap snapshot: an index reader could pin the old segment
+    // and block replacement WAL, masking the missing conflict record.
+    sqlx::raw_sql(
+        "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+        SET LOCAL max_parallel_workers_per_gather=0;",
+    )
+    .execute(&mut old_reader)
+    .await?;
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM test WHERE message LIKE '%beer%'")
+        .fetch_one(&mut old_reader)
+        .await?;
+    assert_eq!(before, 8);
+
+    let ctl = primary.pg_ctl_path.clone();
+    let directory = &primary.tempdir_path;
+    run_cmd!($ctl -D $directory -m fast -w stop &> /dev/null)?;
+    let directory = &candidate.tempdir_path;
+    run_cmd!($ctl -D $directory -w promote &> /dev/null)?;
+    let mut promoted = candidate.connection().await?;
+    sqlx::query("UPDATE test SET message=replace(message,'v1','v2') WHERE id<10")
+        .execute(&mut promoted)
+        .await?;
+    let mut heap_pin = candidate.connection().await?;
+    sqlx::raw_sql(
+        "SET enable_indexscan=off; SET enable_indexonlyscan=off;
+        SET enable_bitmapscan=off; BEGIN;
+        DECLARE heap_pin CURSOR FOR SELECT id FROM test; FETCH 1 FROM heap_pin;",
+    )
+    .execute(&mut heap_pin)
+    .await?;
+    // The promoted primary has no feedback from the remaining replica yet.
+    // These inserts freeze and convert the segment containing the old versions.
+    for batch in 0..8_i64 {
+        sqlx::query(
+            "INSERT INTO test SELECT id,'Z' FROM generate_series($1::bigint,$2::bigint) id",
+        )
+        .bind(100 + batch * 32)
+        .bind(131 + batch * 32)
+        .execute(&mut promoted)
+        .await?;
+        thread::sleep(Duration::from_millis(200));
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let old_visible: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM paradedb.index_info('idxtest') WHERE segno::text=$1",
+        )
+        .bind(&mutable_id)
+        .fetch_one(&mut promoted)
+        .await?;
+        if old_visible == 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "mutable segment was not converted"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    let target_lsn: String = sqlx::query_scalar("SELECT pg_current_wal_lsn()::text")
+        .fetch_one(&mut promoted)
+        .await?;
+    sqlx::query("SELECT pg_create_physical_replication_slot('reader_slot',true)")
+        .execute(&mut promoted)
+        .await?;
+    let mut control = replica.connection().await?;
+    let candidate_port = candidate.port;
+    control
+        .execute(sqlx::AssertSqlSafe(format!(
+            "ALTER SYSTEM SET primary_conninfo =
+        'host=localhost port={candidate_port} user=postgres application_name=count_reader'"
+        )))
+        .await?;
+    sqlx::query("SELECT pg_reload_conf()")
+        .execute(&mut control)
+        .await?;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let caught_up =
+            sqlx::query_scalar::<_, bool>("SELECT pg_last_wal_replay_lsn()>=$1::text::pg_lsn")
+                .bind(&target_lsn)
+                .fetch_one(&mut control)
+                .await;
+        match caught_up {
+            Ok(true) => break,
+            Ok(false) => (),
+            Err(_) => control = replica.connection().await?,
+        }
+        assert!(
+            Instant::now() < deadline,
+            "replica did not replay the conversion"
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
+    match sqlx::query_scalar::<_, i64>("SELECT count(*) FROM test WHERE id @@@ 'message:beer'")
+        .fetch_one(&mut old_reader)
+        .await
+    {
+        Ok(count) => assert_eq!(count, 8, "old replica snapshot silently lost matches"),
+        Err(error) => assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref(),
+            Some("40001"),
+            "unexpected replica error: {error}"
+        ),
+    }
+    let mut fresh = replica.connection().await?;
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT
+        (SELECT count(*) FROM test WHERE message LIKE '%beer%'),
+        (SELECT count(*) FROM test WHERE id @@@ 'message:beer')",
+    )
+    .fetch_one(&mut fresh)
+    .await?;
+    assert_eq!(counts, (8, 8));
+    Ok(())
+}

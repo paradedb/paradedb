@@ -211,6 +211,7 @@ jobs:
         with:
           config: ${{ env.LOAD_CONFIG }}
           artifact_name: ${{ env.RESULTS_DATASET }}-load-report
+          max_parallel_workers: "8"
 
       - name: Verify Eight-segment Index
         if: matrix.engine == 'pg_search'

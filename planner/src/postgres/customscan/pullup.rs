@@ -24,11 +24,10 @@
 use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::{CTID_FIELD_NAME, FieldName};
 use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFastField};
-use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::strip_tokenizer_cast;
+use crate::postgres::utils::{heap_attno_read_by, strip_tokenizer_cast};
 use crate::schema::{
     CategorizedFieldData, FieldSource, SearchField, SearchFieldType, SearchIndexSchema,
 };
@@ -184,14 +183,9 @@ impl SourceContext {
             return None;
         };
         let expr = self.index_expressions()?.get_ptr(expression_idx)?;
-        unsafe {
-            let row_expr = row_expr_from_indexed_expr(expr)?;
-            let arg = PgList::<pg_sys::Node>::from_pg((*row_expr).args).get_ptr(field_idx)?;
-            nodecast!(Var, strip_tokenizer_cast(arg))
-                .map(|var| (*var).varattno)
-                .filter(|&attno| attno > 0)
-                .map(|attno| (attno - 1) as usize)
-        }
+        let row_expr = unsafe { row_expr_from_indexed_expr(expr) }?;
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg((*row_expr).args) };
+        heap_attno_read_by(args.get_ptr(field_idx)?).map(|attno| (attno - 1) as usize)
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source

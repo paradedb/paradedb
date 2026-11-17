@@ -178,7 +178,10 @@
               },
               {
                 "group": "Hybrid Search",
-                "pages": ["reference/hybrid/overview", "reference/hybrid/rrf"]
+                "pages": [
+                  "reference/hybrid/overview",
+                  "reference/hybrid/rrf"
+                ]
               },
               {
                 "group": "Aggregations",
@@ -213,11 +216,15 @@
               },
               {
                 "group": "JOINs",
-                "pages": ["reference/joins/overview"]
+                "pages": [
+                  "reference/joins/overview"
+                ]
               },
               {
                 "group": "Sharding",
-                "pages": ["reference/sharding/citus"]
+                "pages": [
+                  "reference/sharding/citus"
+                ]
               },
               {
                 "group": "Cheatsheets",
@@ -302,7 +309,9 @@
               },
               {
                 "group": "Administration",
-                "pages": ["operate/deploy/upgrading"]
+                "pages": [
+                  "operate/deploy/upgrading"
+                ]
               },
               {
                 "group": "Continuous Integration",

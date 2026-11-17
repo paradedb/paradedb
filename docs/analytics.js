@@ -37,8 +37,7 @@
 
     function showBanner(show, focus = false) {
       banner.hidden = !show;
-      preferences.hidden = show;
-      if (focus) (show ? banner.querySelector("button") : preferences).focus();
+      if (focus) (show ? banner.querySelector("button") : preferences)?.focus();
     }
     banner.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
@@ -50,12 +49,26 @@
       if (!consent.snapshot().blocked) showBanner(true, true);
     }
     preferences.addEventListener("click", openPreferences);
+
+    function mountPreferences() {
+      const attribution = document.querySelector(
+        '#footer a[href*="utm_campaign=poweredBy"]',
+      );
+      if (!attribution || attribution.previousElementSibling === preferences)
+        return;
+      attribution.parentElement.classList.add("paradedb-cookie-footer-row");
+      attribution.before(preferences);
+    }
+    // Mintlify can replace the footer during client-side navigation.
+    const footerObserver = new MutationObserver(mountPreferences);
+    footerObserver.observe(document.body, { childList: true, subtree: true });
+    mountPreferences();
     window.addEventListener("paradedb:cookie-preferences", openPreferences);
-    document.body.append(banner, preferences);
+    document.body.append(banner);
     consent.subscribe(({ blocked, saved }) => {
+      preferences.hidden = blocked;
       if (blocked) {
         banner.hidden = true;
-        preferences.hidden = true;
       } else showBanner(saved === undefined);
     });
   }

@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.25.7](https://github.com/paradedb/paradedb/releases/tag/v0.25.7)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - `CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` now partition an index with `partition_by` the way a plain build does, so a concurrently built index no longer starts unpartitioned.
 
@@ -16,7 +16,7 @@ See GitHub release: [v0.25.7](https://github.com/paradedb/paradedb/releases/tag/
 
 - ParadeDB now supports non-equi joins (e.g. range and inequality join conditions) as well as unconstrained cross joins in both `JoinScan` and `AggregateScan`.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - `sort_by` and `partition_by` now refuse a field that has no columnar field, at `CREATE INDEX` rather than part way through the build. `partition_by` also refuses a normalized columnar field, because it cuts on the raw value and cannot prune on a column that orders by the normalized one. `sort_by` keeps such a column and warns instead, since it still orders the segment.
 

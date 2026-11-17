@@ -716,7 +716,7 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
             }
 
             // The parent of an inheritance tree is also read by one scan per table.
-            let rte = unsafe { pg_sys::rt_fetch(varno, (*parse).rtable) };
+            let rte = unsafe { pgrx::rt_fetch!(varno, (*parse).rtable).get() };
             if unsafe { range_table::is_inheritance_parent(rte) } {
                 return false;
             }

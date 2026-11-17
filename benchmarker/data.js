@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794888977646,
+  "lastUpdate": 1794889003015,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -96450,6 +96450,246 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14286984462-index"
+      }
+    ],
+    "benchmarker msmarco-113m-pg_vectorsearch (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a41719713d84fcf3a80136c6be2196b248f97c29",
+          "message": "fix: scale adaptive vector stopping with the probe budget (#7440)\n\nAdaptive vector probing can stop too early when its stopping condition\nis only briefly satisfied. Pin [Tantivy\n#416](https://github.com/paradedb/tantivy/pull/416), which requires a\nconsecutive quiet-work window: no added patience through 500 resolved\nwork units, a linear ramp to 5% at 2,000, and 5% above that. Activity\nresets the window; refinement checks without additional scanning do not\naccumulate quiet work. The existing hard budgets and main's pruning\nfixes remain intact.\n\nRebased onto main after the 32-GiB, Cohere, and below-100-probe adaptive\ncutoff changes merged. Pin Tantivy merge commit\n`728a4355923d80d647d866ffe92b821186bc90d4`, whose tree is identical to\nthe tested PR source. Also stabilize the existing MPP spill fixture: its\n6 MB MultiType budget could fit when task allocations did not overlap,\nmaking the nonzero-spill assertion depend on scheduling. A named 4 MB\nbudget, matching the other MPP cases, retains the disabled-spill error,\nnonzero spill metrics, and exact result-parity assertions.\n\nValidation:\n- Tantivy CI is green; 342 local vector tests passed, with 2 existing\nignored tests.\n- Fifty isolated local PostgreSQL 17 repetitions each spilled and\nmatched native PostgreSQL results using the fixture's numeric\nnormalization.\n- Local formatting, workspace Clippy, cargo check, Rustdoc, and diff\nchecks pass.\n- ParadeDB CI is rerunning on\n`499130596679bcb323fb73dac86e55935ae7266c`, including the previously\nfailing PostgreSQL 17 fixture.\n\nControlled-resource MS MARCO validation is in progress: [patience\ncandidate](https://github.com/paradedb/paradedb/actions/runs/43824740786)\nand [matching main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/43825780654).\nBoth use 64 CPUs, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers\nand maintenance memory, 24 GiB effective cache, 256 MiB work_mem, and\nthe same fixtures, index options, recall gates, and timing. Indexes are\nbuilt independently.\n\nThe earlier candidate builds `d829c5b289dd242ca1914932148adefdde0245a0`,\npinning Tantivy `eba34f5fec12f9f7b2078757d7b43b6bbd6fa2f6`\n(tree-identical to the Tantivy merge commit). These exploratory runs\npredate main's below-100-probe cutoff; they are not validation of that\ncombined configuration. The baseline builds the original rebase base\n`44ce675c5547fba66dc9ebd9acf3bb4df1185c14`. Both use workflow snapshot\n`e8e775a679c60592922d64457e5f1ca62b983031`, pdbench\n`7efb97e82c74d25f5f4280a61c02a77abef6c322`, and Benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\nOnce current CI is green, the user authorized merging this PR and\ndispatching a fresh pg_search MS MARCO baseline from merged main using\nits current Docker settings and default tool pins.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-16T09:11:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a41719713d84fcf3a80136c6be2196b248f97c29"
+        },
+        "date": 1794889000037,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p50 latency",
+            "value": 7.436,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p95 latency",
+            "value": 10.415,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p99 latency",
+            "value": 12.254,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p50 latency",
+            "value": 21.286,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p95 latency",
+            "value": 30.139,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p99 latency",
+            "value": 36.74,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p50 latency",
+            "value": 2.661,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p95 latency",
+            "value": 3.912,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.015,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p50 latency",
+            "value": 10.084,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p95 latency",
+            "value": 14.349,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p99 latency",
+            "value": 18.49,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) p50 latency",
+            "value": 452.309,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) p95 latency",
+            "value": 745.102,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) p99 latency",
+            "value": 841.467,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14267256472-latency"
+      }
+    ],
+    "benchmarker msmarco-113m-pg_vectorsearch (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a41719713d84fcf3a80136c6be2196b248f97c29",
+          "message": "fix: scale adaptive vector stopping with the probe budget (#7440)\n\nAdaptive vector probing can stop too early when its stopping condition\nis only briefly satisfied. Pin [Tantivy\n#416](https://github.com/paradedb/tantivy/pull/416), which requires a\nconsecutive quiet-work window: no added patience through 500 resolved\nwork units, a linear ramp to 5% at 2,000, and 5% above that. Activity\nresets the window; refinement checks without additional scanning do not\naccumulate quiet work. The existing hard budgets and main's pruning\nfixes remain intact.\n\nRebased onto main after the 32-GiB, Cohere, and below-100-probe adaptive\ncutoff changes merged. Pin Tantivy merge commit\n`728a4355923d80d647d866ffe92b821186bc90d4`, whose tree is identical to\nthe tested PR source. Also stabilize the existing MPP spill fixture: its\n6 MB MultiType budget could fit when task allocations did not overlap,\nmaking the nonzero-spill assertion depend on scheduling. A named 4 MB\nbudget, matching the other MPP cases, retains the disabled-spill error,\nnonzero spill metrics, and exact result-parity assertions.\n\nValidation:\n- Tantivy CI is green; 342 local vector tests passed, with 2 existing\nignored tests.\n- Fifty isolated local PostgreSQL 17 repetitions each spilled and\nmatched native PostgreSQL results using the fixture's numeric\nnormalization.\n- Local formatting, workspace Clippy, cargo check, Rustdoc, and diff\nchecks pass.\n- ParadeDB CI is rerunning on\n`499130596679bcb323fb73dac86e55935ae7266c`, including the previously\nfailing PostgreSQL 17 fixture.\n\nControlled-resource MS MARCO validation is in progress: [patience\ncandidate](https://github.com/paradedb/paradedb/actions/runs/43824740786)\nand [matching main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/43825780654).\nBoth use 64 CPUs, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers\nand maintenance memory, 24 GiB effective cache, 256 MiB work_mem, and\nthe same fixtures, index options, recall gates, and timing. Indexes are\nbuilt independently.\n\nThe earlier candidate builds `d829c5b289dd242ca1914932148adefdde0245a0`,\npinning Tantivy `eba34f5fec12f9f7b2078757d7b43b6bbd6fa2f6`\n(tree-identical to the Tantivy merge commit). These exploratory runs\npredate main's below-100-probe cutoff; they are not validation of that\ncombined configuration. The baseline builds the original rebase base\n`44ce675c5547fba66dc9ebd9acf3bb4df1185c14`. Both use workflow snapshot\n`e8e775a679c60592922d64457e5f1ca62b983031`, pdbench\n`7efb97e82c74d25f5f4280a61c02a77abef6c322`, and Benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\nOnce current CI is green, the user authorized merging this PR and\ndispatching a fresh pg_search MS MARCO baseline from merged main using\nits current Docker settings and default tool pins.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-16T09:11:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a41719713d84fcf3a80136c6be2196b248f97c29"
+        },
+        "date": 1794889001247,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) QPS",
+            "value": 130.28700839096686,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) QPS",
+            "value": 45.93363893491496,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) QPS",
+            "value": 367.5779342407579,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) QPS",
+            "value": 97.67930591456758,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r99) QPS",
+            "value": 2.0732087027887824,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14267256472-throughput"
+      }
+    ],
+    "benchmarker msmarco-113m-pg_vectorsearch (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a41719713d84fcf3a80136c6be2196b248f97c29",
+          "message": "fix: scale adaptive vector stopping with the probe budget (#7440)\n\nAdaptive vector probing can stop too early when its stopping condition\nis only briefly satisfied. Pin [Tantivy\n#416](https://github.com/paradedb/tantivy/pull/416), which requires a\nconsecutive quiet-work window: no added patience through 500 resolved\nwork units, a linear ramp to 5% at 2,000, and 5% above that. Activity\nresets the window; refinement checks without additional scanning do not\naccumulate quiet work. The existing hard budgets and main's pruning\nfixes remain intact.\n\nRebased onto main after the 32-GiB, Cohere, and below-100-probe adaptive\ncutoff changes merged. Pin Tantivy merge commit\n`728a4355923d80d647d866ffe92b821186bc90d4`, whose tree is identical to\nthe tested PR source. Also stabilize the existing MPP spill fixture: its\n6 MB MultiType budget could fit when task allocations did not overlap,\nmaking the nonzero-spill assertion depend on scheduling. A named 4 MB\nbudget, matching the other MPP cases, retains the disabled-spill error,\nnonzero spill metrics, and exact result-parity assertions.\n\nValidation:\n- Tantivy CI is green; 342 local vector tests passed, with 2 existing\nignored tests.\n- Fifty isolated local PostgreSQL 17 repetitions each spilled and\nmatched native PostgreSQL results using the fixture's numeric\nnormalization.\n- Local formatting, workspace Clippy, cargo check, Rustdoc, and diff\nchecks pass.\n- ParadeDB CI is rerunning on\n`499130596679bcb323fb73dac86e55935ae7266c`, including the previously\nfailing PostgreSQL 17 fixture.\n\nControlled-resource MS MARCO validation is in progress: [patience\ncandidate](https://github.com/paradedb/paradedb/actions/runs/43824740786)\nand [matching main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/43825780654).\nBoth use 64 CPUs, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers\nand maintenance memory, 24 GiB effective cache, 256 MiB work_mem, and\nthe same fixtures, index options, recall gates, and timing. Indexes are\nbuilt independently.\n\nThe earlier candidate builds `d829c5b289dd242ca1914932148adefdde0245a0`,\npinning Tantivy `eba34f5fec12f9f7b2078757d7b43b6bbd6fa2f6`\n(tree-identical to the Tantivy merge commit). These exploratory runs\npredate main's below-100-probe cutoff; they are not validation of that\ncombined configuration. The baseline builds the original rebase base\n`44ce675c5547fba66dc9ebd9acf3bb4df1185c14`. Both use workflow snapshot\n`e8e775a679c60592922d64457e5f1ca62b983031`, pdbench\n`7efb97e82c74d25f5f4280a61c02a77abef6c322`, and Benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\nOnce current CI is green, the user authorized merging this PR and\ndispatching a fresh pg_search MS MARCO baseline from merged main using\nits current Docker settings and default tool pins.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-16T09:11:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a41719713d84fcf3a80136c6be2196b248f97c29"
+        },
+        "date": 1794889002127,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 4809.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 9124.19,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1123.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 3323.91,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 22703.9,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14267256472-buffers"
+      }
+    ],
+    "benchmarker msmarco-113m-pg_vectorsearch (index build)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a41719713d84fcf3a80136c6be2196b248f97c29",
+          "message": "fix: scale adaptive vector stopping with the probe budget (#7440)\n\nAdaptive vector probing can stop too early when its stopping condition\nis only briefly satisfied. Pin [Tantivy\n#416](https://github.com/paradedb/tantivy/pull/416), which requires a\nconsecutive quiet-work window: no added patience through 500 resolved\nwork units, a linear ramp to 5% at 2,000, and 5% above that. Activity\nresets the window; refinement checks without additional scanning do not\naccumulate quiet work. The existing hard budgets and main's pruning\nfixes remain intact.\n\nRebased onto main after the 32-GiB, Cohere, and below-100-probe adaptive\ncutoff changes merged. Pin Tantivy merge commit\n`728a4355923d80d647d866ffe92b821186bc90d4`, whose tree is identical to\nthe tested PR source. Also stabilize the existing MPP spill fixture: its\n6 MB MultiType budget could fit when task allocations did not overlap,\nmaking the nonzero-spill assertion depend on scheduling. A named 4 MB\nbudget, matching the other MPP cases, retains the disabled-spill error,\nnonzero spill metrics, and exact result-parity assertions.\n\nValidation:\n- Tantivy CI is green; 342 local vector tests passed, with 2 existing\nignored tests.\n- Fifty isolated local PostgreSQL 17 repetitions each spilled and\nmatched native PostgreSQL results using the fixture's numeric\nnormalization.\n- Local formatting, workspace Clippy, cargo check, Rustdoc, and diff\nchecks pass.\n- ParadeDB CI is rerunning on\n`499130596679bcb323fb73dac86e55935ae7266c`, including the previously\nfailing PostgreSQL 17 fixture.\n\nControlled-resource MS MARCO validation is in progress: [patience\ncandidate](https://github.com/paradedb/paradedb/actions/runs/43824740786)\nand [matching main\nbaseline](https://github.com/paradedb/paradedb/actions/runs/43825780654).\nBoth use 64 CPUs, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers\nand maintenance memory, 24 GiB effective cache, 256 MiB work_mem, and\nthe same fixtures, index options, recall gates, and timing. Indexes are\nbuilt independently.\n\nThe earlier candidate builds `d829c5b289dd242ca1914932148adefdde0245a0`,\npinning Tantivy `eba34f5fec12f9f7b2078757d7b43b6bbd6fa2f6`\n(tree-identical to the Tantivy merge commit). These exploratory runs\npredate main's below-100-probe cutoff; they are not validation of that\ncombined configuration. The baseline builds the original rebase base\n`44ce675c5547fba66dc9ebd9acf3bb4df1185c14`. Both use workflow snapshot\n`e8e775a679c60592922d64457e5f1ca62b983031`, pdbench\n`7efb97e82c74d25f5f4280a61c02a77abef6c322`, and Benchmarker\n`ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3`.\n\nOnce current CI is green, the user authorized merging this PR and\ndispatching a fresh pg_search MS MARCO baseline from merged main using\nits current Docker settings and default tool pins.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-16T09:11:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/a41719713d84fcf3a80136c6be2196b248f97c29"
+        },
+        "date": 1794889003003,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_prism_idx build time",
+            "value": 144.66666666666666,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_prism_idx index size",
+            "value": 34151.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_prism_idx peak container memory",
+            "value": 18.423397064208984,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14267256472-index"
       }
     ]
   }

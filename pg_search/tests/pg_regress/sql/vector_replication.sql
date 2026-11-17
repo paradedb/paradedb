@@ -41,7 +41,7 @@ END
 $$;
 
 -- Two copies of one table, indexed with identical options but the replication.
--- target_leaf_size = 10 gives this fixture at least 4 clusters, so routed and located queries
+-- target_leaf_size = 32 gives this fixture at least 4 clusters, so routed and located queries
 -- both open several.
 CREATE TABLE replication_on (id integer PRIMARY KEY, emb vector(768));
 INSERT INTO replication_on SELECT g, replication_fixture_vector(768, g) FROM generate_series(1, 200) g;
@@ -49,10 +49,10 @@ CREATE TABLE replication_off AS SELECT * FROM replication_on;
 ALTER TABLE replication_off ADD PRIMARY KEY (id);
 CREATE INDEX replication_on_idx ON replication_on
 USING paradedb (id, emb vector_cosine_ops)
-WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, replication = 2);
+WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 32, replication = 2);
 CREATE INDEX replication_off_idx ON replication_off
 USING paradedb (id, emb vector_cosine_ops)
-WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 10, replication = 1);
+WITH (quantization = '[1,1]', target_segment_count = 1, target_leaf_size = 32, replication = 1);
 
 -- 1. The option took: a replicated index holds two rows per vector, an unreplicated one one.
 SELECT bool_and(vector_format = 'ivf' AND quantized AND vector_total_rows = 2 * vector_num_vectors)

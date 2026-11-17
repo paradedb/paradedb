@@ -76,7 +76,8 @@ pub const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub const DEFAULT_TARGET_LEAF_SIZE: i32 = 128;
+/// Default `target_leaf_size`: indexed vectors per IVF cluster.
+pub const DEFAULT_TARGET_LEAF_SIZE: i32 = 400;
 pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = clustering::DEFAULT_TRAINING_SAMPLE_RATIO;
 /// Default `replication`: every vector of a quantized IVF field in two clusters.
 pub const DEFAULT_REPLICATION: i32 = 2;
@@ -490,9 +491,15 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the target number of indexed vectors per IVF cluster.
     pub fn target_leaf_size(&self) -> usize {
         self.options_data().target_leaf_size()
+    }
+
+    /// Returns the leaf cap for the training sample: `target_leaf_size` scaled by
+    /// `training_sample_ratio`.
+    pub fn training_leaf_size(&self) -> usize {
+        self.options_data().training_leaf_size()
     }
 
     /// Returns the fraction of vectors sampled for IVF training.
@@ -954,9 +961,15 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the target number of indexed vectors per IVF cluster.
     pub fn target_leaf_size(&self) -> usize {
         self.target_leaf_size as usize
+    }
+
+    /// Returns the leaf cap for the training sample: `target_leaf_size` scaled by
+    /// `training_sample_ratio`.
+    pub fn training_leaf_size(&self) -> usize {
+        training_leaf_size(self.target_leaf_size, self.training_sample_ratio)
     }
 
     /// Returns the fraction of vectors sampled for IVF training.
@@ -1227,7 +1240,7 @@ pub unsafe fn init() {
     pg_sys::add_int_reloption(
         RELOPT_KIND_PDB,
         "target_leaf_size".as_pg_cstr(),
-        "Target training vectors per leaf in hierarchical IVF clustering".as_pg_cstr(),
+        "Target indexed vectors per IVF cluster".as_pg_cstr(),
         DEFAULT_TARGET_LEAF_SIZE,
         1,
         i32::MAX,
@@ -1418,6 +1431,51 @@ fn parse_sort_key(input: &str) -> SortByField {
 
 fn default_target_segment_count(query_workers: usize, partition_columns: usize) -> usize {
     query_workers.max(MIN_TARGET_SEGMENT_COUNT) * partition_columns.max(1)
+}
+
+/// The leaf cap for a training sample holding `training_sample_ratio` of the vectors. Scaling
+/// the cap with the sample keeps the cluster count near `vectors / target_leaf_size` at any
+/// sample ratio.
+fn training_leaf_size(target_leaf_size: i32, training_sample_ratio: f64) -> usize {
+    (f64::from(target_leaf_size) * training_sample_ratio)
+        .round()
+        .max(1.0) as usize
+}
+
+#[cfg(test)]
+mod training_leaf_size_tests {
+    use super::{DEFAULT_TARGET_LEAF_SIZE, DEFAULT_TRAINING_SAMPLE_RATIO, training_leaf_size};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::defaults(DEFAULT_TARGET_LEAF_SIZE, DEFAULT_TRAINING_SAMPLE_RATIO, 128)]
+    #[case::full_sample(400, 1.0, 400)]
+    #[case::half_sample(400, 0.5, 200)]
+    #[case::tenth_sample(400, 0.1, 40)]
+    #[case::rounds_to_nearest(32, 0.32, 10)]
+    #[case::never_below_one_row(1, 0.000001, 1)]
+    #[case::largest_setting(i32::MAX, 1.0, i32::MAX as usize)]
+    fn test_training_leaf_size(
+        #[case] target_leaf_size: i32,
+        #[case] training_sample_ratio: f64,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(
+            training_leaf_size(target_leaf_size, training_sample_ratio),
+            expected
+        );
+    }
+
+    /// The cluster count a sample trains is the same at every sample ratio.
+    #[rstest]
+    fn test_cluster_count_is_independent_of_sample_ratio(
+        #[values(1.0, 0.5, 0.32, 0.1, 0.05)] training_sample_ratio: f64,
+    ) {
+        let vectors = 10_000_000.0;
+        let sampled = vectors * training_sample_ratio;
+        let clusters = sampled / training_leaf_size(400, training_sample_ratio) as f64;
+        assert_eq!(clusters, vectors / 400.0);
+    }
 }
 
 #[cfg(test)]

@@ -2,4 +2,4 @@
 header: breaking
 ---
 
-Renamed the IVF index option `max_leaf_size` to `target_leaf_size`. The value caps the number of sampled training vectors per leaf; it does not cap the number of indexed vectors assigned to a cluster. Indexes that explicitly store `max_leaf_size` must be updated with `ALTER INDEX ... SET (target_leaf_size = ...)` or recreated.
+Renamed the IVF index option `max_leaf_size` to `target_leaf_size`. The value is now the target number of indexed vectors per cluster instead of a cap on sampled training vectors per leaf, so the cluster count no longer changes with `training_sample_ratio`. To keep an index's cluster count, divide its `max_leaf_size` by its `training_sample_ratio`: `100` at the default `0.32` becomes `312`. Indexes that explicitly store `max_leaf_size` must be updated with `ALTER INDEX ... SET (target_leaf_size = ...)` or recreated.

@@ -2657,7 +2657,7 @@ mod tests {
                 Spi::run(&format!(
                     "CREATE INDEX partitioned_passes_idx ON partitioned_passes
                      USING paradedb (id, tenant_id, emb vector_cosine_ops)
-                     WITH ({partition} target_segment_count = {segments}, training_sample_ratio = 1);"
+                     WITH ({partition} target_segment_count = {segments}, target_leaf_size = 128, training_sample_ratio = 1);"
                 ))
                 .unwrap();
 

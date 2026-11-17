@@ -70,7 +70,7 @@ impl VectorWork {
         });
         Some(Self::estimate(
             &stats,
-            options.target_leaf_size() as f64 / f64::from(options.training_sample_ratio()),
+            options.target_leaf_size() as f64,
             if layers.is_some() && options.vector_router_quantization() {
                 options.replication()
             } else {

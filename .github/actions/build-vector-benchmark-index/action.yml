@@ -40,10 +40,12 @@ runs:
         # Keep the HTML report with the build diagnostics.
         pdbench-report html "${runs[0]}"
         index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
-        # The run covers post.sql: dropping any old index, the build, and VACUUM ANALYZE.
-        created="$(jq -r '.created_at' "${runs[0]}/run.json")"
-        finished="$(jq -r '.finished_at' "${runs[0]}/run.json")"
-        build_seconds=$(( $(date -d "$finished" +%s) - $(date -d "$created" +%s) ))
+        build_seconds="$(jq -se --arg statement "CREATE INDEX $index ON " '
+          [.[] | select(.type == "Point" and .metric == "sql_statement_duration"
+            and .tags.phase == "finalize" and (.tags.statement | startswith($statement))) | .value]
+          | if length == 1 and .[0] > 0 then .[0] / 1000
+            else error("Expected one positive CREATE INDEX duration") end
+        ' "${runs[0]}/points.jsonl")"
         size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
           -c "SELECT pg_total_relation_size('${index}'::regclass)")"
         jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \

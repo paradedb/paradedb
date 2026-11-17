@@ -168,7 +168,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, target_leaf_size=200, replication=2);
+WITH (training_sample_ratio=0.32, target_leaf_size=128, replication=2);
 ```
 
 ```ts Drizzle
@@ -213,7 +213,7 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={'training_sample_ratio': 0.32, 'target_leaf_size': 200},
+    postgresql_with={'training_sample_ratio': 0.32, 'target_leaf_size': 128},
 )
 
 with engine.begin() as conn:
@@ -251,7 +251,7 @@ modelBuilder.Entity<MockItem>()
   every vector. The default samples 32% of the vectors. Larger samples can
   improve centroid quality at the cost of a slower, more memory-intensive build.
 </ParamField>
-<ParamField body="target_leaf_size" default={200}>
+<ParamField body="target_leaf_size" default={128}>
   The target number of sampled training vectors in a leaf of the hierarchical
   clustering tree. Must be an integer between `1` and `2147483647`. Smaller
   values generally produce more centroids and smaller clusters. Training leaves
@@ -280,7 +280,7 @@ modelBuilder.Entity<MockItem>()
   The old names are no longer accepted. Recreate indexes that explicitly store
   either old option using the new options. `REINDEX` alone does not remove
   obsolete index options. The new defaults sample 32% of vectors and use a
-  maximum training leaf size of 200.
+  maximum training leaf size of 128.
 </Note>
 
 <ParamField body="quantization" default="[1,1]">

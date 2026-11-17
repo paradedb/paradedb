@@ -62,7 +62,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       HN_SIZE: 28m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '9372a7d18d8f24046808c512231b0ac9173047a4' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '617b709527cee126da77a32819ea2cc72701ac85' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}

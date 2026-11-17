@@ -32,6 +32,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys;
+use serde::Deserialize;
 use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -47,7 +48,7 @@ use tantivy::tokenizer::TokenizerManager;
 /// — see module docs.
 // TODO(paradedb/paradedb#3715, pgcentralfoundation/pgrx#2281): remove the function-pointer
 // indirection once typetag registration stops pulling PG symbols into the test binary.
-type BuildFilterQueryFn = fn(serde_json::Value, u32) -> anyhow::Result<Box<dyn Query>>;
+type BuildFilterQueryFn = fn(&serde_json::Value, u32) -> anyhow::Result<Box<dyn Query>>;
 
 /// Global function pointer for building filter queries. Initialized in `_PG_init`.
 static BUILD_FILTER_QUERY_FN: std::sync::OnceLock<BuildFilterQueryFn> = std::sync::OnceLock::new();
@@ -90,7 +91,7 @@ impl QueryBuilder for FilterQuery {
         let build_fn = BUILD_FILTER_QUERY_FN
             .get()
             .expect("call init_filter_query_builder() in _PG_init");
-        build_fn(self.query.clone(), self.indexrelid)
+        build_fn(&self.query, self.indexrelid)
             .map_err(|e| TantivyError::InvalidArgument(e.to_string()))
     }
 
@@ -99,8 +100,8 @@ impl QueryBuilder for FilterQuery {
     }
 }
 
-fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result<Box<dyn Query>> {
-    let query: SearchQueryInput = serde_json::from_value(query_json)?;
+fn build_query(query_json: &serde_json::Value, indexrelid: u32) -> anyhow::Result<Box<dyn Query>> {
+    let query: SearchQueryInput = SearchQueryInput::deserialize(query_json)?;
     let indexrelid = pg_sys::Oid::from(indexrelid);
     let context = ExprContextGuard::new();
 

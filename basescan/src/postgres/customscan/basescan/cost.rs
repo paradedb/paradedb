@@ -49,7 +49,7 @@ use super::vector_cost::VectorWork;
 use super::*;
 use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
-use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
+use tantivy::vector::VectorFilterStrategy;
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
@@ -94,20 +94,13 @@ impl WorkerPathPolicy {
             return Self::SerialOnly { reason };
         };
         let parallel = match strategy {
-            VectorFilterStrategy::Post {
-                stage: PostFilterStage::AfterQuantizedScoring,
-                ..
-            } => false,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: true,
             } => true,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: false,
             }
-            | VectorFilterStrategy::Post {
-                stage: PostFilterStage::BeforeQuantizedScoring,
-                ..
-            } => work.is_some_and(|work| {
+            | VectorFilterStrategy::Post { .. } => work.is_some_and(|work| {
                 work.parallel_wins(parallel_divisor(nworkers, leader_participates))
             }),
         };

@@ -20,6 +20,7 @@ use crate::gucs;
 use crate::postgres::options::BM25IndexOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
+use tantivy::DocId;
 use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 // Minimum estimated byte-work saved to cover worker startup and coordination.
@@ -28,6 +29,7 @@ const MIN_PARALLEL_SAVINGS_BYTES: f64 = 64.0 * 1024.0 * 1024.0;
 struct VectorSearchStats {
     vectors: f64,
     matches: f64,
+    strategy: VectorFilterStrategy,
 }
 
 pub(super) struct VectorWork {
@@ -48,9 +50,6 @@ impl VectorWork {
             strategy,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: true
-            } | VectorFilterStrategy::Post {
-                stage: PostFilterStage::AfterQuantizedScoring,
-                ..
             }
         ) || query.is_match_all()
         {
@@ -62,6 +61,7 @@ impl VectorWork {
         let stats = VectorSearchStats {
             vectors,
             matches: vectors * selectivity,
+            strategy,
         };
         let layers = options.field_config_or_default(field).quantization_layers();
         let full_row_bytes = (dimensions * size_of::<f32>()) as f64;
@@ -96,7 +96,14 @@ impl VectorWork {
         let clusters = (vectors / average_cluster_size).max(1.0);
         let replication = f64::from(replication);
         let average = vectors * replication / clusters;
-        let selectivity = (stats.matches / vectors).clamp(0.0, 1.0);
+        let selectivity = match stats.strategy {
+            // Shortlist filtering scores all routed rows and cannot bypass routing.
+            VectorFilterStrategy::Post {
+                stage: PostFilterStage::AfterQuantizedScoring,
+                ..
+            } => 1.0,
+            _ => (stats.matches / vectors).clamp(0.0, 1.0),
+        };
         let matches = vectors * selectivity;
         let budget = (max_probe as f64).min(clusters);
         // Match the probe controller's cluster-open share and maximum-budget accounting.
@@ -113,7 +120,7 @@ impl VectorWork {
         };
         let read_bytes = (opened * average * row_bytes).min(scored * full_row_bytes);
         let filter_bytes = if selectivity < 1.0 {
-            matches * size_of::<tantivy::DocId>() as f64
+            matches * size_of::<DocId>() as f64
         } else {
             0.0
         };
@@ -145,6 +152,9 @@ mod tests {
             &VectorSearchStats {
                 vectors: 8_000_000.0,
                 matches,
+                strategy: VectorFilterStrategy::Pre {
+                    uses_fast_fields: false,
+                },
             },
             512.0,
             2,
@@ -183,14 +193,7 @@ mod tests {
                         };
                         let parallel = workers > 0
                             && match strategy {
-                                VectorFilterStrategy::Post {
-                                    stage: PostFilterStage::BeforeQuantizedScoring,
-                                    ..
-                                } => !cheap,
-                                VectorFilterStrategy::Post {
-                                    stage: PostFilterStage::AfterQuantizedScoring,
-                                    ..
-                                } => false,
+                                VectorFilterStrategy::Post { .. } => !cheap,
                                 VectorFilterStrategy::Pre { uses_fast_fields } => {
                                     uses_fast_fields || !cheap
                                 }
@@ -217,6 +220,42 @@ mod tests {
     fn larger_probe_budgets_cover_worker_startup() {
         assert!(!work(8_000_000.0, 32, 1024, 1).parallel_wins(8.0));
         assert!(work(8_000_000.0, 1024, 1024, 1).parallel_wins(8.0));
+    }
+
+    #[test]
+    fn shortlist_work_counts_unfiltered_rows() {
+        const VECTORS: f64 = 8_000_000.0;
+        const AVERAGE_CLUSTER_SIZE: f64 = 512.0;
+        const REPLICATION: u8 = 2;
+        const FIXED_PROBE_COST_ROWS: f64 = 2.0;
+        const DIMENSIONS: usize = 1024;
+        let row_bytes = (DIMENSIONS / u8::BITS as usize) as f64;
+        let full_row_bytes = (DIMENSIONS * size_of::<f32>()) as f64;
+        for (max_probe, parallel) in [(32, false), (1024, true)] {
+            let unfiltered = work(VECTORS, max_probe, DIMENSIONS, 1);
+            for selectivity in [0.0, 0.01, 0.1, 1.0] {
+                let stats = VectorSearchStats {
+                    vectors: VECTORS,
+                    matches: VECTORS * selectivity,
+                    strategy: VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        estimated_selectivity: selectivity,
+                    },
+                };
+                let shortlist = VectorWork::estimate(
+                    &stats,
+                    AVERAGE_CLUSTER_SIZE,
+                    REPLICATION,
+                    max_probe,
+                    FIXED_PROBE_COST_ROWS,
+                    row_bytes,
+                    full_row_bytes,
+                );
+                assert_eq!(shortlist.scan_bytes, unfiltered.scan_bytes);
+                assert_eq!(shortlist.extra_routing_bytes, 0.0);
+                assert_eq!(shortlist.parallel_wins(8.0), parallel);
+            }
+        }
     }
 
     #[test]
@@ -277,6 +316,9 @@ mod tests {
         let stats = VectorSearchStats {
             vectors: 8_000_000.0,
             matches: 8_000_000.0,
+            strategy: VectorFilterStrategy::Pre {
+                uses_fast_fields: false,
+            },
         };
         let single = VectorWork::estimate(&stats, 512.0, 1, 128, 2.0, 128.0, 4096.0);
         let replicated = VectorWork::estimate(&stats, 512.0, 2, 128, 2.0, 128.0, 4096.0);
@@ -289,6 +331,9 @@ mod tests {
         let stats = VectorSearchStats {
             vectors: 8_000_000.0,
             matches: 100.0,
+            strategy: VectorFilterStrategy::Pre {
+                uses_fast_fields: false,
+            },
         };
         let single = VectorWork::estimate(&stats, 512.0, 1, 65_536, 2.0, 128.0, 4096.0);
         let replicated = VectorWork::estimate(&stats, 512.0, 2, 65_536, 2.0, 128.0, 4096.0);

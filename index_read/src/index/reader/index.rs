@@ -3889,6 +3889,7 @@ mod tests {
     use pgrx::prelude::*;
     use std::ops::Bound;
     use tantivy::index::SegmentComponent;
+    use tantivy::vector::PostFilterStage;
 
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
@@ -5436,9 +5437,11 @@ mod tests {
             uses_fast_fields: true,
         };
         let post = VectorFilterStrategy::Post {
+            stage: PostFilterStage::BeforeQuantizedScoring,
             estimated_selectivity: 0.5,
         };
-        let late = VectorFilterStrategy::Late {
+        let late = VectorFilterStrategy::Post {
+            stage: PostFilterStage::AfterQuantizedScoring,
             estimated_selectivity: 0.5,
         };
         for (lo, hi, expected_rows, expected_segments) in [

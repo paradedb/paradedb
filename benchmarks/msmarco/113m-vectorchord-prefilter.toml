@@ -15,7 +15,7 @@ s3_base_path = "s3://paradedb-benchmark/datasets/msmarco/v1"
 [postgres.build]
 shared_buffers = "8GB"
 maintenance_work_mem = "8GB"
-max_parallel_maintenance_workers = 8
+max_parallel_maintenance_workers = 7
 
 [postgres.search]
 shared_buffers = "8GB"

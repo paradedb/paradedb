@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.22.0](https://github.com/paradedb/paradedb/releases/tag/v0.22.0)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Beta release of native support for JOIN pushdown! See [the docs](/reference/joins/overview) for more information.
 - All text column types now support optionally being marked `columnar=true`, allowing them to be used as the input to aggregates, joins, or covering index scans.
@@ -21,7 +21,7 @@ See GitHub release: [v0.22.0](https://github.com/paradedb/paradedb/releases/tag/
 - Support for using index expressions and UNNEST in aggregate queries.
 - Support for tokenining UUID columns.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - When visibility filtering is not able to use the visibility map, it now executes the minimal safe heap check, showing up to 50% speedup on MVCC-safe aggregates.
 - Queries on small tables run up to 6x faster by using appropriate numbers of parallel workers.
@@ -29,7 +29,7 @@ See GitHub release: [v0.22.0](https://github.com/paradedb/paradedb/releases/tag/
 - 4-5x faster planning for regex and fuzzy queries.
 - VACUUMs now cooperatively cancel background merges, to ensure that the visibility map is up to date for read queries.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - The ICU tokenizer is now implemented in Rust via the [`icu_segmenter` crate](https://crates.io/crates/icu_segmenter), which avoids a runtime dependency on a particular ICU version being installed on the target system.
 - Significantly improved warnings when Top-K or aggregate queries do not meet the requirements for pushdown.

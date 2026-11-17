@@ -6,17 +6,17 @@ noindex: true
 
 See GitHub release: [v0.15.19](https://github.com/paradedb/paradedb/releases/tag/v0.15.19)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Introduced `paradedb.snippet_positions` which returns the byte offsets of highlighted text
 - Introduced support for the Jieba tokenizer
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Reduced index size and improved write throughput by eliminating some extra write overhead
 - The custom scan can now use fast fields when both string and numeric fields are present in the output columns
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed an issue where the custom scan would throw an error instead of gracefully falling back to an index scan when boolean predicates were used
 - Fixed an issue where joins with the `@@@` operator could exclude results from the output
@@ -24,6 +24,6 @@ See GitHub release: [v0.15.19](https://github.com/paradedb/paradedb/releases/tag
 - Fixed an issue where the custom scan would solve an incorrect boolean condition if there were parentheses involved in the query
 - Fixed an issue where `max_parallel_workers_per_gather` setting was not being respected by parallel scans
 
-## New Contributors 👋
+## New Contributors 👋 {#new-contributors}
 
 - [@mpr1255](https://github.com/mpr1255) made their first contribution in [#2491](https://github.com/paradedb/paradedb/pull/2491)

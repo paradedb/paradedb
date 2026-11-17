@@ -6,16 +6,16 @@ noindex: true
 
 See GitHub release: [v0.16.1](https://github.com/paradedb/paradedb/releases/tag/v0.16.1)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - The `inet` type can now be BM25 indexed
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Optimized query performance for scenarios where there are many (i.e. several hundred plus) segments in an index
 - Operations over scalar arrays like `IN` are now pushed down to the BM25 index, if the field is fast
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed an issue where our custom scan pushdown code would discard some predicates if the query also contained a subselect
 - Fixed an issue where having too many segments would consume too much memory

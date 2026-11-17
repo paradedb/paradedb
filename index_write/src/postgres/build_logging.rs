@@ -17,7 +17,7 @@
 
 //! Minimal, targeted `log` → Postgres NOTICE bridge for IVF build timings.
 //!
-//! tantivy's IVF build emits one `log::info!` line per vector field on the
+//! tantivy's IVF build emits one `log::info!` line per IVF merge on the
 //! target `paradedb::ivf_build`. This forwards ONLY that target to
 //! `pgrx::notice!`, so the timings surface during `CREATE INDEX` and are
 //! captured by NOTICE-reading clients (e.g. the benchmark harness via

@@ -22,7 +22,6 @@ use crate::index::merge_policy::{
 };
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
-use crate::postgres::PgSearchRelation;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
@@ -31,6 +30,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
+use crate::postgres::{IsLogicalWorker, PgSearchRelation};
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -358,11 +358,24 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         next_xid,
     } = style
     {
-        let foreground_candidate = candidates
-            .iter()
-            .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
-            .min_by_key(|(layer, _)| *layer)
-            .map(|(_, candidate)| candidate);
+        // Stopgap: prevent apply workers from doing expensive foreground immutable merges,
+        // which can stall replication and cause WAL buildup on the publisher.
+        let foreground_candidate = if IsLogicalWorker() {
+            merge_policy.retain(
+                merger
+                    .all_entries()
+                    .into_iter()
+                    .filter_map(|(id, entry)| entry.is_mutable().then_some(id))
+                    .collect(),
+            );
+            None
+        } else {
+            candidates
+                .iter()
+                .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
+                .min_by_key(|(layer, _)| *layer)
+                .map(|(_, candidate)| candidate)
+        };
         merge_policy.prepare_backpressure(layer_sizes.backpressure_layer_size);
         let (backpressure_candidates, _, skipped) = merge_policy.simulate_supported(&merger)?;
         warn_unsupported_vector_merge(index, skipped);

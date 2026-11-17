@@ -60,7 +60,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       MSMARCO_SIZE: 113m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || '617b709527cee126da77a32819ea2cc72701ac85' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.event.pull_request.head.sha || github.sha }}
       MSMARCO_CONFIG: ${{ matrix.engine == 'pg_search' && 'benchmarks/msmarco/113m.toml' || format('benchmarks/msmarco/113m-{0}{1}.toml', matrix.engine, matrix.engine == 'vectorchord' && matrix.prefilter == 'on' && '-prefilter' || '') }}
@@ -202,6 +202,7 @@ jobs:
         uses: ./.github/actions/build-vector-benchmark-index
         with:
           config: ${{ env.LOAD_CONFIG }}
+          artifact_name: ${{ env.RESULTS_DATASET }}-load-report
 
       - name: Verify Eight-segment Index
         if: matrix.engine == 'pg_search'

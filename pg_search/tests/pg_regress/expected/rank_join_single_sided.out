@@ -866,7 +866,7 @@ LIMIT 5;
      :         CooperativeExec
      :           PgSearchScan: table=u, segments=2, lazy_sort=14, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=2, lazy_sort=14, dynamic_filters=1, query={"term_set":{"terms":[{"field":"user_id","value":2},{"field":"user_id","value":4},{"field":"user_id","value":6}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"term_set":{"terms":[{"field":"user_id","value":2},{"field":"user_id","value":4},{"field":"user_id","value":6}]}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT u.id AS u_id, p.id AS p_id
@@ -910,7 +910,7 @@ LIMIT 5;
      :         CooperativeExec
      :           PgSearchScan: table=u, segments=2, lazy_sort=13, dynamic_filters=1, disjunct={"with_index":{"query":{"parse_with_field":{"field":"bio","query_string":"rust","lenient":null,"conjunction_mode":null}}}}
      :         CooperativeExec
-     :           PgSearchScan: table=p, segments=2, lazy_sort=13, dynamic_filters=1, query={"range":{"field":"views","lower_bound":{"included":0},"upper_bound":null}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
+     :           PgSearchScan: table=p, segments=2, lazy_sort=10, dynamic_filters=1, query={"range":{"field":"views","lower_bound":{"included":0},"upper_bound":null}}, disjunct={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"bm25","lenient":null,"conjunction_mode":null}}}}
 (15 rows)
 
 SELECT u.id AS u_id, p.id AS p_id

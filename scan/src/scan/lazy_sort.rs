@@ -186,8 +186,10 @@ pub struct LazySortConfig {
     /// or `0.0` for `RA`-only mode).
     pub initial_window: f64,
     /// Combined build-side selectivity of upstream `HashJoinExec` nodes along a `lazy_sort` probe
-    /// spine. Used to scale `initial_window` at stream initialization only when a join dynamic
-    /// filter was not pushed into the Tantivy reader (`HashTableLookupExpr` or unpushable join key).
+    /// spine. Used at stream initialization to scale `initial_window` when a join dynamic filter
+    /// was not pushed into the Tantivy reader (`HashTableLookupExpr` or unpushable join key), and
+    /// to scale `estimate_vector_matches` when re-planning `VectorFilterStrategy` after pushing an
+    /// `InList` (`TermSetQuery`) into a vector scan.
     pub unpushed_join_selectivity: TopKSelectivity,
     /// Controls how a non-range-partitioned (`ExecutionState::Shared`) scan interacts with
     /// `ParallelScanState` for segment claiming and first-pull cross-worker threshold sharing.
@@ -771,11 +773,37 @@ impl LazySortStreamState {
             .position(|wff| wff.is_score());
 
         let queries = MetricBuilder::new(&plan_metrics).counter("queries", target_partition);
+        let vector_order_field = lazy_sort
+            .orderby_info
+            .as_deref()
+            .and_then(|orders| orders.first())
+            .and_then(OrderByInfo::as_vector_distance)
+            .map(|(field, _, _)| field.clone());
+        let pre_push_reader = vector_order_field
+            .as_ref()
+            .filter(|_| !dynamic_filters.is_empty())
+            .map(|_| reader.clone());
         let filter_metrics = FilterStepMetrics::init(
             &mut reader,
             &mut dynamic_filters,
             InListLinearFallback::PushToIndex,
         );
+        if filter_metrics.pushed
+            && let (Some(field), Some(base_reader)) = (&vector_order_field, pre_push_reader)
+        {
+            // Re-plan `VectorFilterStrategy` after `AND`-ing `TermSetQuery`: `TermSetQuery`
+            // does not implement `QueryEstimate`, so scale the pre-push match estimate by the
+            // join's `unpushed_join_selectivity` while inspecting the updated `reader.weight()`
+            // (`uses_fast_fields()`).
+            let estimated_matches = (base_reader.estimate_vector_matches()
+                * lazy_sort.unpushed_join_selectivity.0)
+                .ceil() as usize;
+            reader.vector_filter_strategy = Some(
+                reader
+                    .plan_vector_filter_with_matches(field, estimated_matches)
+                    .map_err(|e| DataFusionError::External(e.into_boxed_dyn_error()))?,
+            );
+        }
         let segment_target = LazySegmentTarget::new(
             &reader,
             range_boundaries.as_ref(),
@@ -784,12 +812,19 @@ impl LazySortStreamState {
             parallel_state,
             source_idx,
         );
-        let (sa_reader, ra_weights, is_disjunctive_sa) = prepare_sa_and_ra(
+        let (mut sa_reader, ra_weights, is_disjunctive_sa) = prepare_sa_and_ra(
             &reader,
             &scanner_config.scan_mode,
             filter_metrics.pushed,
             segment_target.range_target(),
         );
+        if is_disjunctive_sa && let Some(field) = &vector_order_field {
+            sa_reader.vector_filter_strategy = Some(
+                sa_reader
+                    .plan_vector_filter(field)
+                    .map_err(|e| DataFusionError::External(e.into_boxed_dyn_error()))?,
+            );
+        }
         let scanner = init_lazy_sort_scanner(&reader, scanner_config, &scan_fetched_fields)?;
 
         // `RankJoinRule` sets `LazyParallelMode::Unpartitioned`, and `RankJoinExec` pushes its

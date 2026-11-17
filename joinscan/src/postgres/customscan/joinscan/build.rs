@@ -327,7 +327,7 @@ pub enum ChildProjection {
 }
 
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexManifest, SearchIndexReader};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::range_table::get_rte;
 use crate::postgres::rel::PgSearchRelation;
@@ -447,19 +447,20 @@ impl JoinSourceCandidate {
             return;
         }
 
-        let (segment_count, estimate) = estimate_resolved_query(&index_rel, row_estimate, query);
+        let (segment_count, estimate) =
+            estimate_resolved_query(&index_rel, None, row_estimate, query);
         self.segment_count = Some(segment_count);
         self.estimate = Some(estimate);
     }
 }
 
-/// Opens `index_rel` to compute `(estimated_segment_count, RowEstimate::Known(matching_docs))`
-/// for a `query` that contains no unresolved `PostgresExpression`s or heap filters.
-///
-/// Shared by plan-time `JoinSourceCandidate::estimate_rows` and execution-time
-/// `JoinSource::reestimate_solved_rows`.
+/// Computes `(estimated_segment_count, RowEstimate::Known(matching_docs))` for a `query` that
+/// contains no unresolved `PostgresExpression`s or heap filters, reusing `manifest` when already
+/// captured at execution time (`JoinSource::reestimate_solved_rows`) or opening `index_rel` at
+/// plan time (`JoinSourceCandidate::estimate_rows`).
 fn estimate_resolved_query(
     index_rel: &PgSearchRelation,
+    manifest: Option<&SearchIndexManifest>,
     row_estimate: RowEstimate,
     query: SearchQueryInput,
 ) -> (usize, RowEstimate) {
@@ -467,17 +468,29 @@ fn estimate_resolved_query(
     // which is fine because it is only used to get estimates.
     let expr_context = ExprContextGuard::new();
     let needs_tokenizer_manager = query.needs_tokenizer();
-    let mvcc_style = SearchIndexReader::mvcc_for_estimation(index_rel, &query);
-    let reader = SearchIndexReader::open_with_context(
-        index_rel,
-        query,
-        false,
-        mvcc_style,
-        NonNull::new(expr_context.as_ptr()),
-        None,
-        needs_tokenizer_manager,
-        None,
-    )
+    let reader = match manifest {
+        Some(manifest) => SearchIndexReader::from_manifest(
+            manifest,
+            index_rel,
+            query,
+            false,
+            NonNull::new(expr_context.as_ptr()),
+            needs_tokenizer_manager,
+        ),
+        None => {
+            let mvcc_style = SearchIndexReader::mvcc_for_estimation(index_rel, &query);
+            SearchIndexReader::open_with_context(
+                index_rel,
+                query,
+                false,
+                mvcc_style,
+                NonNull::new(expr_context.as_ptr()),
+                None,
+                needs_tokenizer_manager,
+                None,
+            )
+        }
+    }
     .expect("Failed to open index reader for estimation");
 
     let estimate = reader.estimate_docs(row_estimate);
@@ -537,10 +550,14 @@ impl JoinSource {
     }
 
     /// Re-estimates `scan_info` once runtime `PostgresExpression`s (`Param` / `InitPlan`) have
-    /// been solved into concrete `SearchQueryInput` predicates. Only runs when planning-time
-    /// estimation fell back to `total_docs` (`estimate_from_total_docs == true`) and no residual
-    /// `PostgresExpression` or heap filter remains.
-    pub(super) fn reestimate_solved_rows(&mut self) -> bool {
+    /// been solved into concrete `SearchQueryInput` predicates, reusing `manifest` when available
+    /// so execution-time estimation and rescans do not re-open the index. Only runs when
+    /// planning-time estimation fell back to `total_docs` (`estimate_from_total_docs == true`) and
+    /// no residual `PostgresExpression` or heap filter remains.
+    pub(super) fn reestimate_solved_rows(
+        &mut self,
+        manifest: Option<&SearchIndexManifest>,
+    ) -> bool {
         if !self.scan_info.estimate_from_total_docs
             || self.scan_info.indexrelid == pg_sys::InvalidOid
         {
@@ -553,7 +570,8 @@ impl JoinSource {
         let index_rel = PgSearchRelation::open(self.scan_info.indexrelid);
         let heap_rel = PgSearchRelation::open(self.scan_info.heaprelid);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-        let (segment_count, estimate) = estimate_resolved_query(&index_rel, row_estimate, query);
+        let (segment_count, estimate) =
+            estimate_resolved_query(&index_rel, manifest, row_estimate, query);
         self.scan_info.segment_count = segment_count;
         self.scan_info.estimate = estimate;
         self.scan_info.estimate_from_total_docs = false;

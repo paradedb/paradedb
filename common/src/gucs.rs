@@ -28,6 +28,12 @@ use tantivy::vector::AdaptiveProbeParams;
 
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 pub const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
+/// Default value for `paradedb.rank_join_unscored_selectivity_threshold` (`0.08`).
+///
+/// Calibrated around Tantivy's `DocSet::size_hint()` when `QueryEstimate::estimate_docs` falls
+/// back to `scorer_estimate`: `FastFieldRangeQuery` reports `column.num_docs() / 10` (`~0.09999`),
+/// `TermSetQuery` reports `~1.0` under `Gallop` / `LinearScan` and exact `bitset.len()` under
+/// `BitsetFromPostings`, and text queries use segment `doc_freq` counts.
 pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
 
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1011,8 +1017,9 @@ pub fn init() {
         c"paradedb.rank_join_unscored_selectivity_threshold",
         c"Minimum estimated selectivity on unscored join inputs and disjunctive base filters for RankJoinExec",
         c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
-          inputs of a single-sided (NRJN) join and unscored base filters of a disjunctive \
-          (ScanMode::Disjunctive) join when paradedb.rank_join_min_rows > 0.",
+          inputs of a single-sided (NRJN) join and peer unscored base filters of a disjunctive \
+          (ScanMode::Disjunctive) join when paradedb.rank_join_min_rows > 0 (single-sided vector \
+          joins keep RankJoinExec below this threshold when InList pushdown does not fit).",
         &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
         0.0,
         1.0,
@@ -1502,6 +1509,12 @@ pub fn lazy_sort_inlist_pushdown_max_distinct_values() -> i32 {
 }
 
 /// Which `InList` distinct-key cap applies when executing a DataFusion plan.
+///
+/// TODO: This currently overrides `SessionConfig`'s `hash_join_inlist_pushdown_max_distinct_values`
+/// plan-wide (so an unrelated outer `HashJoinExec` in the same plan inherits `LazySortProbe`).
+/// Rather than plumbing a per-join cap into DataFusion, we plan to push `HashTableLookupExpr` into
+/// Tantivy (fast-field / candidate-scorer lookups) so `lazy_sort` probe joins no longer need an
+/// elevated `InList` cap and `InListPushdownMode` can be removed altogether.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InListPushdownMode {

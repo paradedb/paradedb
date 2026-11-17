@@ -2665,6 +2665,11 @@ fn plan_has_lazy_sort_probe_join(plan: &Arc<dyn ExecutionPlan>) -> bool {
 
 /// Returns the [`crate::gucs::InListPushdownMode`] for `plan` based on whether any `HashJoinExec`
 /// probes a `lazy_sort` [`PgSearchScanPlan`].
+///
+/// TODO: Once `HashTableLookupExpr` is pushed into Tantivy as a fast-field / candidate scorer,
+/// `lazy_sort` probe joins will no longer need an elevated session-wide `InList` cap (which
+/// currently also affects any sibling unsorted `HashJoinExec` in the same plan), and
+/// `InListPushdownMode` + this walk can be removed.
 pub fn plan_inlist_pushdown_mode(plan: &Arc<dyn ExecutionPlan>) -> crate::gucs::InListPushdownMode {
     if plan_has_lazy_sort_probe_join(plan) {
         crate::gucs::InListPushdownMode::LazySortProbe

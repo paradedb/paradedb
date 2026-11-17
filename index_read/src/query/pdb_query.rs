@@ -1791,7 +1791,6 @@ fn lift_datetime_bound_for_estimate(
 fn range_query_from_bounds(
     search_field: &SearchField,
     field: &FieldName,
-    stat_target: Option<crate::schema::HeapStatTarget>,
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
@@ -1842,7 +1841,6 @@ fn range_query_from_bounds(
         RangeQuery::new(lower_bound, upper_bound),
         search_field.clone(),
         field_path,
-        stat_target,
         bounds,
     ))
 }
@@ -1883,7 +1881,6 @@ fn range(
     range_query_from_bounds(
         &search_field,
         field,
-        schema.heap_stat_target(field),
         index_created_by_version,
         lower_bound,
         upper_bound,
@@ -1907,7 +1904,6 @@ fn stored_range(
     range_query_from_bounds(
         &search_field,
         field,
-        schema.heap_stat_target(field),
         index_created_by_version,
         lower_bound,
         upper_bound,

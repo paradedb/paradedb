@@ -348,6 +348,8 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
     let background_launched =
         needs_background_merge && try_launch_background_merger(index, largest_layer_size);
+    // If a background merger launched successfully, exit before applying more backpressure
+    // so foreground backpressure does not race with it to claim segments.
     if background_launched {
         return Ok(());
     }

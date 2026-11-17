@@ -37,7 +37,7 @@ k6 runs on cores 64–67.
 
 CI overrides the pinned pdbench Compose configuration for every engine to use
 8 CPUs, eight global parallel workers, and four workers per parallel query.
-The maintenance-worker limit and VectorChord build threads remain eight; the
+The maintenance-worker limit is seven; VectorChord retains eight internal build threads. The
 worker-process pool remains 32. Query-session settings also use four workers
 for recall calibration and k6. Memory settings remain unchanged.
 

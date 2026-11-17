@@ -13,7 +13,7 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 service from pdbench's `datasets/<dataset>/docker-compose.yml`, which is the
 overridden in CI for these datasets: 8 CPUs on cores 0–7, 32 GiB memory, 16 GiB shared memory, 8 GiB
 shared buffers, 8 GiB maintenance memory, a 24 GiB effective cache, and eight
-parallel workers in a 32-process pool. Index builds can use eight workers;
+parallel workers in a 32-process pool. Index builds can use seven parallel maintenance workers;
 queries can use four. VectorChord retains eight internal build threads. k6 runs on CPUs 64–67. Wikipedia and
 Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.

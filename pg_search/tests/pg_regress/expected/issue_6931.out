@@ -336,6 +336,375 @@ WHERE l.body @@@ 'small' LIMIT 10;
 (1 row)
 
 DROP OPERATOR public.- (int4, int4);
+-- A chain deeper than 16 operators falls back to PostgreSQL as one call, keeping
+-- the serialized plan shallow. Longer sums still run.
+SELECT format('EXPLAIN (COSTS OFF) SELECT l.id, l.a %s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ ''small'' LIMIT 10', repeat('+ r.b ', n))
+FROM unnest(ARRAY[16, 17]) n \gexec
+EXPLAIN (COSTS OFF) SELECT l.id, l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: l INNER r
+   Join Cond: r.id = l.id
+   Limit: 10
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@2 as col_1, pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(CAST(a@3 AS Int32), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0), __common_expr_1@0) as col_2, ctid_0@1 as ctid_0]
+     :   ProjectionExec: expr=[CAST(b@4 AS Int32) as __common_expr_1, ctid_0@0 as ctid_0, id@1 as id, a@2 as a]
+     :     GlobalLimitExec: skip=0, fetch=10
+     :       VisibilityFilterExec: tables=[l, r]
+     :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
+     :           CooperativeExec
+     :             PgSearchScan: table=l, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"small","lenient":null,"conjunction_mode":null}}}}
+     :           CooperativeExec
+     :             PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
+EXPLAIN (COSTS OFF) SELECT l.id, l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: l INNER r
+   Join Cond: r.id = l.id
+   Limit: 10
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, pdb_eval_expr_opexpr_d90e5843(a@2, b@4) as col_2, ctid_0@0 as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=10
+     :     VisibilityFilterExec: tables=[l, r]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=l, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"small","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(13 rows)
+
+SELECT format('SELECT l.id, l.a %s AS s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ ''small'' LIMIT 10', repeat('+ r.b ', n))
+FROM unnest(ARRAY[16, 17, 30, 100]) n \gexec
+SELECT l.id, l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  AS s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+ id | s  
+----+----
+  3 | 37
+(1 row)
+
+SELECT l.id, l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  AS s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+ id | s  
+----+----
+  3 | 39
+(1 row)
+
+SELECT l.id, l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  AS s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+ id | s  
+----+----
+  3 | 65
+(1 row)
+
+SELECT l.id, l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  AS s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+ id |  s  
+----+-----
+  3 | 205
+(1 row)
+
+-- The limit applies per chain, inside CASE and in a join filter
+SELECT format('EXPLAIN (COSTS OFF) SELECT l.id, CASE WHEN l.id > 0 THEN l.a %s ELSE l.a %s END FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ ''small'' LIMIT 10', repeat('+ r.b ', 16), repeat('+ r.b ', 17)) \gexec
+EXPLAIN (COSTS OFF) SELECT l.id, CASE WHEN l.id > 0 THEN l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  ELSE l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  END FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' LIMIT 10
+                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: l INNER r
+   Join Cond: r.id = l.id
+   Limit: 10
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, CASE WHEN id@1 > 0 THEN pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(pdb_int_add(CAST(a@2 AS Int32), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)), CAST(b@4 AS Int32)) ELSE pdb_eval_expr_opexpr_d90e5843(a@2, b@4) END as col_2, ctid_0@0 as ctid_0]
+     :   GlobalLimitExec: skip=0, fetch=10
+     :     VisibilityFilterExec: tables=[l, r]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@0)]
+     :         CooperativeExec
+     :           PgSearchScan: table=l, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"small","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(13 rows)
+
+SELECT format('EXPLAIN (COSTS OFF) SELECT l.id FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ ''small'' AND l.a %s > 0 LIMIT 10', repeat('+ r.b ', 30)) \gexec
+EXPLAIN (COSTS OFF) SELECT l.id FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' AND l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  > 0 LIMIT 10
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: l INNER r
+   Join Cond: r.id = l.id
+   Join Predicate: heap:(((((((((((((((((((((((((((((((l.a + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) + r.b) > 0)
+   Limit: 10
+   DataFusion Physical Plan: 
+     : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     :   GlobalLimitExec: skip=0, fetch=10
+     :     VisibilityFilterExec: tables=[l, r]
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_eval_expr_opexpr_75d7cad4(a@0, b@1) > 0
+     :         CooperativeExec
+     :           PgSearchScan: table=l, segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"small","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: table=r, segments=1, dynamic_filters=1, query="all"
+(14 rows)
+
+SELECT format('SELECT l.id FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ ''small'' AND l.a %s > 0 LIMIT 10', repeat('+ r.b ', 30)) \gexec
+SELECT l.id FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'small' AND l.a + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b + r.b  > 0 LIMIT 10
+ id 
+----
+  3
+(1 row)
+
+-- Overflow raises the same error on both sides of the limit
+SELECT format('SELECT l.id, l.s %s FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ ''max'' LIMIT 10', repeat('+ r.t ', n))
+FROM unnest(ARRAY[16, 17]) n \gexec
+SELECT l.id, l.s + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t  FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'max' LIMIT 10
+ERROR:  smallint out of range
+SELECT l.id, l.s + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t + r.t  FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id WHERE l.body @@@ 'max' LIMIT 10
+ERROR:  smallint out of range
+-- A CASE guard keeps the overflowing row from being evaluated, as in PostgreSQL
+SELECT l.id, CASE WHEN l.id <> 1 THEN l.a + r.b END FROM issue_6931_l l JOIN issue_6931_r r ON r.id = l.id
+WHERE l.body @@@ 'max OR small' ORDER BY l.id LIMIT 10;
+ id | case 
+----+------
+  1 |     
+  3 |    7
+(2 rows)
+
+-- MPP workers and Aggregate Scan run the native UDFs too. Separate inserts create
+-- multiple index segments for the workers to scan.
+CREATE TABLE issue_6931_m (id int PRIMARY KEY, body text, grp int4, a int4);
+CREATE TABLE issue_6931_n (id int PRIMARY KEY, tag text, b int4);
+CREATE INDEX issue_6931_m_idx ON issue_6931_m USING paradedb (id, body, grp, a);
+CREATE INDEX issue_6931_n_idx ON issue_6931_n USING paradedb (id, tag, b);
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO issue_6931_m SELECT g, 'x', g % 3, g FROM generate_series(1, 130) g;
+INSERT INTO issue_6931_m SELECT g, 'x', g % 3, g FROM generate_series(131, 260) g;
+INSERT INTO issue_6931_n SELECT g, 'y', 1 FROM generate_series(1, 130) g;
+INSERT INTO issue_6931_n SELECT g, 'y', 1 FROM generate_series(131, 260) g;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE issue_6931_m;
+ANALYZE issue_6931_n;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.mpp_min_rows TO 0;
+SET max_parallel_workers TO 8;
+SET max_parallel_workers_per_gather TO 3;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+-- The join filter's pdb_int_mul runs in a worker stage under DistributedExec
+EXPLAIN (COSTS OFF)
+SELECT m.id, m.a + n.b FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a * n.b > 3 ORDER BY m.id LIMIT 5;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: m INNER n
+   Join Cond: n.id = m.id
+   Join Predicate: heap:((m.a * n.b) > 3)
+   Limit: 5
+   Order By: n.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, pdb_int_add(CAST(a@2 AS Int32), CAST(b@5 AS Int32)) as col_2, ctid_0@0 as ctid_0, ctid_1@3 as ctid_1]
+     : │   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=5
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=2, input_tasks=2
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=2, partitions=2
+     :   │ SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[m, n]
+     :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_int_mul(CAST(a@0 AS Int32), CAST(b@1 AS Int32)) > 3
+     :   │       CoalescePartitionsExec
+     :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=n, segments=2, dynamic_filters=1, query="all"
+     :   │         t1: PgSearchScan: table=n, segments=2, dynamic_filters=1, query="all"
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=2, partitions=4
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=m, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+     :     │     t1: PgSearchScan: table=m, segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+     :     └──────────────────────────────────────────────────
+(28 rows)
+
+SELECT m.id, m.a + n.b FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a * n.b > 3 ORDER BY m.id LIMIT 5;
+ id | ?column? 
+----+----------
+  4 |        5
+  5 |        6
+  6 |        7
+  7 |        8
+  8 |        9
+(5 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT m.grp, sum(m.a) FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a * n.b > 3 GROUP BY m.grp ORDER BY m.grp;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: m.grp
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: issue_6931_m_idx (m), issue_6931_n_idx (n)
+         Group By: grp
+         Multi-Table Filter: ((m.a * n.b) > 3)
+         Aggregates: SUM(a)
+         DataFusion Physical Plan: 
+           : ┌───── DistributedExec
+           : │ CoalescePartitionsExec
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : └──────────────────────────────────────────────────
+           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   │ AggregateExec: mode=FinalPartitioned, gby=[grp@0 as grp], aggr=[sum(m_0.a) as agg_0]
+           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   └──────────────────────────────────────────────────
+           :     ┌───── Stage 2 ── tasks=2, partitions=6
+           :     │ RepartitionExec: partitioning=Hash([grp@0], 6), input_partitions=1
+           :     │   AggregateExec: mode=Partial, gby=[grp@0 as grp], aggr=[sum(m_0.a) as agg_0]
+           :     │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, id@0)], filter=pdb_int_mul(CAST(a@0 AS Int32), CAST(b@1 AS Int32)) > 3, projection=[grp@0, a@1]
+           :     │       CoalescePartitionsExec
+           :     │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=2, input_tasks=2
+           :     │       DistributedLeafExec:
+           :     │         t0: PgSearchScan: table=n, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     │         t1: PgSearchScan: table=n, segments=2, dynamic_filters=1, visibility=eager, query="all"
+           :     └──────────────────────────────────────────────────
+           :       ┌───── Stage 1 ── tasks=2, partitions=4
+           :       │ BroadcastExec: input_partitions=1, consumer_tasks=2, output_partitions=2
+           :       │   DistributedLeafExec:
+           :       │     t0: PgSearchScan: table=m, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+           :       │     t1: PgSearchScan: table=m, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+           :       └──────────────────────────────────────────────────
+(33 rows)
+
+SELECT m.grp, sum(m.a) FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a * n.b > 3 GROUP BY m.grp ORDER BY m.grp;
+ grp |  sum  
+-----+-------
+   0 | 11220
+   1 | 11309
+   2 | 11395
+(3 rows)
+
+-- Aggregate Scan without workers: the filter is a Multi-Table Filter over pdb_int_mul
+SET max_parallel_workers_per_gather TO 0;
+EXPLAIN (COSTS OFF)
+SELECT m.grp, sum(m.a) FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a * n.b > 3 GROUP BY m.grp ORDER BY m.grp;
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: m.grp
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: issue_6931_m_idx (m), issue_6931_n_idx (n)
+         Group By: grp
+         Multi-Table Filter: ((m.a * n.b) > 3)
+         Aggregates: SUM(a)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[grp@0 as grp], aggr=[sum(m_0.a) as agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, id@0)], filter=pdb_int_mul(CAST(a@0 AS Int32), CAST(b@1 AS Int32)) > 3, projection=[grp@0, a@1]
+           :     CooperativeExec
+           :       PgSearchScan: table=m, segments=2, visibility=eager, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: table=n, segments=2, dynamic_filters=1, visibility=eager, query="all"
+(15 rows)
+
+SELECT m.grp, sum(m.a) FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a * n.b > 3 GROUP BY m.grp ORDER BY m.grp;
+ grp |  sum  
+-----+-------
+   0 | 11220
+   1 | 11309
+   2 | 11395
+(3 rows)
+
+-- Overflow under MPP still raises. The message is checked rather than the whole
+-- error, since MPP re-raises worker errors under a generic wrapper.
+SET paradedb.global_mutable_segment_rows TO 0;
+INSERT INTO issue_6931_m VALUES (261, 'x', 0, 2147483647);
+INSERT INTO issue_6931_n VALUES (261, 'y', 1);
+RESET paradedb.global_mutable_segment_rows;
+SET max_parallel_workers_per_gather TO 3;
+EXPLAIN (COSTS OFF)
+SELECT m.id FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.a + n.b > 3 ORDER BY m.id LIMIT 5;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Join Scan)
+   Relation Tree: m INNER n
+   Join Cond: n.id = m.id
+   Join Predicate: heap:((m.a + n.b) > 3)
+   Limit: 5
+   Order By: n.id asc
+   DataFusion Physical Plan: 
+     : ┌───── DistributedExec
+     : │ ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+     : │   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=5
+     : │     [Stage 2] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 2 ── tasks=3, partitions=3
+     :   │ SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
+     :   │   VisibilityFilterExec: tables=[m, n]
+     :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@1)], filter=pdb_int_add(CAST(a@0 AS Int32), CAST(b@1 AS Int32)) > 3, projection=[ctid_0@0, id@1, ctid_1@3, id@4]
+     :   │       CoalescePartitionsExec
+     :   │         [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=3, input_tasks=3
+     :   │       DistributedLeafExec:
+     :   │         t0: PgSearchScan: table=n, segments=3, dynamic_filters=1, query="all"
+     :   │         t1: PgSearchScan: table=n, segments=3, dynamic_filters=1, query="all"
+     :   │         t2: PgSearchScan: table=n, segments=3, dynamic_filters=1, query="all"
+     :   └──────────────────────────────────────────────────
+     :     ┌───── Stage 1 ── tasks=3, partitions=9
+     :     │ BroadcastExec: input_partitions=1, consumer_tasks=3, output_partitions=3
+     :     │   DistributedLeafExec:
+     :     │     t0: PgSearchScan: table=m, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+     :     │     t1: PgSearchScan: table=m, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+     :     │     t2: PgSearchScan: table=m, segments=3, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"x","lenient":null,"conjunction_mode":null}}}}
+     :     └──────────────────────────────────────────────────
+(30 rows)
+
+DO $$
+DECLARE
+    raised text;
+BEGIN
+    BEGIN
+        PERFORM m.id FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+        WHERE m.body @@@ 'x' AND m.a + n.b > 3 ORDER BY m.id LIMIT 5;
+    EXCEPTION WHEN OTHERS THEN
+        raised := SQLERRM;
+    END;
+    IF raised IS NULL OR raised NOT LIKE '%integer out of range%' THEN
+        RAISE EXCEPTION 'expected integer out of range, got %', raised;
+    END IF;
+END $$;
+-- Parity with PostgreSQL
+SET paradedb.enable_aggregate_custom_scan TO off;
+SET paradedb.enable_join_custom_scan TO off;
+SET max_parallel_workers_per_gather TO 0;
+SELECT m.grp, sum(m.a) FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.id < 261 AND m.a * n.b > 3 GROUP BY m.grp ORDER BY m.grp;
+ grp |  sum  
+-----+-------
+   0 | 11220
+   1 | 11309
+   2 | 11395
+(3 rows)
+
+SELECT m.id, m.a + n.b FROM issue_6931_m m JOIN issue_6931_n n ON n.id = m.id
+WHERE m.body @@@ 'x' AND m.id < 261 AND m.a * n.b > 3 ORDER BY m.id LIMIT 5;
+ id | ?column? 
+----+----------
+  4 |        5
+  5 |        6
+  6 |        7
+  7 |        8
+  8 |        9
+(5 rows)
+
+RESET paradedb.mpp_min_rows;
+RESET max_parallel_workers;
+RESET max_parallel_workers_per_gather;
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET paradedb.enable_aggregate_custom_scan;
 RESET paradedb.enable_join_custom_scan;
 DROP TABLE issue_6931_i;
 DROP TABLE issue_6931_e;
@@ -343,3 +712,5 @@ DROP TABLE issue_6931_l;
 DROP TABLE issue_6931_r;
 DROP TABLE issue_6931_d;
 DROP TABLE issue_6931_f;
+DROP TABLE issue_6931_m;
+DROP TABLE issue_6931_n;

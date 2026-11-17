@@ -7,11 +7,11 @@ noindex: true
 
 See GitHub release: [v0.25.10](https://github.com/paradedb/paradedb/releases/tag/v0.25.10)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Top-K searches over a common phrase, or over a regex combined with another filter, plan parallel workers again. Their estimated scan cost collapsed to near zero, so the planner read them as cheap enough for a single core.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed the join scan dropping rows after a HOT update and a `VACUUM`. The index keeps the HOT root, `VACUUM` prunes that root into a redirect line pointer, and the scan's final heap fetch stopped at the redirect instead of following the chain to the visible row ([#6375](https://github.com/paradedb/paradedb/issues/6375)).
 

@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.25.3](https://github.com/paradedb/paradedb/releases/tag/v0.25.3)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Aggregates over `NUMERIC` columns are now pushed down into the ParadeDB index.
 - Queries containing `Param` and `SubPlan` expressions are now solved on the leader before MPP dispatch, so more
@@ -14,13 +14,13 @@ See GitHub release: [v0.25.3](https://github.com/paradedb/paradedb/releases/tag/
 - `EXPLAIN (ANALYZE, VERBOSE)` now attributes vector search buffer hits and reads to cluster routing versus
   cluster probing.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Faster counts for unfiltered and single-term-filter queries.
 - Cardinality aggregations over string fields now defer visibility checks, speeding up aggregations over
   fully-visible segments.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed dropped `pdb.agg` filters, and improved the warnings emitted when an aggregate cannot be pushed down.
 - Unsortable `top_hits.sort` fields are now rejected at plan time instead of failing during execution.
@@ -29,6 +29,6 @@ See GitHub release: [v0.25.3](https://github.com/paradedb/paradedb/releases/tag/
 - The final index build merge now runs even when the last insert flushed at the document cap.
 - Prebuilt binaries are now published for macOS 26 (Tahoe). macOS 14 (Sonoma) binaries are no longer published.
 
-## New Contributors 👋
+## New Contributors 👋 {#new-contributors}
 
 - [**nshah067**](https://github.com/nshah067)

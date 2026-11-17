@@ -6,19 +6,19 @@ noindex: true
 
 See GitHub release: [v0.24.2](https://github.com/paradedb/paradedb/releases/tag/v0.24.2)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Expose index build time via `pdb.index_created_at()`.
 - Add `nfkc` and `reading_form` options to the Lindera tokenizer.
 - Add `minimum_should_match` parameter to paradedb.boolean().
 - The Docker image will automatically choose sensible defaults for CPU and memory on first use.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Allow `ORDER BY` score Top-K queries to get the Block-Max WAND optimization in the presence of trailing tiebreaker columns.
 - Significantly reduce the size of `unicode_words` indexes by improving the density of positions.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Gate use of the aggregate and join scans on the presence of a partial index predicate.
 - Fix an issue with heap filters representing constants in the aggregate scan.

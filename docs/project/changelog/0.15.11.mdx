@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.15.11](https://github.com/paradedb/paradedb/releases/tag/v0.15.11)
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 We uncovered and fixed a bug where segment merging could silently fail on every transaction. This caused the segment count to grow
 unbounded, which degraded search performance and ballooned the index size. In ParadeDB Enterprise, it also interfered with logical replication, causing

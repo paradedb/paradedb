@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.26.5](https://github.com/paradedb/paradedb/releases/tag/v0.26.5)
 
-## Breaking Changes 🚨
+## Breaking Changes 🚨 {#breaking-changes}
 
 ### Standalone index access permissions
 
@@ -34,11 +34,11 @@ including `vector_config()`, and content reads and verification retain the stric
 and later, including privileges inherited from `pg_maintain`. Table owners qualify
 implicitly. PostgreSQL 15 and 16 require ownership of the backing table.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - High-cardinality `GROUP BY` queries on the Aggregate Scan run faster: grouped results are turned into rows in one pass instead of re-searching the bucket tree for every row.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - `pdb.verify_index(..., heapallindexed => true)` and `pdb.verify_all_indexes()` lock each table before its index, including partition leaves, avoiding deadlocks with concurrent `REINDEX` or `VACUUM FULL`.
 

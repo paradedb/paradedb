@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.26.3](https://github.com/paradedb/paradedb/releases/tag/v0.26.3)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Emit a once-per-query warning when a scan encounters a significantly stale visibility map (at least `paradedb.visibility_map_warning_threshold` non-all-visible heap blocks across the table and at least 50% of scanned blocks not all-visible), with guidance on running `VACUUM` and tuning autovacuum.
 
@@ -14,7 +14,7 @@ See GitHub release: [v0.26.3](https://github.com/paradedb/paradedb/releases/tag/
 
 - Join Scan no longer declines queries whose `SELECT` list contains a volatile function, such as `random()`. Postgres now computes these expressions from the rows Join Scan returns, once per output row after the `LIMIT`, as it does in its own plans. An `ORDER BY` on a volatile expression still declines Join Scan.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Aggregate Scan pushes every `ORDER BY` key of a `GROUP BY ... LIMIT` query into the DataFusion TopK, joins included, and declares the ordering to Postgres so no `Sort` sits above the scan. Only a single key was pushed before.
 
@@ -22,7 +22,7 @@ See GitHub release: [v0.26.3](https://github.com/paradedb/paradedb/releases/tag/
 
 - Prune index segments using per-segment min/max field statistics across all columnar fields (not only `partition_by` columns) before plan-time estimation and scan execution, and report `Included` and `Pruned` segment counts under `Segments` in `EXPLAIN ANALYZE`.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed Join Scan queries that project an expression over an indexed `DATE`, `TIME`, or `TIMETZ` column, such as `d::text` or `to_char(d, 'YYYY-MM-DD')`. A `DATE` expression failed at planning time with `coercion from Timestamp(µs) to the signature Exact(Date32) failed`, and a `TIME` or `TIMETZ` expression failed at execution time with `Unsupported OID for Utf8 Arrow type` (#6577).
 

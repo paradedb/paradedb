@@ -6,12 +6,12 @@ noindex: true
 
 See GitHub release: [v0.15.13](https://github.com/paradedb/paradedb/releases/tag/v0.15.13)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Improved `paradedb.force_merge` to consume less memory and disk I/O by merging segments serially instead of in parallel, and to
   recycle segments as they're being merged.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Metadata functions like `paradedb.index_info` now work over partitioned tables.
 - Granted `SELECT` permissions to `PUBLIC` to `paradedb.index_layer_info`

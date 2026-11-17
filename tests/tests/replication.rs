@@ -19,7 +19,7 @@ use anyhow::Result;
 use cmd_lib::{run_cmd, run_fun};
 use dotenvy::dotenv;
 use rstest::*;
-use sqlx::{Connection, Executor, PgConnection};
+use sqlx::{AssertSqlSafe, Connection, Executor, PgConnection};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -1064,6 +1064,140 @@ async fn test_ephemeral_mutable_backpressure_preserves_immutable_segments() -> R
         passed == Some(true),
         "verify_index failed after backpressure"
     );
+    Ok(())
+}
+
+#[rstest]
+#[case::backpressure("0", "20kb,100mb")]
+#[case::configured_foreground("1kb,10kb,100kb", "0")]
+#[async_std::test]
+async fn test_logical_replication_preserves_immutable_segments(
+    #[case] foreground_layers: &str,
+    #[case] background_layers: &str,
+) -> Result<()> {
+    const INITIAL_SEGMENTS: i64 = 12;
+    const IMMUTABLE_INSERTS: i64 = 4;
+    const MUTABLE_INSERTS: i64 = 8;
+    const MAX_UNMERGED_MUTABLE_SEGMENTS: i64 = 2;
+    // The two launchers and apply worker occupy every slot, preventing background merges.
+    let config = "
+        shared_preload_libraries = 'pg_search'
+        wal_level = logical
+        max_worker_processes = 3
+        max_logical_replication_workers = 1
+        paradedb.mutable_sweep_interval = 0
+        autovacuum = off
+    ";
+    let source = EphemeralPostgres::new(Some(config), None);
+    let target = EphemeralPostgres::new(Some(config), None);
+    let mut source_conn = source.connection().await?;
+    let mut target_conn = target.connection().await?;
+    let version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+        .fetch_one(&mut target_conn)
+        .await?;
+    if version < 170000 {
+        return Ok(());
+    }
+
+    source_conn
+        .execute(
+            "CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
+             CREATE PUBLICATION backpressure_pub FOR TABLE backpressure",
+        )
+        .await?;
+    target_conn
+        .execute(
+            "CREATE EXTENSION pg_search CASCADE;
+             CREATE TABLE backpressure (id bigint PRIMARY KEY, body text);
+             CREATE INDEX backpressure_idx ON backpressure USING paradedb (id, body)
+             WITH (target_segment_count=2, mutable_segment_rows=0,
+                   layer_sizes='0', background_layer_sizes='0')",
+        )
+        .await?;
+    for id in 0..INITIAL_SEGMENTS {
+        sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+            .bind(id)
+            .execute(&mut target_conn)
+            .await?;
+    }
+    let immutable =
+        "SELECT segno FROM paradedb.index_info('backpressure_idx') WHERE NOT mutable AND visible";
+    let mut immutable_segments: Vec<String> = sqlx::query_scalar(immutable)
+        .fetch_all(&mut target_conn)
+        .await?;
+    assert_eq!(immutable_segments.len(), INITIAL_SEGMENTS as usize);
+    target_conn
+        .execute(AssertSqlSafe(format!(
+            "ALTER INDEX backpressure_idx SET
+             (layer_sizes='{foreground_layers}', background_layer_sizes='{background_layers}')"
+        )))
+        .await?;
+    target_conn
+        .execute(AssertSqlSafe(format!(
+            "CREATE SUBSCRIPTION backpressure_sub
+             CONNECTION 'host={} port={} dbname={} user={SUPERUSER}'
+             PUBLICATION backpressure_pub WITH (copy_data=false)",
+            source.host, source.port, source.dbname
+        )))
+        .await?;
+
+    let mut next_id = INITIAL_SEGMENTS;
+    for (mutable_segment_rows, inserts) in [(0, IMMUTABLE_INSERTS), (1, MUTABLE_INSERTS)] {
+        target_conn
+            .execute(AssertSqlSafe(format!(
+                "ALTER INDEX backpressure_idx SET (mutable_segment_rows={mutable_segment_rows})"
+            )))
+            .await?;
+        for _ in 0..inserts {
+            sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+                .bind(next_id)
+                .execute(&mut source_conn)
+                .await?;
+            next_id += 1;
+            let _: Vec<(bool,)> =
+                format!("SELECT count(*) = {next_id} FROM backpressure WHERE id @@@ pdb.all()")
+                    .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |rows| rows[0].0);
+        }
+        let remaining: Vec<String> = sqlx::query_scalar(immutable)
+            .fetch_all(&mut target_conn)
+            .await?;
+        assert!(
+            immutable_segments.iter().all(|id| remaining.contains(id)),
+            "logical apply worker merged immutable segments"
+        );
+        if mutable_segment_rows == 0 {
+            assert_eq!(remaining.len() as i64, next_id);
+        }
+        immutable_segments = remaining;
+    }
+    let mutable: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE mutable AND visible",
+    )
+    .fetch_one(&mut target_conn)
+    .await?;
+    assert!(mutable > 0 && mutable <= MAX_UNMERGED_MUTABLE_SEGMENTS);
+
+    target_conn
+        .execute("ALTER INDEX backpressure_idx SET (mutable_segment_rows=0)")
+        .await?;
+    let segments = "SELECT count(*) FROM paradedb.index_info('backpressure_idx') WHERE visible";
+    let before: i64 = sqlx::query_scalar(segments)
+        .fetch_one(&mut target_conn)
+        .await?;
+    sqlx::query("INSERT INTO backpressure VALUES ($1, 'beer wine cheese')")
+        .bind(next_id)
+        .execute(&mut target_conn)
+        .await?;
+    let after: i64 = sqlx::query_scalar(segments)
+        .fetch_one(&mut target_conn)
+        .await?;
+    assert!(after < before + 1, "normal backend did not merge segments");
+    let passed: Option<bool> = sqlx::query_scalar(
+        "SELECT bool_and(passed) FROM pdb.verify_index('backpressure_idx', heapallindexed => true)",
+    )
+    .fetch_one(&mut target_conn)
+    .await?;
+    assert_eq!(passed, Some(true));
     Ok(())
 }
 

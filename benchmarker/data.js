@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794927615861,
+  "lastUpdate": 1794935847914,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -96418,6 +96418,299 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14286984462-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794935842211,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 33.545,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 45.135,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 53.945,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 36.017,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 46.89,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 55.743,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 59.098,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 70.725,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 76.477,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 13.235,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 17.211,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 19.111,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 21.145,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 27.039,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 28.58,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 65.906,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 84.263,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 94.428,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 19.887,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 24.586,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 25.17,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 26.818,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 31.186,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 31.734,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 59.137,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 64.022,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 65.432,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.235,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.273,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.324,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.236,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.272,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.322,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.237,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.274,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.329,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 10.677,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 10.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 11.721,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 10.672,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 10.894,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 11.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 10.676,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 10.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 11.721,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 19.742,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 22.153,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 22.512,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 32.802,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 35.6,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 36.609,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 62.19,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 65.833,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 66.837,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14352640183-latency"
       }
     ],
     "benchmarker hackernews-vector-28m (throughput)": [
@@ -96985,6 +97278,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14286984462-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794935844215,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 28.296574496465798,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 26.79910418505002,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 16.775939518041387,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 73.90399768134161,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 47.0486651391852,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 14.877208164490575,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 51.25405419261068,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 38.370411203402426,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 17.24257362715289,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 306.21662279136916,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 306.1219237575652,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 305.9816013242801,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 93.04767916795299,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 93.08181132076062,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 93.0328566830603,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 51.00219714673777,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 30.52129229579155,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 16.106517162716496,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14352640183-throughput"
       }
     ],
     "benchmarker hackernews-vector-28m (buffers)": [
@@ -97552,6 +97958,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14286984462-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794935846116,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 20333.18,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 24613.98,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 41902.05,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 6496.08,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 9924.13,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 25219.14,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 11208.24,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 14658.49,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 29859.21,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1346.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1346.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1346.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 7554.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 7554.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7554.71,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 9454.42,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 17128.97,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 33215.43,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14352640183-buffers"
       }
     ],
     "benchmarker hackernews-vector-28m (index build)": [
@@ -97744,6 +98263,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14286984462-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794935847901,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 40.57326832215001,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162539.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 20.542217254638672,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14352640183-index"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch (latency)": [

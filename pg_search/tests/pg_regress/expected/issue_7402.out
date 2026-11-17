@@ -1,0 +1,75 @@
+-- `@@@` classifies a `pdb.query` value that the planner can't fold, such as a subquery or a
+-- parameter of a generic plan, the same way as a constant.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS issue_7402_products;
+CREATE TABLE issue_7402_products (id int PRIMARY KEY, description text);
+INSERT INTO issue_7402_products VALUES
+    (1, 'leather sofa'),
+    (2, 'soda can'),
+    (3, 'oak table');
+CREATE INDEX issue_7402_idx ON issue_7402_products USING bm25 (id, description);
+-- The constant gives the rows that the other forms have to give.
+SELECT id FROM issue_7402_products WHERE description @@@ 'sofa'::pdb.fuzzy(1) ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM issue_7402_products
+WHERE description @@@ (SELECT 'sofa'::pdb.fuzzy(1)::pdb.query);
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.issue_7402_products
+   Output: issue_7402_products.id
+   Table: issue_7402_products
+   Index: issue_7402_idx
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_7402_idx'::regclass, paradedb.to_search_query_input('description'::paradedb.fieldname, $1))"}}}
+   InitPlan 1
+     ->  Result
+           Output: '{"unclassified_string":{"string":"sofa","fuzzy_data":{"distance":1,"prefix":false,"transposition_cost_one":false}}}'::pdb.query
+(12 rows)
+
+SELECT id FROM issue_7402_products
+WHERE description @@@ (SELECT 'sofa'::pdb.fuzzy(1)::pdb.query) ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+PREPARE issue_7402(pdb.query) AS
+SELECT id FROM issue_7402_products WHERE description @@@ $1 ORDER BY id;
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE issue_7402('sofa'::pdb.fuzzy(1)::pdb.query);
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id
+   Sort Key: issue_7402_products.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.issue_7402_products
+         Output: id
+         Table: issue_7402_products
+         Index: issue_7402_idx
+         Worker Selection: Row-capped
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('issue_7402_idx'::regclass, paradedb.to_search_query_input('description'::paradedb.fieldname, $1))"}}}
+(12 rows)
+
+EXECUTE issue_7402('sofa'::pdb.fuzzy(1)::pdb.query);
+ id 
+----
+  1
+  2
+(2 rows)
+
+RESET plan_cache_mode;
+DEALLOCATE issue_7402;
+DROP TABLE issue_7402_products;

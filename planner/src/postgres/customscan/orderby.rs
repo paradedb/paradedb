@@ -35,6 +35,7 @@ use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::collation_semantics::{CollationOperation, collation_supports};
 use crate::postgres::customscan::node::CustomScanNodeExt;
+use crate::postgres::customscan::range_table;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::index::is_partitioned_index;
 use crate::postgres::rel::PgSearchRelation;
@@ -714,16 +715,9 @@ pub fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 return false;
             }
 
-            // The parent of an inheritance tree is also read by one scan per table. The
-            // parser sets `inh` on each table named without `ONLY`, so also check that the
-            // table has children.
+            // The parent of an inheritance tree is also read by one scan per table.
             let rte = unsafe { pg_sys::rt_fetch(varno, (*parse).rtable) };
-            let is_inheritance_parent = unsafe {
-                (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION
-                    && (*rte).inh
-                    && pg_sys::has_subclass(relid)
-            };
-            if is_inheritance_parent {
+            if unsafe { range_table::is_inheritance_parent(rte) } {
                 return false;
             }
 

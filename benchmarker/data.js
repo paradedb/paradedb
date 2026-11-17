@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794919346739,
+  "lastUpdate": 1794919376806,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -88199,6 +88199,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14223226507-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794919375530,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) p50 latency",
+            "value": 0.614,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p95 latency",
+            "value": 0.674,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop) p99 latency",
+            "value": 73.582,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p50 latency",
+            "value": 0.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p95 latency",
+            "value": 0.621,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (closed_loop_single) p99 latency",
+            "value": 73.535,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p50 latency",
+            "value": 0.632,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p95 latency",
+            "value": 0.888,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (open_loop) p99 latency",
+            "value": 2.263,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14324918642-latency"
       }
     ],
     "benchmarker hackernews (throughput)": [
@@ -88695,6 +88763,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14223226507-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794919376793,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (closed_loop) QPS",
+            "value": 6864.735118701802,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (closed_loop_single) QPS",
+            "value": 7364.32835086877,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (open_loop) QPS",
+            "value": 50.030563511646555,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14324918642-throughput"
       }
     ],
     "benchmarker msmarco-113m (latency)": [

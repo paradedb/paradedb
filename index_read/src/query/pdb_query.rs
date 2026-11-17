@@ -20,7 +20,7 @@ use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
 use crate::gucs;
 use crate::index::synonym_index::{
-    expand_with_index, expand_with_rules, open_synonym_index, rule_tokenizer,
+    expand_each_with_index, expand_each_with_rules, open_synonym_index, rule_tokenizer,
 };
 use crate::postgres::catalog::OidExt;
 use crate::postgres::datetime::PostgresDateTime;
@@ -287,6 +287,9 @@ pub mod pdb {
             conjunction_mode: Option<bool>,
             #[serde(skip_serializing_if = "Option::is_none")]
             fuzzy_data: Option<FuzzyData>,
+            /// The rules that expand the terms and phrases of `query_string`.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            synonyms: Option<SynonymRules>,
         },
         Phrase {
             phrases: Vec<String>,
@@ -654,15 +657,18 @@ impl pdb::Query {
                 lenient,
                 conjunction_mode,
                 fuzzy_data,
+                synonyms,
             } => parse_with_field(
                 &field,
                 parser,
                 schema,
                 index_created_by_version,
+                searcher,
                 query_string,
                 lenient,
                 conjunction_mode,
                 fuzzy_data,
+                synonyms,
             )?,
 
             pdb::Query::Phrase { phrases, slop } => Box::new(phrase(
@@ -1950,16 +1956,17 @@ fn tokenized_phrase(
         return Ok(Box::new(EmptyQuery));
     }
 
+    let offsets: Vec<usize> = (0..tokens.len()).collect();
     let variants = match synonyms {
         Some(rules) => {
             let expansions =
                 expand_tokens(&rules, &search_field, schema, None, &mut analyzer, &tokens)?;
-            phrase_variants(&expansions)
+            phrase_variants(&offsets, &expansions)
         }
-        None => vec![tokens],
+        None => vec![offsets.into_iter().zip(tokens).collect()],
     };
     let path = field.path();
-    let term = |token: String| {
+    phrases_query(variants, slop.unwrap_or(0), |token| {
         value_to_term(
             search_field.field(),
             &PdbOwnedValue::Str(token),
@@ -1967,29 +1974,44 @@ fn tokenized_phrase(
             path.as_deref(),
             index_created_by_version,
         )
-    };
+    })
+}
+
+/// The query of the phrases that one typed phrase expands to, each a list of tokens with their
+/// offsets.
+fn phrases_query(
+    variants: Vec<Vec<(usize, String)>>,
+    slop: u32,
+    term: impl Fn(String) -> anyhow::Result<Term>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let mut variants = variants
         .into_iter()
-        .map(|variant| variant.into_iter().map(term).collect())
-        .collect::<anyhow::Result<Vec<Vec<Term>>>>()?;
-
-    let variant_query = |mut terms: Vec<Term>| -> Box<dyn TantivyQuery> {
+        .map(|variant| {
+            variant
+                .into_iter()
+                .map(|(offset, token)| Ok((offset, term(token)?)))
+                .collect()
+        })
+        .collect::<anyhow::Result<Vec<Vec<(usize, Term)>>>>()?;
+    let variant_query = |mut terms: Vec<(usize, Term)>| -> Box<dyn TantivyQuery> {
         if terms.len() == 1 {
             return Box::new(TermQuery::new(
-                terms.remove(0),
+                terms.remove(0).1,
                 IndexRecordOption::WithFreqs.into(),
             ));
         }
-        let mut query = PhraseQuery::new(terms);
-        query.set_slop(slop.unwrap_or(0));
-        Box::new(query)
+        Box::new(PhraseQuery::new_with_offset_and_slop(terms, slop))
     };
     Ok(match variants.len() {
         1 => variant_query(variants.remove(0)),
         // A match scores the alternatives of one word as one term, and so does a phrase of one word.
-        _ if variants.iter().all(|terms| terms.len() == 1) => {
-            Box::new(SynonymQuery::new(variants.into_iter().flatten().collect()))
-        }
+        _ if variants.iter().all(|terms| terms.len() == 1) => Box::new(SynonymQuery::new(
+            variants
+                .into_iter()
+                .flatten()
+                .map(|(_, term)| term)
+                .collect(),
+        )),
         _ => Box::new(DisjunctionMaxQuery::new(
             variants.into_iter().map(variant_query).collect(),
         )),
@@ -1998,10 +2020,16 @@ fn tokenized_phrase(
 
 /// One phrase for each choice of an alternative for every run, since a `PhraseQuery` has one term
 /// at a position. The choices multiply, so `synonyms_max_alternatives` caps the phrases too.
-fn phrase_variants(expansions: &[Expansion]) -> Vec<Vec<String>> {
+fn phrase_variants(offsets: &[usize], expansions: &[Expansion]) -> Vec<Vec<(usize, String)>> {
     let max_variants = gucs::synonyms_max_alternatives();
-    let mut variants = vec![Vec::new()];
+    // An alternative can have more or fewer tokens than its run, so each phrase has its own shift
+    // of the offsets that come after.
+    let mut variants: Vec<(Vec<(usize, String)>, isize)> = vec![(Vec::new(), 0)];
+    let mut next_typed = 0;
     for expansion in expansions {
+        let run = &offsets[next_typed..next_typed + expansion.tokens.len()];
+        next_typed += expansion.tokens.len();
+        let width = (run[run.len() - 1] - run[0] + 1) as isize;
         let mut alternatives: Vec<&Vec<String>> = match &expansion.alternatives {
             Some(alternatives) => alternatives.iter().collect(),
             None => vec![&expansion.tokens],
@@ -2010,15 +2038,28 @@ fn phrase_variants(expansions: &[Expansion]) -> Vec<Vec<String>> {
         alternatives.sort_by_key(|alternative| **alternative != expansion.tokens);
         variants = variants
             .iter()
-            .flat_map(|variant| {
-                alternatives
-                    .iter()
-                    .map(move |alternative| [variant.as_slice(), alternative.as_slice()].concat())
+            .flat_map(|(phrase, shift)| {
+                alternatives.iter().map(move |alternative| {
+                    // The typed tokens keep their own offsets, with the gaps of removed tokens.
+                    let typed = **alternative == expansion.tokens;
+                    let start = run[0] as isize + shift;
+                    let mut phrase = phrase.clone();
+                    phrase.extend(alternative.iter().enumerate().map(|(i, token)| {
+                        let offset = if typed { run[i] - run[0] } else { i };
+                        ((start + offset as isize) as usize, token.clone())
+                    }));
+                    let alternative_width = if typed {
+                        width
+                    } else {
+                        alternative.len() as isize
+                    };
+                    (phrase, shift + alternative_width - width)
+                })
             })
             .take(max_variants)
             .collect();
     }
-    variants
+    variants.into_iter().map(|(phrase, _)| phrase).collect()
 }
 
 fn phrase_prefix(
@@ -2189,15 +2230,24 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     parser: &QueryParserCtor,
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
+    searcher: &Searcher,
     query_string: String,
     lenient: Option<bool>,
     conjunction_mode: Option<bool>,
     fuzzy_data: Option<FuzzyData>,
+    synonyms: Option<pdb::SynonymRules>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field)
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_type();
+
+    // A rule holds words, so it applies only to a field that has a tokenizer.
+    if synonyms.is_some() && query_tokenizer(&search_field, None).is_none() {
+        anyhow::bail!(
+            "`pdb.expand` needs a text field on the left side of `@@@`, and `{field}` is not one"
+        );
+    }
 
     // Handle Numeric64 and NumericBytes fields specially
     // Tantivy's QueryParser can't parse decimal strings directly for these types
@@ -2247,7 +2297,10 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     }
     let tantivy_field = search_field.field();
 
-    if let Some(fuzzy_data) = fuzzy_data {
+    // With rules, only a typed word is fuzzy, so `expand_parsed_query` makes the fuzzy terms.
+    if let Some(fuzzy_data) = &fuzzy_data
+        && synonyms.is_none()
+    {
         parser.set_field_fuzzy(
             tantivy_field,
             fuzzy_data.prefix,
@@ -2258,13 +2311,202 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
 
     let query_string = format!("{field}:({query_string})");
     let lenient = lenient.unwrap_or(false);
-    parse_tantivy_query(
+    let query = parse_tantivy_query(
         &mut parser,
         &query_string,
         lenient,
         schema,
         index_created_by_version,
-    )
+    )?;
+    match synonyms {
+        Some(rules) => expand_parsed_query(
+            query,
+            field,
+            &search_field,
+            searcher,
+            index_created_by_version,
+            &rules,
+            fuzzy_data,
+        ),
+        None => Ok(query),
+    }
+}
+
+/// The tokens of a term or a phrase that the query parser built.
+struct ParsedLeaf {
+    offsets: Vec<usize>,
+    tokens: Vec<String>,
+    slop: u32,
+}
+
+/// Expands the terms and the phrases of `query`, which the query parser built for `field`. The
+/// parser analyzes the text, and a rule holds analyzed tokens, so the rules apply after it.
+fn expand_parsed_query(
+    query: Box<dyn TantivyQuery>,
+    field: &FieldName,
+    search_field: &SearchField,
+    searcher: &Searcher,
+    index_created_by_version: Option<Version>,
+    rules: &pdb::SynonymRules,
+    fuzzy_data: Option<FuzzyData>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    // A text term of the field is the term of the empty text, and then the text.
+    let text_prefix = value_to_term(
+        search_field.field(),
+        &PdbOwnedValue::Str(String::new()),
+        search_field.field_entry().field_type(),
+        field.path().as_deref(),
+        index_created_by_version,
+    )?;
+    let token_of = |term: &Term| -> Option<String> {
+        if term.field() != text_prefix.field() {
+            return None;
+        }
+        let text = term
+            .serialized_value_bytes()
+            .strip_prefix(text_prefix.serialized_value_bytes())?;
+        std::str::from_utf8(text).ok().map(str::to_owned)
+    };
+    let term_of = |token: &str| {
+        let mut term = text_prefix.clone();
+        term.append_bytes(token.as_bytes());
+        term
+    };
+
+    let mut leaves = Vec::new();
+    collect_leaves(query.as_ref(), &mut leaves);
+    let parsed: Vec<Option<ParsedLeaf>> = leaves
+        .iter()
+        .map(|leaf| {
+            if let Some(term) = leaf.downcast_ref::<TermQuery>() {
+                return Some(ParsedLeaf {
+                    offsets: vec![0],
+                    tokens: vec![token_of(term.term())?],
+                    slop: 0,
+                });
+            }
+            let phrase = leaf.downcast_ref::<PhraseQuery>()?;
+            let (offsets, tokens) = phrase
+                .phrase_terms_with_offsets()
+                .iter()
+                .map(|(offset, term)| Some((*offset, token_of(term)?)))
+                .collect::<Option<_>>()?;
+            Some(ParsedLeaf {
+                offsets,
+                tokens,
+                slop: phrase.slop(),
+            })
+        })
+        .collect();
+
+    // The parser takes the tokenizer of the field from the Tantivy schema, so a `search_tokenizer`
+    // does not apply to it.
+    let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let token_lists: Vec<&[String]> = parsed
+        .iter()
+        .flatten()
+        .map(|leaf| leaf.tokens.as_slice())
+        .collect();
+    let mut expansions = expand_token_lists(
+        rules,
+        search_field,
+        query_tokenizer(search_field, None),
+        &mut analyzer,
+        &token_lists,
+    )?
+    .into_iter();
+
+    let fuzzy = |term: Term| -> Option<Box<dyn TantivyQuery>> {
+        let fuzzy_data = fuzzy_data.as_ref()?;
+        let (distance, transposition_cost_one) =
+            (fuzzy_data.distance, fuzzy_data.transposition_cost_one);
+        Some(if fuzzy_data.prefix {
+            Box::new(FuzzyTermQuery::new_prefix(
+                term,
+                distance,
+                transposition_cost_one,
+            ))
+        } else {
+            Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
+        })
+    };
+    let replacements = leaves
+        .iter()
+        .zip(&parsed)
+        .map(|(leaf, parsed)| {
+            let Some(parsed) = parsed else {
+                // The parser makes every term of a fuzzy field fuzzy, also one that is not text.
+                return Ok(leaf
+                    .downcast_ref::<TermQuery>()
+                    .filter(|term| term.term().field() == text_prefix.field())
+                    .and_then(|term| fuzzy(term.term().clone())));
+            };
+            let expansions = expansions
+                .next()
+                .expect("each parsed leaf should have its expansions");
+            if leaf.is::<TermQuery>() && fuzzy_data.is_some() {
+                let typed = |token: &str| -> Box<dyn TantivyQuery> {
+                    fuzzy(term_of(token)).expect("the query should be fuzzy")
+                };
+                return Ok(Some(fuzzy_expansion_query(&expansions[0], typed, term_of)?));
+            }
+            if expansions
+                .iter()
+                .all(|expansion| expansion.alternatives.is_none())
+            {
+                return Ok(None);
+            }
+            let variants = phrase_variants(&parsed.offsets, &expansions);
+            phrases_query(variants, parsed.slop, |token| Ok(term_of(&token))).map(Some)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if replacements.iter().all(Option::is_none) {
+        return Ok(query);
+    }
+    Ok(replace_leaves(
+        query.as_ref(),
+        &mut replacements.into_iter(),
+    ))
+}
+
+/// The leaves of a parsed query, in the order of the query string. The parser joins its terms
+/// and phrases with `BooleanQuery` and `BoostQuery` only.
+fn collect_leaves<'a>(query: &'a dyn TantivyQuery, leaves: &mut Vec<&'a dyn TantivyQuery>) {
+    if let Some(boolean) = query.downcast_ref::<BooleanQuery>() {
+        for (_, clause) in boolean.clauses() {
+            collect_leaves(clause.as_ref(), leaves);
+        }
+    } else if let Some(boost) = query.downcast_ref::<BoostQuery>() {
+        collect_leaves(boost.query().as_ref(), leaves);
+    } else {
+        leaves.push(query);
+    }
+}
+
+/// `query` with its leaves replaced. `replacements` has one entry for each leaf, in the order of
+/// `collect_leaves`, and `None` keeps the leaf.
+fn replace_leaves(
+    query: &dyn TantivyQuery,
+    replacements: &mut impl Iterator<Item = Option<Box<dyn TantivyQuery>>>,
+) -> Box<dyn TantivyQuery> {
+    if let Some(boolean) = query.downcast_ref::<BooleanQuery>() {
+        let clauses = boolean
+            .clauses()
+            .iter()
+            .map(|(occur, clause)| (*occur, replace_leaves(clause.as_ref(), replacements)))
+            .collect();
+        let mut replaced = BooleanQuery::new(clauses);
+        replaced.set_minimum_number_should_match(boolean.get_minimum_number_should_match());
+        Box::new(replaced)
+    } else if let Some(boost) = query.downcast_ref::<BoostQuery>() {
+        let replaced = replace_leaves(boost.query().as_ref(), replacements);
+        Box::new(BoostQuery::new(replaced, boost.boost()))
+    } else {
+        replacements
+            .next()
+            .flatten()
+            .unwrap_or_else(|| query.box_clone())
+    }
 }
 
 /// Clauses destined for a [`BooleanQuery`].
@@ -2419,14 +2661,16 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
 }
 
 /// Whether `rules` turn `value` into a group of alternatives. The planner has no searcher, so the
-/// tokens come from the tokenizer in the index options.
-pub(crate) fn match_expands_with_synonyms(
+/// tokens come from the tokenizer in the index options. `parsed` is for a query parser string.
+pub(crate) fn expands_with_synonyms(
     search_field: &SearchField,
     schema: &SearchIndexSchema,
     value: &str,
     rules: &pdb::SynonymRules,
+    parsed: bool,
 ) -> bool {
-    let Some(mut analyzer) = query_tokenizer(search_field, schema)
+    let query_tokenizer = query_tokenizer(search_field, (!parsed).then_some(schema));
+    let Some(mut analyzer) = query_tokenizer
         .as_ref()
         .and_then(SearchTokenizer::to_tantivy_tokenizer)
     else {
@@ -2440,10 +2684,17 @@ pub(crate) fn match_expands_with_synonyms(
         }
     }
     // The selectivity estimate builds the same query first, so it has already raised any error.
-    let expansions = expand_tokens(rules, search_field, schema, None, &mut analyzer, &tokens);
+    let expansions = expand_token_lists(
+        rules,
+        search_field,
+        query_tokenizer,
+        &mut analyzer,
+        &[&tokens],
+    );
     expansions.is_ok_and(|expansions| {
         expansions
             .iter()
+            .flatten()
             .any(|expansion| !expansion.is_single_term())
     })
 }
@@ -2458,21 +2709,42 @@ fn expand_tokens(
     analyzer: &mut TextAnalyzer,
     tokens: &[String],
 ) -> anyhow::Result<Vec<Expansion>> {
+    let query_tokenizer = match tokenizer {
+        Some(tokenizer) => Some(SearchTokenizer::from_json_value(tokenizer)?),
+        None => query_tokenizer(search_field, Some(schema)),
+    };
+    let token_lists = [tokens];
+    let mut expansions =
+        expand_token_lists(rules, search_field, query_tokenizer, analyzer, &token_lists)?;
+    Ok(expansions.remove(0))
+}
+
+/// The expansions of each list of tokens. `analyzer` is the one that made the tokens, and
+/// `query_tokenizer` is the tokenizer that it is built from.
+fn expand_token_lists(
+    rules: &pdb::SynonymRules,
+    search_field: &SearchField,
+    query_tokenizer: Option<SearchTokenizer>,
+    analyzer: &mut TextAnalyzer,
+    token_lists: &[&[String]],
+) -> anyhow::Result<Vec<Vec<Expansion>>> {
     match rules {
         pdb::SynonymRules::Index(index) => {
-            expand_match(*index, search_field, schema, tokenizer, tokens)
+            expand_match(*index, search_field, query_tokenizer, token_lists)
         }
         // The analyzer of the query tokens compiles the rules, so a key matches the same tokens.
-        pdb::SynonymRules::Rules(rules) => expand_with_rules(rules, analyzer, tokens),
+        pdb::SynonymRules::Rules(rules) => expand_each_with_rules(rules, analyzer, token_lists),
     }
 }
 
-/// The tokenizer of a query on `search_field`, from the index options.
+/// The tokenizer of a query on `search_field`, from the index options. The query parser takes
+/// the tokenizer of the field, so it gives no `schema` and no `search_tokenizer` applies.
 fn query_tokenizer(
     search_field: &SearchField,
-    schema: &SearchIndexSchema,
+    schema: Option<&SearchIndexSchema>,
 ) -> Option<SearchTokenizer> {
-    search_tokenizer_option(search_field, schema)
+    schema
+        .and_then(|schema| search_tokenizer_option(search_field, schema))
         .or_else(|| search_field.field_config().tokenizer().cloned())
 }
 
@@ -2481,18 +2753,13 @@ fn query_tokenizer(
 fn expand_match(
     index: pg_sys::Oid,
     search_field: &SearchField,
-    schema: &SearchIndexSchema,
-    tokenizer: Option<&Value>,
-    tokens: &[String],
-) -> anyhow::Result<Vec<Expansion>> {
-    if tokens.is_empty() {
-        return Ok(Vec::new());
+    query_tokenizer: Option<SearchTokenizer>,
+    token_lists: &[&[String]],
+) -> anyhow::Result<Vec<Vec<Expansion>>> {
+    if token_lists.iter().all(|tokens| tokens.is_empty()) {
+        return Ok(vec![Vec::new(); token_lists.len()]);
     }
     let index = open_synonym_index(index)?;
-    let query_tokenizer = match tokenizer {
-        Some(tokenizer) => Some(SearchTokenizer::from_json_value(tokenizer)?),
-        None => query_tokenizer(search_field, schema),
-    };
     let rule_tokenizer = rule_tokenizer(&index);
     let same_tokens = match (&query_tokenizer, &rule_tokenizer) {
         (Some(query), Some(rule)) => query.produces_same_tokens_as(rule),
@@ -2510,17 +2777,18 @@ fn expand_match(
             name_of(rule_tokenizer),
         ));
     }
-    expand_with_index(&index, tokens)
+    expand_each_with_index(&index, token_lists)
 }
 
-/// The synonym index on the column at `column_index` (from zero) of `table` that `holds_rules`
-/// accepts, and that `expand_match` accepts for a query on `field` of the text index `index`.
+/// The synonym index on column `column_index` (from zero) of `table` that `holds_rules` accepts and
+/// that has the tokenizer of a query on `field` of the index `index`, a parser string if `parsed`.
 pub fn synonym_index_of_column(
     table: &PgSearchRelation,
     column_index: usize,
     holds_rules: impl Fn(&PgSearchRelation) -> bool,
     index: &PgSearchRelation,
     field: &FieldName,
+    parsed: bool,
 ) -> Option<pg_sys::Oid> {
     // The index of a partitioned table has no storage to read a schema from. Each of its leaves
     // has its definition.
@@ -2533,7 +2801,7 @@ pub fn synonym_index_of_column(
     };
     let schema = index.schema().ok()?;
     let search_field = schema.search_field(field.root())?;
-    let query_tokenizer = query_tokenizer(&search_field, &schema)?;
+    let query_tokenizer = query_tokenizer(&search_field, (!parsed).then_some(&schema))?;
     table
         .indices(pg_sys::AccessShareLock as _)
         .filter(|candidate| unsafe {

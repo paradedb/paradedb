@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794889027665,
+  "lastUpdate": 1794907959411,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -96550,6 +96550,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14267256472-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794907952611,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p50 latency",
+            "value": 9.152,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p95 latency",
+            "value": 13.278,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) p99 latency",
+            "value": 18.865,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p50 latency",
+            "value": 23.375,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p95 latency",
+            "value": 32.487,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) p99 latency",
+            "value": 37.165,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.248,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p95 latency",
+            "value": 5.02,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) p99 latency",
+            "value": 5.901,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p50 latency",
+            "value": 15.135,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p95 latency",
+            "value": 21.229,
+            "unit": "ms"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) p99 latency",
+            "value": 24.734,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14316695264-latency"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch (throughput)": [
@@ -96600,6 +96683,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14267256472-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794907955092,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r90) QPS",
+            "value": 106.9536828046542,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top100_unfiltered@r95) QPS",
+            "value": 41.482937720517484,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r90) QPS",
+            "value": 300.31845050056313,
+            "unit": "queries/s"
+          },
+          {
+            "name": "pg_vectorsearch (knn_top10_unfiltered@r95) QPS",
+            "value": 64.37109292512754,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14316695264-throughput"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch (buffers)": [
@@ -96650,6 +96776,49 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14267256472-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794907957336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 5318.37,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 9812.35,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1361.78,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 4912.22,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14316695264-buffers"
       }
     ],
     "benchmarker msmarco-113m-pg_vectorsearch (index build)": [
@@ -96690,6 +96859,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14267256472-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794907959398,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_prism_idx build time",
+            "value": 146.13333333333333,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_prism_idx index size",
+            "value": 34145.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_prism_idx peak container memory",
+            "value": 17.899696350097656,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14316695264-index"
       }
     ],
     "benchmarker msmarco-113m-vectorchord (latency)": [

@@ -313,14 +313,20 @@ impl SearchTokenizerFilters {
 
     /// The filters with each default written out, so that a default equals its written value.
     fn with_defaults(&self) -> Self {
+        // Every option has a line, so that a new option does not compile without one.
         Self {
+            remove_short: self.remove_short,
+            remove_long: self.remove_long,
+            stemmer: self.stemmer,
+            stopwords_language: self.stopwords_language.clone(),
+            stopwords: self.stopwords.clone(),
+            // The analyzer calls the same four functions, so each default has one definition.
             lowercase: Some(self.lower_caser().is_some()),
             alpha_num_only: Some(self.alpha_num_only().is_some()),
             ascii_folding: Some(self.ascii_folding().is_some()),
             trim: Some(self.trim_filter().is_some()),
             // The normalizer is for the columnar value, and no token depends on it.
             normalizer: None,
-            ..self.clone()
         }
     }
 }
@@ -670,6 +676,8 @@ impl SearchTokenizer {
             SearchTokenizer::SourceCode(filters) => {
                 // for backwards compatibility, the source_code tokenizer defaults to ascii_folding
                 // if it's not explicitly set
+                //
+                // `with_defaults` has this default too. Change the two together.
                 if filters.ascii_folding().is_none() {
                     add_filters!(CodeTokenizer::default(), filters, AsciiFoldingFilter)
                 } else {

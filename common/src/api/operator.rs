@@ -62,7 +62,8 @@ unsafe impl SqlTranslatable for ReturnedNodePointer {
 }
 
 pub fn with_index_procoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             // NB:  the SQL signature here needs to match our Rust implementation
@@ -71,17 +72,18 @@ pub fn with_index_procoid() -> pg_sys::Oid {
         .expect(
             "the `paradedb.with_index(regclass, paradedb.searchqueryinput)` function should exist",
         )
-    }
+    })
 }
 
 pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             &[c"paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput)".into_datum()],
         )
             .expect("the `paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput) function should exist")
-    }
+    })
 }
 
 pub fn search_with_query_input_exec_procoids() -> [pg_sys::Oid; 4] {
@@ -115,7 +117,7 @@ pub struct SearchPredicate {
 
 impl SearchPredicate {
     pub unsafe fn from_node(node: *mut pg_sys::Node) -> Option<Self> {
-        if let Some(operator) = nodecast!(OpExpr, T_OpExpr, node)
+        if let Some(operator) = nodecast!(OpExpr, node)
             && (*operator).opno == anyelement_query_input_opoid()
         {
             let args = PgList::<pg_sys::Node>::from_pg((*operator).args);
@@ -243,7 +245,8 @@ pub fn operator_name_from_oid(opno: pg_sys::Oid) -> String {
 }
 
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(
             pg_sys::regtypein,
             &[c"paradedb.SearchQueryInput".into_datum()],
@@ -253,11 +256,12 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
             panic!("type `paradedb.SearchQueryInput` should exist");
         }
         oid
-    }
+    })
 }
 
 pub fn pdb_query_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.Query".into_datum()])
                 .expect("type `pdb.Query` should exist");
@@ -265,11 +269,12 @@ pub fn pdb_query_typoid() -> pg_sys::Oid {
             panic!("type `pdb.Query` should exist");
         }
         oid
-    }
+    })
 }
 
 pub fn boost_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.boost".into_datum()])
                 .expect("type `pdb.boost` should exist");
@@ -277,11 +282,12 @@ pub fn boost_typoid() -> pg_sys::Oid {
             panic!("type `pdb.boost` should exist");
         }
         oid
-    }
+    })
 }
 
 pub fn const_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.const".into_datum()])
                 .expect("type `pdb.const` should exist");
@@ -289,11 +295,12 @@ pub fn const_typoid() -> pg_sys::Oid {
             panic!("type `pdb.const` should exist");
         }
         oid
-    }
+    })
 }
 
 pub fn fuzzy_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.fuzzy".into_datum()])
                 .expect("type `pdb.fuzzy` should exist");
@@ -301,11 +308,12 @@ pub fn fuzzy_typoid() -> pg_sys::Oid {
             panic!("type `pdb.fuzzy` should exist");
         }
         oid
-    }
+    })
 }
 
 pub fn slop_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid =
             direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.slop".into_datum()])
                 .expect("type `pdb.slop` should exist");
@@ -313,11 +321,12 @@ pub fn slop_typoid() -> pg_sys::Oid {
             panic!("type `pdb.slop` should exist");
         }
         oid
-    }
+    })
 }
 
 pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
-    unsafe {
+    static CACHE: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(
             pg_sys::regtypein,
             &[c"pdb.ProximityClause".into_datum()],
@@ -327,7 +336,7 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
             panic!("type `pdb.ProximityClause` should exist");
         }
         oid
-    }
+    })
 }
 
 pub unsafe fn row_expr_from_indexed_expr(

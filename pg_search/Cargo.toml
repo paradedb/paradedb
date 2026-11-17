@@ -20,7 +20,8 @@ crate-type = ["cdylib"]
 [package.metadata.pgrx]
 unreleased-sql-dir = "sql/unreleased"
 
-# Native packages use the PGDG layout. Publish workflows keep the existing asset names.
+# Native packages use the PGDG layout. Publish workflows keep the existing asset names,
+# and `scripts/package-linux.sh` injects the per-major PostgreSQL minor-version floor into `depends`.
 [package.metadata.rpm]
 maintainer = "ParadeDB, Inc. <support@paradedb.com>"
 description = """One Postgres for your application data, full-text search, vector retrieval, and aggregations."""

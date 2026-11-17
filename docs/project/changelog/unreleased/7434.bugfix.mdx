@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+A query that negates a fuzzy or regex clause next to another filter, such as `lang === 'ja' AND NOT (title === 'x'::pdb.fuzzy(1))`, gets its row estimate from the index. The planner used to plan it as one row.

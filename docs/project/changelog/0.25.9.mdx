@@ -6,6 +6,6 @@ noindex: true
 
 See GitHub release: [v0.25.9](https://github.com/paradedb/paradedb/releases/tag/v0.25.9)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - A join whose key is a `uuid` column, or a text column with a tokenizer cast, now pushes the hash-join key set into the Tantivy query. Before, only a plain `text` key did, so the other side of the join read every document in the index and filtered afterwards.

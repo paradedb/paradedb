@@ -34,7 +34,6 @@ use crate::index::reader::vector::VectorRoutingResults;
 use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::customscan::mpp::check_for_interrupts_or_cancel;
 use crate::postgres::locks::Spinlock;
-use crate::postgres::options::IndexType;
 use crate::postgres::shared_threshold::ParallelScanThresholdState;
 use crate::query::SearchQueryInput;
 use crate::query::tid_bitmap_stream::SharedBitmapHandle;
@@ -87,13 +86,9 @@ impl NoBm25Index {
     }
 }
 
-/// Finds the `USING paradedb` index on the specified relation with the highest OID, along with
-/// the heap relation, or the reason there is none the planner may use.
-///
-/// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
-/// or a failed `REINDEX`). When more than one valid ParadeDB index exists on the relation
-/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-ParadeDB-index
-/// check), the highest-OID one is chosen so that the index added most recently wins.
+/// Finds the `USING paradedb` index on the specified relation, along with the heap relation,
+/// or the reason there is none the planner may use. [`PgSearchRelation::bm25_index`] picks the
+/// index.
 pub fn bm25_index_or_reason(
     relid: pg_sys::Oid,
 ) -> Result<(rel::PgSearchRelation, rel::PgSearchRelation), NoBm25Index> {
@@ -105,16 +100,12 @@ pub fn bm25_index_or_reason(
     }
 
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    let (blocked, usable): (Vec<_>, Vec<_>) = rel
-        .valid_paradedb_indices()
-        .filter(|index| index.index_type() == IndexType::Search)
-        .partition(PgSearchRelation::blocked_after_promotion);
-    match usable.into_iter().max_by_key(|i| i.oid().to_u32()) {
+    match rel.bm25_index() {
+        Some(index) if index.blocked_after_promotion() => {
+            Err(NoBm25Index::BlockedAfterPromotion(index))
+        }
         Some(index) => Ok((rel, index)),
-        None => match blocked.into_iter().next() {
-            Some(index) => Err(NoBm25Index::BlockedAfterPromotion(index)),
-            None => Err(NoBm25Index::Missing),
-        },
+        None => Err(NoBm25Index::Missing),
     }
 }
 

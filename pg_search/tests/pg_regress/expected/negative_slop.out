@@ -1,0 +1,49 @@
+-- A negative slop must not turn into an effectively unbounded phrase query.
+CREATE TABLE negative_slop_docs (id int PRIMARY KEY, body text);
+INSERT INTO negative_slop_docs VALUES
+    (1, 'foo bar'),
+    (2, 'foo one two three bar');
+CREATE INDEX negative_slop_docs_idx ON negative_slop_docs USING paradedb (id, body);
+SELECT id FROM negative_slop_docs
+WHERE body @@@ pdb.phrase(ARRAY['foo', 'bar'], slop => 0)
+ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM negative_slop_docs
+WHERE body @@@ pdb.regex_phrase(ARRAY['foo', 'bar'], slop => 0)
+ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM negative_slop_docs
+WHERE body @@@ pdb.phrase(ARRAY['foo', 'bar'], slop => 3)
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT id FROM negative_slop_docs
+WHERE body @@@ pdb.regex_phrase(ARRAY['foo', 'bar'], slop => 3)
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT id FROM negative_slop_docs
+WHERE body @@@ pdb.phrase(ARRAY['foo', 'bar'], slop => -1)
+ORDER BY id;
+ERROR:  slop must be non-negative
+SELECT id FROM negative_slop_docs
+WHERE body @@@ pdb.regex_phrase(ARRAY['foo', 'bar'], slop => -1)
+ORDER BY id;
+ERROR:  slop must be non-negative
+DROP TABLE negative_slop_docs;

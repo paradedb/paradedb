@@ -483,7 +483,6 @@ impl SegmentMetaEntry {
             SegmentMetaEntryContent::Mutable(content) if !content.frozen => {
                 unsafe { content.open(indexrel).add_items(items, None) };
                 let row_limit = indexrel
-                    .options()
                     .mutable_segment_rows()
                     .map(|v| v.get())
                     .unwrap_or(0);
@@ -615,7 +614,7 @@ impl SegmentMetaEntry {
         // receiving writes.
         let immutable_or_mergable = |content| match content {
             SegmentMetaEntryContent::Mutable(content) => {
-                content.frozen || indexrel.options().mutable_segment_rows().is_none()
+                content.frozen || indexrel.mutable_segment_rows().is_none()
             }
             SegmentMetaEntryContent::Immutable(_) => true,
         };

@@ -249,11 +249,7 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
         .count();
 
     // If we're missing any columns, we can't use fast field execution
-    if referenced_columns_count > fast_field_column_count {
-        return false;
-    }
-
-    true
+    referenced_columns_count <= fast_field_column_count
 }
 
 /// Check if we can use the Columnar execution method

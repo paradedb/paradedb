@@ -11,12 +11,12 @@ s3_base_path = "s3://paradedb-benchmark/datasets/hackernews/vector/v1"
 # `pdbench search` checks [postgres.search] before a sweep. CI builds the index with
 # pdbench-load, so [postgres.build] is not checked; the profile format requires it.
 [postgres.build]
-shared_buffers = "32GB"
-maintenance_work_mem = "52428MB"
+shared_buffers = "8GB"
+maintenance_work_mem = "8GB"
 max_parallel_maintenance_workers = 8
 
 [postgres.search]
-shared_buffers = "32GB"
+shared_buffers = "8GB"
 max_parallel_workers = 16
 max_worker_processes = 32
 
@@ -42,9 +42,10 @@ plan_cache_mode = "force_custom_plan"
 
 [search.sweep]
 param = "paradedb.vector_cluster_max_probe"
-min = 0.0001
-max = 1.0
-start = 0.005
+min = 1
+max = 100000
+start = 100
+integer = true
 targets = [0.9, 0.95, 0.99]
 tolerance = 0.000001
 max_probes = 20

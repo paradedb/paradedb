@@ -23,6 +23,7 @@ pub mod reader;
 pub use storage::index::{index_settings, search, set_ivf_clusterer};
 pub mod segment_pruning;
 pub mod stats;
+pub(crate) mod synonym_cache;
 pub mod synonym_index;
 pub mod writer;
 
@@ -36,6 +37,8 @@ use tantivy::Index;
 pub fn open_index(directory: MVCCDirectory) -> tantivy::Result<Index> {
     let indexrel = directory.indexrel().clone();
     let mut index = Index::open(directory)?;
-    set_ivf_clusterer(&mut index, indexrel.options());
+    let memory_limit =
+        (unsafe { pgrx::pg_sys::maintenance_work_mem as usize }).saturating_mul(1024);
+    set_ivf_clusterer(&mut index, indexrel.options(), memory_limit);
     Ok(index)
 }

@@ -28,8 +28,9 @@ pub mod utils;
 
 use async_std::task::block_on;
 use rstest::*;
-use sqlx::{self, PgConnection};
-use std::sync::Once;
+use sqlx::{self, Connection, PgConnection};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Mutex, MutexGuard, Once, PoisonError};
 
 pub use crate::fixtures::backend::*;
 pub use crate::fixtures::db::*;
@@ -100,4 +101,64 @@ pub fn conn(database: Db) -> PgConnection {
 
         conn
     })
+}
+
+/// Guard that serializes test cases within a single integration test binary and drops the
+/// current thread's temporary databases before releasing the mutex.
+///
+/// Bind this before any [`Db`] or [`PgConnection`] parameters (or use [`serial_conn`] for
+/// single-connection `#[rstest]` tests) so open connections close before `Drop` cleans up their
+/// databases and unlocks the mutex. Poisoning is ignored so one panicked case does not cascade
+/// to subsequent cases.
+pub struct SerialGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
+
+impl Drop for SerialGuard {
+    fn drop(&mut self) {
+        cleanup_current_thread_databases();
+    }
+}
+
+#[fixture]
+pub fn serial() -> SerialGuard {
+    static SERIAL: Mutex<()> = Mutex::new(());
+    SerialGuard(SERIAL.lock().unwrap_or_else(PoisonError::into_inner))
+}
+
+/// A [`PgConnection`] fixture that serializes database creation, query execution, connection
+/// close, and `DROP DATABASE` teardown across cases in the current test binary.
+pub struct SerialConn {
+    conn: Option<PgConnection>,
+    _serial: SerialGuard,
+}
+
+impl Deref for SerialConn {
+    type Target = PgConnection;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn.as_ref().expect("SerialConn is open until Drop")
+    }
+}
+
+impl DerefMut for SerialConn {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.conn.as_mut().expect("SerialConn is open until Drop")
+    }
+}
+
+impl Drop for SerialConn {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            let _ = block_on(conn.close());
+        }
+    }
+}
+
+#[fixture]
+pub fn serial_conn() -> SerialConn {
+    let serial = serial();
+    let conn = conn(database());
+    SerialConn {
+        conn: Some(conn),
+        _serial: serial,
+    }
 }

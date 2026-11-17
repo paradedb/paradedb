@@ -306,7 +306,7 @@ pub unsafe fn extract_vector_distance(
     context: VarContext,
     source: &SourceContext,
 ) -> Option<(*mut pg_sys::Var, SortExpressionType)> {
-    let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
+    let opexpr = nodecast!(OpExpr, node)?;
     let op_metric = VectorMetric::from_opoid((*opexpr).opno)?;
 
     let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);

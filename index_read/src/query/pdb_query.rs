@@ -18,10 +18,16 @@
 
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
-use crate::index::synonym_index::{expand_with_index, open_synonym_index, rule_tokenizer};
+use crate::index::synonym_index::{
+    expand_with_index, expand_with_rules, open_synonym_index, rule_tokenizer,
+};
+use crate::postgres::catalog::OidExt;
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::index::{is_partitioned_index, leaf_partition_indexes};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::is_datetime_type;
+use crate::query::estimate::RangeQueryWithEstimate;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
 use crate::query::numeric::{
     clamp_int_bounds, convert_value_for_field, convert_value_for_range_field,
@@ -163,6 +169,16 @@ pub mod pdb {
         Const(tantivy::Score),
     }
 
+    /// Where a match reads its synonym rules.
+    #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+    #[serde(untagged)]
+    pub enum SynonymRules {
+        /// A synonym index that holds the rules that a `pdb.expand` subquery reads.
+        Index(pg_sys::Oid),
+        /// The rules that a `pdb.expand` subquery read.
+        Rules(Vec<String>),
+    }
+
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
     #[inoutfuncs]
     #[serde(rename_all = "snake_case")]
@@ -194,9 +210,9 @@ pub mod pdb {
             fuzzy_data: Option<FuzzyData>,
             #[serde(skip_serializing_if = "Option::is_none")]
             slop_data: Option<SlopData>,
-            /// The synonym index that `pdb.with_synonyms` names.
+            /// The rules that a `pdb.expand` subquery gives to the match.
             #[serde(skip_serializing_if = "Option::is_none")]
-            synonyms: Option<pg_sys::Oid>,
+            synonyms: Option<SynonymRules>,
         },
         /// This is instantiated in places where a text array is used
         /// as the right-hand-side of one of our operators.  For example, in
@@ -247,9 +263,9 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
-            /// The synonym index whose rules expand the tokens of `value`.
+            /// The rules that expand the tokens of `value`.
             #[serde(skip_serializing_if = "Option::is_none")]
-            synonyms: Option<pg_sys::Oid>,
+            synonyms: Option<SynonymRules>,
         },
         MatchArray {
             tokens: Vec<String>,
@@ -398,15 +414,6 @@ impl pdb::Query {
             fuzzy_data: None,
             slop_data: Some(slop),
             synonyms: None,
-        }
-    }
-
-    /// Only a text value can expand, since a rule key matches the tokens of a tokenizer.
-    pub fn apply_synonyms(&mut self, index: pg_sys::Oid) {
-        match self {
-            pdb::Query::UnclassifiedString { synonyms, .. } => *synonyms = Some(index),
-            pdb::Query::ScoreAdjusted { query, .. } => query.apply_synonyms(index),
-            _ => panic!("`pdb.with_synonyms` takes a text value"),
         }
     }
 
@@ -865,20 +872,25 @@ impl pdb::Query {
     }
 
     /// Returns `true` if constructing a Tantivy Scorer for this query type is expensive.
-    /// Fuzzy term and regex queries require building DFAs/automata and scanning the term
+    /// Fuzzy and regex queries require building DFAs/automata and scanning the term
     /// dictionary during scorer construction, which can be too costly for planner selectivity
     /// estimation.
     ///
-    /// Range queries and Match-with-distance are intentionally excluded: range queries on
-    /// numeric fast fields are cheap to score, and their selectivity is highly data-dependent
-    /// making heuristics unreliable. Inaccurate heuristics for these types cause plan
-    /// regressions (e.g. wrong join strategies, wrong append methods).
+    /// Range queries are intentionally excluded: range queries on numeric fast fields are
+    /// cheap to score, and their selectivity is highly data-dependent making heuristics
+    /// unreliable. Inaccurate heuristics for them cause plan regressions (e.g. wrong join
+    /// strategies, wrong append methods).
     pub fn is_expensive_to_estimate(&self) -> bool {
         match self {
             pdb::Query::FuzzyTerm { .. }
             | pdb::Query::Regex { .. }
             | pdb::Query::MoreLikeThis { .. }
             | pdb::Query::RegexPhrase { .. } => true,
+
+            // A match builds one fuzzy automaton per token, but only for a non-zero distance.
+            pdb::Query::Match { distance, .. } | pdb::Query::MatchArray { distance, .. } => {
+                distance.is_some_and(|distance| distance > 0)
+            }
 
             pdb::Query::ParseWithField { fuzzy_data, .. } => fuzzy_data.is_some(),
 
@@ -899,16 +911,28 @@ impl pdb::Query {
     pub fn estimated_selectivity(&self) -> Option<f64> {
         use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
 
+        let fuzzy_selectivity = |distance: u8| {
+            if distance <= 1 {
+                FUZZY_LOW_SELECTIVITY
+            } else {
+                FUZZY_HIGH_SELECTIVITY
+            }
+        };
+
         match self {
             pdb::Query::MoreLikeThis { .. } => Some(crate::MORE_LIKE_THIS_SELECTIVITY),
             pdb::Query::FuzzyTerm { distance, .. } => {
-                let dist = distance.unwrap_or(1);
-                if dist <= 1 {
-                    Some(FUZZY_LOW_SELECTIVITY)
-                } else {
-                    Some(FUZZY_HIGH_SELECTIVITY)
-                }
+                Some(fuzzy_selectivity(distance.unwrap_or(1)))
             }
+
+            pdb::Query::Match {
+                distance: Some(distance),
+                ..
+            }
+            | pdb::Query::MatchArray {
+                distance: Some(distance),
+                ..
+            } if *distance > 0 => Some(fuzzy_selectivity(*distance)),
 
             pdb::Query::ParseWithField { .. } => Some(FUZZY_LOW_SELECTIVITY),
 
@@ -1752,7 +1776,8 @@ fn range_query_from_bounds(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQuery> {
+) -> anyhow::Result<RangeQueryWithEstimate> {
+    let bounds = (lower_bound.clone(), upper_bound.clone());
     let field_type = search_field.field_entry().field_type();
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1790,7 +1815,12 @@ fn range_query_from_bounds(
         Bound::Unbounded => Bound::Unbounded,
     };
 
-    Ok(RangeQuery::new(lower_bound, upper_bound))
+    Ok(RangeQueryWithEstimate {
+        query: RangeQuery::new(lower_bound, upper_bound),
+        field: search_field.clone(),
+        lower_bound: bounds.0,
+        upper_bound: bounds.1,
+    })
 }
 
 /// Creates a range query for the given field and bounds.
@@ -1815,7 +1845,7 @@ fn range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQuery> {
+) -> anyhow::Result<RangeQueryWithEstimate> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1844,7 +1874,7 @@ fn stored_range(
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
-) -> anyhow::Result<RangeQuery> {
+) -> anyhow::Result<RangeQueryWithEstimate> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -2208,7 +2238,7 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
-    synonyms: Option<pg_sys::Oid>,
+    synonyms: Option<pdb::SynonymRules>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
@@ -2225,14 +2255,20 @@ fn match_query(
             .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
-    let mut stream = analyzer.token_stream(value);
     let mut tokens = Vec::new();
-    while stream.advance() {
-        tokens.push(stream.token().text.clone());
+    {
+        let mut stream = analyzer.token_stream(value);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
     }
 
     let mut expansions = match synonyms {
-        Some(index) => expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?,
+        Some(pdb::SynonymRules::Index(index)) => {
+            expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?
+        }
+        // The analyzer of the query tokens compiles the rules, so a key matches the same tokens.
+        Some(pdb::SynonymRules::Rules(rules)) => expand_with_rules(&rules, &mut analyzer, &tokens)?,
         None => no_expansion(&tokens),
     };
 
@@ -2315,6 +2351,41 @@ fn no_expansion(tokens: &[String]) -> Vec<Expansion> {
         .collect()
 }
 
+/// Whether `rules` turn `value` into a group of alternatives. The planner has no searcher, so the
+/// tokens come from the tokenizer in the index options.
+pub(crate) fn match_expands_with_synonyms(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    value: &str,
+    rules: &pdb::SynonymRules,
+) -> bool {
+    let Some(mut analyzer) = query_tokenizer(search_field, schema)
+        .as_ref()
+        .and_then(SearchTokenizer::to_tantivy_tokenizer)
+    else {
+        return false;
+    };
+    let mut tokens = Vec::new();
+    {
+        let mut stream = analyzer.token_stream(value);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
+    }
+    // The selectivity estimate builds the same query first, so it has already raised any error.
+    let expansions = match rules {
+        pdb::SynonymRules::Index(index) => {
+            expand_match(*index, search_field, schema, None, &tokens)
+        }
+        pdb::SynonymRules::Rules(rules) => expand_with_rules(rules, &mut analyzer, &tokens),
+    };
+    expansions.is_ok_and(|expansions| {
+        expansions
+            .iter()
+            .any(|expansion| !expansion.is_single_term())
+    })
+}
+
 /// The tokenizer of a query on `search_field`, from the index options.
 fn query_tokenizer(
     search_field: &SearchField,
@@ -2357,6 +2428,51 @@ fn expand_match(
         ));
     }
     expand_with_index(&index, tokens)
+}
+
+/// The synonym index on the column at `column_index` (from zero) of `table` that `holds_rules`
+/// accepts, and that `expand_match` accepts for a query on `field` of the text index `index`.
+pub fn synonym_index_of_column(
+    table: &PgSearchRelation,
+    column_index: usize,
+    holds_rules: impl Fn(&PgSearchRelation) -> bool,
+    index: &PgSearchRelation,
+    field: &FieldName,
+) -> Option<pg_sys::Oid> {
+    // The index of a partitioned table has no storage to read a schema from. Each of its leaves
+    // has its definition.
+    let leaf;
+    let index = if is_partitioned_index(index.oid()) {
+        leaf = leaf_partition_indexes(index).next()?;
+        &leaf
+    } else {
+        index
+    };
+    let schema = index.schema().ok()?;
+    let search_field = schema.search_field(field.root())?;
+    let query_tokenizer = query_tokenizer(&search_field, &schema)?;
+    table
+        .indices(pg_sys::AccessShareLock as _)
+        .filter(|candidate| unsafe {
+            (*candidate.rd_rel).relam.is_paradedb_am()
+                && pg_sys::get_rel_relkind(candidate.oid()) as u8
+                    != pg_sys::RELKIND_PARTITIONED_INDEX
+                && pg_sys::get_index_isvalid(candidate.oid())
+        })
+        .find(|candidate| {
+            let options = candidate.options();
+            let reads_column = options.synonym_rule_field().is_some_and(|rule_field| {
+                options
+                    .attributes()
+                    .get(&rule_field)
+                    .and_then(|attribute| attribute.source.heap_attno())
+                    == Some(column_index)
+            });
+            reads_column
+                && rule_tokenizer(candidate).as_ref() == Some(&query_tokenizer)
+                && holds_rules(candidate)
+        })
+        .map(|candidate| candidate.oid())
 }
 
 /// A multi-token alternative is a phrase, which needs positions.

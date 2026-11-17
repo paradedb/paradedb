@@ -66,7 +66,7 @@ pub trait CustomScanNodeExt: NodeExt {
 
     fn has_unsupported_collation(self) -> bool {
         self.any(|node| {
-            let Some(op_expr) = (unsafe { nodecast!(OpExpr, T_OpExpr, node) }) else {
+            let Some(op_expr) = (unsafe { nodecast!(OpExpr, node) }) else {
                 return false;
             };
             let op_expr = unsafe { &*op_expr };

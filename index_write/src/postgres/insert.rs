@@ -120,7 +120,7 @@ impl InsertState {
             .cloned()
             .collect();
 
-        let mode = if let Some(row_limit) = indexrel.options().mutable_segment_rows() {
+        let mode = if let Some(row_limit) = indexrel.mutable_segment_rows() {
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
                 row_limit: row_limit.into(),

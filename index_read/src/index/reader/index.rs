@@ -30,6 +30,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::version::Version;
 use crate::api::{CTID_FIELD_NAME, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::gucs;
+use crate::index::directory::utils::load_metas;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies, SegmentPins, SegmentView};
 use crate::index::reader::io_stats;
@@ -67,7 +68,7 @@ use tantivy::collector::sort_key::{
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::columnar::Cardinality;
 use tantivy::directory::error::Incompatibility;
-use tantivy::index::{Index, Order, SegmentId};
+use tantivy::index::{Index, Order, SegmentId, SegmentMetaInventory};
 use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Scorer, Weight};
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
@@ -83,6 +84,33 @@ use tantivy::{
 /// The maximum number of sort-features/`OrderByInfo`s supported for
 /// `SearchIndexReader::search_top_k_in_segments`.
 pub const MAX_TOPK_FEATURES: usize = 5;
+
+const DEFAULT_VECTOR_MATCH_FRACTION: f64 = 0.01;
+
+#[cold]
+#[track_caller]
+fn report_segment_collection_error(error: tantivy::TantivyError) -> ! {
+    // Tantivy exposes this failure as a string, not a distinct error variant.
+    // Keep its quoted field name and leave unrelated collection errors intact.
+    if let tantivy::TantivyError::InvalidArgument(message) = &error
+        && let Some(field) = message
+            .strip_prefix("Field ")
+            .and_then(|message| message.strip_suffix(" is not configured as fast field"))
+    {
+        pgrx::pg_sys::panic::ErrorReport::new(
+            pgrx::PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+            format!("field {field} requires columnar storage"),
+            pgrx::function_name!(),
+        )
+        .set_hint(
+            "Recreate the index with 'columnar=true' on the field's tokenizer, or use \
+             pdb.literal or pdb.literal_normalized, which enable columnar storage by default. \
+             For a JSON path, configure its parent JSON field.",
+        )
+        .report(pgrx::PgLogLevel::ERROR);
+    }
+    panic!("should be able to collect in segment: {error:?}");
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct DocsEstimate {
@@ -730,6 +758,9 @@ pub struct SearchIndexReader {
 
     vector_segments_valid: OnceCell<tantivy::Result<()>>,
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
+    /// Whether a Top K vector search returns per-segment scan statistics in
+    /// [`TopKSearch::segment_info`]. A scan whose statistics nothing reads turns it off.
+    pub vector_segment_info: bool,
     pruning_estimate: OnceLock<SegmentPruningEstimate>,
     candidate_segments: Arc<[OnceLock<bool>]>,
 
@@ -778,6 +809,7 @@ impl Clone for SearchIndexReader {
             directory: self.directory.clone(),
             vector_segments_valid: self.vector_segments_valid.clone(),
             vector_routing_plan: self.vector_routing_plan.clone(),
+            vector_segment_info: self.vector_segment_info,
             pruning_estimate: self.pruning_estimate.clone(),
             candidate_segments: Arc::clone(&self.candidate_segments),
             _cleanup_lock: self._cleanup_lock.clone(),
@@ -940,16 +972,14 @@ impl SearchIndexReader {
     pub fn estimate_vector_match_fraction(&self) -> f64 {
         let (matches, docs) =
             self.candidate_segment_readers()
-                .fold((0u64, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self
-                        .query
-                        .estimate_docs(reader)
-                        .ok()
-                        .flatten()
-                        .map_or(0, |estimate| estimate.live_docs(reader));
+                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
+                    let estimated = self.query.estimate_docs(reader).ok().flatten().map_or(
+                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                        |estimate| estimate.live_docs(reader) as f64,
+                    );
                     (matches + estimated, docs + u64::from(reader.num_docs()))
                 });
-        matches as f64 / docs.max(1) as f64
+        matches / docs.max(1) as f64
     }
 
     pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
@@ -1299,6 +1329,7 @@ impl SearchIndexReader {
             _cleanup_lock: cleanup_lock,
             vector_segments_valid: OnceCell::new(),
             vector_routing_plan: None,
+            vector_segment_info: true,
             pruning_estimate: OnceLock::new(),
             candidate_segments,
         })
@@ -1632,8 +1663,8 @@ impl SearchIndexReader {
     /// Tantivy `Query` or `TokenizerManager`.
     ///
     /// When `search_query_input` contains a prunable predicate, opens `MvccSatisfies::Snapshot`
-    /// and counts segments that survive [`SegmentPruner`]. Otherwise, opens
-    /// `MvccSatisfies::LargestSegment` and returns `total_segment_count`.
+    /// and counts segments that survive [`SegmentPruner`]. Otherwise, counts the segments of the
+    /// segment list visible to the snapshot, without opening the index.
     pub fn estimate_segment_count(
         index_relation: &PgSearchRelation,
         schema: &SearchIndexSchema,
@@ -1662,10 +1693,18 @@ impl SearchIndexReader {
                 })
                 .count()
         } else {
-            let directory = MvccSatisfies::LargestSegment.directory(index_relation);
-            let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-            crate::index::open_index(directory).expect("custom_scan: should be able to open index");
-            segment_count.load(std::sync::atomic::Ordering::Relaxed)
+            // SAFETY: `index_relation` is an open pg_search index whose schema is `schema`, read
+            // in a transaction during planning.
+            unsafe {
+                load_metas(
+                    index_relation,
+                    &SegmentMetaInventory::default(),
+                    &MvccSatisfies::LargestSegment,
+                    schema.tantivy_schema(),
+                )
+            }
+            .expect("custom_scan: should be able to read the segment list")
+            .total_segments
         }
     }
 
@@ -2630,7 +2669,11 @@ impl SearchIndexReader {
                     ),
                 };
                 let segment_ids = collected_ids.into_inner();
-                let mut segment_info = probe_stats_to_segment_info(&segment_ids, &fruit.stats);
+                let mut segment_info = if self.vector_segment_info {
+                    probe_stats_to_segment_info(&segment_ids, &fruit.stats)
+                } else {
+                    BTreeMap::new()
+                };
                 if let Some(first_segment) = segment_ids.first()
                     && let Some(serde_json::Value::Object(stats)) =
                         segment_info.get_mut(first_segment)
@@ -3033,10 +3076,13 @@ impl SearchIndexReader {
     /// Estimates the fraction `[0.0, 1.0]` of documents in this index matched by `query_input`,
     /// sampled on the largest candidate segment.
     pub fn estimate_query_selectivity(&self, query_input: &SearchQueryInput) -> f64 {
-        if (gucs::enable_heuristic_selectivity() && query_input.is_expensive_to_estimate())
-            || query_input.has_postgres_expressions()
-            || query_input.has_parameters()
-        {
+        let heuristic = gucs::enable_heuristic_selectivity()
+            .then(|| query_input.expensive_selectivity_heuristic())
+            .flatten();
+        if let Some(selectivity) = heuristic {
+            return selectivity.clamp(0.0, 1.0);
+        }
+        if query_input.has_postgres_expressions() || query_input.has_parameters() {
             return query_input.selectivity_heuristic().clamp(0.0, 1.0);
         }
         let Some((largest_reader, _)) = self.largest_estimation_candidate(self.total_docs() as f64)
@@ -3660,7 +3706,7 @@ impl SearchIndexReader {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
-                    .expect("should be able to collect in segment");
+                    .unwrap_or_else(|error| report_segment_collection_error(error));
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
                 }
@@ -3701,7 +3747,7 @@ impl SearchIndexReader {
                 let fruit = collector
                     .collect_segment(weight, segment_ord, segment_reader)
                     .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
-                    .expect("should be able to collect in segment");
+                    .unwrap_or_else(|error| report_segment_collection_error(error));
                 if let Some(stats) = &self.directory.io_stats {
                     stats.end_segment(segment_reader.segment_id());
                 }
@@ -3860,6 +3906,243 @@ mod tests {
             }
             assert_eq!(calls.load(Relaxed), 2);
         }
+    }
+
+    #[pg_test]
+    fn match_all_selectivity_opens_only_partial_indexes() {
+        Spi::run(
+            "CREATE TABLE match_all_full (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX match_all_full_idx ON match_all_full USING paradedb (id, title);
+             INSERT INTO match_all_full SELECT g, 'row ' || g FROM generate_series(1, 20) g;
+             CREATE TABLE match_all_partial (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX match_all_partial_idx ON match_all_partial USING paradedb (id, title)
+             WHERE id > 5;
+             INSERT INTO match_all_partial SELECT g, 'row ' || g FROM generate_series(1, 20) g;",
+        )
+        .unwrap();
+        // SAFETY: this backend's own buffer usage counters, read on its main thread.
+        let blocks = || unsafe {
+            pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+        };
+        for (name, partial) in [
+            ("match_all_full_idx", false),
+            ("match_all_partial_idx", true),
+        ] {
+            let index = open_index(name);
+            let all = SearchQueryInput::WithIndex {
+                oid: index.oid(),
+                query: Box::new(SearchQueryInput::All),
+            };
+            let before = blocks();
+            let selectivity = crate::api::operator::estimate_selectivity(&index, all);
+            let read = blocks() - before;
+            if partial {
+                assert!(read > 0, "a partial index is opened for its estimate");
+            } else {
+                assert_eq!(selectivity, Some(1.0));
+                assert_eq!(read, 0, "the estimate reads no buffers");
+            }
+        }
+    }
+
+    #[pg_test]
+    fn vector_match_fraction_uses_range_statistics() {
+        let (index, _) = segmented_index_fixture("vector_range_estimate", 1, false);
+        let range = range_query("id", 9, 10);
+        for query in [
+            range.clone(),
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, range.clone()],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            },
+            SearchQueryInput::ConstScore {
+                query: Box::new(range),
+                score: 1.0,
+            },
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
+            assert_eq!(reader.search().count(), 2);
+        }
+        for (query, expected) in [
+            (SearchQueryInput::All, 1.0),
+            (SearchQueryInput::Empty, 0.0),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::Regex {
+                        pattern: "sil.*".into(),
+                    },
+                },
+                0.01,
+            ),
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), expected);
+        }
+        let (mutable, _) = segmented_index_fixture("vector_range_without_stats", 0, true);
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let reader = open_snapshot_reader(&mutable, range_query("id", 1, 5), false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.01);
+        drop(reader);
+        unsafe { pg_sys::PopActiveSnapshot() };
+
+        Spi::run(
+            "CREATE TABLE vector_date_estimate AS
+             SELECT g AS id, TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time
+             FROM generate_series(1, 100) g;
+             ALTER TABLE vector_date_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX vector_date_estimate_idx ON vector_date_estimate
+             USING paradedb (id, time) WITH (target_segment_count = 1);",
+        ).unwrap();
+        let index = open_index("vector_date_estimate_idx");
+        let query = SearchQueryInput::FieldedQuery {
+            field: "time".into(),
+            query: pdb::Query::Range {
+                lower_bound: std::ops::Bound::Included(PdbOwnedValue::Date(
+                    crate::postgres::datetime::PostgresDateTime::try_from_raw(91).unwrap(),
+                )),
+                upper_bound: std::ops::Bound::Unbounded,
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.1);
+        assert_eq!(reader.search().count(), 10);
+    }
+
+    #[pg_test]
+    fn uniform_range_estimates_numeric_and_timestamp_bounds() {
+        use crate::postgres::datetime::PostgresDateTime;
+
+        Spi::run(
+            "CREATE TABLE range_bounds_estimate AS
+             SELECT g AS id, g::oid AS unsigned,
+                    TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time,
+                    9223372036854775707::bigint + g AS wide
+             FROM generate_series(1, 100) g;
+             ALTER TABLE range_bounds_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX range_bounds_estimate_idx ON range_bounds_estimate
+             USING paradedb (id, unsigned, time, wide) WITH (target_segment_count = 1);",
+        )
+        .unwrap();
+        let index = open_index("range_bounds_estimate_idx");
+        for (field, value) in [
+            ("id", PdbOwnedValue::I64 as fn(i64) -> PdbOwnedValue),
+            ("unsigned", |value| PdbOwnedValue::U64(value as u64)),
+            ("time", |value| {
+                PdbOwnedValue::Date(PostgresDateTime::try_from_raw(value).unwrap())
+            }),
+            ("wide", |value| PdbOwnedValue::I64(i64::MAX - 100 + value)),
+        ] {
+            for (lower, upper, expected) in [
+                (Bound::Included(91), Bound::Unbounded, 10),
+                (Bound::Excluded(90), Bound::Unbounded, 10),
+                (Bound::Unbounded, Bound::Included(10), 10),
+                (Bound::Unbounded, Bound::Excluded(11), 10),
+                (Bound::Included(100), Bound::Included(100), 1),
+                (Bound::Included(20), Bound::Excluded(20), 0),
+                (Bound::Included(90), Bound::Included(10), 0),
+                (Bound::Excluded(100), Bound::Unbounded, 0),
+                (Bound::Unbounded, Bound::Excluded(1), 0),
+                (Bound::Unbounded, Bound::Unbounded, 100),
+            ] {
+                let query = SearchQueryInput::FieldedQuery {
+                    field: field.into(),
+                    query: pdb::Query::Range {
+                        lower_bound: lower.map(value),
+                        upper_bound: upper.map(value),
+                    },
+                };
+                let reader = open_snapshot_reader(&index, query, false);
+                let segment = reader.searcher.segment_reader(0);
+                let estimate = reader.query.estimate_docs(segment).unwrap().unwrap();
+                assert_eq!(estimate.live_docs(segment), expected, "{field}");
+            }
+        }
+    }
+
+    #[pg_test]
+    fn uniform_range_estimates_float_constant_and_unknown_fields() {
+        Spi::run(
+            "CREATE TABLE range_float_estimate AS
+             SELECT g AS id, (g - 1) * 100.0 / 99 AS score,
+                    CASE WHEN g > 1 THEN (g - 1) * 100.0 / 99 END AS nullable,
+                    100.0::float8 AS constant, 'NaN'::float8 AS nonfinite, 'a'::text AS name
+             FROM generate_series(1, 100) g;
+             ALTER TABLE range_float_estimate ALTER COLUMN score TYPE float8;
+             ALTER TABLE range_float_estimate ALTER COLUMN nullable TYPE float8;
+             ALTER TABLE range_float_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX range_float_estimate_idx ON range_float_estimate
+             USING paradedb (id, score, nullable, constant, nonfinite, (name::pdb.literal))
+             WITH (target_segment_count = 1);",
+        )
+        .unwrap();
+        let index = open_index("range_float_estimate_idx");
+        for (field, lower, upper, expected) in [
+            ("score", Bound::Included(90.0), Bound::Unbounded, Some(10)),
+            ("nullable", Bound::Included(90.0), Bound::Unbounded, None),
+            ("nonfinite", Bound::Unbounded, Bound::Unbounded, None),
+            (
+                "constant",
+                Bound::Included(90.0),
+                Bound::Unbounded,
+                Some(100),
+            ),
+            (
+                "constant",
+                Bound::Included(100.0),
+                Bound::Included(100.0),
+                Some(100),
+            ),
+            (
+                "constant",
+                Bound::Excluded(100.0),
+                Bound::Unbounded,
+                Some(0),
+            ),
+            (
+                "constant",
+                Bound::Unbounded,
+                Bound::Excluded(100.0),
+                Some(0),
+            ),
+        ] {
+            let query = SearchQueryInput::FieldedQuery {
+                field: field.into(),
+                query: pdb::Query::Range {
+                    lower_bound: lower.map(PdbOwnedValue::F64),
+                    upper_bound: upper.map(PdbOwnedValue::F64),
+                },
+            };
+            let reader = open_snapshot_reader(&index, query, false);
+            let segment = reader.searcher.segment_reader(0);
+            assert_eq!(
+                reader
+                    .query
+                    .estimate_docs(segment)
+                    .unwrap()
+                    .map(|estimate| estimate.live_docs(segment)),
+                expected,
+                "{field}",
+            );
+        }
+        let query = SearchQueryInput::FieldedQuery {
+            field: "name".into(),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("a".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("z".into())),
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        assert!(
+            reader
+                .query
+                .estimate_docs(reader.searcher.segment_reader(0))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[pg_test]
@@ -4795,27 +5078,42 @@ mod tests {
     }
 
     #[pg_test]
-    fn vector_parallelism_depends_on_filter() {
+    fn vector_parallelism_uses_work_only_for_filters() {
         Spi::run(
             "SET max_parallel_workers_per_gather = 2;
              SET parallel_setup_cost = 0;
              SET parallel_tuple_cost = 0;
              SET paradedb.min_rows_per_worker = 0;
-             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3));
+             CREATE TABLE vector_parallelism (id bigint PRIMARY KEY, category text, embedding vector(3), heap_value bigint DEFAULT 1);
              CREATE INDEX vector_parallelism_idx ON vector_parallelism
              USING paradedb (id, (category::pdb.literal), embedding vector_l2_ops)
              WITH (background_layer_sizes = '0', layer_sizes = '0');
              SET paradedb.global_mutable_segment_rows = 0;
-             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
-             INSERT INTO vector_parallelism SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(1,100) g;
+             INSERT INTO vector_parallelism (id, category, embedding) SELECT g, CASE WHEN g % 2 = 0 THEN 'keep' ELSE 'other' END, ARRAY[g::real,1,0]::vector FROM generate_series(101,200) g;
+             SET vector_parallelism.filter = 'keep OR other';
+             SET vector_parallelism.range = '[2 TO 100]';
              RESET paradedb.global_mutable_segment_rows;"
         ).unwrap();
-        for (predicate, workers, parallel, serial_unfiltered) in [
-            ("", 2, false, true),
-            ("AND category = 'keep'", 2, true, false),
-            ("AND id > 1", 2, true, false),
-            ("AND category = 'keep'", 0, false, false),
-            ("AND id > 1", 0, false, false),
+        for (predicate, workers, parallel) in [
+            ("", 2, false),
+            ("AND category = 'keep'", 2, false),
+            (
+                "AND id @@@ paradedb.parse_with_field('category', current_setting('vector_parallelism.filter'))",
+                2,
+                false,
+            ),
+            ("AND id > 1", 2, true),
+            (
+                "AND id @@@ paradedb.parse_with_field('id', current_setting('vector_parallelism.range'))",
+                2,
+                true,
+            ),
+            ("AND heap_value = 1", 2, true),
+            ("AND category = 'keep' AND heap_value = 1", 2, true),
+            ("AND category = 'keep'", 0, false),
+            ("AND id > 1", 0, false),
+            ("AND heap_value = 1", 0, false),
         ] {
             Spi::run(&format!("SET max_parallel_workers_per_gather = {workers}")).unwrap();
             let plan = Spi::get_one::<pgrx::Json>(&format!(
@@ -4829,11 +5127,13 @@ mod tests {
                 if node["Index"] == "vector_parallelism_idx" {
                     found = true;
                     assert_eq!(node["Parallel Aware"], parallel, "{plan}");
-                    assert_eq!(
-                        node["Worker Selection"] == "Unfiltered vector TopK",
-                        serial_unfiltered,
-                        "{plan}"
-                    );
+                    assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
+                    if predicate.contains("heap_value") {
+                        assert!(
+                            node["Tantivy Query"].to_string().contains("heap_filter"),
+                            "{plan}"
+                        );
+                    }
                     if predicate.contains("category") {
                         assert!(
                             node["Tantivy Query"].to_string().contains("category"),
@@ -4848,6 +5148,31 @@ mod tests {
             }
             assert!(found, "{plan}");
             assert_eq!(workers, parallel, "{plan}");
+        }
+        Spi::run(
+            "ANALYZE vector_parallelism;
+             UPDATE pg_class SET reltuples = 10000000 WHERE oid = 'vector_parallelism'::regclass;
+             SET max_parallel_workers_per_gather = 2;
+             SET paradedb.vector_cluster_max_probe = 65536;",
+        )
+        .unwrap();
+        for (predicate, parallel) in [("", false), ("AND category = 'keep'", true)] {
+            let plan = Spi::get_one::<pgrx::Json>(&format!(
+                "EXPLAIN (VERBOSE, COSTS OFF, FORMAT JSON) SELECT id FROM vector_parallelism WHERE id @@@ pdb.all() {predicate} ORDER BY embedding <-> '[1,1,0]'::vector LIMIT 5"
+            )).unwrap().unwrap().0;
+            let mut nodes = vec![&plan[0]["Plan"]];
+            let mut found = false;
+            while let Some(node) = nodes.pop() {
+                if node["Index"] == "vector_parallelism_idx" {
+                    found = true;
+                    assert_eq!(node["Parallel Aware"], parallel, "{plan}");
+                    assert_eq!(node["Worker Selection"], "Vector work", "{plan}");
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    nodes.extend(children);
+                }
+            }
+            assert!(found, "{plan}");
         }
     }
 

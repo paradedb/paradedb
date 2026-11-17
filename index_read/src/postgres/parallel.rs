@@ -22,6 +22,7 @@
 
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
+use crate::postgres::rel::PgSearchRelation;
 use pgrx::{pg_guard, pg_sys};
 use tantivy::index::SegmentId;
 
@@ -165,6 +166,5 @@ pub fn get_bm25_scan_state<'a>(scan: pg_sys::IndexScanDesc) -> Option<&'a mut Pa
 }
 
 unsafe fn estimated_parallel_segments(rel: pg_sys::Relation) -> usize {
-    crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
-        * PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER
+    PgSearchRelation::from_pg(rel).target_segment_count() * PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER
 }

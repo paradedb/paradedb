@@ -1607,7 +1607,7 @@ pub mod plan {
     ) -> usize {
         // If there are fewer rows than number of CPUs, use 1 worker
         let reltuples = plan::estimate_heap_reltuples(heaprel);
-        let target_segment_count = indexrel.options().target_segment_count();
+        let target_segment_count = indexrel.target_segment_count();
         if reltuples <= target_segment_count as f64 {
             pgrx::debug1!(
                 "number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment"
@@ -1621,9 +1621,8 @@ pub mod plan {
         // the partitions it asked for. A plain build cuts on the worker layout instead, and
         // its count under the floor would depend on the machine.
         let byte_size = plan::estimate_heap_byte_size(heaprel);
-        let options = indexrel.options();
-        let explicit_partitioned =
-            options.explicit_target_segment_count().is_some() && !options.partition_by().is_empty();
+        let explicit_partitioned = indexrel.explicit_target_segment_count().is_some()
+            && !indexrel.options().partition_by().is_empty();
         if byte_size <= 15 * 1024 * 1024 && !explicit_partitioned {
             pgrx::debug1!(
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
@@ -2635,47 +2634,56 @@ mod tests {
 
     #[pg_test]
     fn test_vector_build_merges_memory_limited_segments() {
-        let nrows = 12000;
+        let nrows = 24000;
         Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
         Spi::run(&format!(
             r#"
             CREATE TABLE partitioned_passes (id SERIAL8, tenant_id BIGINT, emb vector(512));
+            ALTER TABLE partitioned_passes ALTER COLUMN emb SET STORAGE PLAIN;
             INSERT INTO partitioned_passes (tenant_id, emb)
             SELECT i % 4,
                    ARRAY(SELECT ((i + j) % 17 + 1)::real FROM generate_series(1, 512) j)::vector
             FROM generate_series(1, {nrows}) i;
+            SET max_parallel_workers = 2;
+            SET parallel_leader_participation = false;
             "#
         ))
         .unwrap();
-        Spi::run("SET max_parallel_maintenance_workers = 0; SET maintenance_work_mem = '16MB';")
-            .unwrap();
-        Spi::run(
-            "CREATE INDEX partitioned_passes_idx ON partitioned_passes USING paradedb (id, tenant_id, emb vector_cosine_ops) WITH (partition_by = 'tenant_id', target_segment_count = 1);",
-        )
-        .unwrap();
+        for (workers, segments, memory) in [(0, 1, "16MB"), (2, 2, "32MB")] {
+            Spi::run(&format!(
+                "SET max_parallel_maintenance_workers = {workers}; SET maintenance_work_mem = '{memory}';"
+            )).unwrap();
+            for partition in ["", "partition_by = 'tenant_id',"] {
+                Spi::run(&format!(
+                    "CREATE INDEX partitioned_passes_idx ON partitioned_passes
+                     USING paradedb (id, tenant_id, emb vector_cosine_ops)
+                     WITH ({partition} target_segment_count = {segments}, training_sample_ratio = 1);"
+                ))
+                .unwrap();
 
-        let count: i64 = Spi::get_one(
-            "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(count, 1, "the partition must merge down to one segment");
-
-        let num_docs: i64 = Spi::get_one(
-            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            num_docs, nrows as i64,
-            "the merged partition must keep every row"
-        );
-        assert_eq!(
-            Spi::get_one::<bool>(
-                "SELECT bool_and(vector_format = 'ivf') FROM paradedb.vector_info('partitioned_passes_idx', 'emb')"
-            )
-            .unwrap(),
-            Some(true)
-        );
+                assert_eq!(
+                    Spi::get_one::<i64>(
+                        "SELECT COUNT(*)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
+                    ).unwrap(),
+                    Some(segments),
+                    "{workers} workers, {partition}: merge must preserve the target segment count"
+                );
+                assert_eq!(
+                    Spi::get_one::<i64>(
+                        "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('partitioned_passes_idx');",
+                    ).unwrap(),
+                    Some(nrows),
+                    "{workers} workers, {partition}: merge must keep every row"
+                );
+                assert_eq!(
+                    Spi::get_one::<bool>(
+                        "SELECT bool_and(vector_format = 'ivf') FROM paradedb.vector_info('partitioned_passes_idx', 'emb')"
+                    )
+                    .unwrap(),
+                    Some(true)
+                );
+                Spi::run("DROP INDEX partitioned_passes_idx;").unwrap();
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794903156082,
+  "lastUpdate": 1794903181299,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -347032,6 +347032,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207147595-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903178812,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 33.41678349244534,
+            "unit": "median tps",
+            "extra": "avg tps: 57.48379976731511, max tps: 670.915727073368, count: 59023"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 32.90315302834102,
+            "unit": "median tps",
+            "extra": "avg tps: 57.41481607069533, max tps: 711.5569154226091, count: 59023"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 33.82061257269852,
+            "unit": "median tps",
+            "extra": "avg tps: 60.28352160192781, max tps: 806.0676550130873, count: 59023"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 32.818721428976545,
+            "unit": "median tps",
+            "extra": "avg tps: 56.95170737930477, max tps: 683.1224245319314, count: 59023"
+          }
+        ],
+        "publication_id": "14308789087-tps"
       }
     ],
     "pg_search logical-replication-fsm-merge-race.toml Performance - Other Metrics": [
@@ -371100,6 +371147,161 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207147595-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903181225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 22.695034,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.064589365199055, max cpu: 36.67622, count: 59023"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 52.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.24796782080714, max mem: 62.25390625, count: 59023"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5736065,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2967078791233875, max cpu: 4.613167, count: 59023"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 21.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.207884664664622, max mem: 21.2421875, count: 59023"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6083865904111025, max cpu: 9.217475, count: 59023"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.239113221752536, max mem: 30.2421875, count: 59023"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1789,
+            "unit": "median pages",
+            "extra": "avg pages: 1512.0222286227404, max pages: 1807.0, count: 59023"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 13.9765625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 11.812673793478814, max relation_size:MB: 14.1171875, count: 59023"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 5,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 5.12911915693882, max segment_count: 13.0, count: 59023"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 9.129815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.758570327327659, max cpu: 9.129815, count: 59023"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 20.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 20.866850435952934, max mem: 20.87109375, count: 59023"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 22.716518,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.246148647690998, max cpu: 37.151703, count: 59023"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 50.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.67008054593125, max mem: 62.80078125, count: 59023"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 22.695034,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.08009588586346, max cpu: 33.436535, count: 59023"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 45.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.277972675906, max mem: 57.46875, count: 59023"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 99.95848846435547,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 198.0435469294387, max replication_lag:MB: 959.4780502319336, count: 59023"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 22.716518,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.231036373324578, max cpu: 32.38554, count: 59023"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 62.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.114275036320585, max mem: 74.2734375, count: 59023"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.039548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.617960053056514, max cpu: 31.923988, count: 59023"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 21.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.492548124777628, max mem: 23.4140625, count: 59023"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.052334,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.642746897896327, max cpu: 31.728045, count: 59023"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 21.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.549407315262695, max mem: 23.4140625, count: 59023"
+          }
+        ],
+        "publication_id": "14308789087-other"
       }
     ],
     "pg_search bulk-update-merge-pressure.toml Performance - TPS": [

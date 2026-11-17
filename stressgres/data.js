@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794903208910,
+  "lastUpdate": 1794903236563,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -459466,6 +459466,89 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14206529800-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903233669,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - tps",
+            "value": 511.810450860086,
+            "unit": "median tps",
+            "extra": "avg tps: 512.2165074692426, max tps: 629.8404647663589, count: 54850"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - tps",
+            "value": 476.82218623467134,
+            "unit": "median tps",
+            "extra": "avg tps: 477.2149755417011, max tps: 518.1534611291481, count: 54850"
+          },
+          {
+            "name": "JoinScan - Subscriber - tps",
+            "value": 185.99904574788738,
+            "unit": "median tps",
+            "extra": "avg tps: 186.14304100311804, max tps: 207.0741267134036, count: 54850"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - tps",
+            "value": 512.4246295692478,
+            "unit": "median tps",
+            "extra": "avg tps: 512.6549988134524, max tps: 619.3518501875217, count: 54850"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - tps",
+            "value": 376.27292226705373,
+            "unit": "median tps",
+            "extra": "avg tps: 376.2234840382837, max tps: 426.94304878589327, count: 54850"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - tps",
+            "value": 14.614117446583375,
+            "unit": "median tps",
+            "extra": "avg tps: 14.629817645400353, max tps: 15.927842033524158, count: 54850"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - tps",
+            "value": 626.8281675616854,
+            "unit": "median tps",
+            "extra": "avg tps: 627.5888764454328, max tps: 762.9090153961336, count: 54850"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - tps",
+            "value": 644.7105388510233,
+            "unit": "median tps",
+            "extra": "avg tps: 645.8561280469768, max tps: 779.129139511046, count: 54850"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - tps",
+            "value": 287.90980432424175,
+            "unit": "median tps",
+            "extra": "avg tps: 288.1141478580599, max tps: 325.7995505054194, count: 54850"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - tps",
+            "value": 538.1656686751364,
+            "unit": "median tps",
+            "extra": "avg tps: 538.6529752064199, max tps: 631.0095975152494, count: 54850"
+          }
+        ],
+        "publication_id": "14309153384-tps"
       }
     ],
     "pg_search logical-replication-mixed-workload.toml Performance - Other Metrics": [
@@ -501030,6 +501113,281 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14206529800-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "97bbfe84b64f75198a58cdded70bedcce36c050d",
+          "message": "ci: update pdbench to the recall-floor selection fix (#7500)\n\nUpdate all HN, Cohere (including comparison engines), and MS MARCO\nbenchmark workflow defaults to pdbench\n`c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4` (paradedb/pdbench#62). Recall\nsweeps now select the fastest validated setting found that meets the\nrecall floor instead of preferring an exact target hit. Manual revision\noverrides remain available.\n\nValidation: pre-commit checks for all three workflows, including YAML\nvalidation, actionlint, and Prettier; `git diff --check`.",
+          "timestamp": "2026-11-17T02:28:19Z",
+          "url": "https://github.com/paradedb/paradedb/commit/97bbfe84b64f75198a58cdded70bedcce36c050d"
+        },
+        "date": 1794903236443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Subscriber - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9305489736865855, max cpu: 13.591316, count: 54850"
+          },
+          {
+            "name": "Aggregate Scan - Subscriber - mem",
+            "value": 48.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.3674432400866, max mem: 48.47265625, count: 54850"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.24715942909025743, max cpu: 4.5584044, count: 54850"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 19.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 19.820311360528716, max mem: 19.83984375, count: 54850"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 22.652195,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.042878102826016, max cpu: 32.04578, count: 54850"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 46.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.05316922572926, max mem: 46.08203125, count: 54850"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - cpu",
+            "value": 4.539007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.976790951322473, max cpu: 13.610586, count: 54850"
+          },
+          {
+            "name": "Grouped Aggregate Scan - Subscriber - mem",
+            "value": 46.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.14513573951687, max mem: 46.16015625, count: 54850"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608769723857951, max cpu: 9.18221, count: 54850"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 28.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.585416334320875, max mem: 28.5859375, count: 54850"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 567,
+            "unit": "median pages",
+            "extra": "avg pages: 565.2982680036463, max pages: 567.0, count: 54850"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 4.4296875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 4.416392718778487, max relation_size:MB: 4.4296875, count: 54850"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 4,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 4.35901549680948, max segment_count: 10.0, count: 54850"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.513399,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.088637548073462, max cpu: 4.513399, count: 54850"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 21.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.7013274840474, max mem: 21.71875, count: 54850"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.6672223036287104, max cpu: 4.534719, count: 54850"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 21.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.7013274840474, max mem: 21.71875, count: 54850"
+          },
+          {
+            "name": "JoinScan - Subscriber - cpu",
+            "value": 9.078014,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.343112708325279, max cpu: 18.311874, count: 54850"
+          },
+          {
+            "name": "JoinScan - Subscriber - mem",
+            "value": 80.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 80.89981490713309, max mem: 80.90625, count: 54850"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.539007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.020789390232017, max cpu: 9.195402, count: 54850"
+          },
+          {
+            "name": "Key-ordered Top K Base Scan - Subscriber - mem",
+            "value": 57.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.99757670066089, max mem: 57.01171875, count: 54850"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - cpu",
+            "value": 4.5433035,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.547724291213162, max cpu: 13.740458, count: 54850"
+          },
+          {
+            "name": "Normal Base Scan - Subscriber - mem",
+            "value": 45.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.26218465132179, max mem: 45.37109375, count: 54850"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - cpu",
+            "value": 18.104668,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.35803382266696, max cpu: 49.858356, count: 54850"
+          },
+          {
+            "name": "Parallel Normal Base Scan - Subscriber - mem",
+            "value": 45.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.3822482480629, max mem: 45.50390625, count: 54850"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - cpu",
+            "value": 4.539007,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.896643601695339, max cpu: 9.191, count: 54850"
+          },
+          {
+            "name": "Postgres Index Scan Fallback (Key Projection) - Subscriber - mem",
+            "value": 41.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.8642233791021, max mem: 41.87109375, count: 54850"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.896633046764599, max cpu: 9.186603, count: 54850"
+          },
+          {
+            "name": "Postgres Index Scan Fallback - Subscriber - mem",
+            "value": 41.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 41.92253567969462, max mem: 41.99609375, count: 54850"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - cpu",
+            "value": 4.569253,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.815228574299373, max cpu: 13.793103, count: 54850"
+          },
+          {
+            "name": "Postgres Sort over Normal Base Scan - Subscriber - mem",
+            "value": 45.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.246339448495895, max mem: 45.265625, count: 54850"
+          },
+          {
+            "name": "Rotate join keys - Publisher - cpu",
+            "value": 4.5007033,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8217515343372397, max cpu: 8.984558, count: 54850"
+          },
+          {
+            "name": "Rotate join keys - Publisher - mem",
+            "value": 21.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.94321929124886, max mem: 21.96484375, count: 54850"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.0002176132828078709, max replication_lag:MB: 0.12201690673828125, count: 54850"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.958518388636267, max cpu: 13.559322, count: 54850"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Subscriber - mem",
+            "value": 56.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.15937072698268, max mem: 56.203125, count: 54850"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.7045823438289267, max cpu: 4.569253, count: 54850"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 21.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 21.891143459434822, max mem: 21.9140625, count: 54850"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.058720234265382, max cpu: 4.5584044, count: 54850"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 22.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.220441972424794, max mem: 22.23828125, count: 54850"
+          },
+          {
+            "name": "Update joined rows - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 54850"
+          },
+          {
+            "name": "Update joined rows - Publisher - mem",
+            "value": 21.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 21.955633332383773, max mem: 21.96484375, count: 54850"
+          }
+        ],
+        "publication_id": "14309153384-other"
       }
     ],
     "pg_search partitioned-table.toml Performance - TPS": [

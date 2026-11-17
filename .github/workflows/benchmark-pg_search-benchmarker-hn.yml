@@ -225,6 +225,7 @@ jobs:
         uses: ./.github/actions/build-vector-benchmark-index
         with:
           config: configs/load/hn-full-paradedb.yaml
+          artifact_name: ${{ env.RESULTS_DATASET }}-load-report
 
       - name: Build Comparison Index
         if: matrix.engine != 'pg_search'

@@ -202,6 +202,7 @@ jobs:
         uses: ./.github/actions/build-vector-benchmark-index
         with:
           config: ${{ env.LOAD_CONFIG }}
+          artifact_name: ${{ env.RESULTS_DATASET }}-load-report
 
       - name: Verify Eight-segment Index
         if: matrix.engine == 'pg_search'

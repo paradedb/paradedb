@@ -171,6 +171,7 @@ jobs:
         uses: ./.github/actions/build-vector-benchmark-index
         with:
           config: configs/load/cohere-${{ matrix.size }}-paradedb.yaml
+          artifact_name: cohere-${{ matrix.size }}-load-report
           report_memory: "false"
 
       - name: Vacuum Benchmark Index

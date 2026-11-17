@@ -130,8 +130,11 @@ and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
 
-Diagnostics upload after plan verification, before the longer k6 pass, so recall
-sweeps can be reviewed while latency measurements continue.
+The `cohere-<size>-load-report` artifact uploads immediately after the index build,
+before recall sweeps and k6. Download it from the running workflow's Artifacts
+section (or the Upload Load Report step's artifact URL) and open `report.html`.
+The remaining diagnostics upload after plan verification, before the longer k6
+pass, so recall sweeps can be reviewed while latency measurements continue.
 Artifacts retain index-build logs, the pdbench-load run and its `report.html`, pdbench search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in

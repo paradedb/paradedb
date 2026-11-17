@@ -87,6 +87,10 @@ SELECT o.id, p.id, (pdb.explain_score(p.id)->>'value')::real = pdb.score(p.id) A
 FROM explain_orders o JOIN explain_products p ON p.id = o.product_id
 WHERE p.description ||| 'red' ORDER BY pdb.score(p.id) DESC, o.id LIMIT 2;
 
+-- The scan gives the explanation with its output, so a `WHERE` clause can't read it.
+SELECT id FROM explain_products
+WHERE description ||| 'red' AND (pdb.explain_score(id)->>'value')::real > 0.5;
+
 -- A query with no search operator has no score to explain.
 SELECT id, pdb.explain_score(id) FROM explain_products WHERE id = 1;
 

@@ -305,7 +305,11 @@ WARNING:  JoinScan not used: pdb.explain_score is not supported (tables: o, p)
   3 |  5 | t
 (2 rows)
 
+-- The scan gives the explanation with its output, so a `WHERE` clause can't read it.
+SELECT id FROM explain_products
+WHERE description ||| 'red' AND (pdb.explain_score(id)->>'value')::real > 0.5;
+ERROR:  `pdb.explain_score` must be in the `SELECT` list of a query that a ParadeDB scan evaluates
 -- A query with no search operator has no score to explain.
 SELECT id, pdb.explain_score(id) FROM explain_products WHERE id = 1;
-ERROR:  `pdb.explain_score` must be evaluated by a ParadeDB scan. If the query does apply a ParadeDB operator, please report it at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  `pdb.explain_score` must be in the `SELECT` list of a query that a ParadeDB scan evaluates
 DROP TABLE explain_products, explain_orders, explain_synonyms;

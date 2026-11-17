@@ -499,8 +499,14 @@ with several terms has one entry for each term that the row matches.
 With [synonyms](/reference/tokenizers/synonyms), a group of single words is one `SynonymQuery` entry. Its `freq` is a sum,
 and it lists each word of the group that the row holds.
 
-An explanation costs more than a score, because ParadeDB reads the terms of the row again. Ask for it on a few rows, for
-example with a `LIMIT`. A join that explains a score does not use [join pushdown](/reference/joins/overview).
+`pdb.explain_score` has these limits:
+
+- The query has to search the table with a ParadeDB operator, as for `pdb.score`.
+- It works in the `SELECT` list, and not in `WHERE`.
+- In a join, each call explains the score from the search on its own table, and the query does not use
+  [join pushdown](/reference/joins/overview).
+- It costs more than a score, because ParadeDB reads the terms of the row again. Ask for it on a few rows, for example
+  with a `LIMIT`.
 
 ## Score Refresh
 

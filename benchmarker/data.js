@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794869925106,
+  "lastUpdate": 1794877044788,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -94574,6 +94574,299 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14249875748-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "15e99d0b615eafe03440a27a91c053d8402aa7b5",
+          "message": "ci: separate vector benchmark timing from profiling (#7494)\n\nVector benchmarks currently collect perf samples during the k6 run used\nfor published latency and QPS, so profiling overhead can affect the\nreported performance.\n\nRun the existing 10-second warmup and 50-second measurement without\nperf, then collect profiles in a separate pass with a 5-second warmup\nand 10-second measurement per reached operating point. Both passes reuse\nthe same index, queries, and calibrated operating points. This applies\nto the shared vector benchmark action used by HN, Cohere, and MS MARCO.\n\nOnly the unprofiled pass writes to `benchmarker/results`, which feeds\npublished latency, QPS, and HTML dashboards. Profile-pass dashboards\nstay under `benchmark-profiles` alongside the perf artifacts.\n\nValidation: pre-commit, Bash syntax, and ShellCheck passed. A local\nsmoke test executed both action passes with a stub k6 and ran the actual\npublication extraction and HTML staging code; distinct profiled values\nwere excluded from all published timing metrics and dashboards. It also\nverified identical workload arguments, the 5/10-second profile\noverrides, unreached-point skipping, and failure propagation. Full\ndataset benchmarks were not rerun.",
+          "timestamp": "2026-11-16T23:21:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/15e99d0b615eafe03440a27a91c053d8402aa7b5"
+        },
+        "date": 1794877042091,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 28.143,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 44.166,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 53.064,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 31.383,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 39.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 49.166,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 42.948,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 52.57,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 58.494,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 27.535,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 57.127,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 63.202,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 33.419,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 51.274,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 60.365,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 50.002,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 65.266,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 70.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 28.691,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 50.537,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 62.349,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 28.478,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 44.853,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 52.308,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 44.511,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 59.811,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 70.304,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.061,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.1,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.155,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.032,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.075,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.119,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.041,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.082,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.131,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 13.412,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 13.948,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 14.534,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 16.751,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 17.21,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 18.039,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 11.288,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 11.532,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 12.594,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 17.84,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 20.408,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 20.9,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 33.956,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 37,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 37.558,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 61.597,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 65.515,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 66.321,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14286984462-latency"
       }
     ],
     "benchmarker hackernews-vector-28m (throughput)": [
@@ -95028,6 +95321,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14249875748-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "15e99d0b615eafe03440a27a91c053d8402aa7b5",
+          "message": "ci: separate vector benchmark timing from profiling (#7494)\n\nVector benchmarks currently collect perf samples during the k6 run used\nfor published latency and QPS, so profiling overhead can affect the\nreported performance.\n\nRun the existing 10-second warmup and 50-second measurement without\nperf, then collect profiles in a separate pass with a 5-second warmup\nand 10-second measurement per reached operating point. Both passes reuse\nthe same index, queries, and calibrated operating points. This applies\nto the shared vector benchmark action used by HN, Cohere, and MS MARCO.\n\nOnly the unprofiled pass writes to `benchmarker/results`, which feeds\npublished latency, QPS, and HTML dashboards. Profile-pass dashboards\nstay under `benchmark-profiles` alongside the perf artifacts.\n\nValidation: pre-commit, Bash syntax, and ShellCheck passed. A local\nsmoke test executed both action passes with a stub k6 and ran the actual\npublication extraction and HTML staging code; distinct profiled values\nwere excluded from all published timing metrics and dashboards. It also\nverified identical workload arguments, the 5/10-second profile\noverrides, unreached-point skipping, and failure propagation. Full\ndataset benchmarks were not rerun.",
+          "timestamp": "2026-11-16T23:21:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/15e99d0b615eafe03440a27a91c053d8402aa7b5"
+        },
+        "date": 1794877043159,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 33.43990887033148,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 30.99891337432315,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 22.808415632968362,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 30.182083277890925,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 28.099851709124838,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 20.109065258023872,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 30.509371552159816,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 32.74616500146857,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 22.147404276685347,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 323.2995316218224,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 326.5784670233787,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 325.7068158715646,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 74.37603279403203,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 59.455037077819426,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 88.4684260859084,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 56.539055431265,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 29.711712016119616,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 16.266061836918247,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14286984462-throughput"
       }
     ],
     "benchmarker hackernews-vector-28m (buffers)": [
@@ -95482,6 +95888,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14249875748-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "15e99d0b615eafe03440a27a91c053d8402aa7b5",
+          "message": "ci: separate vector benchmark timing from profiling (#7494)\n\nVector benchmarks currently collect perf samples during the k6 run used\nfor published latency and QPS, so profiling overhead can affect the\nreported performance.\n\nRun the existing 10-second warmup and 50-second measurement without\nperf, then collect profiles in a separate pass with a 5-second warmup\nand 10-second measurement per reached operating point. Both passes reuse\nthe same index, queries, and calibrated operating points. This applies\nto the shared vector benchmark action used by HN, Cohere, and MS MARCO.\n\nOnly the unprofiled pass writes to `benchmarker/results`, which feeds\npublished latency, QPS, and HTML dashboards. Profile-pass dashboards\nstay under `benchmark-profiles` alongside the perf artifacts.\n\nValidation: pre-commit, Bash syntax, and ShellCheck passed. A local\nsmoke test executed both action passes with a stub k6 and ran the actual\npublication extraction and HTML staging code; distinct profiled values\nwere excluded from all published timing metrics and dashboards. It also\nverified identical workload arguments, the 5/10-second profile\noverrides, unreached-point skipping, and failure propagation. Full\ndataset benchmarks were not rerun.",
+          "timestamp": "2026-11-16T23:21:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/15e99d0b615eafe03440a27a91c053d8402aa7b5"
+        },
+        "date": 1794877043962,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 19001.34,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 23415.88,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 35743.16,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 17308.31,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 20641.5,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 37641.61,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 18973.32,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 20409.92,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 32545.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1272.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1272.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1272.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 7814.65,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 9769.99,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7501.31,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 8095.47,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 16768.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 30752.08,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14286984462-buffers"
       }
     ],
     "benchmarker hackernews-vector-28m (index build)": [
@@ -95636,6 +96155,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14249875748-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "15e99d0b615eafe03440a27a91c053d8402aa7b5",
+          "message": "ci: separate vector benchmark timing from profiling (#7494)\n\nVector benchmarks currently collect perf samples during the k6 run used\nfor published latency and QPS, so profiling overhead can affect the\nreported performance.\n\nRun the existing 10-second warmup and 50-second measurement without\nperf, then collect profiles in a separate pass with a 5-second warmup\nand 10-second measurement per reached operating point. Both passes reuse\nthe same index, queries, and calibrated operating points. This applies\nto the shared vector benchmark action used by HN, Cohere, and MS MARCO.\n\nOnly the unprofiled pass writes to `benchmarker/results`, which feeds\npublished latency, QPS, and HTML dashboards. Profile-pass dashboards\nstay under `benchmark-profiles` alongside the perf artifacts.\n\nValidation: pre-commit, Bash syntax, and ShellCheck passed. A local\nsmoke test executed both action passes with a stub k6 and ran the actual\npublication extraction and HTML staging code; distinct profiled values\nwere excluded from all published timing metrics and dashboards. It also\nverified identical workload arguments, the 5/10-second profile\noverrides, unreached-point skipping, and failure propagation. Full\ndataset benchmarks were not rerun.",
+          "timestamp": "2026-11-16T23:21:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/15e99d0b615eafe03440a27a91c053d8402aa7b5"
+        },
+        "date": 1794877044779,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 33.75,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162332.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 18.81723403930664,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14286984462-index"
       }
     ]
   }

@@ -630,20 +630,6 @@
     ]
   },
   "footer": {
-    "links": [
-      {
-        "items": [
-          {
-            "label": "Privacy",
-            "href": "https://www.paradedb.com/legal/privacy"
-          },
-          {
-            "label": "Cookie preferences",
-            "href": "https://www.paradedb.com/legal/privacy#cookie-preferences"
-          }
-        ]
-      }
-    ],
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
       "twitter": "https://x.com/paradedb",

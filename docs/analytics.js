@@ -29,7 +29,11 @@
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Decline</button>
       <button type="button" data-consent="true">Accept</button></div>`;
-    let preferences;
+    const preferences = document.createElement("button");
+    preferences.id = "paradedb-cookie-preferences";
+    preferences.type = "button";
+    preferences.textContent = "Cookie preferences";
+    preferences.setAttribute("aria-controls", banner.id);
 
     function showBanner(show, focus = false) {
       banner.hidden = !show;
@@ -44,29 +48,25 @@
     function openPreferences() {
       if (!consent.snapshot().blocked) showBanner(true, true);
     }
-    // Delegate clicks so the control survives Mintlify page navigation.
-    document.addEventListener("click", (event) => {
-      const link = event.target.closest?.(
-        'a[href="https://www.paradedb.com/legal/privacy#cookie-preferences"]',
+    preferences.addEventListener("click", openPreferences);
+
+    function mountPreferences() {
+      const attribution = document.querySelector(
+        '#footer a[href*="utm_campaign=poweredBy"]',
       );
-      if (
-        !link ||
-        consent.snapshot().blocked ||
-        event.defaultPrevented ||
-        event.button !== 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
-      )
+      if (!attribution || attribution.nextElementSibling === preferences)
         return;
-      event.preventDefault();
-      preferences = link;
-      openPreferences();
-    });
+      attribution.parentElement.classList.add("paradedb-cookie-footer-row");
+      attribution.after(preferences);
+    }
+    // Mintlify can replace the footer during client-side navigation.
+    const footerObserver = new MutationObserver(mountPreferences);
+    footerObserver.observe(document.body, { childList: true, subtree: true });
+    mountPreferences();
     window.addEventListener("paradedb:cookie-preferences", openPreferences);
     document.body.append(banner);
     consent.subscribe(({ blocked, saved }) => {
+      preferences.hidden = blocked;
       if (blocked) {
         banner.hidden = true;
       } else showBanner(saved === undefined);

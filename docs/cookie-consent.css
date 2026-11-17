@@ -71,3 +71,41 @@
     flex: 1;
   }
 }
+
+.paradedb-cookie-footer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+#paradedb-cookie-preferences {
+  color: #9ca3af;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+#paradedb-cookie-preferences:hover {
+  color: #4b5563;
+}
+
+.dark #paradedb-cookie-preferences {
+  color: #6b7280;
+}
+
+.dark #paradedb-cookie-preferences:hover {
+  color: #d1d5db;
+}
+
+#paradedb-cookie-preferences:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+#paradedb-cookie-preferences[hidden] {
+  display: none;
+}

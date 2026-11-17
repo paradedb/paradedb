@@ -346,29 +346,18 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
-    let is_logical_worker = IsLogicalWorker();
-    let needs_foreground_backpressure = matches!(style, MergeStyle::Insert { .. })
-        && !is_logical_worker
-        && layer_sizes.visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count;
-
     let background_launched =
         needs_background_merge && try_launch_background_merger(index, largest_layer_size);
-    if background_launched && !needs_foreground_backpressure {
-        return Ok(());
-    }
+
     if let MergeStyle::Insert {
         current_xid,
         next_xid,
     } = style
     {
-        let foreground_candidate = candidates
-            .iter()
-            .filter(|(layer, _)| {
-                !is_logical_worker && layer_sizes.foreground_layer_sizes.contains(layer)
-            })
-            .min_by_key(|(layer, _)| *layer)
-            .map(|(_, candidate)| candidate);
-        if is_logical_worker {
+        let foreground_candidate = if IsLogicalWorker() {
+            if background_launched {
+                return Ok(());
+            }
             merge_policy.retain(
                 merger
                     .all_entries()
@@ -376,7 +365,19 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
                     .filter_map(|(id, entry)| entry.is_mutable().then_some(id))
                     .collect(),
             );
-        }
+            None
+        } else {
+            let needs_foreground_backpressure =
+                layer_sizes.visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count;
+            if background_launched && !needs_foreground_backpressure {
+                return Ok(());
+            }
+            candidates
+                .iter()
+                .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
+                .min_by_key(|(layer, _)| *layer)
+                .map(|(_, candidate)| candidate)
+        };
         merge_policy.prepare_backpressure(layer_sizes.backpressure_layer_size);
         let (backpressure_candidates, _, skipped) = merge_policy.simulate_supported(&merger)?;
         warn_unsupported_vector_merge(index, skipped);

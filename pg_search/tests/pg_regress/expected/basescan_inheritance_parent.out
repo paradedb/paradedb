@@ -325,30 +325,31 @@ SET paradedb.min_rows_per_worker = 0;
 EXPLAIN (COSTS OFF)
 SELECT tableoid::regclass AS tbl, count(*) FROM inh_par_parent
 WHERE kind ||| 'a' GROUP BY 1 ORDER BY 1;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: ((inh_par_parent.tableoid)::regclass)
-   ->  Finalize HashAggregate
-         Group Key: ((inh_par_parent.tableoid)::regclass)
-         ->  Gather
-               Workers Planned: 2
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate
+   Group Key: ((inh_par_parent.tableoid)::regclass)
+   ->  Gather Merge
+         Workers Planned: 2
+         ->  Sort
+               Sort Key: ((inh_par_parent.tableoid)::regclass)
                ->  Partial HashAggregate
                      Group Key: (inh_par_parent.tableoid)::regclass
-                     ->  Parallel Append
-                           ->  Parallel Custom Scan (ParadeDB Base Scan) on inh_par_parent inh_par_parent_1
-                                 Table: inh_par_parent
-                                 Index: inh_par_parent_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-                           ->  Parallel Custom Scan (ParadeDB Base Scan) on inh_par_child inh_par_parent_2
-                                 Table: inh_par_child
-                                 Index: inh_par_child_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-(21 rows)
+                     ->  Result
+                           ->  Parallel Append
+                                 ->  Parallel Custom Scan (ParadeDB Base Scan) on inh_par_parent inh_par_parent_1
+                                       Table: inh_par_parent
+                                       Index: inh_par_parent_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                                 ->  Parallel Custom Scan (ParadeDB Base Scan) on inh_par_child inh_par_parent_2
+                                       Table: inh_par_child
+                                       Index: inh_par_child_idx
+                                       Exec Method: NormalScanExecState
+                                       Scores: false
+                                       Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(22 rows)
 
 SELECT tableoid::regclass AS tbl, count(*) FROM inh_par_parent
 WHERE kind ||| 'a' GROUP BY 1 ORDER BY 1;

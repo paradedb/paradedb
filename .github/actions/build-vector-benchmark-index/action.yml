@@ -5,6 +5,9 @@ inputs:
   config:
     description: "Load config path relative to the pdbench checkout"
     required: true
+  artifact_name:
+    description: "Unique name for the early load-report artifact"
+    required: true
   report_memory:
     description: "Include peak container memory in the published metrics"
     default: "true"
@@ -62,3 +65,12 @@ runs:
             benchmark-artifacts/index-metrics.json > benchmark-artifacts/index-metrics.tmp
           mv benchmark-artifacts/index-metrics.tmp benchmark-artifacts/index-metrics.json
         fi
+
+    - name: Upload Load Report
+      if: always() && hashFiles('benchmark-artifacts/load/**/report.html') != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: benchmark-artifacts/load/
+        retention-days: 30
+        if-no-files-found: error

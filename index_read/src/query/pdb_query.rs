@@ -3307,11 +3307,12 @@ mod tests {
     fn topk_prunable_searchqueryinput_top_level_variants() {
         use crate::query::SearchQueryInput;
         use std::collections::HashMap;
+        use std::sync::Arc;
         // Top-level (non-fielded) variants have no reliably-pruning weight.
         assert!(!SearchQueryInput::All.is_topk_prunable());
         assert!(
             !SearchQueryInput::TermSet {
-                termset: HashMap::new()
+                termset: Arc::new(HashMap::new())
             }
             .is_topk_prunable()
         );

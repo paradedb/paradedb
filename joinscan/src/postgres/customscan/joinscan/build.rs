@@ -47,6 +47,7 @@ use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 /// DataFusion-facing relation alias helper.
 ///
@@ -288,7 +289,7 @@ impl JoinKeyPair {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JoinLevelSearchPredicate {
     /// The search query.
-    pub query: SearchQueryInput,
+    pub query: Arc<SearchQueryInput>,
 }
 
 pub use crate::postgres::customscan::expr_eval::InputVarInfo;
@@ -345,7 +346,7 @@ pub struct JoinSourceCandidate {
     pub heap_rti: pg_sys::Index,
     pub heaprelid: Option<pg_sys::Oid>,
     pub indexrelid: Option<pg_sys::Oid>,
-    pub query: Option<SearchQueryInput>,
+    pub query: Option<Arc<SearchQueryInput>>,
     pub has_search_predicate: bool,
     pub alias: Option<String>,
     pub score_needed: bool,
@@ -389,7 +390,7 @@ impl JoinSourceCandidate {
         self
     }
 
-    pub fn with_query(mut self, query: SearchQueryInput) -> Self {
+    pub fn with_query(mut self, query: Arc<SearchQueryInput>) -> Self {
         self.query = Some(query);
         self
     }
@@ -435,7 +436,10 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
-        let query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let query = self
+            .query
+            .clone()
+            .unwrap_or(Arc::new(SearchQueryInput::All));
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
         if query.has_postgres_expressions() || query.has_heap_filters() {
@@ -623,7 +627,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                     )
                 })?,
                 mode: crate::scan::ScanMode::standard(
-                    candidate.query.unwrap_or(SearchQueryInput::All),
+                    candidate.query.unwrap_or(Arc::new(SearchQueryInput::All)),
                 ),
                 has_search_predicate: candidate.has_search_predicate,
                 mvcc_visibility: crate::api::MvccVisibility::default(),
@@ -783,7 +787,7 @@ impl JoinLevelExpr {
 
     pub fn visit_queries_mut(&mut self, f: &mut impl FnMut(&mut SearchQueryInput)) {
         match self {
-            Self::SingleTablePredicate { predicate, .. } => f(&mut predicate.query),
+            Self::SingleTablePredicate { predicate, .. } => f(Arc::make_mut(&mut predicate.query)),
             Self::And(children) | Self::Or(children) => {
                 for c in children {
                     c.visit_queries_mut(f);
@@ -2144,12 +2148,12 @@ pub fn assign_tagged_queries<'a>(
             RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
         // Deduplicate by `p.query` per source: tag columns resolve by query equality,
         // so a duplicate is never referenced and scores twice.
-        let mut unique_queries: Vec<(usize, &SearchQueryInput)> = Vec::new();
+        let mut unique_queries: Vec<(usize, Arc<SearchQueryInput>)> = Vec::new();
         for (global_idx, (plan_pos, p)) in predicates.iter().enumerate() {
             if *plan_pos == source.plan_position
-                && !unique_queries.iter().any(|(_, q)| *q == &p.query)
+                && !unique_queries.iter().any(|(_, q)| *q == p.query)
             {
-                unique_queries.push((global_idx, &p.query));
+                unique_queries.push((global_idx, p.query.clone()));
             }
         }
         let local_queries: Vec<crate::scan::TaggedQuery> = unique_queries
@@ -2160,7 +2164,7 @@ pub fn assign_tagged_queries<'a>(
                     tag_name: format!("__{alias}_tag_{local_idx}"),
                     tag_idx: crate::scan::TagIndex(local_idx),
                     predicate_idx: crate::scan::GlobalPredicateIndex(global_idx),
-                    query: Box::new(query.clone()),
+                    query,
                 },
             )
             .collect();

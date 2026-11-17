@@ -59,11 +59,11 @@ pub fn init_filter_query_builder() {
 
 /// Create a FilterQuery from SearchQueryInput.
 pub fn new_filter_query(
-    query: SearchQueryInput,
+    query: &SearchQueryInput,
     indexrelid: pg_sys::Oid,
 ) -> anyhow::Result<FilterQuery> {
     Ok(FilterQuery {
-        query: serde_json::to_value(&query)?,
+        query: serde_json::to_value(query)?,
         indexrelid: indexrelid.to_u32(),
     })
 }
@@ -109,7 +109,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
     let schema = index.schema()?;
     let reader = SearchIndexReader::open_with_context(
         &index,
-        query.clone(),
+        Arc::new(query.clone()),
         false,
         MvccSatisfies::Snapshot,
         NonNull::new(context.as_ptr()),

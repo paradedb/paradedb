@@ -31,7 +31,7 @@ use crate::query::SearchQueryInput;
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchemaQueryExt};
 use pgrx::{IntoDatum, PgBox, PgList, PgTupleDesc, direct_function_call, pg_sys};
 use std::ptr::NonNull;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use tantivy::directory::{ManagedDirectory, RamDirectory};
 use tantivy::index::SegmentReader;
 use tantivy::indexer::{AddOperation, SegmentWriter};
@@ -312,7 +312,10 @@ pub(super) struct RowMatcher {
 
 impl RowMatcher {
     /// CurrentMemoryContext must outlive the returned matcher.
-    pub(super) unsafe fn new(index_relation: PgSearchRelation, query: SearchQueryInput) -> Self {
+    pub(super) unsafe fn new(
+        index_relation: PgSearchRelation,
+        query: Arc<SearchQueryInput>,
+    ) -> Self {
         let heap_relation = index_relation
             .heap_relation()
             .expect("a ParadeDB index must have a heap relation");

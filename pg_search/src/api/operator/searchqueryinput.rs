@@ -23,6 +23,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY, nodecast};
 use pgrx::{Internal, PgList, PgRelation, pg_extern, pg_sys};
+use std::sync::Arc;
 
 /// SQL API for allowing the user to specify the index to query.
 ///
@@ -127,7 +128,8 @@ pub(super) fn query_input_selectivity(
             else {
                 return UNKNOWN_SELECTIVITY;
             };
-            estimate_selectivity(&indexrel, search_query_input).unwrap_or(UNKNOWN_SELECTIVITY)
+            estimate_selectivity(&indexrel, Arc::new(search_query_input))
+                .unwrap_or(UNKNOWN_SELECTIVITY)
         }
         pg_sys::NodeTag::T_Param => PARAMETERIZED_SELECTIVITY,
         _ => UNKNOWN_SELECTIVITY,

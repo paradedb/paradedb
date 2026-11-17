@@ -184,7 +184,7 @@ pub struct PgSearchScanPlan {
     /// rebuild the original range boundaries when the variant is decoded on its worker.
     global_partition_count: usize,
     properties: Arc<PlanProperties>,
-    resolved_query: SearchQueryInput,
+    resolved_query: Arc<SearchQueryInput>,
     /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
     /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
     /// by the scanner is filtered against all of these expressions so that rows
@@ -273,7 +273,7 @@ impl PgSearchScanPlan {
     pub fn new(
         state: Option<ScanState>,
         schema: SchemaRef,
-        resolved_query: SearchQueryInput,
+        resolved_query: Arc<SearchQueryInput>,
         deferred_fields: Vec<DeferredField>,
         ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
@@ -875,9 +875,9 @@ impl PgSearchScanPlan {
             }
         }
         matched_tags.extend(local_queries.iter().map(|tq| tq.tag_name.clone()));
-        let disjunct_queries = local_queries.iter().map(|tq| (*tq.query).clone()).collect();
+        let disjunct_queries = local_queries.iter().map(|tq| tq.query.clone()).collect();
         let new_scan_mode =
-            crate::scan::ScanMode::disjunctive((**base_query).clone(), disjunct_queries);
+            crate::scan::ScanMode::disjunctive(base_query.clone(), disjunct_queries);
 
         let old_schema = self.properties.eq_properties.schema();
         let mut fields = Vec::with_capacity(old_schema.fields().len());
@@ -1321,7 +1321,7 @@ impl PgSearchScanPlan {
             (_, None) => MvccSatisfies::Snapshot,
         };
 
-        let query = descriptor.scan_mode.query().clone();
+        let query = descriptor.scan_mode.query();
         let needs_tokenizer = descriptor.scan_mode.needs_tokenizer();
         // If heap filters are present but no ExprContext was threaded through the codec
         // (e.g. during internal plan roundtrips or standalone deserialization), allocate a fallback
@@ -2730,7 +2730,7 @@ mod tests {
             Arc::new(PgSearchScanPlan::new(
                 None,
                 empty_schema(),
-                SearchQueryInput::All,
+                Arc::new(SearchQueryInput::All),
                 Vec::new(),
                 None,
                 0,
@@ -2763,7 +2763,7 @@ mod tests {
         let _ = PgSearchScanPlan::new(
             None,
             empty_schema(),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             Vec::new(),
             None,
             0,
@@ -2779,7 +2779,7 @@ mod tests {
         let _ = PgSearchScanPlan::new(
             None,
             empty_schema(),
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             Vec::new(),
             None,
             0,
@@ -2798,7 +2798,7 @@ mod tests {
             let mut plan = PgSearchScanPlan::new(
                 None,
                 empty_schema(),
-                SearchQueryInput::All,
+                Arc::new(SearchQueryInput::All),
                 Vec::new(),
                 None,
                 0,
@@ -2859,7 +2859,7 @@ mod tests {
         let plan = PgSearchScanPlan::new(
             None,
             schema,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             Vec::new(),
             None,
             0,

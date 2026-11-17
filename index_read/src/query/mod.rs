@@ -57,6 +57,7 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
+use std::sync::Arc;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -158,7 +159,7 @@ pub enum SearchQueryInput {
     TermSet {
         /// Also reads the legacy `terms: [{"field": ..., "value": ...}, ...]` form.
         #[serde(alias = "terms", deserialize_with = "deserialize_termset")]
-        termset: std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>,
+        termset: Arc<std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>>,
     },
     WithIndex {
         oid: pg_sys::Oid,
@@ -1317,36 +1318,38 @@ struct TermInputWire {
 /// `terms` list of [`TermInputWire`] entries (grouped by field as it is read).
 fn deserialize_termset<'de, D>(
     deserializer: D,
-) -> Result<std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>, D::Error>
+) -> Result<Arc<std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>>, D::Error>
 where
     D: Deserializer<'de>,
 {
+    use std::collections::HashMap;
+
     struct TermSetVisitor;
 
     impl<'de> Visitor<'de> for TermSetVisitor {
-        type Value = std::collections::HashMap<FieldName, Vec<PdbOwnedValue>>;
+        type Value = Arc<HashMap<FieldName, Vec<PdbOwnedValue>>>;
 
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("a map of field to term values, or a legacy list of term set entries")
         }
 
         fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            let mut termset = Self::Value::new();
+            let mut termset: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::new();
             while let Some((field, values)) = map.next_entry::<FieldName, Vec<PdbOwnedValue>>()? {
                 termset.entry(field).or_default().extend(values);
             }
-            Ok(termset)
+            Ok(Arc::new(termset))
         }
 
         fn visit_seq<A: serde::de::SeqAccess<'de>>(
             self,
             mut seq: A,
         ) -> Result<Self::Value, A::Error> {
-            let mut termset = Self::Value::new();
+            let mut termset: HashMap<FieldName, Vec<PdbOwnedValue>> = HashMap::new();
             while let Some(TermInputWire { field, value, .. }) = seq.next_element()? {
                 termset.entry(field).or_default().push(value);
             }
-            Ok(termset)
+            Ok(Arc::new(termset))
         }
     }
 
@@ -1943,7 +1946,7 @@ impl SearchQueryInput {
                 let term_count = termset.values().map(|s| s.len()).sum();
                 check_term_set_size(term_count);
                 let mut terms = Vec::with_capacity(term_count);
-                for (field, values) in termset.into_iter() {
+                for (field, values) in Arc::unwrap_or_clone(termset).into_iter() {
                     let search_field = schema
                         .search_field(field.root())
                         .ok_or_else(|| QueryError::NonIndexedField(field.clone()))?;
@@ -2395,6 +2398,8 @@ impl PostgresExpression {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use std::sync::Arc;
+
     use super::SearchQueryInput;
     use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
@@ -2567,7 +2572,9 @@ mod tests {
     fn create_term_query() -> SearchQueryInput {
         let mut termset = std::collections::HashMap::new();
         termset.insert("test".into(), vec![PdbOwnedValue::Str("value".to_string())]);
-        SearchQueryInput::TermSet { termset }
+        SearchQueryInput::TermSet {
+            termset: Arc::new(termset),
+        }
     }
 
     fn create_match_query() -> SearchQueryInput {

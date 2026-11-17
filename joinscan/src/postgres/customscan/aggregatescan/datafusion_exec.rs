@@ -1357,7 +1357,7 @@ impl FilterExpr {
                 };
                 let tagged = local_queries
                     .iter()
-                    .find(|tq| (*tq.query) == predicate.query)?;
+                    .find(|tq| tq.query == predicate.query)?;
                 Some(col(&tagged.tag_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),

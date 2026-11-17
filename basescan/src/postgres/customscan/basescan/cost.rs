@@ -221,7 +221,7 @@ pub(super) enum EstimationQuery {
     AsWritten,
     /// A planning-only copy with runtime expressions folded through PostgreSQL's
     /// `estimate_expression_value`. Execution still solves the written query.
-    Folded(Box<SearchQueryInput>),
+    Folded(Arc<SearchQueryInput>),
     Guess(f64),
 }
 
@@ -246,20 +246,20 @@ impl EstimationQuery {
         if query.has_postgres_expressions()
             && let Some(folded) = query.fold_for_estimation(root)
         {
-            return Self::Folded(Box::new(folded));
+            return Self::Folded(Arc::new(folded));
         }
         // if the query has expressions then it's parameterized and we have to guess something
         Self::Guess(PARAMETERIZED_SELECTIVITY)
     }
 
     /// `Ok`: the query to open the index with. `Err`: the selectivity to guess instead.
-    pub(super) fn resolve<'a>(
-        &'a self,
-        written: &'a SearchQueryInput,
-    ) -> Result<&'a SearchQueryInput, f64> {
+    pub(super) fn resolve(
+        &self,
+        written: Arc<SearchQueryInput>,
+    ) -> Result<Arc<SearchQueryInput>, f64> {
         match self {
             Self::AsWritten => Ok(written),
-            Self::Folded(folded) => Ok(folded),
+            Self::Folded(folded) => Ok(folded.clone()),
             Self::Guess(selectivity) => Err(*selectivity),
         }
     }
@@ -272,7 +272,7 @@ impl EstimationQuery {
 /// # Safety
 /// `root` must point to a valid `PlannerInfo` for the duration of this call.
 pub(super) unsafe fn costable_drive_cost(
-    query: &SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     estimation_query: &EstimationQuery,
     bm25_index: &PgSearchRelation,
     quals: &Qual,

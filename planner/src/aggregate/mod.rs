@@ -331,7 +331,7 @@ struct ParallelAggregationWorker<'a> {
     state: &'a mut State,
     config: Config,
     aggregation: Option<AggregateRequest>,
-    query: SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     segment_ids: Vec<SegmentDeletedDocs>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
@@ -359,7 +359,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 handle.table,
                 worker_number as u32 + 1,
             )));
-            self.query.attach_bitmap_cell(&cell);
+            Arc::make_mut(&mut self.query).attach_bitmap_cell(&cell);
         }
     }
 
@@ -369,13 +369,13 @@ impl<'a> ParallelAggregationWorker<'a> {
         self.bitmap_handle = None;
         let cell = BitmapCell::default();
         cell.fill(source);
-        self.query.attach_bitmap_cell(&cell);
+        Arc::make_mut(&mut self.query).attach_bitmap_cell(&cell);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn new_local(
         aggregation: AggregateRequest,
-        query: SearchQueryInput,
+        query: Arc<SearchQueryInput>,
         segment_ids: Vec<SegmentDeletedDocs>,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
@@ -587,7 +587,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             state,
             config: *config,
             aggregation: Some(aggregation),
-            query,
+            query: Arc::new(query),
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
             bitmap_handle,
@@ -625,7 +625,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 #[allow(clippy::too_many_arguments)]
 pub fn execute_aggregate(
     index: &PgSearchRelation,
-    query: SearchQueryInput,
+    query: Arc<SearchQueryInput>,
     mut agg_req: AggregateRequest,
     visibility: MvccVisibility,
     memory_limit: u64,
@@ -686,7 +686,7 @@ pub fn execute_aggregate(
             *stats = reader.segment_pruning_estimate();
         }
 
-        let solve_mvcc = visibility.resolve_filtering(index, &query, Some(&reader));
+        let solve_mvcc = visibility.resolve_filtering(index, query.clone(), Some(&reader));
 
         // Fast path: a bare doc count without MVCC filtering is answerable by
         // `Weight::count` — a stored-doc_freq metadata read for term queries
@@ -724,7 +724,7 @@ pub fn execute_aggregate(
         }
 
         let (nworkers, parallel_cost) =
-            aggregate_nworkers(index, &reader, &query, &agg_req, solve_mvcc);
+            aggregate_nworkers(index, &reader, query.clone(), &agg_req, solve_mvcc);
 
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         // Prune segments via `.stats` before publishing the segment claim list so workers never

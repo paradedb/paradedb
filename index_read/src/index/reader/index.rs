@@ -816,6 +816,7 @@ pub mod test_support {
     use crate::query::SearchQueryInput;
     use crate::query::pdb_query::pdb;
     use pgrx::Spi;
+    use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
 
     /// How many times the index was actually opened (metadata walk, pins, searcher build).
@@ -855,7 +856,13 @@ pub mod test_support {
         query: SearchQueryInput,
         need_scores: bool,
     ) -> SearchIndexReader {
-        SearchIndexReader::open(index_rel, query, need_scores, MvccSatisfies::Snapshot).unwrap()
+        SearchIndexReader::open(
+            index_rel,
+            Arc::new(query),
+            need_scores,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap()
     }
 
     /// Every entry point of `reader` agrees with Tantivy searching the same query over every
@@ -1144,13 +1151,18 @@ impl SearchIndexReader {
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
-        Self::open(index_relation, SearchQueryInput::Empty, false, mvcc_style)
+        Self::open(
+            index_relation,
+            Arc::new(SearchQueryInput::Empty),
+            false,
+            mvcc_style,
+        )
     }
 
     /// Open a tantivy index that, when searched, will return the results of the specified [`SearchQueryInput`].
     pub fn open(
         index_relation: &PgSearchRelation,
-        search_query_input: SearchQueryInput,
+        search_query_input: Arc<SearchQueryInput>,
         need_scores: bool,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
@@ -1171,7 +1183,7 @@ impl SearchIndexReader {
     #[allow(clippy::too_many_arguments)]
     pub fn open_with_context(
         index_relation: &PgSearchRelation,
-        search_query_input: SearchQueryInput,
+        search_query_input: Arc<SearchQueryInput>,
         need_scores: bool,
         mvcc_style: MvccSatisfies,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
@@ -1213,7 +1225,7 @@ impl SearchIndexReader {
     pub fn from_manifest(
         manifest: &SearchIndexManifest,
         index_relation: &PgSearchRelation,
-        search_query_input: SearchQueryInput,
+        search_query_input: Arc<SearchQueryInput>,
         need_scores: bool,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         needs_tokenizer_manager: bool,
@@ -1248,7 +1260,7 @@ impl SearchIndexReader {
     fn from_components(
         index_relation: &PgSearchRelation,
         components: IndexComponents,
-        search_query_input: SearchQueryInput,
+        search_query_input: Arc<SearchQueryInput>,
         need_scores: bool,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
@@ -1280,9 +1292,9 @@ impl SearchIndexReader {
             )
         };
         let pruning_query = SegmentPruner::has_prunable_predicate(&schema, &search_query_input)
-            .then(|| Arc::from(search_query_input.clone()));
+            .then(|| search_query_input.clone());
         let estimate_from_statistics = search_query_input.supports_statistics_estimation();
-        let query = search_query_input
+        let query = Arc::unwrap_or_clone(search_query_input)
             .into_tantivy_query(
                 &schema,
                 index_created_by_version,
@@ -1399,7 +1411,7 @@ impl SearchIndexReader {
     /// Compiles a non-empty slice of `disjunct_queries` into a single `Occur::Should` union query.
     fn make_disjunct_union_query(
         &self,
-        disjunct_queries: &[SearchQueryInput],
+        disjunct_queries: &[Arc<SearchQueryInput>],
     ) -> Option<Box<dyn Query>> {
         if disjunct_queries.is_empty() {
             return None;
@@ -1426,7 +1438,7 @@ impl SearchIndexReader {
     pub fn with_disjunctive_sa_queries(
         mut self,
         replace_query: bool,
-        disjunct_queries: &[SearchQueryInput],
+        disjunct_queries: &[Arc<SearchQueryInput>],
     ) -> Self {
         let Some(disjunct_union) = self.make_disjunct_union_query(disjunct_queries) else {
             return self;
@@ -1663,10 +1675,10 @@ impl SearchIndexReader {
     pub fn estimate_segment_count(
         index_relation: &PgSearchRelation,
         schema: &SearchIndexSchema,
-        search_query_input: Option<&SearchQueryInput>,
+        search_query_input: Option<Arc<SearchQueryInput>>,
     ) -> usize {
         if let Some(query) = search_query_input
-            && SegmentPruner::has_prunable_predicate(schema, query)
+            && SegmentPruner::has_prunable_predicate(schema, &query)
         {
             let index_created_by_version = index_relation.created_by_version();
             let components =
@@ -1684,7 +1696,7 @@ impl SearchIndexReader {
                 .enumerate()
                 .filter(|&(ord, reader)| {
                     Self::directory_segment_num_docs(&components.directory, reader) > 0
-                        && pruner.can_match(ord as SegmentOrdinal, query)
+                        && pruner.can_match(ord as SegmentOrdinal, &query)
                 })
                 .count()
         } else {
@@ -1963,7 +1975,7 @@ impl SearchIndexReader {
         &self,
         range_target: Option<&(PartitionSegments, SearchQueryInput)>,
         unconstrained_is_match_all: bool,
-        disjunct_queries: &[SearchQueryInput],
+        disjunct_queries: &[Arc<SearchQueryInput>],
     ) -> RaLookupWeights {
         let unconstrained = if unconstrained_is_match_all {
             RaBaseFilter::MatchAll
@@ -4207,7 +4219,7 @@ mod tests {
             ] {
                 let reader = SearchIndexReader::open(
                     &index,
-                    query.clone(),
+                    Arc::new(query.clone()),
                     false,
                     MvccSatisfies::LargestSegment,
                 )
@@ -4284,7 +4296,7 @@ mod tests {
             ] {
                 let reader = SearchIndexReader::open(
                     &index,
-                    query.clone(),
+                    Arc::new(query.clone()),
                     false,
                     MvccSatisfies::LargestSegment,
                 )
@@ -4318,7 +4330,7 @@ mod tests {
             unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
             let reader = SearchIndexReader::open(
                 &index,
-                term_query("title", "mutable"),
+                Arc::new(term_query("title", "mutable")),
                 false,
                 MvccSatisfies::LargestSegment,
             )
@@ -4339,7 +4351,7 @@ mod tests {
             VisibilityChecker::with_rel_and_snap(&heap_rel, unsafe { pg_sys::GetActiveSnapshot() });
         let largest = SearchIndexReader::open(
             &index_rel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::LargestSegment,
         )
@@ -4391,7 +4403,10 @@ mod tests {
                     },
                 },
                 SearchQueryInput::TermSet {
-                    termset: std::collections::HashMap::from([(field.clone(), vec![value])]),
+                    termset: Arc::new(std::collections::HashMap::from([(
+                        field.clone(),
+                        vec![value],
+                    )])),
                 },
             ] {
                 queries.push((query, expected));
@@ -4448,11 +4463,11 @@ mod tests {
         let reader = SearchIndexReader::from_manifest(
             &manifest,
             &index_rel,
-            SearchQueryInput::Parse {
+            Arc::new(SearchQueryInput::Parse {
                 query_string: "title:silver".to_string(),
                 lenient: None,
                 conjunction_mode: None,
-            },
+            }),
             /* need_scores */ false,
             None,
             /* needs_tokenizer_manager */ true,
@@ -4816,7 +4831,7 @@ mod tests {
         // Planning estimates prune candidate segments using .stats before estimating.
         let estimating = SearchIndexReader::open(
             &index_rel,
-            range_query("id", 100, 200),
+            Arc::new(range_query("id", 100, 200)),
             false,
             MvccSatisfies::LargestSegment,
         )
@@ -4850,9 +4865,15 @@ mod tests {
         };
         EMPIRICAL_READS.store(0, Relaxed);
         STATS_OPENS.store(0, Relaxed);
-        let reader =
-            SearchIndexReader::from_manifest(&manifest, &index_rel, query, false, None, false)
-                .unwrap();
+        let reader = SearchIndexReader::from_manifest(
+            &manifest,
+            &index_rel,
+            Arc::new(query),
+            false,
+            None,
+            false,
+        )
+        .unwrap();
         assert_eq!(reader.segment_ids().len(), 5);
         assert_eq!(
             reader.segment_pruning_estimate().candidate_segments,
@@ -4875,7 +4896,7 @@ mod tests {
         let sibling = SearchIndexReader::from_manifest(
             &manifest,
             &index_rel,
-            range_query("id", 31, 40),
+            Arc::new(range_query("id", 31, 40)),
             false,
             None,
             false,
@@ -4954,10 +4975,10 @@ mod tests {
             vec![PdbOwnedValue::Str("alpha".into())],
         );
         for (termset, expected, candidates, passes) in [
-            (HashMap::new(), 0, 0, 0),
-            (same_field, 1, 1, 1),
-            (mixed_fields, 2, 2, 2),
-            (unsupported, 20, 2, 2),
+            (Arc::new(HashMap::new()), 0, 0, 0),
+            (Arc::new(same_field), 1, 1, 1),
+            (Arc::new(mixed_fields), 2, 2, 2),
+            (Arc::new(unsupported), 20, 2, 2),
         ] {
             for scoring in [false, true] {
                 EMPIRICAL_READS.store(0, Relaxed);
@@ -5142,7 +5163,7 @@ mod tests {
             let trace = io_stats::Trace::default();
             let reader = SearchIndexReader::open_with_context(
                 &index_rel,
-                query.clone(),
+                Arc::new(query.clone()),
                 true,
                 MvccSatisfies::Snapshot,
                 None,
@@ -5337,7 +5358,7 @@ mod tests {
                     let trace = io_stats::Trace::default();
                     let reader = SearchIndexReader::open_with_context(
                         &index_rel,
-                        range_query("id", lo, hi),
+                        Arc::new(range_query("id", lo, hi)),
                         false,
                         MvccSatisfies::Snapshot,
                         None,
@@ -5590,10 +5611,10 @@ mod tests {
             ),
             (
                 SearchQueryInput::TermSet {
-                    termset: std::collections::HashMap::from([(
+                    termset: Arc::new(std::collections::HashMap::from([(
                         FieldName::from("id"),
                         vec![PdbOwnedValue::I64(1)],
-                    )]),
+                    )])),
                 },
                 1,
                 true,

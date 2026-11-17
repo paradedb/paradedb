@@ -1140,7 +1140,7 @@ impl CustomScan for AggregateScan {
         }
 
         explainer.add_text("Index", state.custom_state().indexrel().name());
-        explainer.add_query(state.custom_state().aggregate_clause.query());
+        explainer.add_query(&state.custom_state().aggregate_clause.query());
         state
             .custom_state()
             .aggregate_clause
@@ -1693,7 +1693,7 @@ impl AggregateScan {
                 root,
                 base_rel,
                 bm25_oid,
-                aggregate_clause.query(),
+                &aggregate_clause.query(),
                 bm25_row_estimate,
             )
             .and_then(|planner| planner.harvest())
@@ -2472,19 +2472,19 @@ impl AggregateScan {
         if mode != MvccVisibility::Threshold {
             return;
         }
-        let sources: Vec<(PgSearchRelation, SearchQueryInput)> = df_state
+        let sources: Vec<(PgSearchRelation, Arc<SearchQueryInput>)> = df_state
             .plan
             .sources()
             .iter()
             .map(|source| {
                 (
                     PgSearchRelation::open(source.scan_info.indexrelid),
-                    source.scan_info.mode.query().clone(),
+                    source.scan_info.mode.query(),
                 )
             })
             .collect();
-        let check =
-            mode.resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q, None)));
+        let check = mode
+            .resolve_filtering_for_sources(sources.iter().map(|(rel, q)| (rel, q.clone(), None)));
         let resolved = if check {
             MvccVisibility::Transaction
         } else {

@@ -453,7 +453,7 @@ impl SubtreeScoreStats {
     pub fn from_leaf_queries(
         is_score_sort: bool,
         base_query: &SearchQueryInput,
-        disjunct_queries: &[SearchQueryInput],
+        disjunct_queries: &[Arc<SearchQueryInput>],
         estimated_rows: u64,
     ) -> Option<Self> {
         // TODO: Remove this constant-score restriction once `RankJoinExec` and `LazySortExec`
@@ -476,7 +476,7 @@ impl SubtreeScoreStats {
             let disjunct_max = disjunct_queries
                 .iter()
                 .filter(|q| !q.is_constant_score())
-                .map(SearchQueryInput::estimate_max_score)
+                .map(|q| q.estimate_max_score())
                 .fold(0.0_f64, f64::max);
             (base + disjunct_max).max(1.0)
         } else {

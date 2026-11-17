@@ -26,6 +26,7 @@ use crate::query::SearchQueryInput;
 use crate::query::pdb_query::pdb;
 use pgrx::nullable::IntoNullableIterator;
 use std::ops::Bound;
+use std::sync::Arc;
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn all() -> SearchQueryInput {
@@ -213,7 +214,9 @@ pub unsafe fn terms_with_operator(
             .collect::<Result<Vec<_>, TantivyValueError>>()?;
         let mut termset = std::collections::HashMap::new();
         termset.insert(field, values);
-        Ok(SearchQueryInput::TermSet { termset })
+        Ok(SearchQueryInput::TermSet {
+            termset: Arc::new(termset),
+        })
     } else {
         // this case must form a tantivy Boolean expression of individual terms
         // which are OR'd or AND'd together
@@ -326,7 +329,9 @@ pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
         }
     }
 
-    SearchQueryInput::TermSet { termset }
+    SearchQueryInput::TermSet {
+        termset: Arc::new(termset),
+    }
 }
 
 #[pg_cast(implicit)]

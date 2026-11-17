@@ -1547,7 +1547,7 @@ mod tests {
 
         let reader = SearchIndexReader::open(
             &index_rel,
-            SearchQueryInput::All,
+            Arc::new(SearchQueryInput::All),
             false,
             MvccSatisfies::Snapshot,
         )

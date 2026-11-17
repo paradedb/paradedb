@@ -20,7 +20,7 @@ use crate::gucs;
 use crate::postgres::options::BM25IndexOptions;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchFieldType;
-use tantivy::vector::VectorFilterStrategy;
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 // Minimum estimated byte-work saved to cover worker startup and coordination.
 const MIN_PARALLEL_SAVINGS_BYTES: f64 = 64.0 * 1024.0 * 1024.0;
@@ -48,6 +48,9 @@ impl VectorWork {
             strategy,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: true
+            } | VectorFilterStrategy::Post {
+                stage: PostFilterStage::AfterQuantizedScoring,
+                ..
             }
         ) || query.is_match_all()
         {
@@ -159,6 +162,11 @@ mod tests {
                 for cheap in [false, true] {
                     for strategy in [
                         VectorFilterStrategy::Post {
+                            stage: PostFilterStage::BeforeQuantizedScoring,
+                            estimated_selectivity: 0.1,
+                        },
+                        VectorFilterStrategy::Post {
+                            stage: PostFilterStage::AfterQuantizedScoring,
                             estimated_selectivity: 0.1,
                         },
                         VectorFilterStrategy::Pre {
@@ -175,7 +183,14 @@ mod tests {
                         };
                         let parallel = workers > 0
                             && match strategy {
-                                VectorFilterStrategy::Post { .. } => !cheap,
+                                VectorFilterStrategy::Post {
+                                    stage: PostFilterStage::BeforeQuantizedScoring,
+                                    ..
+                                } => !cheap,
+                                VectorFilterStrategy::Post {
+                                    stage: PostFilterStage::AfterQuantizedScoring,
+                                    ..
+                                } => false,
                                 VectorFilterStrategy::Pre { uses_fast_fields } => {
                                     uses_fast_fields || !cheap
                                 }

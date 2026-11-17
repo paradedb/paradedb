@@ -49,7 +49,7 @@ use super::vector_cost::VectorWork;
 use super::*;
 use crate::postgres::customscan::parallel::parallel_scan_is_cheaper;
 pub(super) use crate::postgres::customscan::parallel::{WorkerDecisionReason, parallel_divisor};
-use tantivy::vector::VectorFilterStrategy;
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 fn cpu_index_tuple_cost() -> f64 {
     unsafe { pg_sys::cpu_index_tuple_cost }
@@ -94,13 +94,20 @@ impl WorkerPathPolicy {
             return Self::SerialOnly { reason };
         };
         let parallel = match strategy {
+            VectorFilterStrategy::Post {
+                stage: PostFilterStage::AfterQuantizedScoring,
+                ..
+            } => false,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: true,
             } => true,
             VectorFilterStrategy::Pre {
                 uses_fast_fields: false,
             }
-            | VectorFilterStrategy::Post { .. } => work.is_some_and(|work| {
+            | VectorFilterStrategy::Post {
+                stage: PostFilterStage::BeforeQuantizedScoring,
+                ..
+            } => work.is_some_and(|work| {
                 work.parallel_wins(parallel_divisor(nworkers, leader_participates))
             }),
         };
@@ -546,7 +553,7 @@ pub(super) fn estimate_path_cost(
 #[cfg(test)]
 mod vector_filter_tests {
     use super::WorkerPathPolicy;
-    use tantivy::vector::VectorFilterStrategy;
+    use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
     #[test]
     fn filtering_strategy_selects_vector_workers() {
@@ -566,6 +573,14 @@ mod vector_filter_tests {
                 ),
                 (
                     VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        estimated_selectivity: 0.1,
+                    },
+                    false,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
                         estimated_selectivity: 0.1,
                     },
                     false,

@@ -110,7 +110,7 @@ use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::VectorFilterStrategy;
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 use super::pullup::SourceContext;
 
@@ -1885,7 +1885,14 @@ impl CustomScan for BaseScan {
                     VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
                         uses_fast_fields: true,
                     }) => "Pre (fast fields)",
-                    VectorFilterPlan::Planned(VectorFilterStrategy::Post { .. }) => "Post",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        ..
+                    }) => "Post (before quantized scoring)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        ..
+                    }) => "Post (after quantized scoring)",
                     VectorFilterPlan::Deferred => "Deferred until execution",
                 },
             );

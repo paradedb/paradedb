@@ -1006,6 +1006,7 @@ impl SearchIndexReader {
             field,
             self.weight().as_ref(),
             self.estimate_vector_matches().ceil() as usize,
+            gucs::vector_max_scan_levels(),
             &segments,
         )?)
     }
@@ -3888,6 +3889,7 @@ mod tests {
     use pgrx::prelude::*;
     use std::ops::Bound;
     use tantivy::index::SegmentComponent;
+    use tantivy::vector::PostFilterStage;
 
     use super::test_support::{
         assert_pruning_matches_tantivy, open_index, open_snapshot_reader, range_query, term_query,
@@ -5435,6 +5437,11 @@ mod tests {
             uses_fast_fields: true,
         };
         let post = VectorFilterStrategy::Post {
+            stage: PostFilterStage::BeforeQuantizedScoring,
+            estimated_selectivity: 0.5,
+        };
+        let late = VectorFilterStrategy::Post {
+            stage: PostFilterStage::AfterQuantizedScoring,
             estimated_selectivity: 0.5,
         };
         for (lo, hi, expected_rows, expected_segments) in [
@@ -5453,6 +5460,10 @@ mod tests {
                     (true, false, post),
                     (false, true, post),
                     (true, true, post),
+                    (false, false, late),
+                    (true, false, late),
+                    (false, true, late),
+                    (true, true, late),
                 ] {
                     let trace = io_stats::Trace::default();
                     let mut reader = SearchIndexReader::open_with_context(

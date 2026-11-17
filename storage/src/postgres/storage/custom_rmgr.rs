@@ -69,11 +69,7 @@ unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     set_page_lsn(page, lsn);
     pg_sys::MarkBufferDirty(buffer);
     pg_sys::UnlockReleaseBuffer(buffer);
-    pgrx::log!(
-        "a ParadeDB index was built or vacuumed on the primary; ParadeDB Community does not \
-         serve ParadeDB indexes on a standby, and after promotion this one refuses queries \
-         until REINDEX"
-    );
+    pgrx::debug1!("tainted ParadeDB index {locator:?} for the promotion gate");
 }
 
 // `BufferGetPage`, `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding;
@@ -141,8 +137,12 @@ unsafe extern "C-unwind" fn rm_mask(
 }
 
 /// Writes the `INIT_INDEX` record naming `index`. A standby replaying it taints the index's
-/// metapage; see `postgres::promotion`.
+/// metapage; see `PgSearchRelation::blocked_after_promotion`. An unlogged index has no pages on
+/// a standby and writes nothing.
 pub fn emit_init_record(index: &PgSearchRelation) {
+    if !index.need_wal() {
+        return;
+    }
     // XLogRegisterData's signature varies across Postgres versions
     // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
     // on pg15 vs `uint32` later). `as _` lets each build infer the right types.

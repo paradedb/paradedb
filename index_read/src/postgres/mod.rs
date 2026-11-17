@@ -65,29 +65,64 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
     }
 }
 
-/// Finds and returns the `USING paradedb` index on the specified relation with the highest OID,
-/// along with the heap relation. Returns [`None`] if there isn't one.
+/// Why [`bm25_index_or_reason`] found no ParadeDB index the planner may use.
+pub enum NoBm25Index {
+    /// The table has no valid `USING paradedb` search index.
+    Missing,
+    /// This backend runs on a hot standby, where ParadeDB Community serves no index.
+    HotStandby,
+    /// The index reached this server through replication before it was promoted.
+    BlockedAfterPromotion(PgSearchRelation),
+}
+
+impl NoBm25Index {
+    /// Raises the error for this reason; `missing` supplies the caller's own message for
+    /// [`NoBm25Index::Missing`].
+    pub fn report(self, missing: impl FnOnce() -> String) -> ! {
+        match self {
+            NoBm25Index::Missing => pgrx::error!("{}", missing()),
+            NoBm25Index::HotStandby => crate::postgres::utils::report_hot_standby(),
+            NoBm25Index::BlockedAfterPromotion(index) => index.report_blocked_after_promotion(),
+        }
+    }
+}
+
+/// Finds the `USING paradedb` index on the specified relation with the highest OID, along with
+/// the heap relation, or the reason there is none the planner may use.
 ///
 /// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
 /// or a failed `REINDEX`). When more than one valid ParadeDB index exists on the relation
 /// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-ParadeDB-index
 /// check), the highest-OID one is chosen so that the index added most recently wins.
-pub fn rel_get_bm25_index(
+pub fn bm25_index_or_reason(
     relid: pg_sys::Oid,
-) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
+) -> Result<(rel::PgSearchRelation, rel::PgSearchRelation), NoBm25Index> {
     if relid == pg_sys::Oid::INVALID {
-        return None;
+        return Err(NoBm25Index::Missing);
+    }
+    if crate::postgres::utils::in_hot_standby() {
+        return Err(NoBm25Index::HotStandby);
     }
 
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    let index = rel
+    let (blocked, usable): (Vec<_>, Vec<_>) = rel
         .valid_paradedb_indices()
-        .filter(|index| {
-            index.index_type() == IndexType::Search
-                && !promotion::index_blocked_after_promotion(index)
-        })
-        .max_by_key(|i| i.oid().to_u32())?;
-    Some((rel, index))
+        .filter(|index| index.index_type() == IndexType::Search)
+        .partition(PgSearchRelation::blocked_after_promotion);
+    match usable.into_iter().max_by_key(|i| i.oid().to_u32()) {
+        Some(index) => Ok((rel, index)),
+        None => match blocked.into_iter().next() {
+            Some(index) => Err(NoBm25Index::BlockedAfterPromotion(index)),
+            None => Err(NoBm25Index::Missing),
+        },
+    }
+}
+
+/// [`bm25_index_or_reason`] for callers that plan without the index when there is none.
+pub fn rel_get_bm25_index(
+    relid: pg_sys::Oid,
+) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
+    bm25_index_or_reason(relid).ok()
 }
 
 // 16 bytes for segment UUID

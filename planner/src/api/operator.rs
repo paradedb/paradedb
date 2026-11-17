@@ -23,6 +23,7 @@ use crate::api::tokenizers::{
     AliasTypmod, try_get_alias, type_can_be_tokenized, type_is_alias, type_is_tokenizer,
 };
 use crate::nodecast;
+use crate::postgres::bm25_index_or_reason;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::opexpr::{
     UnwrapFromExpr, expr_matches_node, vars_equal_ignoring_varno,
@@ -30,7 +31,6 @@ use crate::postgres::customscan::opexpr::{
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{VarContext, find_json_path, find_var_relation};
 use pgrx::{PgList, pg_sys};
 
@@ -45,12 +45,13 @@ pub unsafe fn tantivy_field_name_from_node(
     if heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
-    let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
-        crate::postgres::promotion::report_if_blocked(heaprelid);
-        panic!(
-            "`{}` does not contain a `USING paradedb` index",
-            PgSearchRelation::open(heaprelid).name()
-        )
+    let (heaprel, indexrel) = bm25_index_or_reason(heaprelid).unwrap_or_else(|reason| {
+        reason.report(|| {
+            format!(
+                "`{}` does not contain a `USING paradedb` index",
+                PgSearchRelation::open(heaprelid).name()
+            )
+        })
     });
 
     let (field_node, context) = if targetlist.is_some() {

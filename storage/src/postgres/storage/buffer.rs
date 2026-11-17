@@ -827,17 +827,10 @@ impl<'a> PageMut<'a> {
     pub fn contents_mut<T>(&mut self) -> &'a mut T {
         self.buffer.assert_mutable();
         let contents = unsafe {
-            let contents = pgrx::PageGetContents!(Pointer::from(self.pg_page))
+            set_pd_lower_for::<T>(self.pg_page);
+            &mut *pgrx::PageGetContents!(Pointer::from(self.pg_page))
                 .get()
-                .cast::<T>();
-
-            // adjust pd_lower at the same time
-            let header = self.pg_page as *mut pg_sys::PageHeaderData;
-            (*header).pd_lower = (contents.add(1) as usize - header as usize)
-                .try_into()
-                .expect("pd_lower overflowed");
-
-            &mut *contents
+                .cast::<T>()
         };
         self.buffer.dirty = true;
         contents
@@ -1227,3 +1220,19 @@ impl Deref for ImmutablePage {
 unsafe impl StableDeref for ImmutablePage {}
 unsafe impl Send for ImmutablePage {}
 unsafe impl Sync for ImmutablePage {}
+
+/// Sets `pd_lower` to the end of a `T` at the start of the page contents, so a full-page image
+/// keeps the struct instead of dropping it as the hole.
+pub(crate) unsafe fn set_pd_lower_for<T>(page: pg_sys::Page) {
+    const {
+        assert!(
+            std::mem::size_of::<T>() + std::mem::size_of::<pg_sys::PageHeaderData>()
+                <= u16::MAX as usize
+        )
+    }
+    let contents = pgrx::PageGetContents!(Pointer::from(page))
+        .get()
+        .cast::<T>();
+    let header = page.cast::<pg_sys::PageHeaderData>();
+    (*header).pd_lower = (contents.add(1) as usize - header as usize) as u16;
+}

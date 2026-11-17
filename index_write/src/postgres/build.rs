@@ -107,9 +107,9 @@ pub extern "C-unwind" fn ambuild(
         };
     }
 
-    if needs_wal {
-        custom_rmgr::emit_init_record(&index_relation);
-    }
+    // `emit_init_record` checks `need_wal`; restore the flag suppressed above.
+    index_relation.set_need_wal(needs_wal);
+    custom_rmgr::emit_init_record(&index_relation);
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = heap_tuples;

@@ -22,6 +22,7 @@ use crate::index::directory::utils::load_index_settings;
 use crate::index::set_ivf_clusterer;
 use crate::index::setup_tokenizers;
 use crate::postgres::catalog::OidExt;
+use crate::postgres::index::is_partitioned_index;
 use crate::postgres::options::{BM25IndexOptions, IndexType};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::FieldSource;
@@ -37,6 +38,48 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use tantivy::TantivyError;
 use tantivy::directory::RamDirectory;
 use tantivy::index::{Index, IndexSettings, Order};
+
+/// Whether an index may serve after a promotion, as cached in [`AmCache`]. `Unknown` is zero
+/// because the cache is allocated zeroed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PromotionState {
+    Unknown = 0,
+    Serving,
+    Blocked,
+}
+
+/// `amcanreturn`'s answer per index attribute, as cached in [`AmCache`]. `Unknown` is zero
+/// because the cache is allocated zeroed.
+#[derive(Debug, Clone, Copy)]
+#[repr(C, u8)]
+pub enum Returnable {
+    Unknown = 0,
+    Known([bool; pg_sys::INDEX_MAX_KEYS as usize]),
+}
+
+/// Per-relation cache behind `rd_amcache`, which PostgreSQL frees on any relcache reset, so a
+/// `REINDEX` starts it over. Created only by [`AmCache::get`], zeroed.
+#[repr(C)]
+pub struct AmCache {
+    pub promotion: PromotionState,
+    pub returnable: Returnable,
+}
+
+impl AmCache {
+    /// The index's cache, allocated zeroed in `rd_indexcxt` on first use. A relcache reset
+    /// frees it, so callers read or write through the pointer at once and never hold it across
+    /// a call that could process invalidations.
+    pub unsafe fn get(indexrel: pg_sys::Relation) -> *mut Self {
+        if (*indexrel).rd_amcache.is_null() {
+            (*indexrel).rd_amcache = pg_sys::MemoryContextAllocZero(
+                (*indexrel).rd_indexcxt,
+                std::mem::size_of::<Self>(),
+            );
+        }
+        (*indexrel).rd_amcache.cast::<Self>()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum SchemaError {
@@ -413,6 +456,50 @@ impl PgSearchRelation {
             .filter(|index| unsafe {
                 pg_sys::get_index_isvalid(index.oid()) && (*index.rd_rel).relam.is_paradedb_am()
             })
+    }
+
+    /// True when this index must not serve queries: its metapage carries the standby taint
+    /// that a standby's WAL replay set when the primary named the index in its rmgr record, at
+    /// build and at every VACUUM that removes rows. That VACUUM is the only routine writer of
+    /// the page and its record follows the write, so the taint outlives the full-page images
+    /// replication delivers; the one-time metapage upgrade of an index built by an old release
+    /// clears it until then, and `REINDEX` starts from a fresh metapage. Always false while the
+    /// server is in recovery, where the standby read gate applies instead, and for a partitioned
+    /// index, which has no metapage; each leaf answers for itself when it is scanned.
+    pub fn blocked_after_promotion(&self) -> bool {
+        if unsafe { pg_sys::RecoveryInProgress() } || is_partitioned_index(self.oid()) {
+            return false;
+        }
+        // Recovery is over, so the answer cannot change for this index file.
+        match unsafe { (*AmCache::get(self.as_ptr())).promotion } {
+            PromotionState::Serving => false,
+            PromotionState::Blocked => true,
+            PromotionState::Unknown => {
+                let blocked = MetaPage::open(self).standby_tainted();
+                unsafe {
+                    (*AmCache::get(self.as_ptr())).promotion = if blocked {
+                        PromotionState::Blocked
+                    } else {
+                        PromotionState::Serving
+                    };
+                }
+                blocked
+            }
+        }
+    }
+
+    /// The error a blocked index raises, with the `REINDEX` hint.
+    pub fn report_blocked_after_promotion(&self) -> ! {
+        crate::postgres::utils::report_community_limit(
+            format!(
+                "index \"{}\" was replicated from another server and this server has since been promoted; failover is supported on ParadeDB Enterprise, not ParadeDB Community",
+                self.name()
+            ),
+            Some(format!(
+                "Run `REINDEX INDEX {}` to rebuild the index on this server.",
+                pgrx::spi::quote_qualified_identifier(self.namespace(), self.name())
+            )),
+        )
     }
 
     /// Zero-based heap attributes that a single-column unique index proves unique. The

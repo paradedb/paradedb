@@ -20,7 +20,7 @@ use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::catalog::OidExt;
 use crate::postgres::index::is_partitioned_index;
-use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel::{AmCache, PgSearchRelation, Returnable};
 use crate::postgres::utils::{FieldSource, in_hot_standby, pg_search_extension_installed};
 use crate::schema::SearchIndexSchema;
 use pgrx::{PgList, PgMemoryContexts, PgOid, pg_guard, pg_sys};
@@ -285,7 +285,10 @@ pub(super) extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i
             return false;
         }
 
-        AmCanReturnCache::get_or_init(indexrel.as_ptr()).can_return((attno - 1) as usize)
+        returnable_columns(indexrel.as_ptr())
+            .get((attno - 1) as usize)
+            .copied()
+            .unwrap_or(false)
     }
 }
 
@@ -340,42 +343,24 @@ impl IndexOnlyField {
     }
 }
 
-#[repr(C)]
-struct AmCanReturnCache {
-    returnable: [bool; pg_sys::INDEX_MAX_KEYS as usize],
-}
-
-impl AmCanReturnCache {
-    unsafe fn get_or_init(indexrel: pg_sys::Relation) -> &'static Self {
-        if (*indexrel).rd_amcache.is_null() {
-            let relation = PgSearchRelation::from_pg(indexrel);
-            let mut returnable = [false; pg_sys::INDEX_MAX_KEYS as usize];
-
-            if let Ok(schema) = relation.schema() {
-                let natts = relation.tuple_desc().len();
-                for (tuple_index, can_return) in returnable.iter_mut().enumerate().take(natts) {
-                    *can_return =
-                        IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some();
-                }
-            }
-
-            // PostgreSQL may call amcanreturn once per index attribute. Keep the capability
-            // array in the relation's AM cache so those probes share one metadata read.
-            let cache = pg_sys::MemoryContextAllocZero(
-                (*indexrel).rd_indexcxt,
-                std::mem::size_of::<Self>(),
-            )
-            .cast::<Self>();
-            (*cache).returnable = returnable;
-            (*indexrel).rd_amcache = cache.cast();
+// PostgreSQL may call amcanreturn once per index attribute. Keep the capability array in the
+// relation's AM cache so those probes share one metadata read.
+unsafe fn returnable_columns(
+    indexrel: pg_sys::Relation,
+) -> [bool; pg_sys::INDEX_MAX_KEYS as usize] {
+    if let Returnable::Known(columns) = (*AmCache::get(indexrel)).returnable {
+        return columns;
+    }
+    let relation = PgSearchRelation::from_pg(indexrel);
+    let mut columns = [false; pg_sys::INDEX_MAX_KEYS as usize];
+    if let Ok(schema) = relation.schema() {
+        let natts = relation.tuple_desc().len();
+        for (tuple_index, can_return) in columns.iter_mut().enumerate().take(natts) {
+            *can_return = IndexOnlyField::from_schema(&relation, &schema, tuple_index).is_some();
         }
-
-        &*(*indexrel).rd_amcache.cast::<Self>()
     }
-
-    fn can_return(&self, tuple_index: usize) -> bool {
-        self.returnable.get(tuple_index).copied().unwrap_or(false)
-    }
+    (*AmCache::get(indexrel)).returnable = Returnable::Known(columns);
+    columns
 }
 
 pub(super) struct IndexOnlyScanState {

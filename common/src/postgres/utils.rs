@@ -1024,10 +1024,35 @@ pub fn pg_search_extension_installed() -> bool {
 }
 
 /// True in a backend of a hot standby that is still replaying WAL. ParadeDB Community does not
-/// serve its indexes there: `MetaPage::open` refuses, and the planner entry points decline before
-/// reaching it so queries that do not need the index keep working.
+/// serve its indexes there: `rel_get_bm25_index` and `amcanreturn` answer "no index" so the
+/// planner never opens one for a query that does not need it, and `MetaPage::open` refuses for
+/// the statements that do.
 pub fn in_hot_standby() -> bool {
-    unsafe { pg_sys::HotStandbyActive() && !pg_sys::XLogInsertAllowed() }
+    // `XLogInsertAllowed` is a backend-local flag; `HotStandbyActive` takes a spinlock on a primary.
+    unsafe { !pg_sys::XLogInsertAllowed() && pg_sys::HotStandbyActive() }
+}
+
+/// The error a statement that needs a ParadeDB index gets on a hot standby.
+pub fn report_hot_standby() -> ! {
+    report_community_limit(
+        "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community".into(),
+        None,
+    )
+}
+
+/// Raises `0A000` for something ParadeDB Community does not do, with the Enterprise detail.
+pub fn report_community_limit(message: String, hint: Option<String>) -> ! {
+    let mut report = pg_sys::panic::ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+        message,
+        function_name!(),
+    )
+    .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.");
+    if let Some(hint) = hint {
+        report = report.set_hint(hint);
+    }
+    report.report(PgLogLevel::ERROR);
+    unreachable!("ErrorReport::report at ERROR level does not return")
 }
 
 /// RAII wrapper for `pg_sys::List` that automatically frees the list on drop.

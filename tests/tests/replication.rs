@@ -79,7 +79,6 @@ struct EphemeralPostgres {
     pub port: u16,
     pub dbname: String,
     pub pg_ctl_path: PathBuf,
-    pub log_path: PathBuf,
 }
 
 // Implement Drop trait to ensure the PostgreSQL instance is properly stopped
@@ -170,7 +169,6 @@ impl EphemeralPostgres {
             port,
             dbname: "postgres".to_string(),
             pg_ctl_path,
-            log_path: PathBuf::from(logfile),
         }
     }
 
@@ -641,9 +639,9 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
 /// `query` fails with SQLSTATE 0A000 and a message containing `fragment`.
 fn assert_feature_not_supported(connection: &mut PgConnection, query: &str, fragment: &str) {
-    let err = query
-        .fetch_result::<(String,)>(connection)
-        .expect_err("query on a ParadeDB index must fail");
+    let Err(err) = query.execute_result(connection) else {
+        panic!("query on a ParadeDB index must fail: {query}");
+    };
     let db_err = match &err {
         sqlx::Error::Database(db_err) => db_err,
         other => panic!("expected a database error, got {other:?}"),
@@ -701,10 +699,10 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         .execute(&mut source_conn);
 
     // An index built before the standby is cloned: the clone carries its files and replays no
-    // build record for it. A VACUUM on the primary names it to the standby.
+    // build record for it. A VACUUM that removes rows on the primary names it to the standby.
     "
     CREATE TABLE early (id INT, body TEXT);
-    INSERT INTO early VALUES (1, 'early shoes');
+    INSERT INTO early VALUES (1, 'early shoes'), (2, 'early boots');
     CREATE INDEX early_idx ON early USING paradedb (id, body);
     "
     .execute(&mut source_conn);
@@ -763,7 +761,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     "
     .execute(&mut source_conn);
 
-    // A partitioned index has no storage of its own; the promotion gate must look at its leaves.
+    // A partitioned index has no storage of its own; each leaf refuses on its own after promotion.
     "
     CREATE TABLE events (id INT, body TEXT, region INT) PARTITION BY LIST (region);
     CREATE TABLE events_1 PARTITION OF events FOR VALUES IN (1);
@@ -773,6 +771,8 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     "
     .execute(&mut source_conn);
 
+    // The dead row makes ambulkdelete rewrite the metapage before the record names the index.
+    "DELETE FROM early WHERE id = 2".execute(&mut source_conn);
     "VACUUM early".execute(&mut source_conn);
 
     // Replay continues past the records: heap WAL written after them still arrives.
@@ -797,6 +797,13 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         "SELECT description FROM items WHERE category = 'Footwear' ORDER BY id"
             .fetch(&mut standby_conn);
     assert_eq!(standby_rows.len(), 3);
+    // An admin function opens the index without going through the planner; the metapage
+    // refuses it.
+    assert_feature_not_supported(
+        &mut standby_conn,
+        "SELECT name FROM paradedb.schema('items_search_idx')",
+        "Serving reads from a standby requires write-ahead log (WAL) integration",
+    );
 
     // A refused query on the standby does not disturb replay.
     "INSERT INTO items (description, category, created_at) VALUES
@@ -809,14 +816,6 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         |result| result.len() == 6,
     );
     assert_eq!(standby_rows[5].0, "Bluetooth speaker");
-
-    // The standby logged the records instead of dying on them.
-    let log = std::fs::read_to_string(&standby_postgres.log_path)?;
-    assert!(
-        log.contains("ParadeDB Community does not serve ParadeDB indexes on a standby"),
-        "standby log {:?} lacks the INIT_INDEX notice",
-        standby_postgres.log_path
-    );
 
     // Promote. The backend behind `standby_conn` lives through it.
     let pg_ctl_path = &standby_postgres.pg_ctl_path;
@@ -841,9 +840,13 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         assert_feature_not_supported(&mut standby_conn, query, "has since been promoted");
     }
 
-    // The table itself keeps working, reads and writes alike.
+    // The table itself keeps working, reads and writes alike, and so do the admin functions
+    // on the tainted index.
     let count: Vec<(i64,)> = "SELECT count(*) FROM items".fetch(&mut standby_conn);
     assert_eq!(count[0].0, 6);
+    let fields: Vec<(String,)> =
+        "SELECT name FROM paradedb.schema('items_search_idx')".fetch(&mut standby_conn);
+    assert!(!fields.is_empty());
     "INSERT INTO items (description, category, created_at) VALUES
         ('Promoted insert', 'Misc', NOW())"
         .execute(&mut standby_conn);

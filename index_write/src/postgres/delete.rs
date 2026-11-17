@@ -31,6 +31,7 @@ use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::custom_rmgr;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::vacuum_delay_point;
 
@@ -254,6 +255,11 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         // scans have finished too
         drop(metadata.cleanup_lock_for_vacuum());
         metadata.increment_ambulkdelete_epoch();
+        // The epoch write reaches a standby as a full-page image without the taint; the record
+        // that names the index follows at once, before a cancel can separate them. Build and
+        // this are the only emits, so a standby cloned after the build hears of the index at
+        // the next VACUUM that removes rows. See `PgSearchRelation::blocked_after_promotion`.
+        custom_rmgr::emit_init_record(&index_relation);
     }
 
     // we're done, no need to hold onto the sentinel any longer

@@ -25,10 +25,7 @@ use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer, init_new_buf
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    PgLogLevel, PgRelation, PgSqlErrorCode, function_name, iter::TableIterator, name, pg_sys,
-};
+use pgrx::{PgRelation, iter::TableIterator, name, pg_sys};
 use tantivy::IndexSettings;
 use tantivy::schema::Schema;
 
@@ -107,9 +104,12 @@ pub struct MetaPageData {
     created_at: pg_sys::TimestampTz,
 
     /// Nonzero once a standby's WAL replay found this index named by the primary
-    /// (`postgres::promotion`). Indexes built on this server read zero.
+    /// (`PgSearchRelation::blocked_after_promotion`). Indexes built on this server read zero.
     standby_taint: u32,
 }
+
+/// The value `taint_page` stores in `standby_taint`; a fresh metapage reads zero.
+const STANDBY_TAINTED: u32 = 1;
 
 /// Provides read access to the metadata page
 /// Because the metadata page does not change after it's initialized in MetaPage::open(),
@@ -187,13 +187,7 @@ impl MetaPage {
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
         if crate::postgres::utils::in_hot_standby() {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
-                function_name!(),
-            )
-            .set_detail("ParadeDB Enterprise is commercially licensed and included with ParadeDB Cloud. To self-host ParadeDB Enterprise, contact sales@paradedb.com.")
-            .report(PgLogLevel::ERROR);
+            crate::postgres::utils::report_hot_standby();
         }
 
         let mut bman = BufferManager::new(indexrel);
@@ -535,9 +529,9 @@ impl MetaPage {
         self.data.ambulkdelete_epoch
     }
 
-    /// True once a standby's WAL replay set the taint; see `postgres::promotion`.
+    /// True once a standby's WAL replay set the taint; see `PgSearchRelation::blocked_after_promotion`.
     pub fn standby_tainted(&self) -> bool {
-        self.data.standby_taint != 0
+        self.data.standby_taint == STANDBY_TAINTED
     }
 
     /// Sets the taint on a raw metapage during WAL replay, where no relation can be opened.
@@ -545,13 +539,8 @@ impl MetaPage {
         let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
             .get()
             .cast::<MetaPageData>();
-        (*contents).standby_taint = 1;
-        // Keep the field inside pd_lower, as `contents_mut` does: a full-page image written
-        // after promotion omits the hole past pd_lower.
-        let header = page.cast::<pg_sys::PageHeaderData>();
-        (*header).pd_lower = (contents.add(1) as usize - header as usize)
-            .try_into()
-            .expect("pd_lower overflowed");
+        (*contents).standby_taint = STANDBY_TAINTED;
+        crate::postgres::storage::buffer::set_pd_lower_for::<MetaPageData>(page);
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

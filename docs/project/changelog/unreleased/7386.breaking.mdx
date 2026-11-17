@@ -1,0 +1,9 @@
+---
+header: breaking
+---
+
+Failover on ParadeDB Community now requires a `REINDEX`. After a physical standby is promoted, the ParadeDB indexes it received through replication refuse queries until `REINDEX INDEX` rebuilds them on the promoted server; the table, its writes and its other indexes keep working. A standby cloned after an index was built learns of that index at the next `VACUUM` that removes rows from its table; until then it serves the index after promotion, as every release did before. Zero-downtime failover is supported on ParadeDB Enterprise.
+
+Upgrade standbys before the primary. The primary now writes a ParadeDB WAL record at every `CREATE INDEX` and at every `VACUUM` that removes rows from an indexed table, and a standby running an earlier release shuts down when it replays that record.
+
+With `wal_consistency_checking` set to `all` or including `generic` on the primary, a standby stops at the first `VACUUM` of a ParadeDB index it received through replication. Leave the setting off, or exclude `generic`, on clusters with ParadeDB indexes.

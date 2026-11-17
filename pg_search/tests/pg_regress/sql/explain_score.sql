@@ -23,9 +23,9 @@ CREATE INDEX explain_products_idx ON explain_products USING bm25 (id, descriptio
 -- A term explains with its idf, its frequency in the row and the length of the field. The query
 -- does not select `pdb.score`, and the scan still computes scores.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, pdb.explain_score(id) FROM explain_products
+SELECT id, jsonb_pretty(pdb.explain_score(id)) FROM explain_products
 WHERE description ||| 'oak' ORDER BY id;
-SELECT id, pdb.explain_score(id) FROM explain_products
+SELECT id, jsonb_pretty(pdb.explain_score(id)) FROM explain_products
 WHERE description ||| 'oak' ORDER BY id;
 
 -- A synonym group is one term. Its frequency is the sum over the words of the group that the
@@ -33,12 +33,12 @@ WHERE description ||| 'oak' ORDER BY id;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id,
        pdb.explain_score(id)->>'description' AS description,
-       jsonb_pretty(pdb.explain_score(id)::jsonb #> '{details,2,details,0}') AS frequency
+       jsonb_pretty(pdb.explain_score(id) #> '{details,2,details,0}') AS frequency
 FROM explain_products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM explain_synonyms) ORDER BY id;
 SELECT id,
        pdb.explain_score(id)->>'description' AS description,
-       jsonb_pretty(pdb.explain_score(id)::jsonb #> '{details,2,details,0}') AS frequency
+       jsonb_pretty(pdb.explain_score(id) #> '{details,2,details,0}') AS frequency
 FROM explain_products
 WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM explain_synonyms) ORDER BY id;
 
@@ -47,12 +47,12 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM explain_synonyms) OR
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id,
        pdb.explain_score(id)->>'description' AS description,
-       jsonb_path_query_array(pdb.explain_score(id)::jsonb, '$.details[*].description') AS alternatives
+       jsonb_path_query_array(pdb.explain_score(id), '$.details[*].description') AS alternatives
 FROM explain_products
 WHERE description ||| (SELECT pdb.expand('trainers', rule) FROM explain_synonyms) ORDER BY id;
 SELECT id,
        pdb.explain_score(id)->>'description' AS description,
-       jsonb_path_query_array(pdb.explain_score(id)::jsonb, '$.details[*].description') AS alternatives
+       jsonb_path_query_array(pdb.explain_score(id), '$.details[*].description') AS alternatives
 FROM explain_products
 WHERE description ||| (SELECT pdb.expand('trainers', rule) FROM explain_synonyms) ORDER BY id;
 

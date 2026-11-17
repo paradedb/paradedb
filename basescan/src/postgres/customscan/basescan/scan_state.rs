@@ -46,9 +46,8 @@ use std::ptr::NonNull;
 
 use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::basescan::privdat::VectorFilterPlan;
-use pgrx::datum::JsonString;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{PgTupleDesc, pg_sys};
+use pgrx::{JsonB, PgTupleDesc, pg_sys};
 use tantivy::DocAddress;
 use tantivy::index::SegmentId;
 use tantivy::query::Weight;
@@ -327,7 +326,7 @@ impl BaseScanState {
     }
 
     /// Tantivy's explanation of the score that the scan's query gives to the document.
-    pub fn explain_score(&self, doc_address: DocAddress) -> JsonString {
+    pub fn explain_score(&self, doc_address: DocAddress) -> JsonB {
         let search_reader = self
             .search_reader
             .as_ref()
@@ -341,7 +340,11 @@ impl BaseScanState {
         let explanation = weight
             .explain(segment_reader, doc_address.doc_id)
             .unwrap_or_else(|e| panic!("failed to explain the score of a row: {e}"));
-        JsonString(explanation.to_pretty_json())
+        // A `serde_json::Value` keeps an `f32` as an `f64`, which has digits that the `f32` does
+        // not have. The JSON text has the digits that `pdb.score` prints.
+        let json = serde_json::to_string(&explanation)
+            .expect("a score explanation should serialize to JSON");
+        JsonB(serde_json::from_str(&json).expect("a score explanation should be valid JSON"))
     }
 
     pub fn make_snippet(

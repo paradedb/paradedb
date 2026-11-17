@@ -599,7 +599,7 @@ pub unsafe fn inject_placeholders(
 
     let (score_placeholder, score_var) = columns.add(pg_sys::FLOAT4OID, pg_sys::Oid::INVALID);
     let (score_explanation_placeholder, score_explanation_var) =
-        columns.add(pg_sys::JSONOID, pg_sys::Oid::INVALID);
+        columns.add(pg_sys::JSONBOID, pg_sys::Oid::INVALID);
     let mut data = Data {
         rti,
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794817478743,
+  "lastUpdate": 1794903131408,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113188,6 +113188,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207449273-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "00a3c868d5dc38426d3e6ede266b60ab905ebd9a",
+          "message": "ci: publish CREATE INDEX time from pdbench statement metrics (#7505)\n\nThe vector benchmark action currently publishes the entire pdbench\nfinalize phase as index build time, including DROP INDEX and VACUUM\nANALYZE.\n\nConsume pdbench-load's structured `sql_statement_duration` points and\npublish only the named CREATE INDEX duration. Missing, duplicate, or\nnonpositive timings fail instead of falling back to finalize time. The\nloader prints each statement duration and retains it in points.jsonl. No\nserver-log parsing, helper scripts, or tests added.\n\nUses merged https://github.com/paradedb/pdbench/pull/63. Pin the HN,\nCohere, and MS MARCO workflows to its main merge commit\n617b709527cee126da77a32819ea2cc72701ac85.\n\nValidation: exact jq selection checked with mixed\nstatement/container/phase points; ShellCheck on the action script; all\napplicable pre-commit hooks including actionlint. The pdbench dependency\npasses cargo check, formatting, and Clippy. Full benchmark CI has not\nbeen rerun; historical finalize measurements cannot be split\nretrospectively.",
+          "timestamp": "2026-11-17T07:50:56Z",
+          "url": "https://github.com/paradedb/paradedb/commit/00a3c868d5dc38426d3e6ede266b60ab905ebd9a"
+        },
+        "date": 1794903128714,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1676.009446348312,
+            "unit": "median tps",
+            "extra": "avg tps: 1706.1116291838691, max tps: 1880.3709764682105, count: 59233"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.886322544550054,
+            "unit": "median tps",
+            "extra": "avg tps: 5.932751113348076, max tps: 6.951198909943573, count: 59233"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1760.1989488401723,
+            "unit": "median tps",
+            "extra": "avg tps: 1668.6095409100117, max tps: 1834.2081418776, count: 59233"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2610.7014293280467,
+            "unit": "median tps",
+            "extra": "avg tps: 2604.421267902602, max tps: 2901.6910141121484, count: 59233"
+          }
+        ],
+        "publication_id": "14310378397-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158662,6 +158709,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14207449273-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "00a3c868d5dc38426d3e6ede266b60ab905ebd9a",
+          "message": "ci: publish CREATE INDEX time from pdbench statement metrics (#7505)\n\nThe vector benchmark action currently publishes the entire pdbench\nfinalize phase as index build time, including DROP INDEX and VACUUM\nANALYZE.\n\nConsume pdbench-load's structured `sql_statement_duration` points and\npublish only the named CREATE INDEX duration. Missing, duplicate, or\nnonpositive timings fail instead of falling back to finalize time. The\nloader prints each statement duration and retains it in points.jsonl. No\nserver-log parsing, helper scripts, or tests added.\n\nUses merged https://github.com/paradedb/pdbench/pull/63. Pin the HN,\nCohere, and MS MARCO workflows to its main merge commit\n617b709527cee126da77a32819ea2cc72701ac85.\n\nValidation: exact jq selection checked with mixed\nstatement/container/phase points; ShellCheck on the action script; all\napplicable pre-commit hooks including actionlint. The pdbench dependency\npasses cargo check, formatting, and Clippy. Full benchmark CI has not\nbeen rerun; historical finalize measurements cannot be split\nretrospectively.",
+          "timestamp": "2026-11-17T07:50:56Z",
+          "url": "https://github.com/paradedb/paradedb/commit/00a3c868d5dc38426d3e6ede266b60ab905ebd9a"
+        },
+        "date": 1794903131314,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.8943325511117114, max background_merging: 3.0, count: 59233"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.5955,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.432407542419491, max cpu: 9.8209715, count: 59233"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.207492484658044, max mem: 27.21484375, count: 59233"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6043167,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668389189016592, max cpu: 28.152493, count: 59233"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 50.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.98072792246298, max mem: 54.625, count: 59233"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45323,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45058.32402545878, max block_count: 45326.0, count: 59233"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.960343052014924, max segment_count: 19.0, count: 59233"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.968169686090008, max cpu: 34.373398, count: 59233"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 37.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 37.005413604958385, max mem: 37.02734375, count: 59233"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668434975458451, max cpu: 32.40116, count: 59233"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 51.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.68094339831681, max mem: 61.1171875, count: 59233"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.560620054223093, max cpu: 27.678999, count: 59233"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 54.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.428695522343965, max mem: 56.58203125, count: 59233"
+          }
+        ],
+        "publication_id": "14310378397-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

@@ -355,9 +355,6 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     } = style
     {
         let foreground_candidate = if IsLogicalWorker() {
-            if background_launched {
-                return Ok(());
-            }
             merge_policy.retain(
                 merger
                     .all_entries()

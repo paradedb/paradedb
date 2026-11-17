@@ -354,6 +354,8 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         next_xid,
     } = style
     {
+        // Stopgap: prevent apply workers from doing expensive foreground immutable merges,
+        // which can stall replication and cause WAL buildup on the publisher.
         let foreground_candidate = if IsLogicalWorker() {
             merge_policy.retain(
                 merger

@@ -25,6 +25,7 @@ use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::index::synonym_cache::{cache_rules, cached_keys, cached_rules};
 use crate::postgres::access::{IndexAccess, IndexOid};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -232,7 +233,11 @@ impl SynonymSource for HeapRuleSource {
     fn token_keys(&mut self, token: &str) -> tantivy::Result<Vec<Arc<[KeyDocs]>>> {
         self.segments
             .iter()
-            .map(|(synonyms, _)| Ok(synonyms.token_keys(token, self.max_rules_per_key)?.into()))
+            .map(|(synonyms, reader)| {
+                cached_keys(reader.segment_id(), token, self.max_rules_per_key, || {
+                    Ok(synonyms.token_keys(token, self.max_rules_per_key)?.into())
+                })
+            })
             .collect()
     }
 
@@ -250,6 +255,11 @@ impl SynonymSource for HeapRuleSource {
             return Ok(None);
         };
         let (slot, attnum) = (self.slot, self.attnum);
+        let segment_id = self.segments[segment].1.segment_id();
+        if let Some(rules) = cached_rules(segment_id, doc) {
+            let alive = self.visibility.exec_if_visible(ctid, slot, |_| ());
+            return Ok(alive.map(|()| rules));
+        }
         let text = self.visibility.exec_if_visible(ctid, slot, |_| unsafe {
             let mut isnull = false;
             let datum = pg_sys::slot_getattr(slot, attnum, &mut isnull);
@@ -258,10 +268,11 @@ impl SynonymSource for HeapRuleSource {
         let Some(text) = text else {
             return Ok(None);
         };
-        let rules: Vec<CompiledRule> = text
+        let rules: Arc<[CompiledRule]> = text
             .iter()
             .filter_map(|line| CompiledRule::from_line(line, &mut self.analyzer))
             .collect();
-        Ok(Some(rules.into()))
+        cache_rules(segment_id, doc, rules.clone());
+        Ok(Some(rules))
     }
 }

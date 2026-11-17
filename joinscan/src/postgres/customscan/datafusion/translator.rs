@@ -83,7 +83,7 @@ pub(crate) fn node_tag_debug(node: *mut pg_sys::Node) -> String {
         return "null".to_string();
     }
     let dbg = format!("{:?}", unsafe { (*node).type_ });
-    dbg.strip_prefix("T_").unwrap_or(&dbg).to_string()
+    dbg.trim_prefix("T_").to_string()
 }
 
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.

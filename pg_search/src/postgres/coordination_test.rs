@@ -53,6 +53,10 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
         .into_iter()
         .map(|(_, candidate)| candidate)
         .collect::<Vec<_>>();
+    let selected: HashSet<SegmentId> = candidates
+        .iter()
+        .flat_map(|candidate| candidate.0.iter().copied())
+        .collect();
     merge_index(
         &index,
         merger,
@@ -67,7 +71,10 @@ unsafe fn test_merge_index(index: PgRelation) -> i64 {
         .iter()
         .map(SegmentMetaEntry::segment_id)
         .collect();
-    before.difference(&after).count() as i64
+    before
+        .difference(&after)
+        .filter(|id| selected.contains(*id))
+        .count() as i64
 }
 
 #[pg_extern]

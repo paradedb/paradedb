@@ -112,9 +112,12 @@ pub mod linked_bytes;
 pub mod linked_items;
 pub mod merge;
 pub mod metadata;
+#[cfg(feature = "pg18")]
+mod recent_buffer;
 pub mod utils;
 mod xlog;
 
 pub use self::linked_bytes::{LinkedBytesList, LinkedBytesListWriter};
 pub use self::linked_items::LinkedItemList;
 pub use self::utils::MAX_BUFFERS_TO_EXTEND_BY;
+pub use self::xlog::log_snapshot_conflict;

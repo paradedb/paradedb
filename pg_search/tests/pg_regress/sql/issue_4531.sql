@@ -11,8 +11,8 @@ SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO OFF;
 SET paradedb.enable_join_custom_scan = on;
 
--- Setup tables
-CREATE TABLE suppliers_4531 (id INTEGER PRIMARY KEY, name TEXT);
+-- Setup tables (omit PRIMARY KEY on suppliers_4531.id so PG 18.7+ keeps Test 2 as Semi)
+CREATE TABLE suppliers_4531 (id INTEGER, name TEXT);
 CREATE TABLE products_4531 (
     id INTEGER PRIMARY KEY,
     name TEXT,

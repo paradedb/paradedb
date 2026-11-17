@@ -203,6 +203,86 @@ WHERE description ||| (SELECT pdb.expand('settee', rule) FROM shop_synonyms) ORD
   9
 (1 row)
 
+-- A one-token top-k by score stays serial, since Block-WAND prunes one term. A token that a rule
+-- turns into a group can take workers.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM products WHERE description ||| (SELECT pdb.expand('stand', rule) FROM shop_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, (pdb.score(id))
+   ->  Custom Scan (ParadeDB Base Scan) on public.products
+         Output: id, pdb.score(id)
+         Table: products
+         Index: products_idx
+         Worker Selection: Prunable top-K
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"stand","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Synonyms: shop_synonyms_idx
+(13 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM products WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, (pdb.score(id))
+   ->  Custom Scan (ParadeDB Base Scan) on public.products
+         Output: id, pdb.score(id)
+         Table: products
+         Index: products_idx
+         Worker Selection: Cost model (LIMIT)
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+         Synonyms: shop_synonyms_idx
+(13 rows)
+
+-- A backend keeps the rules it read, by segment, and checks the row of each rule on every
+-- query, so an update, a reused ctid after VACUUM or a REINDEX never expands with an old rule.
+INSERT INTO products VALUES (11, 'telly remote'), (12, 'monitor arm');
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+ id 
+----
+  7
+(1 row)
+
+UPDATE shop_synonyms SET rule = 'tv, telly' WHERE rule = 'tv, television';
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+ id 
+----
+ 11
+(1 row)
+
+VACUUM shop_synonyms;
+INSERT INTO shop_synonyms VALUES ('tv, monitor');
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+ id 
+----
+ 11
+ 12
+(2 rows)
+
+REINDEX INDEX shop_synonyms_idx;
+SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
+ id 
+----
+ 11
+ 12
+(2 rows)
+
+DELETE FROM products WHERE id IN (11, 12);
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);
 INSERT INTO json_products VALUES (1, '{"seat": "red couch"}'), (2, '{"shoes": "running shoes"}');

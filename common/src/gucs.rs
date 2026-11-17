@@ -24,6 +24,7 @@ use pgrx::{
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
 use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
+use tantivy::vector::AdaptiveProbeParams;
 
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 pub const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
@@ -429,19 +430,19 @@ pub fn vector_clustering_threshold() -> usize {
     VECTOR_CLUSTERING_THRESHOLD.get().max(1) as usize
 }
 
+const MIN_ADAPTIVE_PROBE_BUDGET: usize = 100;
 static VECTOR_ADAPTIVE_PROBING: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-pub fn vector_adaptive_probing() -> Option<tantivy::vector::AdaptiveProbeParams> {
-    VECTOR_ADAPTIVE_PROBING
-        .get()
-        .then_some(tantivy::vector::AdaptiveProbeParams::default())
+pub fn vector_adaptive_probing() -> Option<AdaptiveProbeParams> {
+    (VECTOR_ADAPTIVE_PROBING.get() && vector_cluster_max_probe() >= MIN_ADAPTIVE_PROBE_BUDGET)
+        .then_some(AdaptiveProbeParams::default())
 }
 
 pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.vector_adaptive_probing",
         c"Stop vector probing early using admission-rate decay",
-        c"Uses the same routing and work budgets as fixed probing. May stop probing early after competitive-candidate admission decays.",
+        c"Applies when vector_cluster_max_probe is at least 100. May stop probing early after competitive-candidate admission decays. Threshold pruning remains enabled independently.",
         &VECTOR_ADAPTIVE_PROBING,
         GucContext::Userset,
         GucFlags::default(),
@@ -1524,12 +1525,20 @@ mod tests {
         .unwrap();
         assert_eq!(vector_cluster_max_probe(), 100);
         assert!(vector_adaptive_probing().is_some());
-        for budget in [1, 100_000, 25] {
+        for (budget, adaptive) in [
+            (1, false),
+            (MIN_ADAPTIVE_PROBE_BUDGET - 1, false),
+            (MIN_ADAPTIVE_PROBE_BUDGET, true),
+            (MIN_ADAPTIVE_PROBE_BUDGET + 1, true),
+            (100_000, true),
+            (25, false),
+        ] {
             Spi::run(&format!(
                 "SET paradedb.vector_cluster_max_probe = {budget};"
             ))
             .unwrap();
             assert_eq!(vector_cluster_max_probe(), budget);
+            assert_eq!(vector_adaptive_probing().is_some(), adaptive);
         }
         assert_eq!(vector_cluster_max_probe(), 25);
         Spi::run("SET paradedb.vector_adaptive_probing = off;").unwrap();
@@ -1537,6 +1546,7 @@ mod tests {
         assert_eq!(vector_cluster_max_probe(), 25);
         Spi::run("RESET paradedb.vector_cluster_max_probe;").unwrap();
         assert_eq!(vector_cluster_max_probe(), 100);
+        assert!(vector_adaptive_probing().is_none());
     }
 
     #[pg_test]

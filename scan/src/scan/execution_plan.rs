@@ -64,6 +64,7 @@ use datafusion_proto::physical_plan::{
 use futures::Stream;
 use pgrx::pg_sys;
 use tantivy::Score;
+use tantivy::vector::VectorFilterStrategy;
 
 use crate::api::{HashMap, OrderByInfo};
 use crate::index::fast_fields_helper::FFHelper;
@@ -387,6 +388,25 @@ impl PgSearchScanPlan {
     /// `RankJoinRule` later populates `ordering`, secondary tie-breakers, and `initial_window`.
     pub fn with_vector_order_by(mut self, vector_order_by: Option<OrderByInfo>) -> Self {
         if let Some(order_by) = vector_order_by {
+            let (field, _, _) = order_by
+                .as_vector_distance()
+                .expect("vector ordering must reference a vector field");
+            run_on_main_thread(|token| {
+                let mut state = self.state.lock().unwrap();
+                let scan_state = match &mut *state {
+                    ExecutionState::Shared { scan_state, .. }
+                    | ExecutionState::RangePartitioned { scan_state, .. } => {
+                        scan_state.get_mut(token)
+                    }
+                    ExecutionState::Consumed | ExecutionState::Uninitialized => return,
+                };
+                let reader = &mut scan_state.reader;
+                reader.vector_filter_strategy = Some(
+                    reader
+                        .plan_vector_filter(field)
+                        .expect("vector filter planning should succeed"),
+                );
+            });
             self.lazy_sort = Some(LazySortConfig {
                 orderby_info: Some(vec![order_by]),
                 ordering: None,
@@ -1232,6 +1252,9 @@ impl PgSearchScanPlan {
             scan_mode: scanner_config.scan_mode,
             lazy_sort,
             vector_routing_plan,
+            vector_filter_strategy: try_run_on_main_thread(|token| {
+                Ok(state.get(token).reader.vector_filter_strategy)
+            })?,
             check_visibility,
         };
         serde_json::to_vec(&descriptor).map_err(|e| {
@@ -1356,6 +1379,7 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
         })?;
 
+        reader.vector_filter_strategy = descriptor.vector_filter_strategy;
         reader.vector_routing_plan = descriptor
             .vector_routing_plan
             .map(|encoded| {
@@ -1545,6 +1569,7 @@ struct ScanDispatchDescriptor {
     scan_mode: crate::scan::ScanMode,
     lazy_sort: Option<LazySortConfigDescriptor>,
     vector_routing_plan: Option<String>,
+    vector_filter_strategy: Option<VectorFilterStrategy>,
 }
 
 /// A classification received with a dispatched task, tagged by the view it is checked

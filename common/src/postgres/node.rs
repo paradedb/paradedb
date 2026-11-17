@@ -212,14 +212,14 @@ pub trait NodeExt: Copy {
 
     fn contains_operators(self, opnos: &[pg_sys::Oid]) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(OpExpr, T_OpExpr, node) }
+            unsafe { nodecast!(OpExpr, node) }
                 .is_some_and(|expr| opnos.contains(&unsafe { (*expr).opno }))
         })
     }
 
     fn contains_paradedb_operator(self) -> bool {
         self.any(|node| {
-            unsafe { nodecast!(OpExpr, T_OpExpr, node) }
+            unsafe { nodecast!(OpExpr, node) }
                 .is_some_and(|expr| is_paradedb_search_operator(unsafe { (*expr).opno }))
         })
     }

@@ -29,6 +29,13 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::{PgList, pg_sys};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tantivy::vector::VectorFilterStrategy;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum VectorFilterPlan {
+    Planned(VectorFilterStrategy),
+    Deferred,
+}
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
@@ -63,6 +70,8 @@ pub struct PrivateData {
     // Which decision branch produced this path's serial/parallel choice, surfaced in EXPLAIN
     // VERBOSE. `None` only on plans serialized before this field existed.
     worker_selection_reason: Option<WorkerDecisionReason>,
+    #[serde(default)]
+    vector_filter_plan: Option<VectorFilterPlan>,
     // `nodeToString` of the WHERE clauses evaluated in `plan.qual` instead of the scan: the leaky
     // ones, and the base clauses the join qual fallback could not push down.
     #[serde(default)]
@@ -195,6 +204,12 @@ impl PrivateData {
         self.maybe_orderby_info = Some(OrderByStyle::extract_orderby_info(style));
     }
 
+    /// Drops the candidate ORDER BY once the chosen exec method carries it, so the plan holds
+    /// one copy of it (and of any query vector in it).
+    pub fn clear_maybe_orderby_info(&mut self) {
+        self.maybe_orderby_info = None;
+    }
+
     pub fn set_var_attname_lookup(
         &mut self,
         var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
@@ -212,6 +227,10 @@ impl PrivateData {
 
     pub(super) fn set_worker_selection_reason(&mut self, reason: WorkerDecisionReason) {
         self.worker_selection_reason = Some(reason);
+    }
+
+    pub(super) fn set_vector_filter_plan(&mut self, plan: Option<VectorFilterPlan>) {
+        self.vector_filter_plan = plan;
     }
 
     pub fn set_planned_which_fast_fields(
@@ -304,6 +323,10 @@ impl PrivateData {
 
     pub(super) fn worker_selection_reason(&self) -> Option<WorkerDecisionReason> {
         self.worker_selection_reason
+    }
+
+    pub(super) fn vector_filter_plan(&self) -> Option<VectorFilterPlan> {
+        self.vector_filter_plan
     }
 
     pub fn segment_count(&self) -> usize {

@@ -1,0 +1,62 @@
+name: Set Up VectorChord
+description: Build and install VectorChord in the benchmark container
+
+inputs:
+  ref:
+    description: "VectorChord commit"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout VectorChord
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        repository: supervc-stack/VectorChord
+        ref: ${{ inputs.ref }}
+        path: vectorchord
+        persist-credentials: false
+
+    - name: Build and Install VectorChord
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker cp vectorchord paradedb:/tmp/vectorchord
+        docker exec -i --user root paradedb bash <<'BUILD'
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          postgresql-server-dev-18 build-essential pkg-config clang libclang-dev libssl-dev curl ca-certificates
+        export CARGO_HOME=/tmp/vectorchord-cargo RUSTUP_HOME=/tmp/vectorchord-rustup
+        export PATH="$CARGO_HOME/bin:$PATH"
+        export PG_CONFIG=/usr/lib/postgresql/18/bin/pg_config CARGO_BUILD_JOBS=8
+        curl -fsSL --retry 5 --retry-all-errors https://sh.rustup.rs -o /tmp/vectorchord-rustup.sh
+        sh /tmp/vectorchord-rustup.sh -y --profile minimal --default-toolchain 1.97.1
+        cd /tmp/vectorchord
+        cargo run --locked -p xtask -- build
+        make install
+        rm -rf /tmp/vectorchord /tmp/vectorchord-cargo /tmp/vectorchord-rustup /tmp/vectorchord-rustup.sh /var/lib/apt/lists/*
+        BUILD
+        git -C vectorchord rev-parse HEAD > benchmark-artifacts/vectorchord-commit.txt
+
+    - name: Preload VectorChord and Restart PostgreSQL
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker compose config --format json | jq '{services: {paradedb: {command:
+          (.services.paradedb.command | map(if startswith("shared_preload_libraries=") then . + ",vchord" else . end))
+        }}}' > "$RUNNER_TEMP/benchmark-compose/compose.vectorchord.json"
+        docker stop --time 600 paradedb
+        docker commit paradedb paradedb-vectorchord:ci
+        export PARADEDB_IMAGE=paradedb-vectorchord:ci
+        export COMPOSE_FILE="$COMPOSE_FILE:$RUNNER_TEMP/benchmark-compose/compose.vectorchord.json"
+        docker compose up -d --wait --wait-timeout 300 paradedb
+        psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+          -c 'CREATE EXTENSION IF NOT EXISTS vchord CASCADE;' \
+          -c 'SHOW shared_preload_libraries;' \
+          -c "SELECT extversion FROM pg_extension WHERE extname = 'vchord';"
+        {
+          echo "PARADEDB_IMAGE=$PARADEDB_IMAGE"
+          echo "COMPOSE_FILE=$COMPOSE_FILE"
+        } >> "$GITHUB_ENV"

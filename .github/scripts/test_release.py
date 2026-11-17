@@ -16,6 +16,7 @@ class ChangelogSectionOrderTests(unittest.TestCase):
     """Release notes put compatibility changes before improvements."""
 
     def test_rendered_sections_follow_release_order(self):
+        """Sections render in the canonical compatibility-first order."""
         root = Path(__file__).resolve().parents[2]
         headers = release.load_headers_map(root / ".changelog_headers.json")
         order = ["breaking", "features", "performance", "stability", "docs", "other"]
@@ -25,6 +26,7 @@ class ChangelogSectionOrderTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
 
     def test_empty_sections_are_omitted(self):
+        """Sections without entries are excluded from rendered notes."""
         root = Path(__file__).resolve().parents[2]
         headers = release.load_headers_map(root / ".changelog_headers.json")
         rendered = release.render_changelog(
@@ -291,15 +293,110 @@ class NativeMigrationTests(unittest.TestCase):
         script = (self.sql / "pg_search--0.26.6--0.27.0.sql").read_text()
         self.assertLess(script.index("CREATE TABLE"), script.index("CREATE INDEX"))
 
-    def test_native_lint_rejects_an_undeclared_dependency(self):
-        """Fragment lint catches out-of-order SQL references via pgrx migrate check."""
+    def test_native_lint_enforces_fragment_and_immutability_rules(self):
+        """Fragment lint delegates dependency, mixed-object, base, and upstream checks to pgrx."""
+        cases = [
+            (
+                "undeclared_dependency",
+                {
+                    "100.table.sql": "CREATE TABLE example (id integer);\n",
+                    "99.index.sql": "CREATE INDEX example_idx ON example (id);\n",
+                },
+                1,
+            ),
+            (
+                "unresolved_depends_on",
+                {
+                    "100.table.sql": "-- depends-on: 999\nCREATE TABLE example (id integer);\n",
+                },
+                1,
+            ),
+            (
+                "multi_prerequisite_objects",
+                {
+                    "100.a.sql": "CREATE TABLE a (id integer);\n",
+                    "101.b.sql": "CREATE TABLE b (id integer);\n",
+                    "102.both.sql": (
+                        "-- depends-on: 100, 101\n"
+                        "ALTER TABLE a ADD COLUMN x integer;\n"
+                        "ALTER TABLE b ADD COLUMN y integer;\n"
+                    ),
+                },
+                1,
+            ),
+            (
+                "clean_single_prerequisite",
+                {
+                    "100.table.sql": "CREATE TABLE example (id integer);\n",
+                    "101.index.sql": (
+                        "-- depends-on: 100\nCREATE INDEX example_idx ON example (id);\n"
+                    ),
+                },
+                0,
+            ),
+        ]
+        for name, files, expected in cases:
+            with self.subTest(case=name):
+                for existing in self.fragments.glob("*.sql"):
+                    existing.unlink()
+                for filename, sql in files.items():
+                    (self.fragments / filename).write_text(sql)
+                self.assertEqual(release.lint_sql_fragments(self.root), expected)
+
+        # Initialize a git repo in the fixture to exercise `--base` and `--upstream`.
+        for existing in self.fragments.glob("*.sql"):
+            existing.unlink()
         (self.fragments / "100.table.sql").write_text(
             "CREATE TABLE example (id integer);\n"
         )
-        (self.fragments / "99.index.sql").write_text(
-            "CREATE INDEX example_idx ON example (id);\n"
+        for cmd in [
+            ["git", "init", "-b", "main"],
+            ["git", "config", "user.email", "test@example.com"],
+            ["git", "config", "user.name", "Test"],
+            ["git", "config", "commit.gpgsign", "false"],
+            ["git", "add", "."],
+            ["git", "commit", "-m", "initial"],
+        ]:
+            subprocess.run(cmd, cwd=self.root, check=True, capture_output=True)
+        main_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        self.assertEqual(
+            release.lint_sql_fragments(self.root, main_sha, upstream_ref="main"), 0
         )
-        self.assertEqual(release.lint_sql_fragments(self.root, None), 1)
+
+        # Modifying an already-shipped upgrade script is rejected by `--base`.
+        subprocess.run(
+            ["git", "checkout", "-b", "0.26.x"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
+        (self.sql / "pg_search--0.26.5--0.26.6.sql").write_text("SELECT 2;\n")
+        subprocess.run(
+            ["git", "commit", "-am", "edit released script"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
+        self.assertEqual(release.lint_sql_fragments(self.root, main_sha), 1)
+
+        # Diverging fragment bytes relative to `--upstream` are rejected.
+        subprocess.run(
+            ["git", "reset", "--hard", main_sha],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
+        (self.fragments / "100.table.sql").write_text(
+            "CREATE TABLE example (id bigint);\n"
+        )
+        self.assertEqual(release.lint_sql_fragments(self.root, upstream_ref="main"), 1)
 
 
 if __name__ == "__main__":

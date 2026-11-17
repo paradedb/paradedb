@@ -45,6 +45,7 @@ use crate::query::tid_bitmap_stream::BitmapCell;
 use std::ptr::NonNull;
 
 use crate::index::reader::vector::SharedVectorRouting;
+use crate::postgres::customscan::basescan::privdat::VectorFilterPlan;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{PgTupleDesc, pg_sys};
 use tantivy::index::SegmentId;
@@ -66,6 +67,7 @@ pub struct BaseScanState {
     /// Workers wait for the leader to publish this plan when they first need it.
     pub vector_routing_plan: Option<Arc<SharedVectorRouting>>,
     pub vector_routing_pending: bool,
+    pub vector_filter_plan: Option<VectorFilterPlan>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -232,13 +234,6 @@ impl BaseScanState {
         if let Some(exec_method_type) = updated_exec_method_type {
             self.exec_method_type = exec_method_type;
         }
-    }
-
-    #[inline(always)]
-    pub fn exec_method<'a>(&self) -> &'a dyn ExecMethod {
-        let ptr = self.exec_method.get();
-        assert!(!ptr.is_null());
-        unsafe { ptr.as_ref().unwrap_unchecked().as_ref() }
     }
 
     #[inline(always)]
@@ -572,7 +567,7 @@ impl BaseScanState {
             let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut *htup);
             let (index, attribute) = heap_tuple.get_attribute_by_name(&field.root()).unwrap();
 
-            if unsafe { pgrx::type_is_array!(attribute.type_oid().value()).is_true() } {
+            if unsafe { pgrx::type_is_array!(attribute.type_oid().value()) } {
                 // varchar[] and text[] are flattened into a single string
                 // to emulate Tantivy's default behavior for highlighting text arrays
                 Some(

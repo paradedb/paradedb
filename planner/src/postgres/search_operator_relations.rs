@@ -72,21 +72,15 @@ thread_local! {
 /// Runs `plan` with the record for `parse` in place, for [`applies_to`] to consult.
 pub unsafe fn record_during<T>(parse: *mut pg_sys::Query, plan: impl FnOnce() -> T) -> T {
     RECORDS.with(|records| records.borrow_mut().push(searched_relations_in(parse)));
-    let _scope = RecordScope(());
-    plan()
-}
-
-/// Pops the record once planning ends, by error too.
-struct RecordScope(());
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only pops a thread
-// local, and the record has to go when the planner raises too.
-impl Drop for RecordScope {
-    fn drop(&mut self) {
+    // Pops the record once planning ends, by error too.
+    // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the body only pops a thread
+    // local, and the record has to go when the planner raises too.
+    let _scope = std::mem::DropGuard::new((), |()| {
         RECORDS.with(|records| {
             records.borrow_mut().pop();
         });
-    }
+    });
+    plan()
 }
 
 /// Whether the query being planned applies a search operator to the relation scanned as `rti`,

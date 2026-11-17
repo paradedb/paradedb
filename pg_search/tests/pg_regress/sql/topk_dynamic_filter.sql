@@ -19,8 +19,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS suppliers CASCADE;
 
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps Test 6's `IN (SELECT ...)` as a Semi join.
 CREATE TABLE suppliers (
-    id INTEGER PRIMARY KEY,
+    id INTEGER,
     name TEXT,
     region TEXT
 ) WITH (autovacuum_enabled = false);
@@ -235,8 +236,9 @@ DROP TABLE suppliers CASCADE;
 DROP TABLE IF EXISTS bench_files CASCADE;
 DROP TABLE IF EXISTS bench_documents CASCADE;
 
+-- Omit PRIMARY KEY on `id` so PG 18.7+ keeps Test 8's `IN (SELECT ...)` as a Semi join.
 CREATE TABLE bench_documents (
-    id TEXT PRIMARY KEY,
+    id TEXT,
     category TEXT,
     title TEXT
 ) WITH (autovacuum_enabled = false);

@@ -706,13 +706,13 @@ fn build_pdb_aggregate_plan(
         }
 
         // 2. Key expressions (__pdb_k0, __pdb_k1, ...)
-        for k in 0..num_keys {
+        for (k, key) in pdb_plan.keys.iter().enumerate() {
             if distinct_positions.contains(&(num_outer + k)) {
                 project_exprs.push(col(format!("__pdb_k{k}")));
             } else {
                 let null_expr = Expr::Cast(Cast::new(
                     Box::new(lit(ScalarValue::Null)),
-                    pdb_plan.keys[k].field.field_type.arrow_data_type(),
+                    key.field.field_type.arrow_data_type(),
                 ))
                 .alias(format!("__pdb_k{k}"));
                 project_exprs.push(null_expr);

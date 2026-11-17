@@ -40,6 +40,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
 
+use crate::postgres::customscan::parameterized_value::fetch_extern_param;
 use crate::vector::PgVector;
 use crate::vector::metric::VectorMetric;
 
@@ -85,25 +86,13 @@ impl Regex {
 
 /// Casts `$node` to a `*mut pg_sys::$type_` when it is non-NULL and a node of that type.
 ///
-/// `OpExpr`, `DistinctExpr` and `NullIfExpr` are one type in Rust with a node tag each, so
-/// `pgrx::IsA!` accepts none of them. Name the tag for those: `nodecast!(OpExpr, T_OpExpr, node)`.
+/// `OpExpr`, `DistinctExpr` and `NullIfExpr` are one type in Rust with a node tag each. The name
+/// given selects the tag, so `nodecast!(DistinctExpr, node)` matches only a `T_DistinctExpr`.
 #[macro_export]
 macro_rules! nodecast {
     ($type_:ident, $node:expr) => {{
         let node = $node;
-        (!node.is_null() && pgrx::IsA!(node, pgrx::pg_sys::$type_).is_true())
-            .then(|| node.cast::<pgrx::pg_sys::$type_>())
-    }};
-
-    ($type_:ident, $kind:ident, $node:expr) => {{
-        let node = $node;
-        $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind)
-            .then(|| node.cast::<pgrx::pg_sys::$type_>())
-    }};
-
-    ($type_:ident, $kind:ident, $node:expr, true) => {{
-        let node = $node;
-        (node.is_null() || $crate::postgres::utils::is_a(node.cast(), pgrx::pg_sys::NodeTag::$kind))
+        (!node.is_null() && pgrx::IsA!(node, pgrx::pg_sys::$type_))
             .then(|| node.cast::<pgrx::pg_sys::$type_>())
     }};
 }
@@ -345,9 +334,53 @@ impl SortDirection {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum QueryVector {
-    Resolved(Vec<f32>),
+    Resolved(#[serde(with = "query_vector_bytes")] Vec<f32>),
     Param(i32),
     Expr(String),
+}
+
+/// A resolved query vector in serialized private data: one hex string of its little-endian
+/// `f32` bytes, written and parsed as a single token rather than one JSON number per element.
+mod query_vector_bytes {
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    pub fn serialize<S: Serializer>(floats: &[f32], serializer: S) -> Result<S::Ok, S::Error> {
+        let mut text = String::with_capacity(floats.len() * 8);
+        for byte in floats.iter().flat_map(|value| value.to_le_bytes()) {
+            text.push(char::from(HEX[usize::from(byte >> 4)]));
+            text.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+        serializer.serialize_str(&text)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<f32>, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        if text.len() % 8 != 0 {
+            return Err(D::Error::custom(
+                "query vector bytes are not whole f32 values",
+            ));
+        }
+        let nibble = |digit: u8| match digit {
+            b'0'..=b'9' => Ok(digit - b'0'),
+            b'a'..=b'f' => Ok(digit - b'a' + 10),
+            _ => Err(D::Error::custom("query vector bytes are not lowercase hex")),
+        };
+        text.as_bytes()
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|digits| {
+                let mut bytes = [0u8; 4];
+                for (byte, [high, low]) in bytes.iter_mut().zip(digits.as_chunks::<2>().0) {
+                    *byte = (nibble(*high)? << 4) | nibble(*low)?;
+                }
+                Ok(f32::from_le_bytes(bytes))
+            })
+            .collect()
+    }
 }
 
 impl QueryVector {
@@ -386,36 +419,9 @@ impl QueryVector {
             QueryVector::Param(paramid) => *paramid,
         };
 
-        let param_list = (*estate).es_param_list_info;
-        assert!(
-            !param_list.is_null(),
-            "es_param_list_info is NULL but vector ORDER BY references Param ${paramid}"
-        );
-        let idx = (paramid - 1) as usize;
-        assert!(
-            idx < (*param_list).numParams as usize,
-            "vector ORDER BY param_id {paramid} out of range (numParams={})",
-            (*param_list).numParams
-        );
-
-        let slot = &(*param_list)
-            .params
-            .as_slice((*param_list).numParams as usize)[idx];
-        let (value, isnull) = if (slot.pflags & pg_sys::PARAM_FLAG_CONST as u16) != 0 {
-            (slot.value, slot.isnull)
-        } else if let Some(fetch) = (*param_list).paramFetch {
-            let mut prmdata = pg_sys::ParamExternData {
-                value: pg_sys::Datum::null(),
-                isnull: true,
-                pflags: 0,
-                ptype: pg_sys::InvalidOid,
-            };
-            let prm = fetch(param_list, paramid, false, &mut prmdata);
-            assert!(!prm.is_null(), "paramFetch returned NULL for ${paramid}");
-            ((*prm).value, (*prm).isnull)
-        } else {
-            (slot.value, slot.isnull)
-        };
+        let pg_sys::ParamExternData { value, isnull, .. } =
+            fetch_extern_param((*estate).es_param_list_info, paramid)
+                .expect("es_param_list_info should hold the vector ORDER BY Param");
         assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
 
         let floats = PgVector::from_datum(value, false)
@@ -553,6 +559,53 @@ impl OrderByInfo {
     ) {
         if let OrderByFeature::VectorDistance { query_vector, .. } = &mut self.feature {
             query_vector.resolve(estate, planstate);
+        }
+    }
+}
+
+#[cfg(test)]
+mod query_vector_tests {
+    use super::QueryVector;
+
+    /// A resolved vector serializes as one hex string and parses back bit for bit, signed zeros,
+    /// infinities, subnormals and NaN payloads included; malformed text is rejected.
+    #[test]
+    fn resolved_vector_round_trips_as_one_hex_string() {
+        let floats = vec![
+            0.0,
+            -0.0,
+            1.5,
+            -2.25e-3,
+            f32::MIN_POSITIVE / 4.0,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::from_bits(0x7fc0_1234),
+        ];
+        assert_eq!(
+            serde_json::to_string(&QueryVector::Resolved(vec![1.0, -2.0])).unwrap(),
+            r#"{"Resolved":"0000803f000000c0"}"#
+        );
+        let json = serde_json::to_string(&QueryVector::Resolved(floats.clone())).unwrap();
+        assert_eq!(
+            json.len(),
+            r#"{"Resolved":""}"#.len() + floats.len() * 8,
+            "{json}"
+        );
+        let QueryVector::Resolved(parsed) = serde_json::from_str(&json).unwrap() else {
+            panic!("{json}");
+        };
+        assert_eq!(
+            parsed
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            floats
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>()
+        );
+        for bad in [r#"{"Resolved":"0000803"}"#, r#"{"Resolved":"0000803G"}"#] {
+            assert!(serde_json::from_str::<QueryVector>(bad).is_err(), "{bad}");
         }
     }
 }

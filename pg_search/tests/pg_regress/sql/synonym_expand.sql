@@ -38,6 +38,26 @@ SELECT id FROM products
 WHERE description &&& (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms WHERE shop = 'main')
 ORDER BY id;
 
+-- The planner runs a subquery that no index holds, for the row estimate of the match. A generic
+-- plan has no text to run it with, so it keeps the estimate of an unknown value.
+CREATE FUNCTION plan_rows(query text) RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE plan json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) ' || query INTO plan;
+    RETURN plan->0->'Plan'->>'Plan Rows';
+END $$;
+SET paradedb.planner_warnings = 'off';
+SELECT plan_rows($$SELECT id FROM products
+    WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms WHERE shop = 'main')$$);
+PREPARE sofa_rows(text) AS SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand($1, rule) FROM shop_synonyms WHERE shop = 'main');
+SET plan_cache_mode = force_generic_plan;
+SELECT plan_rows($$EXECUTE sofa_rows('sofa')$$);
+RESET plan_cache_mode;
+DEALLOCATE sofa_rows;
+RESET paradedb.planner_warnings;
+DROP FUNCTION plan_rows;
+
 -- A multi-word alternative is a phrase, and a directed rule drops the typed word.
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sneakers', rule) FROM shop_synonyms) ORDER BY id;
@@ -124,6 +144,29 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms LIMIT 
 SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('sofa', rule)::pdb.boost(2) FROM shop_synonyms)
 ORDER BY id;
+
+-- A default and its written value are one tokenizer, so a field with `lowercase=true` reads the
+-- index. `lowercase=false` gives other tokens, so that subquery runs as written.
+CREATE TABLE cased_products (id int PRIMARY KEY, description text, label text);
+INSERT INTO cased_products VALUES
+    (1, 'red couch', 'Red Couch'),
+    (2, 'leather sofa', 'Leather Sofa');
+CREATE INDEX cased_products_idx ON cased_products USING bm25 (
+    id,
+    (description::pdb.unicode_words('lowercase=true')),
+    (label::pdb.unicode_words('lowercase=false'))
+);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM cased_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+SELECT id FROM cased_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM cased_products
+WHERE label ||| (SELECT pdb.expand('Sofa', rule) FROM shop_synonyms);
+SELECT id FROM cased_products
+WHERE label ||| (SELECT pdb.expand('Sofa', rule) FROM shop_synonyms) ORDER BY id;
+DROP TABLE cased_products;
 
 -- The index of a partitioned table has no storage. The query still reads the synonym index.
 CREATE TABLE parted_products (id int PRIMARY KEY, description text) PARTITION BY RANGE (id);
@@ -250,6 +293,16 @@ RESET ROLE;
 DEALLOCATE role_query;
 REVOKE SELECT ON products FROM synonym_expand_reader;
 REVOKE SELECT (rule) ON shop_synonyms FROM synonym_expand_reader;
+
+-- A view reads the rules with the rights of its owner. A run for the estimate would have the
+-- rights of the role, which has none on the rules table, so the planner does not run it.
+CREATE VIEW sofa_products AS SELECT id FROM products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+GRANT SELECT ON sofa_products TO synonym_expand_reader;
+SET ROLE synonym_expand_reader;
+SELECT id FROM sofa_products ORDER BY id;
+RESET ROLE;
+DROP VIEW sofa_products;
 DROP ROLE synonym_expand_reader;
 
 -- A synonym index with another tokenizer than the field is not read, and the query still expands.

@@ -44,7 +44,7 @@ use crate::api::operator::{
     estimate_query_cost, estimate_selectivity_and_cost, expr_contains_search_predicate,
 };
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, Varno};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -52,7 +52,7 @@ use crate::index::reader::index::{MAX_TOPK_FEATURES, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::{
     ExecState, fast_fields, normal::NormalScanExecState,
 };
-use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::privdat::{PrivateData, VectorFilterPlan};
 
 use crate::postgres::customscan::basescan::projections::snippet::{
     SnippetType, snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets,
@@ -110,6 +110,7 @@ use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{FromDatum, IntoDatum, PgList, PgMemoryContexts, pg_sys};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::{PostFilterStage, VectorFilterStrategy};
 
 use super::pullup::SourceContext;
 
@@ -202,6 +203,33 @@ impl BaseScan {
         )
         .expect("should be able to open the search index reader");
         search_reader.vector_routing_plan = state.custom_state().vector_routing_plan.clone();
+        if let Some(OrderByInfo {
+            feature: OrderByFeature::VectorDistance { name, .. },
+            ..
+        }) = state
+            .custom_state()
+            .orderby_info()
+            .as_ref()
+            .and_then(|orders| orders.first())
+        {
+            search_reader.vector_filter_strategy = Some(
+                match state
+                    .custom_state()
+                    .vector_filter_plan
+                    .expect("vector scan requires a filter plan")
+                {
+                    VectorFilterPlan::Planned(strategy) => strategy,
+                    VectorFilterPlan::Deferred => search_reader
+                        .plan_vector_filter(name)
+                        .expect("runtime vector filter planning should succeed"),
+                },
+            );
+        }
+        // Per-segment vector statistics are read by EXPLAIN ANALYZE's stage accounting, its I/O
+        // trace and the `paradedb.vector_stats` display; otherwise nothing reads them.
+        search_reader.vector_segment_info = gucs::vector_stats()
+            || state.custom_state().explain_stage_accounting
+            || state.custom_state().io_trace.is_some();
         let ffhelper = Arc::new(FFHelper::for_ctid(&search_reader));
         if let Some(checker) = state.custom_state_mut().visibility_checker.as_mut() {
             checker.set_ffhelper(Arc::clone(&ffhelper));
@@ -815,25 +843,27 @@ unsafe fn runs_after_lower_security_quals(
 ///
 /// Three conditions must hold:
 ///   1. This rel bounds the output cardinality (single rel, partitioned, or
-///      the driving side of a LEFT LATERAL join). Without this, pushing LIMIT
-///      to the inner side of a join would silently truncate results.
+///      the preserved driving side of a LEFT LATERAL join whose ORDER BY can
+///      be satisfied by this scan). Without this, pushing LIMIT to a filtered
+///      or inner side of a join would silently truncate results.
 ///   2. No non-pushable predicates sit between this scan and the LIMIT.
 ///   3. No unsafe SRFs (anything other than `unnest`) in the target list.
 ///
 /// Independent of whether PG's `limit_tuples` is set or the LIMIT involves a
-/// `Param` — that's the caller's policy decision.
+/// `Param`: that's the caller's policy decision.
 unsafe fn is_limit_pushdown_safe(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     baserels: *mut pg_sys::Bitmapset,
     rti: pg_sys::Index,
+    topk_pathkey_info: &PathKeyInfo,
     quals: &Option<Qual>,
     has_deferred_quals: bool,
 ) -> bool {
     let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
         || range_table::is_partitioned_table_setup(root, (*rel).relids, baserels);
-    let is_left_driven_lateral =
-        is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
+    let is_left_driven_lateral = !matches!(topk_pathkey_info, PathKeyInfo::Unusable(_))
+        && is_driving_left_join_lateral(root, rel, rti);
 
     (rel_is_single_or_partitioned || is_left_driven_lateral)
         && has_non_pushable_predicates(rel, quals, has_deferred_quals).is_ok()
@@ -1072,6 +1102,7 @@ impl CustomScan for BaseScan {
                         rel,
                         baserels,
                         rti,
+                        &topk_pathkey_info,
                         &Some(quals.clone()),
                         has_deferred_quals,
                     )
@@ -1135,10 +1166,11 @@ impl CustomScan for BaseScan {
             // reuses that open instead of opening the index a second time.
             let mut precomputed_query_cost: Option<u64> = None;
             let mut precomputed_segment_count: Option<usize> = None;
+            let mut vector_filter_plan = None;
 
             let estimation_query = EstimationQuery::decide(&quals, &query, builder.args().root);
 
-            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
+            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY && !is_vector_topk {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else {
@@ -1151,12 +1183,27 @@ impl CustomScan for BaseScan {
                             source_context.indexrel().unwrap(),
                             indexable.clone(),
                             None,
+                            vector_field.as_ref(),
                         );
                         precomputed_query_cost = estimated.query_cost;
                         precomputed_segment_count = estimated.segment_count;
-                        estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
+                        vector_filter_plan =
+                            vector_field.as_ref().map(|_| {
+                                VectorFilterPlan::Planned(estimated.vector_filter_strategy.expect(
+                                    "vector filter strategy must be selected during planning",
+                                ))
+                            });
+                        if norm_selec != UNASSIGNED_SELECTIVITY {
+                            norm_selec
+                        } else {
+                            estimated.selectivity.unwrap_or(UNKNOWN_SELECTIVITY)
+                        }
                     }
-                    Err(guess) => guess,
+                    Err(guess) => {
+                        vector_filter_plan =
+                            vector_field.as_ref().map(|_| VectorFilterPlan::Deferred);
+                        guess
+                    }
                 }
             };
 
@@ -1172,6 +1219,8 @@ impl CustomScan for BaseScan {
             // contribute a non-zero row estimate (otherwise the parallel-worker
             // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
+
+            custom_private.set_vector_filter_plan(vector_filter_plan);
 
             custom_private.set_heaprelid(source_context.heaprel.oid());
             custom_private.set_indexrelid(source_context.indexrel().unwrap().oid());
@@ -1270,18 +1319,29 @@ impl CustomScan for BaseScan {
                 };
 
                 // Decide the policy first: its reason gates the path cost below.
-                let policy = if let Some(field) = vector_field.as_ref() {
+                let policy = if let Some(VectorFilterPlan::Planned(strategy)) = vector_filter_plan {
+                    let work = vector_field.as_ref().and_then(|field| {
+                        vector_cost::VectorWork::for_query(
+                            strategy,
+                            estimation_query
+                                .resolve(query.clone())
+                                .unwrap_or(query.clone()),
+                            (*rel).tuples.max(1.0),
+                            selectivity,
+                            field,
+                            source_context.indexrel().unwrap().options(),
+                        )
+                    });
                     WorkerPathPolicy::for_vector_topk(
-                        &estimation_query
-                            .resolve(query.clone())
-                            .unwrap_or(query.clone()),
-                        (*rel).tuples.max(1.0),
-                        selectivity,
-                        field,
-                        source_context.indexrel().unwrap().options(),
+                        strategy,
                         available_workers(segment_count),
+                        work,
                         parallel_leader_participates,
                     )
+                } else if matches!(vector_filter_plan, Some(VectorFilterPlan::Deferred)) {
+                    WorkerPathPolicy::SerialOnly {
+                        reason: WorkerDecisionReason::VectorWork,
+                    }
                 } else {
                     decide_scan_parallelism(ScanParallelismInputs {
                         prunability: topk_can_prune_for_method(&method, root, &quals),
@@ -1298,6 +1358,9 @@ impl CustomScan for BaseScan {
                         parallel_leader_participates,
                         is_join_context,
                         has_grouping,
+                        expands_with_synonyms: &|| {
+                            query.expands_with_synonyms(&source_context.schema().unwrap())
+                        },
                     })
                 };
                 let reason = policy.reason();
@@ -1616,6 +1679,17 @@ impl CustomScan for BaseScan {
                 .map(|q| q.collect_expression_nodes())
                 .unwrap_or_default();
 
+            // A Top K method carries the ORDER BY, query vector included, from here on.
+            if matches!(
+                builder.custom_private().exec_method_type(),
+                ExecMethodType::TopK {
+                    orderby_info: Some(_),
+                    ..
+                }
+            ) {
+                builder.custom_private_mut().clear_maybe_orderby_info();
+            }
+
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {
                 scan.scan.plan.qual = subplan_quals.into_pg();
@@ -1658,6 +1732,7 @@ impl CustomScan for BaseScan {
         builder.custom_state().segment_count = builder.custom_private().segment_count();
         builder.custom_state().worker_selection_reason =
             builder.custom_private().worker_selection_reason();
+        builder.custom_state().vector_filter_plan = builder.custom_private().vector_filter_plan();
         builder.custom_state().var_attname_lookup = builder
             .custom_private()
             .var_attname_lookup()
@@ -1794,6 +1869,38 @@ impl CustomScan for BaseScan {
             && let Some(reason) = state.custom_state().worker_selection_reason
         {
             explainer.add_text("Worker Selection", reason.to_string());
+        }
+
+        if explainer.is_verbose()
+            && let Some(plan) = state.custom_state().vector_filter_plan
+        {
+            explainer.add_text(
+                "Vector Filtering",
+                match state
+                    .custom_state()
+                    .search_reader
+                    .as_ref()
+                    .and_then(|reader| reader.vector_filter_strategy)
+                    .map(VectorFilterPlan::Planned)
+                    .unwrap_or(plan)
+                {
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
+                        uses_fast_fields: false,
+                    }) => "Pre (postings)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
+                    }) => "Pre (fast fields)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        ..
+                    }) => "Post (before quantized scoring)",
+                    VectorFilterPlan::Planned(VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        ..
+                    }) => "Post (after quantized scoring)",
+                    VectorFilterPlan::Deferred => "Deferred until execution",
+                },
+            );
         }
 
         if explainer.is_analyze() {
@@ -2916,7 +3023,7 @@ unsafe fn is_junk_vector_distance(te: *mut pg_sys::TargetEntry) -> bool {
     if te.is_null() || !(*te).resjunk {
         return false;
     }
-    nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>())
+    nodecast!(OpExpr, (*te).expr.cast::<pg_sys::Node>())
         .is_some_and(|opexpr| VectorMetric::from_opoid((*opexpr).opno).is_some())
 }
 
@@ -3291,158 +3398,128 @@ unsafe fn maybe_project_snippets(
     }
 }
 
-/// Check if the query contains a LEFT JOIN LATERAL pattern
+/// Returns true if `rel` (`rti`) is the preserved driving base relation of a
+/// `LEFT JOIN LATERAL` spine and all `WHERE` quals along that spine reference
+/// only `rel`.
 ///
-/// This function verifies that the query has the specific structure:
-/// `... LEFT JOIN LATERAL (...) ...`
+/// By the time `set_rel_pathlist_hook` runs, `subquery_planner` has already run
+/// `pull_up_sublinks`, `pull_up_subqueries`, `reduce_outer_joins`,
+/// `remove_useless_joins`, and `reduce_unique_semijoins` on `parse->jointree`:
+/// - `RIGHT JOIN`s have been flipped to `JOIN_LEFT`.
+/// - `LEFT JOIN`s whose nullable side is filtered by a strict or `IS NULL`
+///   `WHERE` predicate have been reduced to `JOIN_INNER` or `JOIN_ANTI`.
 ///
-/// We verify:
-/// 1. The parse tree contains a LEFT JOIN node
-/// 2. That LEFT JOIN's right side is marked as LATERAL in the range table
-///
-/// This enables Top K optimization because LEFT JOIN semantics guarantee all
-/// left-side rows are preserved. If WHERE/ORDER BY/LIMIT only reference the
-/// left table, we can safely apply Top K to the left scan before the join.
-unsafe fn is_left_join_lateral(
+/// Walking strictly down the single-child `FromExpr` / `JOIN_LEFT.larg` spine
+/// to `RangeTblRef(rti)` therefore proves that every join in the query preserves
+/// all rows of `rel` (at least 1 output row per row of `rel`), while requiring
+/// at least one `JOIN_LEFT` along that spine to carry a lateral reference in its
+/// `rarg`.
+unsafe fn is_driving_left_join_lateral(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> bool {
-    // Check if this is a join query
-    if !(*root).hasJoinRTEs {
-        return false;
-    }
-
-    // Check if this is a base relation (not a join itself)
-    if (*rel).reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
-        return false;
-    }
-
-    // Check the parse tree for LEFT JOIN patterns with LATERAL
-    // We need to verify:
-    // 1. There's a LEFT JOIN in the query
-    // 2. The right side of that LEFT JOIN is LATERAL
-    //
-    // We use a combination of checks:
-    // - Parse tree: to find LEFT JOIN structure
-    // - RTE lateral flag: to confirm the right side is LATERAL
-
-    // First, quickly check if any LATERAL references exist at all
-    let simple_rel_array = (*root).simple_rel_array;
-    if simple_rel_array.is_null() {
-        return false;
-    }
-
-    let mut has_lateral = false;
-    let simple_rel_array_size = (*root).simple_rel_array_size;
-    for i in 1..simple_rel_array_size {
-        let other_rel = *simple_rel_array.add(i as usize);
-        if !other_rel.is_null() && !(*other_rel).lateral_relids.is_null() {
-            has_lateral = true;
-            break;
-        }
-    }
-
-    if !has_lateral {
-        return false;
-    }
-
-    // Now check the parse tree for LEFT JOIN structure
-    let jointree = (*(*root).parse).jointree;
-    if jointree.is_null() || (*jointree).fromlist.is_null() {
-        return false;
-    }
-
-    let fromlist = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
-    for node in fromlist.iter_ptr() {
-        if has_left_join_lateral_pattern(node, (*root).parse) {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Recursively check if a node contains a LEFT JOIN LATERAL pattern
-fn has_left_join_lateral_pattern(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, node) } {
-        let join_expr = unsafe { &*join_expr };
-        // Check if this is a LEFT JOIN
-        if join_expr.jointype == pg_sys::JoinType::JOIN_LEFT {
-            // Check if the right side has LATERAL
-            if is_lateral_subquery(join_expr.rarg, query) {
-                return true;
-            }
-        }
-
-        // Recursively check nested joins
-        if has_left_join_lateral_pattern(join_expr.larg, query) {
-            return true;
-        }
-        if has_left_join_lateral_pattern(join_expr.rarg, query) {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Check if a node represents a LATERAL subquery
-fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query) -> bool {
-    if node.is_null() || query.is_null() {
-        return false;
-    }
-
-    // Check if it's a RangeTblRef pointing to a LATERAL RTE
-    if let Some(rtref) = unsafe { nodecast!(RangeTblRef, node) } {
-        let rtable = unsafe { (*query).rtable };
-        if !rtable.is_null() {
-            let rte = unsafe { pgrx::rt_fetch!((*rtref).rtindex as pg_sys::Index, rtable).get() };
-            if !rte.is_null() && unsafe { (*rte).lateral } {
-                return true;
-            }
-        }
-    }
-
-    // For nested joins, recursively check
-    if let Some(join_expr) = unsafe { nodecast!(JoinExpr, node) } {
-        let join_expr = unsafe { &*join_expr };
-        if is_lateral_subquery(join_expr.larg, query) {
-            return true;
-        }
-        if is_lateral_subquery(join_expr.rarg, query) {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Verify WHERE clause only references the left table (current relation)
-///
-/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as Top K.
-/// Because Top K eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
-/// join condition) may only reference the left hand side of the join to avoid eliminating rows via the
-/// limit which would be filtered by conditions on the right hand side.
-unsafe fn where_clause_only_references_left(
-    root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
 ) -> bool {
-    // Get WHERE clause
-    let quals = if !(*root).parse.is_null()
-        && !(*(*root).parse).jointree.is_null()
-        && !(*(*(*root).parse).jointree).quals.is_null()
+    if !(*root).hasJoinRTEs
+        || (*rel).reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL
+        || (*root).parse.is_null()
     {
-        (*(*(*root).parse).jointree).quals
-    } else {
-        return true; // No WHERE clause means it only references left
-    };
+        return false;
+    }
 
-    !quals.any(|node| {
-        nodecast!(Var, node)
-            .is_some_and(|var| (*var).varno as i32 != rti as i32 && (*var).varno > 0)
-    })
+    let jointree = (*(*root).parse).jointree;
+    if jointree.is_null() {
+        return false;
+    }
+
+    let mut node = jointree as *mut pg_sys::Node;
+    let mut saw_lateral_on_rhs = false;
+
+    loop {
+        if node.is_null() {
+            return false;
+        }
+        if let Some(from_expr) = nodecast!(FromExpr, node) {
+            let from_expr = &*from_expr;
+            if !quals_only_reference_rel(root, from_expr.quals, rel) {
+                return false;
+            }
+            let fromlist = PgList::<pg_sys::Node>::from_pg(from_expr.fromlist);
+            if fromlist.len() != 1 {
+                return false;
+            }
+            node = fromlist.get_ptr(0).unwrap();
+        } else if let Some(join_expr) = nodecast!(JoinExpr, node) {
+            let join_expr = &*join_expr;
+            if join_expr.jointype != pg_sys::JoinType::JOIN_LEFT {
+                return false;
+            }
+            if !saw_lateral_on_rhs && subtree_has_lateral(join_expr.rarg, root) {
+                saw_lateral_on_rhs = true;
+            }
+            node = join_expr.larg;
+        } else if let Some(rtref) = nodecast!(RangeTblRef, node) {
+            return saw_lateral_on_rhs && ((*rtref).rtindex as pg_sys::Index == rti);
+        } else {
+            return false;
+        }
+    }
+}
+
+/// Returns true if any relation inside `node` is marked `LATERAL` in the range
+/// table or carries `lateral_relids` on its `RelOptInfo` (which covers pulled-up
+/// lateral subqueries whose inner `RTE_RELATION` was not itself syntactically
+/// `LATERAL`).
+unsafe fn subtree_has_lateral(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bool {
+    if node.is_null() || (*root).parse.is_null() {
+        return false;
+    }
+
+    if let Some(rtref) = nodecast!(RangeTblRef, node) {
+        let rti = (*rtref).rtindex as pg_sys::Index;
+        if rti == 0 {
+            return false;
+        }
+        let rtable = (*(*root).parse).rtable;
+        if !rtable.is_null() {
+            let rte = pgrx::rt_fetch!(rti, rtable).get();
+            if !rte.is_null() && (*rte).lateral {
+                return true;
+            }
+        }
+        if !(*root).simple_rel_array.is_null() && (rti as i32) < (*root).simple_rel_array_size {
+            let other_rel = *(*root).simple_rel_array.add(rti as usize);
+            if !other_rel.is_null() && !(*other_rel).lateral_relids.is_null() {
+                return true;
+            }
+        }
+        false
+    } else if let Some(join_expr) = nodecast!(JoinExpr, node) {
+        let join_expr = &*join_expr;
+        subtree_has_lateral(join_expr.larg, root) || subtree_has_lateral(join_expr.rarg, root)
+    } else if let Some(from_expr) = nodecast!(FromExpr, node) {
+        let fromlist = PgList::<pg_sys::Node>::from_pg((*from_expr).fromlist);
+        fromlist
+            .iter_ptr()
+            .any(|child| subtree_has_lateral(child, root))
+    } else {
+        false
+    }
+}
+
+/// Verify `quals` only reference `rel` (and are not nulled by any outer join).
+///
+/// Uses Postgres's `pull_varnos`, which accounts for `Var`s, `varnullingrels`,
+/// and `PlaceHolderVar`s (`phrels` / `phnullingrels`) from pulled-up subqueries.
+unsafe fn quals_only_reference_rel(
+    root: *mut pg_sys::PlannerInfo,
+    quals: *mut pg_sys::Node,
+    rel: *mut pg_sys::RelOptInfo,
+) -> bool {
+    if quals.is_null() {
+        return true;
+    }
+    let varnos = pg_sys::pull_varnos(root, quals);
+    let is_subset = pg_sys::bms_is_subset(varnos, (*rel).relids);
+    pg_sys::bms_free(varnos);
+    is_subset
 }

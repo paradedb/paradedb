@@ -16,7 +16,7 @@ max_parallel_maintenance_workers = 8
 
 [postgres.search]
 shared_buffers = "8GB"
-max_parallel_workers = 16
+max_parallel_workers = 8
 max_worker_processes = 32
 
 [index]
@@ -42,7 +42,7 @@ explain_sample = 10
 enable_seqscan = "off"
 enable_bitmapscan = "off"
 enable_sort = "off"
-max_parallel_workers_per_gather = "8"
+max_parallel_workers_per_gather = "4"
 jit = "off"
 plan_cache_mode = "force_custom_plan"
 "vchordrq.prefilter" = "on"

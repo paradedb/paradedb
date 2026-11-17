@@ -3,9 +3,20 @@
 The MS MARCO workflow compares pg_search, pg_vectorsearch, and VectorChord on
 113,520,750 rows with 1,024-dimensional vectors. Each engine restores the same
 PostgreSQL 18 heap backup (`20261102-224214F`) and runs on a `c8gd.metal-24xl`
-runner with a 64-CPU / 32-GiB database container on cores 0–63. All engines use
+runner with a 8-CPU / 32-GiB database container on cores 0–7. All engines use
 16 GiB shared memory, 8 GiB shared buffers, 8 GiB `maintenance_work_mem`,
 24 GiB `effective_cache_size`, and 256 MiB `work_mem`. k6 runs on cores 64–67.
+
+CI overrides the pinned pdbench Compose configuration for every engine to use
+8 CPUs, eight global parallel workers, and four workers per parallel query.
+The maintenance-worker limit and VectorChord build threads remain eight; the
+worker-process pool remains 32. Query-session settings also use four workers
+for recall calibration and k6. Memory settings remain unchanged.
+
+Result dataset names include `-8cpu-32gb`, keeping these baselines separate from
+previous 64-CPU runs. The resolved Compose configuration is included in the
+run diagnostics as `runtime-compose.yml`. The RunsOn host remains unchanged;
+these limits apply to the database container.
 
 ## Run
 

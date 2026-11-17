@@ -77,6 +77,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       COHERE_SIZE: ${{ matrix.size }}
+      RESULTS_DATASET: cohere-${{ matrix.size }}-8cpu-32gb
       PDBENCH_REF: ${{ inputs.pdbench_ref || 'fb13b9ad8a98f0f21efaf277e6c7e05edca4cec3' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
@@ -153,6 +154,9 @@ jobs:
           dataset: cohere
           size: ${{ matrix.size }}
           compose_file: pdbench/datasets/cohere/docker-compose.yml
+          cpu_limit: "8"
+          max_parallel_workers: "8"
+          max_parallel_workers_per_gather: "4"
 
       - name: Build pdbench
         uses: ./.github/actions/build-pdbench
@@ -239,7 +243,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const name = `cohere-${process.env.COHERE_SIZE}-diagnostics`;
+            const name = `${process.env.RESULTS_DATASET}-diagnostics`;
             const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
               workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
@@ -269,7 +273,7 @@ jobs:
         if: steps.pdbench_baseline.outputs.run_id != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: cohere-${{ matrix.size }}-diagnostics
+          name: ${{ env.RESULTS_DATASET }}-diagnostics
           path: benchmark-baseline
           run-id: ${{ steps.pdbench_baseline.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -313,7 +317,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: cohere-${{ matrix.size }}-diagnostics
+          name: ${{ env.RESULTS_DATASET }}-diagnostics
           path: benchmark-artifacts/
           retention-days: 30
           if-no-files-found: warn
@@ -321,7 +325,7 @@ jobs:
       - name: Measure Selected Operating Points with k6
         uses: ./.github/actions/benchmark-vector-k6
         with:
-          dataset: cohere-${{ matrix.size }}
+          dataset: ${{ env.RESULTS_DATASET }}
         env:
           BENCHMARKER_META: >-
             {"commit":"${{ steps.commit_info.outputs.commit_sha }}","ref":"${{ env.BENCHMARK_REF }}","pdbench":"${{ env.PDBENCH_REF }}","benchmarker":"${{ env.BENCHMARKER_REF }}"}
@@ -358,7 +362,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const name = `cohere-${process.env.COHERE_SIZE}-router-quality`;
+            const name = `${process.env.RESULTS_DATASET}-router-quality`;
             const pages = github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
               workflow_id: 'benchmark-pg_search-benchmarker-cohere.yml',
@@ -386,7 +390,7 @@ jobs:
         if: steps.router_baseline.outputs.run_id != ''
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: cohere-${{ matrix.size }}-router-quality
+          name: ${{ env.RESULTS_DATASET }}-router-quality
           path: router-baseline
           run-id: ${{ steps.router_baseline.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -404,7 +408,7 @@ jobs:
           if [ -f router-baseline/router_quality.json ]; then
             baseline=(--baseline router-baseline)
           fi
-          report_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPOSITORY_NAME}/benchmarker-runs/${CURRENT_COMMIT}/cohere-${COHERE_SIZE}/sweep/router_quality.html"
+          report_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPOSITORY_NAME}/benchmarker-runs/${CURRENT_COMMIT}/${RESULTS_DATASET}/sweep/router_quality.html"
           python3 benchmarks/cohere/router_quality.py render \
             --measurements benchmark-artifacts/router/measurements.json \
             --output benchmark-artifacts/router \
@@ -417,7 +421,7 @@ jobs:
         if: always() && env.ROUTER_QUALITY == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: cohere-${{ matrix.size }}-router-quality
+          name: ${{ env.RESULTS_DATASET }}-router-quality
           path: benchmark-artifacts/router/
           retention-days: 30
           if-no-files-found: warn
@@ -425,7 +429,8 @@ jobs:
       - name: Write PR Comment Context
         run: |
           set -euo pipefail
-          cp benchmark-artifacts/operating_points.md benchmark-artifacts/context.md
+          printf 'Database resources: 8 CPUs on cores 0-7, 32 GiB RAM, eight build workers, four query workers, and eight global parallel workers. k6 runs on cores 64-67.\n\n' > benchmark-artifacts/context.md
+          cat benchmark-artifacts/operating_points.md >> benchmark-artifacts/context.md
           if [ "$ROUTER_QUALITY" = true ]; then
             cat benchmark-artifacts/router/router_quality.md >> benchmark-artifacts/context.md
           fi
@@ -435,7 +440,7 @@ jobs:
         with:
           benchmark_type: benchmarker
           metadata: >-
-            {"dataset":"cohere-${{ matrix.size }}",
+            {"dataset":"${{ env.RESULTS_DATASET }}",
              "ref":"${{ steps.commit_info.outputs.commit_sha }}","pr_number":"${{ github.event.pull_request.number }}",
              "publish_baseline":"${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_baseline) }}",
              "context_file":"benchmark-artifacts/context.md",
@@ -481,7 +486,7 @@ jobs:
       PG_VECTORSEARCH_REF: 1bc1c77b2a07611d57c8a1eae767939bd1e39ee1
       VECTORCHORD_REF: f9b5e234c44cee69b266b8431f92b7deed4e99d3
       VECTORCHORD_PREFILTER: ${{ matrix.prefilter }}
-      RESULTS_DATASET: cohere-10m-${{ matrix.engine }}${{ matrix.engine == 'vectorchord' && matrix.prefilter == 'on' && '-prefilter' || '' }}
+      RESULTS_DATASET: cohere-10m-${{ matrix.engine }}${{ matrix.engine == 'vectorchord' && matrix.prefilter == 'on' && '-prefilter' || '' }}-8cpu-32gb
       COHERE_CONFIG: benchmarks/cohere/10m-${{ matrix.engine }}${{ matrix.engine == 'vectorchord' && matrix.prefilter == 'on' && '-prefilter' || '' }}.toml
 
     steps:
@@ -565,6 +570,9 @@ jobs:
           dataset: cohere
           size: ${{ env.COHERE_SIZE }}
           compose_file: pdbench/datasets/cohere/docker-compose.yml
+          cpu_limit: "8"
+          max_parallel_workers: "8"
+          max_parallel_workers_per_gather: "4"
 
       - name: Set Up pg_vectorsearch
         if: matrix.engine == 'pg_vectorsearch'
@@ -611,7 +619,7 @@ jobs:
           docker inspect paradedb | jq '.[0].HostConfig | {Memory, ShmSize, NanoCpus, CpusetCpus}' \
             > benchmark-artifacts/container-resources.json
           jq -e --argjson gib 1073741824 --argjson memory_gib 32 --argjson shm_gib 16 \
-            --argjson nanocpus_per_cpu 1000000000 --argjson cpus 64 --arg cpuset '0-63' \
+            --argjson nanocpus_per_cpu 1000000000 --argjson cpus 8 --arg cpuset '0-7' \
             '.Memory == $memory_gib * $gib and .ShmSize == $shm_gib * $gib
              and .NanoCpus == $cpus * $nanocpus_per_cpu and .CpusetCpus == $cpuset' \
             benchmark-artifacts/container-resources.json
@@ -729,7 +737,7 @@ jobs:
               printf 'pg_vectorsearch revision: %s. One global PRISM index with PostgreSQL post-filtering.\n\n' "$PG_VECTORSEARCH_REF"
             fi
             printf 'Filters use PostgreSQL English full-text matching against the same text column and published recall fixtures. There are no scalar filter indexes. Executed cosine ANN plans and filter settings are checked before k6.\n\n'
-            printf 'All engines use the shared paradedb Docker service: 64 CPUs on 0-63, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers and maintenance memory, 24 GiB effective cache, 256 MiB work_mem, 8 build/query workers, 16 parallel workers, and a 32-process pool. k6 uses CPUs 64-67.\n\n'
+            printf 'All engines use the shared paradedb Docker service: 8 CPUs on 0-7, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers and maintenance memory, 24 GiB effective cache, 256 MiB work_mem, 8 build workers, 4 query workers, 8 parallel workers, and a 32-process pool. k6 uses CPUs 64-67.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
           if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then

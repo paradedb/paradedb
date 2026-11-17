@@ -15,8 +15,8 @@ maintenance_work_mem = "8GB"
 effective_cache_size = "24GB"
 work_mem = "256MB"
 max_parallel_maintenance_workers = 8
-max_parallel_workers_per_gather = 8
-max_parallel_workers = 16
+max_parallel_workers_per_gather = 4
+max_parallel_workers = 8
 max_worker_processes = 32
 
 [postgres.search]
@@ -25,8 +25,8 @@ maintenance_work_mem = "8GB"
 effective_cache_size = "24GB"
 work_mem = "256MB"
 max_parallel_maintenance_workers = 8
-max_parallel_workers_per_gather = 8
-max_parallel_workers = 16
+max_parallel_workers_per_gather = 4
+max_parallel_workers = 8
 max_worker_processes = 32
 
 [index]
@@ -54,7 +54,7 @@ explain_sample = 100
 enable_seqscan = "off"
 enable_bitmapscan = "off"
 enable_sort = "off"
-max_parallel_workers_per_gather = "8"
+max_parallel_workers_per_gather = "4"
 jit = "off"
 plan_cache_mode = "force_custom_plan"
 "vchordrq.prefilter" = "on"

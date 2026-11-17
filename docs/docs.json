@@ -178,10 +178,7 @@
               },
               {
                 "group": "Hybrid Search",
-                "pages": [
-                  "reference/hybrid/overview",
-                  "reference/hybrid/rrf"
-                ]
+                "pages": ["reference/hybrid/overview", "reference/hybrid/rrf"]
               },
               {
                 "group": "Aggregations",
@@ -216,15 +213,11 @@
               },
               {
                 "group": "JOINs",
-                "pages": [
-                  "reference/joins/overview"
-                ]
+                "pages": ["reference/joins/overview"]
               },
               {
                 "group": "Sharding",
-                "pages": [
-                  "reference/sharding/citus"
-                ]
+                "pages": ["reference/sharding/citus"]
               },
               {
                 "group": "Cheatsheets",
@@ -309,9 +302,7 @@
               },
               {
                 "group": "Administration",
-                "pages": [
-                  "operate/deploy/upgrading"
-                ]
+                "pages": ["operate/deploy/upgrading"]
               },
               {
                 "group": "Continuous Integration",
@@ -630,6 +621,20 @@
     ]
   },
   "footer": {
+    "links": [
+      {
+        "items": [
+          {
+            "label": "Privacy",
+            "href": "https://www.paradedb.com/legal/privacy"
+          },
+          {
+            "label": "Cookie preferences",
+            "href": "https://www.paradedb.com/legal/privacy#cookie-preferences"
+          }
+        ]
+      }
+    ],
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
       "twitter": "https://x.com/paradedb",

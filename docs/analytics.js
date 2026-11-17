@@ -29,16 +29,11 @@
       <a href="https://www.paradedb.com/legal/privacy">Privacy Policy</a></p>
       <div><button type="button" data-consent="false">Decline</button>
       <button type="button" data-consent="true">Accept</button></div>`;
-    const preferences = document.createElement("button");
-    preferences.id = "paradedb-cookie-preferences";
-    preferences.type = "button";
-    preferences.textContent = "Cookie preferences";
-    preferences.setAttribute("aria-controls", banner.id);
+    let preferences;
 
     function showBanner(show, focus = false) {
       banner.hidden = !show;
-      preferences.hidden = show;
-      if (focus) (show ? banner.querySelector("button") : preferences).focus();
+      if (focus) (show ? banner.querySelector("button") : preferences)?.focus();
     }
     banner.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
@@ -49,13 +44,31 @@
     function openPreferences() {
       if (!consent.snapshot().blocked) showBanner(true, true);
     }
-    preferences.addEventListener("click", openPreferences);
+    // Delegate clicks so the control survives Mintlify page navigation.
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest?.(
+        'a[href="https://www.paradedb.com/legal/privacy#cookie-preferences"]',
+      );
+      if (
+        !link ||
+        consent.snapshot().blocked ||
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+      preferences = link;
+      openPreferences();
+    });
     window.addEventListener("paradedb:cookie-preferences", openPreferences);
-    document.body.append(banner, preferences);
+    document.body.append(banner);
     consent.subscribe(({ blocked, saved }) => {
       if (blocked) {
         banner.hidden = true;
-        preferences.hidden = true;
       } else showBanner(saved === undefined);
     });
   }

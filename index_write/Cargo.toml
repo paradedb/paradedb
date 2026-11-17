@@ -31,12 +31,12 @@ serde_json.workspace = true
 tantivy.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b605bff02aaf76cd633efe5f4747080b31b21421", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "3864a5cf3c0d710b5199534585d9f3245f92a8fc", features = [
   "accelerate",
 ] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "b605bff02aaf76cd633efe5f4747080b31b21421", features = [
+superkmeans = { git = "https://github.com/paradedb/superkmeans-rs", package = "superkmeans-rs", rev = "3864a5cf3c0d710b5199534585d9f3245f92a8fc", features = [
   "openblas",
 ] }
 

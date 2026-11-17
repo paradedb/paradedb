@@ -156,7 +156,6 @@ jobs:
           compose_file: pdbench/datasets/cohere/docker-compose.yml
           cpu_limit: "8"
           max_parallel_workers: "8"
-          max_parallel_maintenance_workers: "7"
           max_parallel_workers_per_gather: "4"
 
       - name: Build pdbench
@@ -178,7 +177,6 @@ jobs:
         with:
           config: configs/load/cohere-${{ matrix.size }}-paradedb.yaml
           artifact_name: cohere-${{ matrix.size }}-load-report
-          max_parallel_maintenance_workers: "7"
           report_memory: "false"
 
       - name: Vacuum Benchmark Index
@@ -431,7 +429,7 @@ jobs:
       - name: Write PR Comment Context
         run: |
           set -euo pipefail
-          printf 'Database resources: 8 CPUs on cores 0-7, 32 GiB RAM, seven parallel maintenance workers, four query workers, and eight global parallel workers. k6 runs on cores 64-67.\n\n' > benchmark-artifacts/context.md
+          printf 'Database resources: 8 CPUs on cores 0-7, 32 GiB RAM, eight build workers, four query workers, and eight global parallel workers. k6 runs on cores 64-67.\n\n' > benchmark-artifacts/context.md
           cat benchmark-artifacts/operating_points.md >> benchmark-artifacts/context.md
           if [ "$ROUTER_QUALITY" = true ]; then
             cat benchmark-artifacts/router/router_quality.md >> benchmark-artifacts/context.md
@@ -574,7 +572,6 @@ jobs:
           compose_file: pdbench/datasets/cohere/docker-compose.yml
           cpu_limit: "8"
           max_parallel_workers: "8"
-          max_parallel_maintenance_workers: "7"
           max_parallel_workers_per_gather: "4"
 
       - name: Set Up pg_vectorsearch
@@ -669,7 +666,7 @@ jobs:
               -c 'CREATE EXTENSION IF NOT EXISTS pg_vectorsearch;'
           fi
           psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
-            -c 'ALTER TABLE cohere_wiki SET (parallel_workers = 7);'
+            -c 'ALTER TABLE cohere_wiki SET (parallel_workers = 8);'
           pdbench build --url "$PARADEDB_URL" --config "$COHERE_CONFIG" \
             --assets-dir benchmarks/assets --runs-dir benchmark-artifacts/search \
             --force-rebuild \
@@ -740,7 +737,7 @@ jobs:
               printf 'pg_vectorsearch revision: %s. One global PRISM index with PostgreSQL post-filtering.\n\n' "$PG_VECTORSEARCH_REF"
             fi
             printf 'Filters use PostgreSQL English full-text matching against the same text column and published recall fixtures. There are no scalar filter indexes. Executed cosine ANN plans and filter settings are checked before k6.\n\n'
-            printf 'All engines use the shared paradedb Docker service: 8 CPUs on 0-7, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers and maintenance memory, 24 GiB effective cache, 256 MiB work_mem, 7 parallel maintenance workers, 4 query workers, 8 parallel workers, and a 32-process pool. k6 uses CPUs 64-67.\n\n'
+            printf 'All engines use the shared paradedb Docker service: 8 CPUs on 0-7, 32 GiB RAM, 16 GiB shared memory, 8 GiB shared buffers and maintenance memory, 24 GiB effective cache, 256 MiB work_mem, 8 build workers, 4 query workers, 8 parallel workers, and a 32-process pool. k6 uses CPUs 64-67.\n\n'
             cat benchmark-artifacts/operating_points.md
           } > benchmark-artifacts/result-context.md
           if ! jq -e 'any(.[]; .reached)' benchmark-artifacts/operating_points.json > /dev/null; then

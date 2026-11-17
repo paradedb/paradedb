@@ -157,7 +157,6 @@ jobs:
           compose_file: pdbench/datasets/msmarco/docker-compose.yml
           cpu_limit: "8"
           max_parallel_workers: "8"
-          max_parallel_maintenance_workers: "7"
           max_parallel_workers_per_gather: "4"
 
       - name: Set Up pg_vectorsearch
@@ -213,7 +212,6 @@ jobs:
           config: ${{ env.LOAD_CONFIG }}
           artifact_name: ${{ env.RESULTS_DATASET }}-load-report
           max_parallel_workers: "8"
-          max_parallel_maintenance_workers: "7"
 
       - name: Verify Eight-segment Index
         if: matrix.engine == 'pg_search'
@@ -333,7 +331,7 @@ jobs:
 
           VectorChord prefilter setting: \`$VECTORCHORD_PREFILTER\`. MS MARCO queries have no scalar filter in either mode.
 
-          Builds use seven parallel maintenance workers and queries up to four workers, from eight parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
+          Builds use eight parallel maintenance workers and queries up to four workers, from eight parallel workers in a 32-process pool. Build memory is the container's peak usage, excluding inactive page cache. Scheduled and manual runs on main update the rolling main baseline; backfills do not.
 
           CONTEXT
             cat benchmark-artifacts/operating_points.md

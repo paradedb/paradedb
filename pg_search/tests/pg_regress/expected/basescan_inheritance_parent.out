@@ -109,6 +109,43 @@ SELECT id, kind FROM deleted ORDER BY id;
 (4 rows)
 
 ROLLBACK;
+-- An UPDATE on the parent changes the matching rows of the child too.
+BEGIN;
+EXPLAIN (COSTS OFF)
+UPDATE inh_parent SET kind = kind || '!' WHERE kind ||| 'a c';
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on inh_parent
+   Update on inh_parent inh_parent_1
+   Update on inh_child inh_parent_2
+   ->  Result
+         ->  Append
+               ->  Custom Scan (ParadeDB Base Scan) on inh_parent inh_parent_1
+                     Table: inh_parent
+                     Index: inh_parent_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a c","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+               ->  Custom Scan (ParadeDB Base Scan) on inh_child inh_parent_2
+                     Table: inh_child
+                     Index: inh_child_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a c","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(17 rows)
+
+WITH updated AS (
+    UPDATE inh_parent SET kind = kind || '!' WHERE kind ||| 'a c'
+    RETURNING tableoid::regclass AS tbl, id, kind
+)
+SELECT tbl, id, kind FROM updated ORDER BY id;
+    tbl     | id | kind 
+------------+----+------
+ inh_parent |  1 | a!
+ inh_child  |  3 | c!
+(2 rows)
+
+ROLLBACK;
 -- `FROM ONLY` names just the parent, so Base Scan still scans its index.
 EXPLAIN (COSTS OFF)
 SELECT id, kind FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id;
@@ -187,6 +224,34 @@ FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
   2 | b    |     2
 (2 rows)
 
+-- `pdb.agg()` as a window function on the parent fails, with or without ORDER BY.
+-- PostgreSQL computes it above the `Append`, where no Base Scan can.
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM inh_parent WHERE id @@@ paradedb.all() LIMIT 2;
+ERROR:  Cannot execute window aggregate: pdb.agg() does not support the parent of an inheritance tree. Use FROM ONLY to read the parent table alone
+-- With `FROM ONLY`, `pdb.agg()` counts the parent's rows.
+SELECT id, pdb.agg('{"value_count": {"field": "id"}}'::jsonb) OVER () AS agg
+FROM ONLY inh_parent WHERE id @@@ paradedb.all() ORDER BY id LIMIT 2;
+ id |      agg       
+----+----------------
+  1 | {"value": 2.0}
+  2 | {"value": 2.0}
+(2 rows)
+
+-- `pdb.agg()` as an aggregate on the parent fails: Aggregate Scan declines the parent.
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM inh_parent
+WHERE id @@@ paradedb.all();
+ERROR:  Cannot execute pdb.agg: unsupported relation type (e.g., partitioned table or view)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM ONLY inh_parent
+WHERE id @@@ paradedb.all();
+      agg       
+----------------
+ {"value": 2.0}
+(1 row)
+
 -- A table whose only child was dropped keeps `relhassubclass` until ANALYZE, so
 -- PostgreSQL still plans it as an inheritance parent. The rows are correct, but
 -- the LIMIT is not pushed into the scan.
@@ -238,6 +303,67 @@ SELECT id, kind FROM inh_former_parent WHERE id @@@ paradedb.all() ORDER BY id L
 (10 rows)
 
 DROP TABLE inh_former_parent;
+-- A parallel scan of the parent also returns the child's rows. Each INSERT writes its
+-- own segment, so each table has 2 segments to share between the workers.
+CREATE TABLE inh_par_parent (id SERIAL PRIMARY KEY, kind TEXT);
+CREATE TABLE inh_par_child () INHERITS (inh_par_parent);
+CREATE INDEX inh_par_parent_idx ON inh_par_parent USING paradedb (id, kind);
+CREATE INDEX inh_par_child_idx ON inh_par_child USING paradedb (id, kind);
+SET paradedb.global_mutable_segment_rows = 0;
+INSERT INTO inh_par_parent (kind) SELECT 'a' FROM generate_series(1, 50);
+INSERT INTO inh_par_parent (kind) SELECT 'b' FROM generate_series(1, 50);
+INSERT INTO inh_par_child (kind) SELECT 'a' FROM generate_series(1, 50);
+INSERT INTO inh_par_child (kind) SELECT 'b' FROM generate_series(1, 50);
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE inh_par_parent;
+ANALYZE inh_par_child;
+SET max_parallel_workers_per_gather = 2;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET paradedb.min_rows_per_worker = 0;
+EXPLAIN (COSTS OFF)
+SELECT tableoid::regclass AS tbl, count(*) FROM inh_par_parent
+WHERE kind ||| 'a' GROUP BY 1 ORDER BY 1;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: ((inh_par_parent.tableoid)::regclass)
+   ->  Finalize HashAggregate
+         Group Key: ((inh_par_parent.tableoid)::regclass)
+         ->  Gather
+               Workers Planned: 2
+               ->  Partial HashAggregate
+                     Group Key: (inh_par_parent.tableoid)::regclass
+                     ->  Parallel Append
+                           ->  Parallel Custom Scan (ParadeDB Base Scan) on inh_par_parent inh_par_parent_1
+                                 Table: inh_par_parent
+                                 Index: inh_par_parent_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                           ->  Parallel Custom Scan (ParadeDB Base Scan) on inh_par_child inh_par_parent_2
+                                 Table: inh_par_child
+                                 Index: inh_par_child_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"match":{"field":"kind","value":"a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(21 rows)
+
+SELECT tableoid::regclass AS tbl, count(*) FROM inh_par_parent
+WHERE kind ||| 'a' GROUP BY 1 ORDER BY 1;
+      tbl       | count 
+----------------+-------
+ inh_par_parent |    50
+ inh_par_child  |    50
+(2 rows)
+
+RESET max_parallel_workers_per_gather;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET min_parallel_table_scan_size;
+RESET paradedb.min_rows_per_worker;
+DROP TABLE inh_par_child, inh_par_parent;
 -- Control: a partitioned table already gets one Base Scan per partition.
 CREATE TABLE part_parent (id INT, kind TEXT) PARTITION BY RANGE (id);
 CREATE TABLE part_low PARTITION OF part_parent FOR VALUES FROM (1) TO (3);

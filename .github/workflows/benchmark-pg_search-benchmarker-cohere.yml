@@ -76,7 +76,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache # See https://runs-on.com/caching/magic-cache/
     env:
       COHERE_SIZE: ${{ matrix.size }}
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '76635e9d5e8a661e89597a913d72df8cd6c0d626' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
       # The router-quality section runs on the daily main run, with the
@@ -472,7 +472,7 @@ jobs:
       - extras=s3-cache+git-cache+apt-cache
     env:
       COHERE_SIZE: 10m
-      PDBENCH_REF: ${{ inputs.pdbench_ref || 'c1ea500acc0f925f3ad7d5ba0ea24a89f5c29be4' }}
+      PDBENCH_REF: ${{ inputs.pdbench_ref || '76635e9d5e8a661e89597a913d72df8cd6c0d626' }}
       BENCHMARKER_REF: ${{ inputs.benchmarker_ref || 'ecdca03f4da6e6e2d66ed01df2e5c33d4062d0d3' }}
       BENCHMARK_REF: ${{ inputs.commit || github.sha }}
       BENCHMARK_ENGINE: ${{ matrix.engine }}

@@ -29,25 +29,23 @@ runs:
               ORDER BY name;" \
           | tee benchmark-artifacts/index-build-settings.log
         # The load config owns index definitions and PostgreSQL settings.
-        started="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
         (
           cd pdbench
           pdbench-load finalize "$LOAD_CONFIG" \
-            --set "datastore.url=${PARADEDB_URL}?options=-c%20log_min_duration_statement%3D0" --set datastore.container=paradedb \
+            --set "datastore.url=$PARADEDB_URL" --set datastore.container=paradedb \
             --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load"
         ) 2>&1 | tee benchmark-artifacts/index-build.log
-        docker logs --since "$started" paradedb 2>&1 | tee benchmark-artifacts/index-statements.log
         runs=(benchmark-artifacts/load/*/*_load)
         test "${#runs[@]}" -eq 1
         # Keep the HTML report with the build diagnostics.
         pdbench-report html "${runs[0]}"
         index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
-        build_seconds="$(awk -v statement="statement: CREATE INDEX $index ON " '
-          index($0, statement) {
-            for (i = 1; i <= NF; i++) if ($i == "duration:") { seconds = $(i + 1) / 1000; count++ }
-          }
-          END { if (count != 1 || seconds <= 0) exit 1; printf "%.9f\n", seconds }
-        ' benchmark-artifacts/index-statements.log)"
+        build_seconds="$(jq -se --arg statement "CREATE INDEX $index ON " '
+          [.[] | select(.type == "Point" and .metric == "sql_statement_duration"
+            and .tags.phase == "finalize" and (.tags.statement | startswith($statement))) | .value]
+          | if length == 1 and .[0] > 0 then .[0] / 1000
+            else error("Expected one positive CREATE INDEX duration") end
+        ' "${runs[0]}/points.jsonl")"
         size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
           -c "SELECT pg_total_relation_size('${index}'::regclass)")"
         jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \

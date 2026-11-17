@@ -56,10 +56,10 @@ CREATE INDEX shop_synonyms_en_idx ON shop_synonyms
 USING paradedb ((rule::pdb.simple('stemmer=english')));
 ```
 
-A query uses a synonym index only when it has the tokenizer of the field you search. The tokenizer has to be written the
-same way on both, options included, so `pdb.simple` and `pdb.simple('lowercase=true')` count as two tokenizers. If you
-search fields with different tokenizers, create one synonym index per tokenizer on the same table, and each query uses the
-one that fits its field.
+A query uses a synonym index only when it has the tokenizer of the field you search. An option at its default value is the
+same as no option, so `pdb.simple` and `pdb.simple('lowercase=true')` are one tokenizer. If you search fields with
+different tokenizers, create one synonym index per tokenizer on the same table, and each query uses the one that fits its
+field.
 
 ### Several Sets in One Table
 

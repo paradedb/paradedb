@@ -5,7 +5,7 @@ description: "ParadeDB release notes for 0.26.7"
 
 See GitHub release: [v0.26.7](https://github.com/paradedb/paradedb/releases/tag/v0.26.7)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - `CREATE INDEX` with `partition_by` now keeps segments balanced when a partition column is skewed or has few distinct values. Partitions that can't be cut further on the declared columns are split by heap position (`ctid`), and each side of a cut gets partitions in proportion to its share of the rows. A column where 99% of rows share one value used to put almost every row in a single segment; those rows are now spread (roughly) evenly across segments (#7271). Existing indexes will need to `REINDEX` to take advantage of this. Indexes with `ctid` specified as one of the `partition_by` columns will not get the fallback behavior, and will continue to have `ctid` compete equally with the other columns for cut points.
 
@@ -13,10 +13,10 @@ See GitHub release: [v0.26.7](https://github.com/paradedb/paradedb/releases/tag/
 
 - Top-K joins ordered by combined search scores keep the rank join when a single-table filter is a row-level security policy of any shape, a `@@@` query whose score is constant (`pdb.range`, `pdb.term_set`, `pdb.exists`), or any query at `::pdb.const(0)`. Such filters previously forced a hash join over every permitted row. As for every filter the rank join admits, it scores them `0.0`.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed index builds and merges that produce a fast field column with more than 4 GiB of distinct string values in one segment. They failed with `assertion failed: end <= orig_range.end`.
 
-## Breaking Changes 🚨
+## Breaking Changes 🚨 {#breaking-changes}
 
 - A row-level security policy no longer adds a constant to `pdb.score`. Previously a policy added a constant to the score in base scans and hash joins and `0.0` in the rank join, so the same statement returned different scores depending on the plan. Conditions the statement itself writes are unchanged.

@@ -6,14 +6,14 @@ noindex: true
 
 See GitHub release: [v0.25.4](https://github.com/paradedb/paradedb/releases/tag/v0.25.4)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Added support for aggregate score joins, enabling queries to `ORDER BY` a sum of scores across
   joined tables.
 - Added `paradedb.vector_clusters` to inspect per-cluster posting list sizes and ball-bound radii
   for vector indexes.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Cross-table disjunctive search predicates (e.g. `a.text @@@ 'foo' OR b.text @@@ 'bar'`) now evaluate
   via predicate tagging rather than UDFs, improving low-selectivity disjunctive join query performance
@@ -26,7 +26,7 @@ See GitHub release: [v0.25.4](https://github.com/paradedb/paradedb/releases/tag/
   directly from physical stages.
 - Gate MPP execution behind a minimum row count, configurable via `paradedb.mpp_min_rows`.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Parallel MPP worker scans and leader consumers now replay the leader's segment view and mutable
   segment bounds.
@@ -37,6 +37,6 @@ See GitHub release: [v0.25.4](https://github.com/paradedb/paradedb/releases/tag/
 - Dynamic filter pushdown is now tracked and reported via metrics across MPP execution stages.
 - `EXPLAIN` plans for the aggregate and join scan now display the table name or alias.
 
-## New Contributors 👋
+## New Contributors 👋 {#new-contributors}
 
 - [**aryanpatel-ctrl**](https://github.com/aryanpatel-ctrl)

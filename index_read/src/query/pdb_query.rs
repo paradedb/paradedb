@@ -2414,7 +2414,7 @@ fn expand_match(
     };
     let rule_tokenizer = rule_tokenizer(&index);
     let same_tokens = match (&query_tokenizer, &rule_tokenizer) {
-        (Some(query), Some(rule)) => query.same_tokens_as(rule),
+        (Some(query), Some(rule)) => query.produces_same_tokens_as(rule),
         (query, rule) => query.is_none() && rule.is_none(),
     };
     if !same_tokens {
@@ -2471,8 +2471,9 @@ pub fn synonym_index_of_column(
                     == Some(column_index)
             });
             reads_column
-                && rule_tokenizer(candidate)
-                    .is_some_and(|rule_tokenizer| rule_tokenizer.same_tokens_as(&query_tokenizer))
+                && rule_tokenizer(candidate).is_some_and(|rule_tokenizer| {
+                    rule_tokenizer.produces_same_tokens_as(&query_tokenizer)
+                })
                 && holds_rules(candidate)
         })
         .map(|candidate| candidate.oid())

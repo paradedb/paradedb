@@ -823,7 +823,7 @@ impl SearchTokenizer {
 
     /// True when the two tokenizers give the same tokens for every text. `==` compares the
     /// options as declared, so for `==` a default and its written value are two tokenizers.
-    pub fn same_tokens_as(&self, other: &Self) -> bool {
+    pub fn produces_same_tokens_as(&self, other: &Self) -> bool {
         self.with_defaults() == other.with_defaults()
     }
 
@@ -1177,7 +1177,7 @@ mod tests {
     }
 
     #[rstest]
-    fn test_same_tokens_as_takes_a_default_as_its_written_value() {
+    fn test_produces_same_tokens_as_takes_a_default_as_its_written_value() {
         use tantivy::tokenizer::TokenStream;
 
         fn simple(declare: impl FnOnce(&mut SearchTokenizerFilters)) -> SearchTokenizer {
@@ -1215,7 +1215,7 @@ mod tests {
         for (left, right) in &same {
             assert_ne!(left, right);
             assert!(
-                left.same_tokens_as(right),
+                left.produces_same_tokens_as(right),
                 "{} and {}",
                 left.name(),
                 right.name()
@@ -1231,7 +1231,7 @@ mod tests {
         ];
         for tokenizer in &other {
             assert!(
-                !simple(|_| {}).same_tokens_as(tokenizer),
+                !simple(|_| {}).produces_same_tokens_as(tokenizer),
                 "{}",
                 tokenizer.name()
             );

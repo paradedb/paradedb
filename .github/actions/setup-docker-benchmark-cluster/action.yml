@@ -44,6 +44,9 @@ inputs:
   max_parallel_workers_per_gather:
     description: "Optional PostgreSQL parallel-query worker limit"
     default: ""
+  rayon_threads:
+    description: "Optional Rayon thread count per database process"
+    default: ""
 
 outputs:
   commit_sha:
@@ -130,6 +133,7 @@ runs:
         MAX_PARALLEL_WORKERS: ${{ inputs.max_parallel_workers }}
         MAX_PARALLEL_MAINTENANCE_WORKERS: ${{ inputs.max_parallel_maintenance_workers }}
         MAX_PARALLEL_WORKERS_PER_GATHER: ${{ inputs.max_parallel_workers_per_gather }}
+        RAYON_THREADS: ${{ inputs.rayon_threads }}
         # Read by the S3 compose file only. A compose_file sets its own resources.
         POSTGRES_CPUSET: "0-7"
         MEMORY: 64g
@@ -145,13 +149,14 @@ runs:
           COMPOSE_FILE="$RUNNER_TEMP/benchmark-compose/docker-compose.yml"
         fi
         export COMPOSE_FILE
-        if [ -n "$CPU_LIMIT$MAX_PARALLEL_WORKERS$MAX_PARALLEL_MAINTENANCE_WORKERS$MAX_PARALLEL_WORKERS_PER_GATHER" ]; then
+        if [ -n "$CPU_LIMIT$MAX_PARALLEL_WORKERS$MAX_PARALLEL_MAINTENANCE_WORKERS$MAX_PARALLEL_WORKERS_PER_GATHER$RAYON_THREADS" ]; then
           # Render the inherited command so memory settings and preload libraries survive.
           # Keep this override in COMPOSE_FILE when extension setup recreates the service.
           docker compose config --format json | jq \
             --arg cpus "$CPU_LIMIT" \
             --arg workers "$MAX_PARALLEL_WORKERS" \
             --arg maintenance_workers "$MAX_PARALLEL_MAINTENANCE_WORKERS" \
+            --arg rayon_threads "$RAYON_THREADS" \
             --arg gather "$MAX_PARALLEL_WORKERS_PER_GATHER" '
             {services: {paradedb: {
               command: (.services.paradedb.command | map(
@@ -173,6 +178,9 @@ runs:
                     reservations: {cpus: ($cpus | tonumber)}
                   }}
                 }
+              else . end
+            | if $rayon_threads != "" then
+                .services.paradedb.environment.RAYON_NUM_THREADS = $rayon_threads
               else . end
             ' > "$RUNNER_TEMP/benchmark-compose/compose.resources.json"
           COMPOSE_FILE+=":$RUNNER_TEMP/benchmark-compose/compose.resources.json"

@@ -41,6 +41,9 @@ on:
         description: "Add the router-quality section"
         type: boolean
         default: false
+      rayon_threads:
+        description: "Optional Rayon threads per PostgreSQL process for concurrency controls"
+        default: ""
 
 permissions:
   actions: read
@@ -154,6 +157,7 @@ jobs:
           max_parallel_workers: "8"
           max_parallel_maintenance_workers: "7"
           max_parallel_workers_per_gather: "4"
+          rayon_threads: ${{ inputs.rayon_threads }}
 
       - name: Build pdbench
         uses: ./.github/actions/build-pdbench
@@ -176,6 +180,7 @@ jobs:
           git rev-parse HEAD > benchmark-artifacts/extension-commit.txt
           cp Cargo.lock benchmark-artifacts/extension-Cargo.lock
           docker exec paradedb getconf CLK_TCK > benchmark-artifacts/clock-ticks.txt
+          docker exec paradedb sh -c 'printf "%s\n" "${RAYON_NUM_THREADS:-default}"' > benchmark-artifacts/rayon-threads.txt
           docker exec paradedb cat /sys/fs/cgroup/cpu.stat > benchmark-artifacts/cpu-before.txt
           docker exec paradedb cat /sys/fs/cgroup/memory.events > benchmark-artifacts/memory-before.txt
 

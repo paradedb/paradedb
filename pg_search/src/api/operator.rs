@@ -17,7 +17,7 @@
 
 use crate::api::operator::boost::{BoostType, boost_to_boost};
 use crate::api::operator::fuzzy::{FuzzyType, fuzzy_to_fuzzy};
-use crate::api::operator::rewrite::SearchOperator;
+pub(crate) use crate::api::operator::rewrite::SearchOperator;
 use crate::api::operator::slop::{SlopType, slop_to_slop};
 use crate::api::tokenizers::type_can_be_tokenized;
 use crate::api::tokenizers::{AliasTypmod, try_get_alias, type_is_alias, type_is_tokenizer};

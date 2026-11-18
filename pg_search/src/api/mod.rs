@@ -232,6 +232,7 @@ extension_sql!(
     requires = [text_to_fieldname]
 );
 
+<<<<<<< HEAD
 pub fn fieldname_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(
@@ -244,6 +245,17 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
         }
         oid
     }
+=======
+/// The `@@@` operator calls this function for a query that it can't fold during planning, so the
+/// function classifies the query the same way as the planner does for a constant.
+#[pg_extern(immutable, parallel_safe)]
+pub fn to_search_query_input(
+    field: FieldName,
+    query: crate::query::pdb_query::pdb::Query,
+) -> crate::query::SearchQueryInput {
+    let query = operator::SearchOperator::Parse.classify_query(query);
+    crate::query::pdb_query::to_search_query_input(field, query)
+>>>>>>> 73946b4 (fix: classify a `pdb.query` value that `@@@` gets at run time (#7537))
 }
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]

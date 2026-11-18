@@ -45,7 +45,7 @@ use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::metadata::{CleanupAdmission, MetaPage};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
-use crate::query::estimate::QueryEstimate;
+use crate::query::estimate::{EstimateContext, PgColumnStats, QueryEstimate};
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
@@ -908,6 +908,134 @@ impl SearchIndexReader {
         &self.index_rel
     }
 
+<<<<<<< HEAD:pg_search/src/index/reader/index.rs
+=======
+    pub fn estimate_vector_matches(&self) -> f64 {
+        let stats = PgColumnStats::new(&self.schema);
+        self.candidate_segment_readers()
+            .map(|(_, reader)| {
+                let ctx = EstimateContext::new(reader, &stats);
+                self.query.estimate_docs(&ctx).ok().flatten().map_or(
+                    f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
+                    |estimate| estimate.live_docs(reader) as f64,
+                )
+            })
+            .sum()
+    }
+
+    pub fn estimate_vector_match_fraction(&self) -> f64 {
+        let docs = self
+            .candidate_segment_readers()
+            .map(|(_, reader)| u64::from(reader.num_docs()))
+            .sum::<u64>();
+        self.estimate_vector_matches() / docs.max(1) as f64
+    }
+
+    pub fn vector_filter_strategy(&self) -> VectorFilterStrategy {
+        self.vector_filter_strategy
+            .expect("vector filter strategy must be selected before routing or collection")
+    }
+
+    pub fn plan_vector_filter(&self, name: &FieldName) -> Result<VectorFilterStrategy> {
+        self.plan_vector_filter_with_matches(name, self.estimate_vector_matches().ceil() as usize)
+    }
+
+    pub fn plan_vector_filter_with_matches(
+        &self,
+        name: &FieldName,
+        estimated_matches: usize,
+    ) -> Result<VectorFilterStrategy> {
+        let field = self.schema.tantivy_schema().get_field(&name.root())?;
+        let segments = self
+            .candidate_segment_readers()
+            .map(VectorSegment::from)
+            .collect::<Vec<_>>();
+        Ok(VectorFilterStrategy::plan(
+            field,
+            self.weight().as_ref(),
+            estimated_matches,
+            gucs::vector_max_scan_levels(),
+            &segments,
+        )?)
+    }
+
+    pub fn vector_search_budget(&self, name: &FieldName) -> VectorSearchBudget {
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let segments = self
+            .candidate_segment_readers()
+            .map(VectorSegment::from)
+            .collect::<Vec<_>>();
+        VectorSearchBudget::for_segments(field, &probe_params(), &segments)
+            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+            .expect("vector budget should be valid")
+    }
+
+    pub fn vector_routing_plan(
+        &self,
+        name: &FieldName,
+        query: &[f32],
+        match_fraction: f64,
+        budget: VectorSearchBudget,
+    ) -> VectorRoutingResults {
+        let field = self
+            .schema
+            .tantivy_schema()
+            .get_field(&name.root())
+            .expect("vector field should exist");
+        let segments = self
+            .candidate_segment_readers()
+            .map(|(ordinal, reader)| {
+                let mut segment = VectorSegment::from((ordinal, reader));
+                segment.partition_centroid = SegmentStats::of_reader(reader)
+                    .expect("segment stats should be readable")
+                    .and_then(|stats| {
+                        stats
+                            .vector_partition(field)
+                            .expect("partition centroid should be readable")
+                    })
+                    .map(Into::into);
+                segment
+            })
+            .collect::<Vec<_>>();
+        let router = TopClustersBySimilarityCollector::new(
+            field,
+            query.to_vec(),
+            ProbeParams {
+                filter_strategy: Some(self.vector_filter_strategy()),
+                ..probe_params()
+            },
+            match_fraction,
+        )
+        .expect("vector routing parameters should be valid")
+        .with_budget(budget);
+        let candidates = router
+            .collect_segments(&segments, |ord| {
+                pgrx::check_for_interrupts();
+                if let Some(stats) = &self.directory.io_stats {
+                    stats.end_segment(self.searcher.segment_reader(ord).segment_id());
+                }
+            })
+            .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
+            .expect("vector routing should not fail");
+        let mut by_segment = crate::api::HashMap::default();
+        for candidate in candidates {
+            by_segment
+                .entry(candidate.node.0)
+                .or_insert_with(Vec::new)
+                .push(candidate);
+        }
+        VectorRoutingResults {
+            budget,
+            candidates: by_segment,
+            statistics: router.take_statistics(),
+        }
+    }
+
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):index_read/src/index/reader/index.rs
     /// Validates this reader's visible vector headers once, including an unsuccessful check.
     /// An unsupported format raises a PostgreSQL error and does not return; other errors are returned.
     pub(crate) fn validate_vector_segments(&self) -> Result<()> {
@@ -2765,9 +2893,11 @@ impl SearchIndexReader {
             };
         };
 
+        let stats = PgColumnStats::new(&self.schema);
+        let ctx = EstimateContext::new(largest_reader, &stats);
         let (count, mut cost) = self
             .estimate_from_statistics
-            .then(|| self.query.estimate_docs(largest_reader).ok().flatten())
+            .then(|| self.query.estimate_docs(&ctx).ok().flatten())
             .flatten()
             .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
             .unwrap_or_else(|| scorer_estimate(self.weight().as_ref(), largest_reader));
@@ -2855,9 +2985,11 @@ impl SearchIndexReader {
             return 0.0;
         }
         let query = self.make_query(query_input, None);
+        let stats = PgColumnStats::new(&self.schema);
+        let ctx = EstimateContext::new(largest_reader, &stats);
         let count = query_input
             .supports_statistics_estimation()
-            .then(|| query.estimate_docs(largest_reader).ok().flatten())
+            .then(|| query.estimate_docs(&ctx).ok().flatten())
             .flatten()
             .map(|estimate| estimate.live_docs(largest_reader))
             .unwrap_or_else(|| {
@@ -2968,9 +3100,11 @@ impl SearchIndexReader {
 
         // Keep EXPLAIN's child estimates on the same path as the whole query.
         let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
+        let stats = PgColumnStats::new(&self.schema);
+        let ctx = EstimateContext::new(largest_reader, &stats);
         self.estimate_node_recursive(
             query_tree,
-            largest_reader,
+            &ctx,
             segment_doc_proportion,
             parser,
             estimate_from_statistics,
@@ -2980,7 +3114,7 @@ impl SearchIndexReader {
     fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
         &self,
         node: &mut QueryWithEstimates,
-        largest_reader: &SegmentReader,
+        ctx: &EstimateContext<'_>,
         segment_doc_proportion: f64,
         parser: &QueryParserCtor,
         estimate_from_statistics: bool,
@@ -2989,7 +3123,7 @@ impl SearchIndexReader {
         for child in node.children_mut() {
             self.estimate_node_recursive(
                 child,
-                largest_reader,
+                ctx,
                 segment_doc_proportion,
                 parser,
                 estimate_from_statistics,
@@ -3028,11 +3162,9 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
-        if estimate_from_statistics
-            && let Ok(Some(estimate)) = tantivy_query.estimate_docs(largest_reader)
-        {
+        if estimate_from_statistics && let Ok(Some(estimate)) = tantivy_query.estimate_docs(ctx) {
             node.set_estimate(scale_largest_segment_estimate(
-                estimate.live_docs(largest_reader),
+                estimate.live_docs(ctx.reader),
                 segment_doc_proportion,
             ) as usize);
             return;
@@ -3042,7 +3174,7 @@ impl SearchIndexReader {
             .weight(enable_scoring(node.query.need_scores(), &self.searcher))
             .expect("creating weight for estimation should not fail");
 
-        let (count, _) = scorer_estimate(weight.as_ref(), largest_reader);
+        let (count, _) = scorer_estimate(weight.as_ref(), ctx.reader);
         let estimated = scale_largest_segment_estimate(count, segment_doc_proportion) as usize;
 
         node.set_estimate(estimated);
@@ -3471,6 +3603,252 @@ mod tests {
     }
 
     #[pg_test]
+<<<<<<< HEAD:pg_search/src/index/reader/index.rs
+=======
+    fn match_all_selectivity_opens_only_partial_indexes() {
+        Spi::run(
+            "CREATE TABLE match_all_full (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX match_all_full_idx ON match_all_full USING paradedb (id, title);
+             INSERT INTO match_all_full SELECT g, 'row ' || g FROM generate_series(1, 20) g;
+             CREATE TABLE match_all_partial (id bigint PRIMARY KEY, title text NOT NULL);
+             CREATE INDEX match_all_partial_idx ON match_all_partial USING paradedb (id, title)
+             WHERE id > 5;
+             INSERT INTO match_all_partial SELECT g, 'row ' || g FROM generate_series(1, 20) g;",
+        )
+        .unwrap();
+        // SAFETY: this backend's own buffer usage counters, read on its main thread.
+        let blocks = || unsafe {
+            pg_sys::pgBufferUsage.shared_blks_hit + pg_sys::pgBufferUsage.shared_blks_read
+        };
+        for (name, partial) in [
+            ("match_all_full_idx", false),
+            ("match_all_partial_idx", true),
+        ] {
+            let index = open_index(name);
+            let all = SearchQueryInput::WithIndex {
+                oid: index.oid(),
+                query: Box::new(SearchQueryInput::All),
+            };
+            let before = blocks();
+            let selectivity = crate::api::operator::estimate_selectivity(&index, all);
+            let read = blocks() - before;
+            if partial {
+                assert!(read > 0, "a partial index is opened for its estimate");
+            } else {
+                assert_eq!(selectivity, Some(1.0));
+                assert_eq!(read, 0, "the estimate reads no buffers");
+            }
+        }
+    }
+
+    #[pg_test]
+    fn vector_match_fraction_uses_range_statistics() {
+        let (index, _) = segmented_index_fixture("vector_range_estimate", 1, false);
+        let range = range_query("id", 9, 10);
+        for query in [
+            range.clone(),
+            SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, range.clone()],
+                should: vec![],
+                must_not: vec![],
+                minimum_should_match: None,
+            },
+            SearchQueryInput::ConstScore {
+                query: Box::new(range),
+                score: 1.0,
+            },
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
+            assert_eq!(reader.search().count(), 2);
+        }
+        for (query, expected) in [
+            (SearchQueryInput::All, 1.0),
+            (SearchQueryInput::Empty, 0.0),
+            (
+                SearchQueryInput::FieldedQuery {
+                    field: "title".into(),
+                    query: pdb::Query::Regex {
+                        pattern: "sil.*".into(),
+                    },
+                },
+                0.01,
+            ),
+        ] {
+            let reader = open_snapshot_reader(&index, query, false);
+            assert_eq!(reader.estimate_vector_match_fraction(), expected);
+        }
+        let (mutable, _) = segmented_index_fixture("vector_range_without_stats", 0, true);
+        unsafe { pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot()) };
+        let reader = open_snapshot_reader(&mutable, range_query("id", 1, 5), false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.01);
+        drop(reader);
+        unsafe { pg_sys::PopActiveSnapshot() };
+
+        Spi::run(
+            "CREATE TABLE vector_date_estimate AS
+             SELECT g AS id, TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time
+             FROM generate_series(1, 100) g;
+             ALTER TABLE vector_date_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX vector_date_estimate_idx ON vector_date_estimate
+             USING paradedb (id, time) WITH (target_segment_count = 1);",
+        ).unwrap();
+        let index = open_index("vector_date_estimate_idx");
+        let query = SearchQueryInput::FieldedQuery {
+            field: "time".into(),
+            query: pdb::Query::Range {
+                lower_bound: std::ops::Bound::Included(PdbOwnedValue::Date(
+                    crate::postgres::datetime::PostgresDateTime::try_from_raw(91).unwrap(),
+                )),
+                upper_bound: std::ops::Bound::Unbounded,
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        assert_eq!(reader.estimate_vector_match_fraction(), 0.1);
+        assert_eq!(reader.search().count(), 10);
+    }
+
+    #[pg_test]
+    fn uniform_range_estimates_numeric_and_timestamp_bounds() {
+        use crate::postgres::datetime::PostgresDateTime;
+
+        Spi::run(
+            "CREATE TABLE range_bounds_estimate AS
+             SELECT g AS id, g::oid AS unsigned,
+                    TIMESTAMPTZ '2000-01-01 00:00:00+00' + g * INTERVAL '1 microsecond' AS time,
+                    9223372036854775707::bigint + g AS wide
+             FROM generate_series(1, 100) g;
+             ALTER TABLE range_bounds_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX range_bounds_estimate_idx ON range_bounds_estimate
+             USING paradedb (id, unsigned, time, wide) WITH (target_segment_count = 1);",
+        )
+        .unwrap();
+        let index = open_index("range_bounds_estimate_idx");
+        for (field, value) in [
+            ("id", PdbOwnedValue::I64 as fn(i64) -> PdbOwnedValue),
+            ("unsigned", |value| PdbOwnedValue::U64(value as u64)),
+            ("time", |value| {
+                PdbOwnedValue::Date(PostgresDateTime::try_from_raw(value).unwrap())
+            }),
+            ("wide", |value| PdbOwnedValue::I64(i64::MAX - 100 + value)),
+        ] {
+            for (lower, upper, expected) in [
+                (Bound::Included(91), Bound::Unbounded, 10),
+                (Bound::Excluded(90), Bound::Unbounded, 10),
+                (Bound::Unbounded, Bound::Included(10), 10),
+                (Bound::Unbounded, Bound::Excluded(11), 10),
+                (Bound::Included(100), Bound::Included(100), 1),
+                (Bound::Included(20), Bound::Excluded(20), 0),
+                (Bound::Included(90), Bound::Included(10), 0),
+                (Bound::Excluded(100), Bound::Unbounded, 0),
+                (Bound::Unbounded, Bound::Excluded(1), 0),
+                (Bound::Unbounded, Bound::Unbounded, 100),
+            ] {
+                let query = SearchQueryInput::FieldedQuery {
+                    field: field.into(),
+                    query: pdb::Query::Range {
+                        lower_bound: lower.map(value),
+                        upper_bound: upper.map(value),
+                    },
+                };
+                let reader = open_snapshot_reader(&index, query, false);
+                let segment = reader.searcher.segment_reader(0);
+                let stats = PgColumnStats::new(&reader.schema);
+                let ctx = EstimateContext::new(segment, &stats);
+                let estimate = reader.query.estimate_docs(&ctx).unwrap().unwrap();
+                assert_eq!(estimate.live_docs(segment), expected, "{field}");
+            }
+        }
+    }
+
+    #[pg_test]
+    fn uniform_range_estimates_float_constant_and_unknown_fields() {
+        Spi::run(
+            "CREATE TABLE range_float_estimate AS
+             SELECT g AS id, (g - 1) * 100.0 / 99 AS score,
+                    CASE WHEN g > 1 THEN (g - 1) * 100.0 / 99 END AS nullable,
+                    100.0::float8 AS constant, 'NaN'::float8 AS nonfinite, 'a'::text AS name
+             FROM generate_series(1, 100) g;
+             ALTER TABLE range_float_estimate ALTER COLUMN score TYPE float8;
+             ALTER TABLE range_float_estimate ALTER COLUMN nullable TYPE float8;
+             ALTER TABLE range_float_estimate ADD PRIMARY KEY (id);
+             CREATE INDEX range_float_estimate_idx ON range_float_estimate
+             USING paradedb (id, score, nullable, constant, nonfinite, (name::pdb.literal))
+             WITH (target_segment_count = 1);",
+        )
+        .unwrap();
+        let index = open_index("range_float_estimate_idx");
+        for (field, lower, upper, expected) in [
+            ("score", Bound::Included(90.0), Bound::Unbounded, Some(10)),
+            ("nullable", Bound::Included(90.0), Bound::Unbounded, None),
+            ("nonfinite", Bound::Unbounded, Bound::Unbounded, None),
+            (
+                "constant",
+                Bound::Included(90.0),
+                Bound::Unbounded,
+                Some(100),
+            ),
+            (
+                "constant",
+                Bound::Included(100.0),
+                Bound::Included(100.0),
+                Some(100),
+            ),
+            (
+                "constant",
+                Bound::Excluded(100.0),
+                Bound::Unbounded,
+                Some(0),
+            ),
+            (
+                "constant",
+                Bound::Unbounded,
+                Bound::Excluded(100.0),
+                Some(0),
+            ),
+        ] {
+            let query = SearchQueryInput::FieldedQuery {
+                field: field.into(),
+                query: pdb::Query::Range {
+                    lower_bound: lower.map(PdbOwnedValue::F64),
+                    upper_bound: upper.map(PdbOwnedValue::F64),
+                },
+            };
+            let reader = open_snapshot_reader(&index, query, false);
+            let segment = reader.searcher.segment_reader(0);
+            let stats = PgColumnStats::new(&reader.schema);
+            let ctx = EstimateContext::new(segment, &stats);
+            assert_eq!(
+                reader
+                    .query
+                    .estimate_docs(&ctx)
+                    .unwrap()
+                    .map(|estimate| estimate.live_docs(segment)),
+                expected,
+                "{field}",
+            );
+        }
+        let query = SearchQueryInput::FieldedQuery {
+            field: "name".into(),
+            query: pdb::Query::Range {
+                lower_bound: Bound::Included(PdbOwnedValue::Str("a".into())),
+                upper_bound: Bound::Included(PdbOwnedValue::Str("z".into())),
+            },
+        };
+        let reader = open_snapshot_reader(&index, query, false);
+        let segment = reader.searcher.segment_reader(0);
+        let stats = PgColumnStats::new(&reader.schema);
+        assert!(
+            reader
+                .query
+                .estimate_docs(&EstimateContext::new(segment, &stats))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[pg_test]
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):index_read/src/index/reader/index.rs
     fn statistics_estimation_uses_only_supported_query_trees() {
         let (index, _) = segmented_index_fixture("statistics_estimation", 1, false);
         let term = term_query("title", "silver");
@@ -3566,6 +3944,7 @@ mod tests {
                 },
                 1,
             ),
+            (range_query("id", 1, 5), 5),
         ] {
             for query in [
                 query.clone(),
@@ -3616,7 +3995,6 @@ mod tests {
             *distance = Some(1);
         }
         for unsupported in [
-            range_query("id", 1, 5),
             fuzzy_match,
             SearchQueryInput::Parse {
                 query_string: "title:silver".into(),

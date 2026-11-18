@@ -410,6 +410,8 @@ impl SearchQueryInput {
                     query,
                     pdb::Query::All
                         | pdb::Query::Term { .. }
+                        | pdb::Query::Range { .. }
+                        | pdb::Query::StoredRange { .. }
                         | pdb::Query::Match {
                             distance: None | Some(0),
                             ..

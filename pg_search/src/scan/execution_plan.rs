@@ -389,6 +389,7 @@ impl PgSearchScanPlan {
                 orderby_info: Some(vec![order_by]),
                 ordering: None,
                 initial_window: 0.0,
+                unpushed_join_selectivity: TopKSelectivity::ALL,
                 parallel_mode: LazyParallelMode::Unpartitioned,
                 telemetry: None,
             });
@@ -1122,6 +1123,7 @@ impl PgSearchScanPlan {
                     orderby_info: ls.orderby_info.clone(),
                     ordering_proto,
                     initial_window: ls.initial_window,
+                    unpushed_join_selectivity: ls.unpushed_join_selectivity,
                     parallel_mode: ls.parallel_mode,
                 })
             }
@@ -1325,6 +1327,7 @@ impl PgSearchScanPlan {
                     orderby_info: ls.orderby_info,
                     ordering,
                     initial_window: ls.initial_window,
+                    unpushed_join_selectivity: ls.unpushed_join_selectivity,
                     parallel_mode: ls.parallel_mode,
                     telemetry: None,
                 })
@@ -1372,6 +1375,7 @@ struct LazySortConfigDescriptor {
     orderby_info: Option<Vec<OrderByInfo>>,
     ordering_proto: Option<Vec<Vec<u8>>>,
     initial_window: f64,
+    unpushed_join_selectivity: TopKSelectivity,
     parallel_mode: LazyParallelMode,
 }
 
@@ -2418,6 +2422,88 @@ pub(crate) fn visit_scan_nodes(
     }
 }
 
+<<<<<<< HEAD:pg_search/src/scan/execution_plan.rs
+=======
+/// Returns `true` when `plan` contains a `HashJoinExec` whose probe (`right`) input has a
+/// lazy-sorted [`PgSearchScanPlan`] leaf.
+fn plan_has_lazy_sort_probe_join(plan: &Arc<dyn ExecutionPlan>) -> bool {
+    if let Some(join) = plan.downcast_ref::<datafusion::physical_plan::joins::HashJoinExec>() {
+        let mut probe_has_lazy_sort = false;
+        visit_scan_nodes(join.right(), &mut |scan| {
+            if scan.lazy_sort().is_some() {
+                probe_has_lazy_sort = true;
+            }
+        });
+        if probe_has_lazy_sort {
+            return true;
+        }
+    }
+    if let Some(fp) = plan.downcast_ref::<FilterPassthroughExec>() {
+        return plan_has_lazy_sort_probe_join(fp.inner());
+    }
+    plan.children()
+        .into_iter()
+        .any(plan_has_lazy_sort_probe_join)
+}
+
+/// Returns the [`crate::gucs::InListPushdownMode`] for `plan` based on whether any `HashJoinExec`
+/// probes a `lazy_sort` [`PgSearchScanPlan`].
+///
+/// TODO: Once `HashTableLookupExpr` is pushed into Tantivy as a fast-field / candidate scorer,
+/// `lazy_sort` probe joins will no longer need an elevated session-wide `InList` cap (which
+/// currently also affects any sibling unsorted `HashJoinExec` in the same plan), and
+/// `InListPushdownMode` + this walk can be removed.
+pub fn plan_inlist_pushdown_mode(plan: &Arc<dyn ExecutionPlan>) -> crate::gucs::InListPushdownMode {
+    if plan_has_lazy_sort_probe_join(plan) {
+        crate::gucs::InListPushdownMode::LazySortProbe
+    } else {
+        crate::gucs::InListPushdownMode::Standard
+    }
+}
+
+pub fn prepare_vector_routing(plan: &Arc<dyn ExecutionPlan>) {
+    run_on_main_thread(|token| {
+        let mut plans = HashMap::default();
+        visit_scan_nodes(plan, &mut |scan| {
+            let Some((name, query, _)) = scan
+                .lazy_sort()
+                .and_then(|sort| sort.orderby_info.as_ref())
+                .and_then(|orders| orders.first())
+                .and_then(OrderByInfo::as_vector_distance)
+            else {
+                return;
+            };
+            let mut state = scan.state.lock().unwrap();
+            let scan_state = match &mut *state {
+                ExecutionState::Shared { scan_state, .. }
+                | ExecutionState::RangePartitioned { scan_state, .. } => scan_state.get_mut(token),
+                ExecutionState::Consumed | ExecutionState::Uninitialized => return,
+            };
+            let key = serde_json::to_vec(&(
+                scan_state.source_idx,
+                scan.indexrelid,
+                name,
+                query,
+                scan.resolved_query(),
+            ))
+            .expect("vector routing identity must serialize");
+            let plan = plans.entry(key).or_insert_with(|| {
+                // Build-side join filters are not available until workers execute.
+                Arc::new(SharedVectorRouting::from(
+                    scan_state.reader.vector_routing_plan(
+                        name,
+                        query,
+                        0.0,
+                        scan_state.reader.vector_search_budget(name),
+                    ),
+                ))
+            });
+            scan_state.reader.vector_routing_plan = Some(Arc::clone(plan) as Arc<_>);
+        });
+    });
+}
+
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):scan/src/scan/execution_plan.rs
 /// The index relation OID and [`FFHelper`] needed to resolve deferred packed `DocAddress` values
 /// into real CTIDs for a specific table in a multi-table or deferred scan.
 ///
@@ -2607,7 +2693,7 @@ mod tests {
         use datafusion::physical_plan::ExecutionPlan;
         use datafusion::physical_plan::expressions::Column;
 
-        use super::{LazyParallelMode, LazySortConfig};
+        use super::{LazyParallelMode, LazySortConfig, TopKSelectivity};
 
         let schema = Arc::new(Schema::new(vec![
             Field::new("__paradedb_ctid", DataType::UInt64, false),
@@ -2636,11 +2722,125 @@ mod tests {
             orderby_info: None,
             ordering: ordering.clone(),
             initial_window: 25.0,
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::Unpartitioned,
             telemetry: None,
         });
 
         assert_eq!(plan.lazy_sort().map(|ls| ls.initial_window), Some(25.0));
         assert_eq!(plan.properties().output_ordering(), ordering.as_ref());
+    }
+
+    #[pg_test]
+    fn plan_inlist_pushdown_mode_cases() {
+        use arrow_schema::{DataType, Field};
+        use datafusion::logical_expr::JoinType;
+        use datafusion::physical_plan::ExecutionPlan;
+        use datafusion::physical_plan::expressions::Column;
+        use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+        use datafusion_distributed::DistributedLeafExec;
+
+        use crate::gucs::InListPushdownMode;
+
+        use super::{LazyParallelMode, LazySortConfig, TopKSelectivity, plan_inlist_pushdown_mode};
+
+        let key_schema = || Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let make_scan = |lazy: bool| -> Arc<dyn ExecutionPlan> {
+            let scan = PgSearchScanPlan::new(
+                None,
+                key_schema(),
+                SearchQueryInput::All,
+                Vec::new(),
+                None,
+                0,
+                None,
+                1,
+                None,
+                None,
+            );
+            if lazy {
+                Arc::new(scan.with_lazy_sort(LazySortConfig {
+                    orderby_info: None,
+                    ordering: None,
+                    initial_window: 10.0,
+                    unpushed_join_selectivity: TopKSelectivity::ALL,
+                    parallel_mode: LazyParallelMode::WorkerPool,
+                    telemetry: None,
+                }))
+            } else {
+                Arc::new(scan)
+            }
+        };
+        let make_hash_join = |left: Arc<dyn ExecutionPlan>,
+                              right: Arc<dyn ExecutionPlan>|
+         -> Arc<dyn ExecutionPlan> {
+            let on_left: Arc<dyn datafusion::physical_plan::PhysicalExpr> =
+                Arc::new(Column::new("id", 0));
+            let on_right: Arc<dyn datafusion::physical_plan::PhysicalExpr> =
+                Arc::new(Column::new("id", 0));
+            Arc::new(
+                HashJoinExec::try_new(
+                    left,
+                    right,
+                    vec![(on_left, on_right)],
+                    None,
+                    &JoinType::Inner,
+                    None,
+                    PartitionMode::CollectLeft,
+                    datafusion::common::NullEquality::NullEqualsNothing,
+                    false,
+                )
+                .unwrap(),
+            )
+        };
+
+        let distributed_lazy_probe: Arc<dyn ExecutionPlan> = Arc::new(
+            DistributedLeafExec::try_new(make_scan(false), vec![make_scan(true)]).unwrap(),
+        );
+
+        let cases: [(&str, Arc<dyn ExecutionPlan>, InListPushdownMode); 7] = [
+            (
+                "unsorted_scan_only",
+                make_scan(false),
+                InListPushdownMode::Standard,
+            ),
+            (
+                "lazy_scan_without_join",
+                make_scan(true),
+                InListPushdownMode::Standard,
+            ),
+            (
+                "unsorted_hash_join",
+                make_hash_join(make_scan(false), make_scan(false)),
+                InListPushdownMode::Standard,
+            ),
+            (
+                "lazy_on_build_side_only",
+                make_hash_join(make_scan(true), make_scan(false)),
+                InListPushdownMode::Standard,
+            ),
+            (
+                "lazy_on_probe_side",
+                make_hash_join(make_scan(false), make_scan(true)),
+                InListPushdownMode::LazySortProbe,
+            ),
+            (
+                "distributed_leaf_lazy_probe",
+                make_hash_join(make_scan(false), distributed_lazy_probe),
+                InListPushdownMode::LazySortProbe,
+            ),
+            (
+                "nested_lazy_probe_under_outer_build",
+                make_hash_join(
+                    make_hash_join(make_scan(false), make_scan(true)),
+                    make_scan(false),
+                ),
+                InListPushdownMode::LazySortProbe,
+            ),
+        ];
+
+        for (name, plan, expected) in cases {
+            assert_eq!(plan_inlist_pushdown_mode(&plan), expected, "{name}");
+        }
     }
 }

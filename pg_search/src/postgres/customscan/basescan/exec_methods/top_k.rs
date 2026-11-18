@@ -291,6 +291,7 @@ impl TopKScanExecState {
             initial_window: self
                 .visibility_selectivity
                 .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: Some(telemetry),
         };

@@ -1694,6 +1694,7 @@ pub(crate) fn canonicalize_range_bounds_for_field(
     Ok(bounds)
 }
 
+<<<<<<< HEAD:pg_search/src/query/pdb_query.rs
 /// Creates a range query for the given field and bounds.
 ///
 /// # JSON Numeric Range Queries and Fast Fields
@@ -1711,15 +1712,47 @@ pub(crate) fn canonicalize_range_bounds_for_field(
 /// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
 /// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
 fn range(
+=======
+/// Converts raw `I64` bounds on datetime fields into [`PdbOwnedValue::Date`] so range estimation
+/// can compare them against `.stats` (`EmpiricalStats`) and `pg_statistic` datums, both of which
+/// decode datetime values into `PdbOwnedValue::Date`.
+fn lift_datetime_bound_for_estimate(
+    search_field: &SearchField,
+    bound: Bound<PdbOwnedValue>,
+) -> Bound<PdbOwnedValue> {
+    if !matches!(search_field.field_type(), SearchFieldType::I64(oid) if is_datetime_type(oid)) {
+        return bound;
+    }
+    bound.map(|v| match v {
+        PdbOwnedValue::I64(raw) => PostgresDateTime::try_from_raw(raw)
+            .map(PdbOwnedValue::Date)
+            .unwrap_or(PdbOwnedValue::I64(raw)),
+        other => other,
+    })
+}
+
+/// The bounds must already be in the field's stored form.
+fn range_query_from_bounds(
+    search_field: &SearchField,
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):index_read/src/query/pdb_query.rs
     field: &FieldName,
     schema: &SearchIndexSchema,
     index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
+<<<<<<< HEAD:pg_search/src/query/pdb_query.rs
 ) -> anyhow::Result<RangeQuery> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+=======
+) -> anyhow::Result<RangeQueryWithEstimate> {
+    let bounds = (
+        lift_datetime_bound_for_estimate(search_field, lower_bound.clone()),
+        lift_datetime_bound_for_estimate(search_field, upper_bound.clone()),
+    );
+    let field_path = field.path();
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):index_read/src/query/pdb_query.rs
     let field_type = search_field.field_entry().field_type();
     let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
         &search_field,
@@ -1764,7 +1797,93 @@ fn range(
         Bound::Unbounded => Bound::Unbounded,
     };
 
+<<<<<<< HEAD:pg_search/src/query/pdb_query.rs
     Ok(RangeQuery::new(lower_bound, upper_bound))
+=======
+    Ok(RangeQueryWithEstimate::new(
+        RangeQuery::new(lower_bound, upper_bound),
+        search_field.clone(),
+        field_path,
+        bounds,
+    ))
+}
+
+/// Creates a range query for the given field and bounds.
+///
+/// # JSON Numeric Range Queries and Fast Fields
+///
+/// For JSON fields, Tantivy requires fast fields for range queries (returns error otherwise).
+/// Fast field storage has important limitations for JSON numeric values:
+///
+/// - Each JSON path gets ONE fast field column with ONE numeric type (I64, U64, or F64)
+/// - Column type is determined at index time based on values stored:
+///   - All integers that fit in i64 → I64 column
+///   - All non-negative integers, some exceeding i64::MAX → U64 column
+///   - Any float value OR mix of negative + large positive (≥ 2^63) → F64 column
+/// - When column is F64, integers > 2^53 lose precision (e.g. 9007199254740993 → 9007199254740992.0)
+///
+/// At query time, Tantivy discovers the actual column type and converts query bounds accordingly
+/// (see `search_on_json_numerical_field` in tantivy's range_query_fastfield.rs).
+fn range(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> anyhow::Result<RangeQueryWithEstimate> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let (lower_bound, upper_bound) = canonicalize_range_bounds_for_field(
+        &search_field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )?;
+
+    range_query_from_bounds(
+        &search_field,
+        field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )
+}
+
+/// Builds the Tantivy query for the internal [`pdb::Query::StoredRange`] representation.
+/// Its bounds must already match the field's stored type, so this skips the user-input conversion
+/// performed by [`range`].
+fn stored_range(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> anyhow::Result<RangeQueryWithEstimate> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    range_query_from_bounds(
+        &search_field,
+        field,
+        index_created_by_version,
+        lower_bound,
+        upper_bound,
+    )
+}
+
+/// The `search_tokenizer` of the field, or else of the index.
+fn search_tokenizer_option(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+) -> Option<SearchTokenizer> {
+    search_field
+        .field_config()
+        .search_tokenizer()
+        .cloned()
+        .or_else(|| schema.index_search_tokenizer())
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):index_read/src/query/pdb_query.rs
 }
 
 fn resolve_search_tokenizer(

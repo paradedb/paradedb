@@ -405,6 +405,13 @@ struct LazyInfo {
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
 
+/// Identifies a PostgreSQL heap column (`(relid, attnum)`) in `pg_statistic`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeapStatTarget {
+    pub relid: pg_sys::Oid,
+    pub attnum: pg_sys::AttrNumber,
+}
+
 #[derive(Clone, Debug)]
 pub struct BM25IndexOptions {
     indexrel: pg_sys::Relation,
@@ -483,6 +490,54 @@ impl BM25IndexOptions {
         self.options_data().search_tokenizer()
     }
 
+<<<<<<< HEAD:pg_search/src/postgres/options.rs
+=======
+    /// The rule column of a synonym index, its one key column, typed `pdb.synonym_rule`.
+    pub fn synonym_rule_field(&self) -> Option<FieldName> {
+        if self.lazy.synonym_rule_field.borrow().is_none() {
+            let field = unsafe { is_synonym_index_relation(self.indexrel) }
+                .then(|| self.synonym_rule_columns().into_iter().next())
+                .flatten();
+            *self.lazy.synonym_rule_field.borrow_mut() = Some(field);
+        }
+        self.lazy.synonym_rule_field.borrow().clone().flatten()
+    }
+
+    /// The fields that read a `pdb.synonym_rule` column, in any index.
+    pub fn synonym_rule_columns(&self) -> Vec<FieldName> {
+        let Some(typoid) = synonym_rule_typoid() else {
+            return Vec::new();
+        };
+        // A tokenizer cast hides the domain in the field's types, so the type comes from the heap
+        // column the field reads.
+        let heaprelid = unsafe { (*(*self.indexrel).rd_index).indrelid };
+        self.attributes()
+            .iter()
+            .filter(|(_, attr)| {
+                attr.source.heap_attno().is_some_and(|attno| {
+                    let attnum = (attno + 1) as pg_sys::AttrNumber;
+                    unsafe { pg_sys::get_atttype(heaprelid, attnum) == typoid }
+                })
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// Returns the OID of the heap relation indexed by this BM25 index, when backed by a live
+    /// PostgreSQL index relation.
+    pub(crate) fn heap_relid(&self) -> Option<pg_sys::Oid> {
+        if self.indexrel.is_null() {
+            return None;
+        }
+        let rd_index = unsafe { (*self.indexrel).rd_index };
+        if rd_index.is_null() {
+            return None;
+        }
+        let relid = unsafe { (*rd_index).indrelid };
+        (relid != pg_sys::InvalidOid).then_some(relid)
+    }
+
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):storage/src/postgres/options.rs
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
     /// falling back to the default config for the field type.
     pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {

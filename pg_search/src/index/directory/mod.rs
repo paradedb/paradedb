@@ -15,5 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+<<<<<<< HEAD:pg_search/src/index/directory/mod.rs
 pub mod mvcc;
 pub mod utils;
+=======
+pub mod deferred_encode;
+>>>>>>> 35c7642 (perf: Improve selective join cardinality estimation and InList pushdown (#7473)):common/src/scan/mod.rs

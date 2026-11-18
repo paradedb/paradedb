@@ -233,24 +233,30 @@ fn run_launched_worker(state_manager: ParallelStateManager, seed_ctx: fn() -> Se
 #[derive(Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum MppLifecycle {
-    /// Serial execution: the query didn't qualify, a fallback abandoned the launch, or
-    /// teardown already reclaimed the leader state.
+    /// Serial execution: the query didn't qualify, or teardown already reclaimed the leader state.
     #[default]
     Inactive,
     /// The scan qualified for one MPP planning and launch attempt. No plan is stored here: the
     /// finished physical stages produce the exact dispatch payload before DSM allocation.
     Pending,
+    /// A launch attempt was consumed (`take_pending`) and not committed to `Launched`, so the scan
+    /// fell back to serial execution and remains serial across subsequent rescans.
+    Declined,
     /// The workers are running dispatched fragments; carries the leader's mesh and finish
     /// handles until teardown.
     Launched(MppLeaderState),
 }
 
 impl MppLifecycle {
-    /// Consume the pending launch marker. Leaves `Inactive`, so a launch fallback reads as the
-    /// serial path from then on.
+    /// Consume the pending launch marker, transitioning `Pending -> Declined` until a committed
+    /// launch overwrites the state with `Launched`. A declined launch stays `Declined` across
+    /// rescans so subsequent iterations do not repeat a doomed launch attempt.
     pub fn take_pending(&mut self) -> bool {
         match std::mem::take(self) {
-            MppLifecycle::Pending => true,
+            MppLifecycle::Pending => {
+                *self = MppLifecycle::Declined;
+                true
+            }
             other => {
                 *self = other;
                 false
@@ -420,7 +426,11 @@ fn launch_mpp(
         Ok(Some(s)) => s.as_mut_ptr() as *mut ParallelScanState,
         _ => pgrx::error!("mpp: parallel scan state region missing"),
     };
-    unsafe { (*scan_ptr).create_and_populate(args) };
+    unsafe {
+        (*scan_ptr).create_and_populate(args);
+        (*scan_ptr).inlist_pushdown_mode =
+            crate::scan::execution_plan::plan_inlist_pushdown_mode(physical);
+    };
 
     timing.prepare_us = t_prepare.elapsed().as_micros() as u64;
 
@@ -561,7 +571,10 @@ mod tests {
         let mut lifecycle = MppLifecycle::Pending;
 
         assert!(lifecycle.take_pending());
+        assert!(matches!(lifecycle, MppLifecycle::Declined));
         assert!(!lifecycle.take_pending());
+        assert!(lifecycle.take_leader().is_none());
+        assert!(matches!(lifecycle, MppLifecycle::Declined));
     }
 
     #[pg_test]

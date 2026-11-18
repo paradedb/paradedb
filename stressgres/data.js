@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794989352151,
+  "lastUpdate": 1794989379728,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -510803,6 +510803,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14309494182-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989376905,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Partition-pruned Base Scan - Primary - tps",
+            "value": 36.993174595756,
+            "unit": "median tps",
+            "extra": "avg tps: 56.500960660676256, max tps: 525.8907057075671, count: 58778"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - tps",
+            "value": 19.881359390654662,
+            "unit": "median tps",
+            "extra": "avg tps: 31.005588571773615, max tps: 338.74207203396907, count: 58778"
+          },
+          {
+            "name": "Partitioned Writes - Primary - tps",
+            "value": 72.91397360623245,
+            "unit": "median tps",
+            "extra": "avg tps: 133.948646635862, max tps: 1269.9178570160518, count: 58778"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - tps",
+            "value": 19.898060708599633,
+            "unit": "median tps",
+            "extra": "avg tps: 29.922325947125525, max tps: 259.0092997886803, count: 58778"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - tps",
+            "value": 45.93219091041205,
+            "unit": "median tps",
+            "extra": "avg tps: 72.76170354603042, max tps: 544.681640016366, count: 58778"
+          }
+        ],
+        "publication_id": "14409601994-tps"
       }
     ],
     "pg_search partitioned-table.toml Performance - Other Metrics": [
@@ -524820,6 +524873,95 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14309494182-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989379605,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Partition Index Sizes - Primary - partition_index_size:MB",
+            "value": 20.703125,
+            "unit": "median partition_index_size:MB",
+            "extra": "avg partition_index_size:MB: 21.031796415112797, max partition_index_size:MB: 27.5859375, count: 58778"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - cpu",
+            "value": 22.900763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.264103424546445, max cpu: 32.40116, count: 58778"
+          },
+          {
+            "name": "Partition-pruned Base Scan - Primary - mem",
+            "value": 49.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.62916324188046, max mem: 57.19140625, count: 58778"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.92615546605687, max cpu: 41.65863, count: 58778"
+          },
+          {
+            "name": "Partitioned Top K Base Scan - Primary - mem",
+            "value": 66.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 67.42079207196996, max mem: 74.68359375, count: 58778"
+          },
+          {
+            "name": "Partitioned Writes - Primary - cpu",
+            "value": 13.701237,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.124191443995292, max cpu: 23.255816, count: 58778"
+          },
+          {
+            "name": "Partitioned Writes - Primary - mem",
+            "value": 41.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.259964732233996, max mem: 41.3671875, count: 58778"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.92391690806428, max cpu: 41.498558, count: 58778"
+          },
+          {
+            "name": "Postgres Aggregate over Partitioned Base Scans - Primary - mem",
+            "value": 65.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.92234359315985, max mem: 73.12109375, count: 58778"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - cpu",
+            "value": 22.911695,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.007693133952213, max cpu: 32.448093, count: 58778"
+          },
+          {
+            "name": "Postgres Join over Partitioned Base Scans - Primary - mem",
+            "value": 62.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.479311057070674, max mem: 70.1953125, count: 58778"
+          }
+        ],
+        "publication_id": "14409601994-other"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - TPS": [

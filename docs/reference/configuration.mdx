@@ -49,12 +49,12 @@ These settings control whether ParadeDB proposes custom plans for eligible queri
 
 ## Synonyms
 
-These settings affect match and phrase queries that expand with `pdb.expand`. See [Synonyms](/reference/tokenizers/synonyms).
+These settings affect the queries that expand with `pdb.expand`. See [Synonyms](/reference/tokenizers/synonyms).
 
-| Setting                               | Default | Context | Description                                                                                                                                                  |
-| ------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `paradedb.synonyms_max_alternatives`  | `32`    | user    | Most alternatives one run of query words expands to in a match query, and most phrases a phrase query searches. The typed words stay when a rule lists them. |
-| `paradedb.synonyms_max_rules_per_key` | `1024`  | user    | Most rules one synonym word reads in a segment. A word in more rules reads only the first ones.                                                              |
+| Setting                               | Default | Context | Description                                                                                                                                                                                                                                      |
+| ------------------------------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `paradedb.synonyms_max_alternatives`  | `32`    | user    | Most alternatives one run of query words expands to in a match query, and most phrases a phrase query searches. The query parser has the first limit for a word and the second for a quoted phrase. The typed words stay when a rule lists them. |
+| `paradedb.synonyms_max_rules_per_key` | `1024`  | user    | Most rules one synonym word reads in a segment. A word in more rules reads only the first ones.                                                                                                                                                  |
 
 ## Top K
 

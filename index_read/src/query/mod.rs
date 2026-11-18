@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::{match_expands_with_synonyms, pdb};
+use crate::query::pdb_query::{expands_with_synonyms, pdb};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -902,10 +902,10 @@ impl SearchQueryInput {
         }
     }
 
-    /// Whether a synonym rule turns the token of this one-token match into a group of
-    /// alternatives. `is_topk_prunable` sees only the query input, and not the rules.
+    /// Whether a synonym rule turns the token of this one-token match or parsed term into a
+    /// group of alternatives. `is_topk_prunable` sees only the query input, and not the rules.
     pub fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
-        match self {
+        let (field, value, rules, parsed) = match self {
             SearchQueryInput::FieldedQuery {
                 field,
                 query:
@@ -915,14 +915,26 @@ impl SearchQueryInput {
                         synonyms: Some(rules),
                         ..
                     },
-            } => schema
-                .search_field(field.root())
-                .is_some_and(|search_field| {
-                    match_expands_with_synonyms(&search_field, schema, value, rules)
-                }),
-            SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
-            _ => false,
-        }
+            } => (field, value, rules, false),
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::ParseWithField {
+                        query_string,
+                        synonyms: Some(rules),
+                        ..
+                    },
+            } => (field, query_string, rules, true),
+            SearchQueryInput::WithIndex { query, .. } => {
+                return query.expands_with_synonyms(schema);
+            }
+            _ => return false,
+        };
+        schema
+            .search_field(field.root())
+            .is_some_and(|search_field| {
+                expands_with_synonyms(&search_field, schema, value, rules, parsed)
+            })
     }
 
     /// Whether a score-DESC TopK over this query can be Block-WAND-pruned by the
@@ -1126,7 +1138,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
-    /// The synonym indexes that the match and phrase queries of this tree name.
+    /// The synonym indexes that the queries of this tree read.
     pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
         let mut indexes = Vec::new();
         self.visit_ref(&mut |input| {
@@ -1142,6 +1154,10 @@ impl SearchQueryInput {
                 ..
             }
             | pdb::Query::TokenizedPhrase {
+                synonyms: Some(pdb::SynonymRules::Index(index)),
+                ..
+            }
+            | pdb::Query::ParseWithField {
                 synonyms: Some(pdb::SynonymRules::Index(index)),
                 ..
             } = query
@@ -2409,6 +2425,7 @@ mod tests {
                     lenient: None,
                     conjunction_mode: None,
                     fuzzy_data: None,
+                    synonyms: None,
                 },
             }),
         };
@@ -2422,6 +2439,7 @@ mod tests {
                         lenient: None,
                         conjunction_mode: None,
                         fuzzy_data: None,
+                        synonyms: None,
                     },
                 }),
             }),

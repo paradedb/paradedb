@@ -89,7 +89,7 @@ impl GraceWindow {
     }
 
     /// The window in force right now.
-    fn current(&self) -> Duration {
+    pub(crate) fn current(&self) -> Duration {
         let Some(file) = self.file.as_ref() else {
             return self.baseline;
         };

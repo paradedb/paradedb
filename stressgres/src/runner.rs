@@ -32,6 +32,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessesToUpdate, System};
+use tokio::runtime::{Builder, Runtime};
+use tokio::task::AbortHandle;
 
 type PostgresResult<T> = std::result::Result<T, Arc<postgres::Error>>;
 
@@ -91,7 +93,7 @@ struct ConnGeneration(u64);
 pub struct Conn {
     generation: ConnGeneration,
     server_lookup: Arc<HashMap<String, Server>>,
-    clients: Vec<(postgres::Client, Server, BackendPid)>,
+    clients: Vec<(WorkerClient, Server, BackendPid)>,
 }
 
 #[derive(Debug, Clone)]
@@ -145,7 +147,12 @@ impl ConnInfo {
 
 pub struct MultiTransaction<'a> {
     server_lookup: Arc<HashMap<String, Server>>,
-    transactions: Vec<(postgres::Transaction<'a>, &'a Server, BackendPid)>,
+    transactions: Vec<(
+        tokio_postgres::Transaction<'a>,
+        &'a Runtime,
+        &'a Server,
+        BackendPid,
+    )>,
 }
 
 impl Conn {
@@ -208,7 +215,7 @@ impl Conn {
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .flatten()
-            .map(|(mut conn, server)| {
+            .map(|(conn, server)| {
                 let pid: BackendPid = conn.query_one("SELECT pg_backend_pid();", &[])?.get(0);
                 Ok((conn, server, pid))
             })
@@ -222,30 +229,29 @@ impl Conn {
         })
     }
 
-    pub fn first_client(&mut self) -> &mut postgres::Client {
-        &mut self.clients[0].0
+    pub(crate) fn first_client(&self) -> &WorkerClient {
+        &self.clients[0].0
     }
 
     pub fn transaction(&mut self) -> std::result::Result<MultiTransaction<'_>, postgres::Error> {
-        Ok(MultiTransaction {
+        let mut transaction = MultiTransaction {
             server_lookup: self.server_lookup.clone(),
-            transactions: self
-                .clients
-                .iter_mut()
-                .map(|(client, server, pid)| {
-                    client
-                        .transaction()
-                        // `server` binds as `&mut` here under edition 2024 binding modes;
-                        // `MultiTransaction` only needs a shared reference.
-                        .map(|xact| (xact, &*server, *pid))
-                })
-                .collect::<std::result::Result<Vec<_>, postgres::Error>>()?,
-        })
+            transactions: Vec::with_capacity(self.clients.len()),
+        };
+        for (client, server, pid) in &mut self.clients {
+            let xact = client.runtime.block_on(client.client.transaction())?;
+            transaction
+                .transactions
+                .push((xact, &client.runtime, server, *pid));
+        }
+        Ok(transaction)
     }
 
     fn rollback_best_effort(&mut self) {
         for (client, ..) in &mut self.clients {
-            let _ = client.batch_execute("ROLLBACK");
+            let _ = client
+                .runtime
+                .block_on(client.client.batch_execute("ROLLBACK"));
         }
     }
 
@@ -259,7 +265,10 @@ impl Conn {
 
         for (id, (client, server, pid)) in self.clients.iter_mut().enumerate() {
             let start = Instant::now();
-            let result = client.query(&query, params).map_err(Arc::new);
+            let result = client
+                .runtime
+                .block_on(client.client.query(&query, params))
+                .map_err(Arc::new);
             let duration = start.elapsed();
             results.push((result, duration, ConnInfo::new(id, server, *pid)));
         }
@@ -276,7 +285,7 @@ impl Conn {
     }
 
     #[doc(hidden)]
-    pub fn _open_conn(server: &Server, job: &Job) -> Result<postgres::Client> {
+    pub(crate) fn _open_conn(server: &Server, job: &Job) -> Result<WorkerClient> {
         let sanitized = job.title().replace(|c: char| !c.is_alphanumeric(), "_");
         let connstr = match server.style {
             // For ServerStyle::With, the connection string is expected to already
@@ -284,10 +293,10 @@ impl Conn {
             ServerStyle::With { .. } => server.connstr(),
             _ => format!("{} application_name={}", server.connstr(), sanitized),
         };
-        let mut conn = postgres::Client::connect(&tokio_connstr(&connstr), Self::tls_connector())?;
+        let conn = WorkerClient::connect(&connstr)?;
 
         for query in job.on_connect() {
-            conn.execute(query.sql, &[])?;
+            conn.runtime.block_on(conn.client.execute(query.sql, &[]))?;
         }
 
         if !job.sql_plan_contains.is_empty() {
@@ -300,7 +309,8 @@ impl Conn {
             );
             let explain = format!("EXPLAIN (VERBOSE) {}", statements[0].sql);
             let plan = conn
-                .query(&explain, &[])?
+                .runtime
+                .block_on(conn.client.query(explain.as_str(), &[]))?
                 .into_iter()
                 .map(|row| row.get::<_, String>(0))
                 .collect::<Vec<_>>()
@@ -319,6 +329,38 @@ impl Conn {
     }
 }
 
+// Drive each connection on the worker thread. Keeping its task handle lets shutdown
+// close the local socket even when a separate cancellation connection cannot get through.
+pub(crate) struct WorkerClient {
+    client: tokio_postgres::Client,
+    runtime: Runtime,
+    connection: AbortHandle,
+}
+
+impl WorkerClient {
+    fn connect(connstr: &str) -> Result<Self> {
+        let runtime = Builder::new_current_thread().enable_all().build()?;
+        let (client, connection) = runtime.block_on(tokio_postgres::connect(
+            &tokio_connstr(connstr),
+            Conn::tls_connector(),
+        ))?;
+        let connection = runtime.spawn(connection).abort_handle();
+        Ok(Self {
+            client,
+            runtime,
+            connection,
+        })
+    }
+
+    fn query_one(
+        &self,
+        query: &str,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Row, postgres::Error> {
+        self.runtime.block_on(self.client.query_one(query, params))
+    }
+}
+
 impl MultiTransaction<'_> {
     pub fn query(
         &mut self,
@@ -328,10 +370,12 @@ impl MultiTransaction<'_> {
         let query = do_query_replacements(query, &self.server_lookup);
         let mut results = Vec::new();
 
-        for (id, (xact, server, pid)) in self.transactions.iter_mut().enumerate() {
+        for (id, (xact, runtime, server, pid)) in self.transactions.iter_mut().enumerate() {
             let start = Instant::now();
             results.push((
-                xact.query(&query, params).map_err(Arc::new),
+                runtime
+                    .block_on(xact.query(&query, params))
+                    .map_err(Arc::new),
                 start.elapsed(),
                 ConnInfo::new(id, server, *pid),
             ));
@@ -340,18 +384,26 @@ impl MultiTransaction<'_> {
         results
     }
 
-    pub fn commit(self) -> std::result::Result<(), postgres::Error> {
+    pub fn commit(mut self) -> std::result::Result<(), postgres::Error> {
         let mut first_err = None;
-        for (xact, ..) in self.transactions {
+        for (xact, runtime, ..) in self.transactions.drain(..) {
             if first_err.is_some() {
-                drop(xact);
-            } else if let Err(e) = xact.commit() {
+                let _ = runtime.block_on(xact.rollback());
+            } else if let Err(e) = runtime.block_on(xact.commit()) {
                 first_err = Some(e);
             }
         }
         match first_err {
             Some(e) => Err(e),
             None => Ok(()),
+        }
+    }
+}
+
+impl Drop for MultiTransaction<'_> {
+    fn drop(&mut self) {
+        for (xact, runtime, ..) in self.transactions.drain(..) {
+            let _ = runtime.block_on(xact.rollback());
         }
     }
 }
@@ -805,6 +857,7 @@ impl SuiteRunner {
         self.alive.store(false, Ordering::Release);
         self.paused.store(false, Ordering::Release);
         let start = Instant::now();
+        let disconnect_on_failure = !self.reconnect_grace.current().is_zero();
         // A failed cancellation connection must not prevent other jobs from being canceled
         // or stop the caller from enforcing the shutdown deadline.
         for runner in self.runners().chain(self.monitor_runners()) {
@@ -814,7 +867,7 @@ impl SuiteRunner {
             std::thread::spawn(move || {
                 while start.elapsed() < timeout && runner.worker_active() {
                     if runner.running() {
-                        runner.cancel_query();
+                        runner.cancel_active_queries(disconnect_on_failure);
                     }
                     let sleep_start = Instant::now();
                     while sleep_start.elapsed() < Duration::from_secs(1) && runner.worker_active() {
@@ -1028,7 +1081,8 @@ struct CancelTarget {
     server_name: String,
     endpoint: String,
     pid: BackendPid,
-    token: postgres::CancelToken,
+    token: tokio_postgres::CancelToken,
+    connection: AbortHandle,
 }
 
 // Log only the configured hosts and ports, never connection credentials or cancel keys.
@@ -1236,12 +1290,23 @@ impl JobRunner {
 
     /// Best-effort cancellation of the job's active queries.
     pub fn cancel_query(&self) {
+        self.cancel_active_queries(false);
+    }
+
+    fn cancel_active_queries(&self, disconnect_on_failure: bool) {
         if !self.running() {
             return;
         }
         // Tokens retain the original connection's endpoint and cancellation key.
         // Unlike a SQL session, a cancel request can be sent during smart shutdown.
         let targets = self.cancel_targets.read().clone();
+        let runtime = match Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                eprintln!("could not start cancellation runtime: {error}");
+                return;
+            }
+        };
         for target in targets {
             let started = Instant::now();
             eprintln!(
@@ -1252,17 +1317,37 @@ impl JobRunner {
                 target.endpoint,
                 target.pid
             );
-            if let Err(error) = target.token.cancel_query(Conn::tls_connector()) {
+            let result = runtime.block_on(async {
+                let cancel = target.token.cancel_query(Conn::tls_connector());
+                if disconnect_on_failure {
+                    tokio::time::timeout(Duration::from_secs(5), cancel).await?
+                } else {
+                    cancel.await
+                }
+                .map_err(anyhow::Error::new)
+            });
+            if let Err(error) = result {
                 eprintln!(
-                    "could not send cancellation job={} state={:?} server={} configured_endpoint={} pid={} elapsed_ms={}: {:#}",
+                    "could not send cancellation job={} state={:?} server={} configured_endpoint={} pid={} elapsed_ms={}: {error:#}",
                     self.title(),
                     self.worker_state(),
                     target.server_name,
                     target.endpoint,
                     target.pid,
                     started.elapsed().as_millis(),
-                    anyhow::Error::new(error)
                 );
+                if disconnect_on_failure
+                    && error.chain().any(|cause| {
+                        cause.is::<std::io::Error>() || cause.is::<tokio::time::error::Elapsed>()
+                    })
+                {
+                    eprintln!(
+                        "closing local connection during shutdown job={} pid={}",
+                        self.title(),
+                        target.pid
+                    );
+                    target.connection.abort();
+                }
             }
         }
     }
@@ -1297,7 +1382,8 @@ impl JobRunner {
                     server_name: server.name.clone(),
                     endpoint: connection_endpoint(&server.connstr()),
                     pid: *pid,
-                    token: client.cancel_token(),
+                    token: client.client.cancel_token(),
+                    connection: client.connection.clone(),
                 })
                 .collect();
 
@@ -1450,7 +1536,7 @@ impl JobRunner {
 
             if let Some(last_error) = last_error {
                 let msg = format_postgres_error(&last_error);
-                return Err(anyhow!(msg));
+                return Err(anyhow::Error::new(last_error).context(msg));
             }
         }
 

@@ -26,16 +26,20 @@ pub trait OidExt {
 
 impl OidExt for pg_sys::Oid {
     fn is_paradedb_am(&self) -> bool {
-        static AM_OIDS: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-        *self != pg_sys::InvalidOid
-            && AM_OIDS
-                .get_or_init(|| unsafe {
-                    [
-                        pg_sys::get_index_am_oid(c"bm25".as_ptr(), true),
-                        pg_sys::get_index_am_oid(c"paradedb".as_ptr(), true),
-                    ]
-                })
-                .contains(self)
+        // Extension installation can invoke planner hooks before the access
+        // methods exist. Consult the catalog so those misses do not persist.
+        unsafe {
+            let Some(entry) = SysCacheEntry::search1(
+                pg_sys::SysCacheIdentifier::AMOID,
+                pg_sys::Datum::from(*self),
+            ) else {
+                return false;
+            };
+            matches!(
+                entry.attr::<&CStr>(pg_sys::Anum_pg_am_amname),
+                Some(name) if name == c"bm25" || name == c"paradedb"
+            )
+        }
     }
 }
 
@@ -259,11 +263,42 @@ pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
     cid != pg_sys::Oid::INVALID && oid == cid
 }
 
+fn is_pgvector_member(class: pg_sys::Oid, oid: pg_sys::Oid) -> bool {
+    unsafe {
+        let extension = pg_sys::get_extension_oid(c"vector".as_ptr(), true);
+        extension != pg_sys::InvalidOid && pg_sys::getExtensionOfObject(class, oid) == extension
+    }
+}
+
 pub fn is_pgvector_oid(oid: pg_sys::Oid) -> bool {
-    static VECTOR_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
-    let vid = *VECTOR_OID
-        .get_or_init(|| lookup_typoid(c"public", c"vector").unwrap_or(pg_sys::Oid::INVALID));
-    vid != pg_sys::Oid::INVALID && oid == vid
+    unsafe {
+        let Some(entry) = SysCacheEntry::search1(
+            pg_sys::SysCacheIdentifier::TYPEOID,
+            pg_sys::Datum::from(oid),
+        ) else {
+            return false;
+        };
+        entry.attr::<&CStr>(pg_sys::Anum_pg_type_typname) == Some(c"vector")
+            && is_pgvector_member(pg_sys::TypeRelationId, oid)
+    }
+}
+
+/// Resolve a binary pgvector operator on two vector operands by catalog identity.
+pub fn lookup_pgvector_operator_name(oid: pg_sys::Oid) -> Option<String> {
+    unsafe {
+        let entry = SysCacheEntry::search1(pg_sys::SysCacheIdentifier::OPEROID, oid.into_datum()?)?;
+        let left = entry.attr::<pg_sys::Oid>(pg_sys::Anum_pg_operator_oprleft)?;
+        let right = entry.attr::<pg_sys::Oid>(pg_sys::Anum_pg_operator_oprright)?;
+        if left != right
+            || !is_pgvector_oid(left)
+            || !is_pgvector_member(pg_sys::OperatorRelationId, oid)
+        {
+            return None;
+        }
+        entry
+            .attr::<&CStr>(pg_sys::Anum_pg_operator_oprname)
+            .map(|name| name.to_string_lossy().into_owned())
+    }
 }
 
 /// Lookup a `pg_opfamily.opfname` by OID. Returns the opfamily name

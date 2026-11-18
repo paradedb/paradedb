@@ -119,10 +119,25 @@ type ExactEConeAuditRow = (
 #[pg_extern(
     name = "vector_estimator_info",
     sql = r#"
+DO $vector_estimator_info$
+DECLARE
+    vector_schema text;
+BEGIN
+    SELECT n.nspname INTO STRICT vector_schema
+    FROM pg_catalog.pg_extension AS e
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace
+    JOIN pg_catalog.pg_type AS t ON t.typnamespace = n.oid AND t.typname = 'vector'
+    JOIN pg_catalog.pg_depend AS d ON d.objid = t.oid
+        AND d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass AND d.objsubid = 0
+        AND d.refobjid = e.oid AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+        AND d.deptype = 'e'
+    WHERE e.extname = 'vector';
+
+    EXECUTE pg_catalog.format($vector_schema_ddl$
 CREATE FUNCTION paradedb.vector_estimator_info(
     index regclass,
     field text,
-    queries vector[] DEFAULT NULL
+    queries %I.vector[] DEFAULT NULL
 ) RETURNS TABLE(
     depth integer,
     bias real,
@@ -134,6 +149,9 @@ CREATE FUNCTION paradedb.vector_estimator_info(
 STABLE PARALLEL UNSAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_estimator_info_internal_wrapper';
+$vector_schema_ddl$, vector_schema);
+END
+$vector_estimator_info$;
 "#
 )]
 fn vector_estimator_info_internal(
@@ -288,10 +306,25 @@ fn vector_estimator_info_internal(
 #[pg_extern(
     name = "vector_error_audit",
     sql = r#"
+DO $vector_error_audit$
+DECLARE
+    vector_schema text;
+BEGIN
+    SELECT n.nspname INTO STRICT vector_schema
+    FROM pg_catalog.pg_extension AS e
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace
+    JOIN pg_catalog.pg_type AS t ON t.typnamespace = n.oid AND t.typname = 'vector'
+    JOIN pg_catalog.pg_depend AS d ON d.objid = t.oid
+        AND d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass AND d.objsubid = 0
+        AND d.refobjid = e.oid AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+        AND d.deptype = 'e'
+    WHERE e.extname = 'vector';
+
+    EXECUTE pg_catalog.format($vector_schema_ddl$
 CREATE FUNCTION paradedb.vector_error_audit(
     index regclass,
     field text,
-    queries vector[]
+    queries %I.vector[]
 ) RETURNS TABLE(
     source text,
     protocol text,
@@ -328,6 +361,9 @@ CREATE FUNCTION paradedb.vector_error_audit(
 STABLE PARALLEL UNSAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_audit_internal_wrapper';
+$vector_schema_ddl$, vector_schema);
+END
+$vector_error_audit$;
 "#
 )]
 fn vector_error_audit_internal(
@@ -560,10 +596,25 @@ fn vector_error_audit_internal(
 #[pg_extern(
     name = "vector_error_cone_audit",
     sql = r#"
+DO $vector_error_cone_audit$
+DECLARE
+    vector_schema text;
+BEGIN
+    SELECT n.nspname INTO STRICT vector_schema
+    FROM pg_catalog.pg_extension AS e
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace
+    JOIN pg_catalog.pg_type AS t ON t.typnamespace = n.oid AND t.typname = 'vector'
+    JOIN pg_catalog.pg_depend AS d ON d.objid = t.oid
+        AND d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass AND d.objsubid = 0
+        AND d.refobjid = e.oid AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+        AND d.deptype = 'e'
+    WHERE e.extname = 'vector';
+
+    EXECUTE pg_catalog.format($vector_schema_ddl$
 CREATE FUNCTION paradedb.vector_error_cone_audit(
     index regclass,
     field text,
-    queries vector[]
+    queries %I.vector[]
 ) RETURNS TABLE(
     protocol text,
     depth integer,
@@ -582,6 +633,9 @@ CREATE FUNCTION paradedb.vector_error_cone_audit(
 STABLE PARALLEL UNSAFE
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'vector_error_cone_audit_internal_wrapper';
+$vector_schema_ddl$, vector_schema);
+END
+$vector_error_cone_audit$;
 "#
 )]
 fn vector_error_cone_audit_internal(

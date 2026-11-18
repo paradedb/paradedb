@@ -871,23 +871,42 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     OPERATOR 2 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;
 
-CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
+-- PostgreSQL 15 has no dependency-schema substitution.
+DO $vector_opclasses$
+DECLARE
+    vector_schema text;
+BEGIN
+    SELECT n.nspname INTO STRICT vector_schema
+    FROM pg_catalog.pg_extension AS e
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace
+    JOIN pg_catalog.pg_type AS t ON t.typnamespace = n.oid AND t.typname = 'vector'
+    JOIN pg_catalog.pg_depend AS d ON d.objid = t.oid
+        AND d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass AND d.objsubid = 0
+        AND d.refobjid = e.oid AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+        AND d.deptype = 'e'
+    WHERE e.extname = 'vector';
 
-CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
+    EXECUTE pg_catalog.format($vector_schema_ddl$
+CREATE OPERATOR CLASS %1$I.vector_l2_ops DEFAULT FOR TYPE %1$I.vector USING bm25 AS
+    STORAGE %1$I.vector;
 
-CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING bm25 AS
-    STORAGE public.vector;
+CREATE OPERATOR CLASS %1$I.vector_cosine_ops FOR TYPE %1$I.vector USING bm25 AS
+    STORAGE %1$I.vector;
 
-CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING paradedb AS
-    STORAGE public.vector;
+CREATE OPERATOR CLASS %1$I.vector_ip_ops FOR TYPE %1$I.vector USING bm25 AS
+    STORAGE %1$I.vector;
 
-CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING paradedb AS
-    STORAGE public.vector;
+CREATE OPERATOR CLASS %1$I.vector_l2_ops DEFAULT FOR TYPE %1$I.vector USING paradedb AS
+    STORAGE %1$I.vector;
 
-CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING paradedb AS
-    STORAGE public.vector;
+CREATE OPERATOR CLASS %1$I.vector_cosine_ops FOR TYPE %1$I.vector USING paradedb AS
+    STORAGE %1$I.vector;
+
+CREATE OPERATOR CLASS %1$I.vector_ip_ops FOR TYPE %1$I.vector USING paradedb AS
+    STORAGE %1$I.vector;
+$vector_schema_ddl$, vector_schema);
+END
+$vector_opclasses$;
 "#,
     name = "bm25_ops_anyelement_operator",
     requires = [

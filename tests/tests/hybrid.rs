@@ -142,3 +142,42 @@ fn reciprocal_rank_fusion(mut conn: PgConnection) {
         )
     );
 }
+
+#[rstest]
+fn vector_in_custom_schema(database: Db) {
+    let mut conn = async_std::task::block_on(database.connection());
+    r#"
+    CREATE SCHEMA "Vector Extensions";
+    CREATE EXTENSION vector SCHEMA "Vector Extensions";
+    CREATE EXTENSION pg_search;
+    "#
+    .execute(&mut conn);
+
+    // Exercise the installed extension from a new session.
+    let mut conn = async_std::task::block_on(database.connection());
+    r#"
+    CREATE TABLE custom_vectors (id integer PRIMARY KEY, embedding "Vector Extensions".vector(3));
+    INSERT INTO custom_vectors VALUES (1, '[1,0,0]'), (2, '[0,1,0]');
+    CREATE INDEX custom_vectors_idx ON custom_vectors
+    USING paradedb (id, embedding "Vector Extensions".vector_cosine_ops);
+    "#
+    .execute(&mut conn);
+
+    let (exists,) = r#"
+        SELECT pg_catalog.to_regprocedure(
+            'paradedb.vector_estimator_info(regclass,text,"Vector Extensions".vector[])'
+        ) IS NOT NULL
+    "#
+    .fetch_one::<(bool,)>(&mut conn);
+    assert!(exists);
+
+    let query = r#"
+        SELECT id FROM custom_vectors WHERE id @@@ pdb.all()
+        ORDER BY embedding OPERATOR("Vector Extensions".<=>) '[0,1,0]'
+        LIMIT 1
+    "#;
+    let plan: Vec<(String,)> = format!("EXPLAIN (COSTS OFF) {query}").fetch(&mut conn);
+    assert!(plan.iter().any(|(line,)| line.contains("TopK Order By")));
+    let (id,) = query.fetch_one::<(i32,)>(&mut conn);
+    assert_eq!(id, 2);
+}

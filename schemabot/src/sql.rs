@@ -110,14 +110,58 @@ pub fn parse(input: &str) -> Result<Vec<ParsedStatement>, String> {
         .collect()
 }
 
+// Compare the vector DDL against its historical spelling. The installation
+// script binds the same objects to the registered pgvector schema at runtime.
+fn schema_statements(sql: &str) -> Result<Vec<ParsedStatement>, String> {
+    let mut statements = Vec::new();
+    for statement in parse(sql)? {
+        if matches!(statement.node.node, Some(NodeEnum::DoStmt(_)))
+            && let Some((_, template)) = statement.source.split_once("$vector_schema_ddl$")
+        {
+            let (ddl, _) = template
+                .split_once("$vector_schema_ddl$")
+                .ok_or("unterminated vector schema DDL")?;
+            statements.extend(parse(
+                &ddl.replace("%1$I", "public").replace("%I.vector", "vector"),
+            )?);
+        } else {
+            statements.push(statement);
+        }
+    }
+    Ok(statements)
+}
+
 pub fn read(path: &str) -> Result<Vec<ParsedStatement>, String> {
     let content = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
-    parse(&content).map_err(|error| format!("{path}: {error}"))
+    schema_statements(&content).map_err(|error| format!("{path}: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compares_vector_schema_templates_as_ddl() {
+        let statements = schema_statements(
+            "DO $$BEGIN EXECUTE format($vector_schema_ddl$
+                CREATE OPERATOR CLASS %1$I.vector_l2_ops DEFAULT FOR TYPE %1$I.vector
+                USING bm25 AS STORAGE %1$I.vector;
+                CREATE FUNCTION paradedb.f(%I.vector[]) RETURNS int
+                LANGUAGE sql AS 'SELECT 1';
+            $vector_schema_ddl$, 'extensions'); END$$;",
+        )
+        .unwrap();
+        let expected = parse(
+            "CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector
+             USING bm25 AS STORAGE public.vector;
+             CREATE FUNCTION paradedb.f(vector[]) RETURNS int LANGUAGE sql AS 'SELECT 1';",
+        )
+        .unwrap();
+        assert_eq!(
+            statements.iter().map(|s| &s.comparison).collect::<Vec<_>>(),
+            expected.iter().map(|s| &s.comparison).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn ignores_formatting_comments_and_type_aliases() {

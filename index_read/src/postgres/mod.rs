@@ -64,8 +64,13 @@ impl TryFrom<pg_sys::StrategyNumber> for ScanStrategy {
     }
 }
 
-/// Why [`bm25_index_or_reason`] found no ParadeDB index the planner may use.
-pub enum NoBm25Index {
+/// Outcome of looking up the usable `USING paradedb` search index on a relation.
+#[derive(Debug)]
+pub enum Bm25IndexLookup {
+    Found {
+        table: PgSearchRelation,
+        index: PgSearchRelation,
+    },
     /// The table has no valid `USING paradedb` search index.
     Missing,
     /// This backend runs on a hot standby, where ParadeDB Community serves no index.
@@ -74,46 +79,50 @@ pub enum NoBm25Index {
     BlockedAfterPromotion(PgSearchRelation),
 }
 
-impl NoBm25Index {
-    /// Raises the error for this reason; `missing` supplies the caller's own message for
-    /// [`NoBm25Index::Missing`].
-    pub fn report(self, missing: impl FnOnce() -> String) -> ! {
+impl Bm25IndexLookup {
+    /// Returns `(table, index)` when usable, or raises the error for this outcome (`missing`
+    /// supplies the caller's message for [`Bm25IndexLookup::Missing`]).
+    pub fn unwrap_or_report(
+        self,
+        missing: impl FnOnce() -> String,
+    ) -> (PgSearchRelation, PgSearchRelation) {
         match self {
-            NoBm25Index::Missing => pgrx::error!("{}", missing()),
-            NoBm25Index::HotStandby => crate::postgres::utils::report_hot_standby(),
-            NoBm25Index::BlockedAfterPromotion(index) => index.report_blocked_after_promotion(),
+            Self::Found { table, index } => (table, index),
+            Self::Missing => pgrx::error!("{}", missing()),
+            Self::HotStandby => crate::postgres::utils::report_hot_standby(),
+            Self::BlockedAfterPromotion(index) => index.report_blocked_after_promotion(),
         }
     }
 }
 
-/// Finds the `USING paradedb` index on the specified relation, along with the heap relation,
-/// or the reason there is none the planner may use. [`PgSearchRelation::bm25_index`] picks the
-/// index.
-pub fn bm25_index_or_reason(
-    relid: pg_sys::Oid,
-) -> Result<(rel::PgSearchRelation, rel::PgSearchRelation), NoBm25Index> {
+/// Looks up the `USING paradedb` search index on `relid`, along with its heap relation.
+/// [`PgSearchRelation::bm25_index`] picks the index.
+pub fn lookup_bm25_index(relid: pg_sys::Oid) -> Bm25IndexLookup {
     if relid == pg_sys::Oid::INVALID {
-        return Err(NoBm25Index::Missing);
+        return Bm25IndexLookup::Missing;
     }
     if crate::postgres::utils::in_hot_standby() {
-        return Err(NoBm25Index::HotStandby);
+        return Bm25IndexLookup::HotStandby;
     }
 
-    let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    match rel.bm25_index() {
+    let table = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
+    match table.bm25_index() {
         Some(index) if index.blocked_after_promotion() => {
-            Err(NoBm25Index::BlockedAfterPromotion(index))
+            Bm25IndexLookup::BlockedAfterPromotion(index)
         }
-        Some(index) => Ok((rel, index)),
-        None => Err(NoBm25Index::Missing),
+        Some(index) => Bm25IndexLookup::Found { table, index },
+        None => Bm25IndexLookup::Missing,
     }
 }
 
-/// [`bm25_index_or_reason`] for callers that plan without the index when there is none.
+/// [`lookup_bm25_index`] for callers that plan without the index when there is none.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
-    bm25_index_or_reason(relid).ok()
+    match lookup_bm25_index(relid) {
+        Bm25IndexLookup::Found { table, index } => Some((table, index)),
+        _ => None,
+    }
 }
 
 // 16 bytes for segment UUID

@@ -70,7 +70,6 @@ use crate::index::mvcc::{MvccSatisfies, SegmentView};
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::ParallelScanArgs;
 use crate::postgres::PgSearchRelation;
-use crate::postgres::bm25_index_or_reason;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
@@ -123,6 +122,7 @@ use crate::postgres::types::{TantivyValue, is_datetime_type};
 use crate::postgres::utils::{
     ExprContextGuard, add_vars_to_tlist, is_unnest_func, make_text_const,
 };
+use crate::postgres::{lookup_bm25_index, rel_get_bm25_index};
 use crate::query::SearchQueryInput;
 use arrow_array::cast::AsArray;
 use arrow_array::{BooleanArray, RecordBatch};
@@ -1603,16 +1603,15 @@ impl AggregateScan {
             return Vec::new();
         };
 
-        let (_table, index) = match bm25_index_or_reason(heap_relid) {
-            Ok(found) => found,
-            Err(reason) => {
-                if has_paradedb_agg {
-                    reason.report(|| {
-                        "Cannot execute pdb.agg: table must have a ParadeDB index".to_string()
-                    });
-                }
+        let (_table, index) = if has_paradedb_agg {
+            lookup_bm25_index(heap_relid).unwrap_or_report(|| {
+                "Cannot execute pdb.agg: table must have a ParadeDB index".to_string()
+            })
+        } else {
+            let Some(found) = rel_get_bm25_index(heap_relid) else {
                 return Vec::new();
-            }
+            };
+            found
         };
 
         // Such a `pdb.agg()` query comes here only when the DataFusion backend

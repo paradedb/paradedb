@@ -1,5 +1,0 @@
----
-header: stability
----
-
-- A ParadeDB Community physical standby no longer stops replaying WAL when a ParadeDB index is created or vacuumed on the primary. Statements that use a ParadeDB index on the standby still fail; every other statement works (#6007).

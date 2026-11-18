@@ -62,6 +62,7 @@ pub enum GenericXlogState {
 #[derive(Debug)]
 pub enum XlogStyle {
     Unlogged,
+    Redo(pg_sys::XLogRecPtr),
     GenericXlog(GenericXlogState),
     FullPageImage,
 }
@@ -79,7 +80,7 @@ impl XlogStyle {
     pub fn get_page_mut(&mut self, buffer: pg_sys::Buffer) -> pg_sys::Page {
         unsafe {
             match self {
-                XlogStyle::Unlogged | XlogStyle::FullPageImage => {
+                XlogStyle::Unlogged | XlogStyle::Redo(_) | XlogStyle::FullPageImage => {
                     pgrx::BufferGetPage!(buffer).get()
                 }
                 XlogStyle::GenericXlog(GenericXlogState::Uninitialized { rel, flag }) => {
@@ -102,6 +103,11 @@ pub unsafe fn finish_xlog(buffer: &mut BufferMut) {
     if buffer.dirty {
         match buffer.style {
             XlogStyle::Unlogged => {
+                pg_sys::MarkBufferDirty(buffer.pg_buffer);
+            }
+
+            XlogStyle::Redo(lsn) => {
+                buffer.page_mut().set_lsn(lsn);
                 pg_sys::MarkBufferDirty(buffer.pg_buffer);
             }
 

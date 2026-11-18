@@ -17,7 +17,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::block_number_is_valid;
+use crate::postgres::storage::buffer::{BufferMut, IndexLocator};
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{pg_guard, pg_sys};
 use std::ffi::CStr;
@@ -29,11 +29,6 @@ const RMGR_NAME: &CStr = c"pg_search";
 const XLOG_PG_SEARCH_INIT_INDEX: u8 = 0x10;
 const XLOG_PG_SEARCH_INIT_INDEX_NAME: &CStr = c"INIT_INDEX";
 
-#[cfg(feature = "pg15")]
-type IndexLocator = pg_sys::RelFileNode;
-#[cfg(not(feature = "pg15"))]
-type IndexLocator = pg_sys::RelFileLocator;
-
 /// The record's payload: what replay can reach without a catalog.
 #[repr(C)]
 struct InitIndexPayload {
@@ -43,69 +38,27 @@ struct InitIndexPayload {
 
 /// Sets the standby taint on the taint page of the named index, following the shape of
 /// `XLogReadBufferForRedo`: a block that does not exist is skipped without logging an invalid
-/// page, and a page already at or past this record's LSN is left alone. A primary on a release
-/// whose record carried no locator wrote a single zero byte, which is skipped.
+/// page, and a page already at or past this record's LSN (or already tainted) is left alone. A
+/// primary on a release whose record carried no locator wrote a single zero byte, which is
+/// skipped.
 unsafe fn taint_replicated_index(record: *mut pg_sys::XLogReaderState) {
     let decoded = (*record).record;
     if ((*decoded).main_data_len as usize) < std::mem::size_of::<InitIndexPayload>() {
         return;
     }
     let payload = std::ptr::read_unaligned((*decoded).main_data.cast::<InitIndexPayload>());
-    if !block_number_is_valid(payload.taint_block) {
-        return;
-    }
     let locator = payload.locator;
-    let buffer = pg_sys::XLogReadBufferExtended(
-        locator,
-        pg_sys::ForkNumber::MAIN_FORKNUM,
-        payload.taint_block,
-        pg_sys::ReadBufferMode::RBM_NORMAL_NO_LOG,
-        pg_sys::InvalidBuffer as pg_sys::Buffer,
-    );
-    if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
-        return;
-    }
-    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
-    #[cfg(feature = "pg15")]
-    let page = pgrx::BufferGetPage!(buffer).get();
-    #[cfg(not(feature = "pg15"))]
-    let page = pg_sys::BufferGetPage(buffer);
     let lsn = (*record).EndRecPtr;
-    if lsn <= page_lsn(page) || MetaPage::is_page_tainted(page) {
-        pg_sys::UnlockReleaseBuffer(buffer);
+    let Some(mut buffer) = BufferMut::read_for_redo(locator, payload.taint_block, lsn) else {
+        return;
+    };
+    let page = buffer.page();
+    if lsn <= page.lsn() || MetaPage::is_tainted(&page) {
         return;
     }
-    MetaPage::taint_page(page);
-    set_page_lsn(page, lsn);
-    pg_sys::MarkBufferDirty(buffer);
-    pg_sys::UnlockReleaseBuffer(buffer);
+    MetaPage::taint(&mut buffer.page_mut());
+    drop(buffer);
     pgrx::debug1!("tainted ParadeDB index {locator:?} for the promotion gate");
-}
-
-// `BufferGetPage`, `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding;
-// from 16 they are functions.
-#[cfg(feature = "pg15")]
-unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
-    let lsn = (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn;
-    ((lsn.xlogid as u64) << 32) | lsn.xrecoff as u64
-}
-
-#[cfg(feature = "pg15")]
-unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
-    (*page.cast::<pg_sys::PageHeaderData>()).pd_lsn = pg_sys::PageXLogRecPtr {
-        xlogid: (lsn >> 32) as u32,
-        xrecoff: lsn as u32,
-    };
-}
-
-#[cfg(not(feature = "pg15"))]
-unsafe fn page_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
-    pg_sys::PageGetLSN(page)
-}
-
-#[cfg(not(feature = "pg15"))]
-unsafe fn set_page_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
-    pg_sys::PageSetLSN(page, lsn)
 }
 
 #[pg_guard]

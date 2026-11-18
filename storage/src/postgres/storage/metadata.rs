@@ -21,7 +21,9 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, SegmentMetaEntryContent, block_number_is_valid,
 };
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer, init_new_buffer};
+use crate::postgres::storage::buffer::{
+    BufferManager, Page, PageMut, PinnedBuffer, init_new_buffer,
+};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -542,8 +544,7 @@ impl MetaPage {
     /// True once a standby's WAL replay set the taint; see `PgSearchRelation::blocked_after_promotion`.
     pub fn standby_tainted(&self) -> bool {
         let buffer = self.bman.get_buffer(self.standby_taint_block());
-        let tainted = buffer.page().contents::<StandbyTaintData>().tainted;
-        tainted == STANDBY_TAINTED
+        Self::is_tainted(&buffer.page())
     }
 
     /// The block the `INIT_INDEX` record names, so replay finds the taint page without a catalog.
@@ -552,21 +553,14 @@ impl MetaPage {
         self.data.standby_taint
     }
 
-    /// True when a raw taint page already carries the taint flag.
-    pub unsafe fn is_page_tainted(page: pg_sys::Page) -> bool {
-        let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
-            .get()
-            .cast::<StandbyTaintData>();
-        (*contents).tainted == STANDBY_TAINTED
+    /// True when a taint page carries the standby taint flag.
+    pub fn is_tainted(page: &Page<'_>) -> bool {
+        page.contents::<StandbyTaintData>().tainted == STANDBY_TAINTED
     }
 
-    /// Sets the taint on a raw taint page during WAL replay, where no relation can be opened.
-    pub unsafe fn taint_page(page: pg_sys::Page) {
-        let contents = pgrx::PageGetContents!(pgrx::cmacros::c::Pointer::from(page))
-            .get()
-            .cast::<StandbyTaintData>();
-        (*contents).tainted = STANDBY_TAINTED;
-        crate::postgres::storage::buffer::set_pd_lower_for::<StandbyTaintData>(page);
+    /// Sets the taint on a taint page during WAL replay, where no relation can be opened.
+    pub fn taint(page: &mut PageMut<'_>) {
+        page.contents_mut::<StandbyTaintData>().tainted = STANDBY_TAINTED;
     }
 
     pub fn increment_ambulkdelete_epoch(&mut self) {

@@ -208,7 +208,9 @@ struct UnlockReleaseBufferOnMainThread(pg_sys::Buffer);
 
 crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
     unsafe {
-        if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState() {
+        if pg_sys::InterruptHoldoffCount > 0
+            && (crate::postgres::utils::IsTransactionState() || pg_sys::InRecovery)
+        {
             pg_sys::UnlockReleaseBuffer(self.0);
         }
     }
@@ -251,8 +253,8 @@ impl Buffer {
         // guard buys nothing for a function that cannot ERROR (see
         // `crate::postgres::utils::IsTransactionState`).
         assert!(
-            unsafe { crate::postgres::utils::IsTransactionState() },
-            "buffer cannot be allocated outside of a transaction"
+            unsafe { crate::postgres::utils::IsTransactionState() || pg_sys::InRecovery },
+            "buffer cannot be allocated outside of a transaction or WAL recovery"
         );
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self {
@@ -356,9 +358,14 @@ impl Deref for BufferMut {
     }
 }
 
+#[cfg(feature = "pg15")]
+pub(crate) type IndexLocator = pg_sys::RelFileNode;
+#[cfg(not(feature = "pg15"))]
+pub(crate) type IndexLocator = pg_sys::RelFileLocator;
+
 crate::impl_safe_drop!(BufferMut, |self| {
     unsafe {
-        if crate::postgres::utils::IsTransactionState() {
+        if crate::postgres::utils::IsTransactionState() || pg_sys::InRecovery {
             // it's safe to either mark buffers dirty or finish the xlog record
             finish_xlog(self)
         }
@@ -366,6 +373,35 @@ crate::impl_safe_drop!(BufferMut, |self| {
 });
 
 impl BufferMut {
+    /// Pins and exclusively locks an existing main-fork block for WAL redo, returning `None` when
+    /// the block does not exist (`RBM_NORMAL_NO_LOG`, matching `XLogReadBufferForRedo`).
+    pub(crate) unsafe fn read_for_redo(
+        locator: IndexLocator,
+        blockno: pg_sys::BlockNumber,
+        lsn: pg_sys::XLogRecPtr,
+    ) -> Option<Self> {
+        assert!(pg_sys::InRecovery, "read_for_redo requires WAL recovery");
+        if !crate::postgres::storage::block::block_number_is_valid(blockno) {
+            return None;
+        }
+        let pg_buffer = pg_sys::XLogReadBufferExtended(
+            locator,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            blockno,
+            pg_sys::ReadBufferMode::RBM_NORMAL_NO_LOG,
+            pg_sys::InvalidBuffer as pg_sys::Buffer,
+        );
+        if pg_buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
+            return None;
+        }
+        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+        block_tracker::track!(Write, blockno);
+        Some(Self {
+            style: XlogStyle::Redo(lsn),
+            dirty: false,
+            inner: Buffer::new(pg_buffer),
+        })
+    }
     pub fn init_page(&mut self) -> PageMut<'_> {
         self.assert_mutable();
         let page_size = self.page_size();
@@ -449,6 +485,13 @@ impl BufferMut {
         {
             match self.style {
                 XlogStyle::Unlogged => {}
+                XlogStyle::Redo(_) => {
+                    assert!(
+                        unsafe { pg_sys::InRecovery },
+                        "{}: redo buffer mutated outside WAL recovery",
+                        std::panic::Location::caller()
+                    );
+                }
                 XlogStyle::FullPageImage | XlogStyle::GenericXlog(_) => {
                     assert!(
                         unsafe { pg_sys::XLogInsertAllowed() },
@@ -581,6 +624,20 @@ impl<'a> Page<'a> {
 
     pub fn header(&self) -> &pg_sys::PageHeaderData {
         unsafe { &*(self.pg_page as *const pg_sys::PageHeaderData) }
+    }
+
+    // `PageGetLSN` and `PageSetLSN` are macros on PostgreSQL 15, with no binding; from 16 they
+    // are functions.
+    pub fn lsn(&self) -> pg_sys::XLogRecPtr {
+        #[cfg(feature = "pg15")]
+        {
+            let lsn = self.header().pd_lsn;
+            ((lsn.xlogid as u64) << 32) | lsn.xrecoff as u64
+        }
+        #[cfg(not(feature = "pg15"))]
+        unsafe {
+            pg_sys::PageGetLSN(self.pg_page)
+        }
     }
 
     pub fn special<T>(&self) -> &T {
@@ -757,6 +814,22 @@ impl<'a> PageMut<'a> {
         header
     }
 
+    pub fn set_lsn(&mut self, lsn: pg_sys::XLogRecPtr) {
+        self.buffer.assert_mutable();
+        #[cfg(feature = "pg15")]
+        {
+            self.header_mut().pd_lsn = pg_sys::PageXLogRecPtr {
+                xlogid: (lsn >> 32) as u32,
+                xrecoff: lsn as u32,
+            };
+        }
+        #[cfg(not(feature = "pg15"))]
+        unsafe {
+            pg_sys::PageSetLSN(self.pg_page, lsn);
+        }
+        self.buffer.dirty = true;
+    }
+
     pub fn special_mut<T>(&mut self) -> &mut T {
         self.buffer.assert_mutable();
         let special = unsafe {
@@ -825,12 +898,23 @@ impl<'a> PageMut<'a> {
     }
 
     pub fn contents_mut<T>(&mut self) -> &'a mut T {
+        const {
+            assert!(
+                std::mem::size_of::<T>() + std::mem::size_of::<pg_sys::PageHeaderData>()
+                    <= u16::MAX as usize
+            )
+        }
         self.buffer.assert_mutable();
         let contents = unsafe {
-            set_pd_lower_for::<T>(self.pg_page);
-            &mut *pgrx::PageGetContents!(Pointer::from(self.pg_page))
+            let contents = pgrx::PageGetContents!(Pointer::from(self.pg_page))
                 .get()
-                .cast::<T>()
+                .cast::<T>();
+
+            // adjust pd_lower so full-page images include `T` instead of dropping it as the hole
+            let header = self.pg_page.cast::<pg_sys::PageHeaderData>();
+            (*header).pd_lower = (contents.add(1) as usize - header as usize) as u16;
+
+            &mut *contents
         };
         self.buffer.dirty = true;
         contents
@@ -1205,19 +1289,3 @@ impl Deref for ImmutablePage {
 unsafe impl StableDeref for ImmutablePage {}
 unsafe impl Send for ImmutablePage {}
 unsafe impl Sync for ImmutablePage {}
-
-/// Sets `pd_lower` to the end of a `T` at the start of the page contents, so a full-page image
-/// keeps the struct instead of dropping it as the hole.
-pub(crate) unsafe fn set_pd_lower_for<T>(page: pg_sys::Page) {
-    const {
-        assert!(
-            std::mem::size_of::<T>() + std::mem::size_of::<pg_sys::PageHeaderData>()
-                <= u16::MAX as usize
-        )
-    }
-    let contents = pgrx::PageGetContents!(Pointer::from(page))
-        .get()
-        .cast::<T>();
-    let header = page.cast::<pg_sys::PageHeaderData>();
-    (*header).pd_lower = (contents.add(1) as usize - header as usize) as u16;
-}

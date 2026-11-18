@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794971356818,
+  "lastUpdate": 1794978576991,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -99311,6 +99311,119 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14298706993-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794978570461,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "postgres (knn_top100_unfiltered@r90) p50 latency",
+            "value": 18.738,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r90) p95 latency",
+            "value": 20.344,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r90) p99 latency",
+            "value": 20.888,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r95) p50 latency",
+            "value": 93.066,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r95) p95 latency",
+            "value": 119.039,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r95) p99 latency",
+            "value": 123.32,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r99) p50 latency",
+            "value": 1309.721,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r99) p95 latency",
+            "value": 1774.779,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r99) p99 latency",
+            "value": 1873.94,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r90) p50 latency",
+            "value": 7.482,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r90) p95 latency",
+            "value": 8.407,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r90) p99 latency",
+            "value": 8.874,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r95) p50 latency",
+            "value": 24.059,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r95) p95 latency",
+            "value": 26.349,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r95) p99 latency",
+            "value": 27.24,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r99) p50 latency",
+            "value": 1111.425,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r99) p95 latency",
+            "value": 1418.22,
+            "unit": "ms"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r99) p99 latency",
+            "value": 1430.862,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14399607291-latency"
       }
     ],
     "benchmarker msmarco-113m-vectorchord (throughput)": [
@@ -99366,6 +99479,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14298706993-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794978572564,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "postgres (knn_top100_unfiltered@r90) QPS",
+            "value": 53.3497747158894,
+            "unit": "queries/s"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r95) QPS",
+            "value": 10.627283113740948,
+            "unit": "queries/s"
+          },
+          {
+            "name": "postgres (knn_top100_unfiltered@r99) QPS",
+            "value": 0.7480263121407956,
+            "unit": "queries/s"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r90) QPS",
+            "value": 132.199131599553,
+            "unit": "queries/s"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r95) QPS",
+            "value": 41.599957637326376,
+            "unit": "queries/s"
+          },
+          {
+            "name": "postgres (knn_top10_unfiltered@r99) QPS",
+            "value": 0.8865744276851105,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14399607291-throughput"
       }
     ],
     "benchmarker msmarco-113m-vectorchord (buffers)": [
@@ -99421,6 +99587,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14298706993-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794978574714,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top100_unfiltered@r90 shared hits/query",
+            "value": 12571.88,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r95 shared hits/query",
+            "value": 29296.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top100_unfiltered@r99 shared hits/query",
+            "value": 277128.21,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 4945.64,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 15599.01,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 262976.73,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14399607291-buffers"
       }
     ],
     "benchmarker msmarco-113m-vectorchord (index build)": [
@@ -99461,6 +99680,44 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14298706993-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "d772968d27cec8df940085e773e6bc42de1f0264",
+          "message": "perf: Add shortlist filtering to the shared vector filter plan (#7431)\n\nBroad scalar vector filters can evaluate the approximate shortlist\nbefore full-precision scoring. This PR integrates merged [Tantivy\n#413](https://github.com/paradedb/tantivy/pull/413), pinned to\n`33f59499e413e9e8ac650858a483665b65482008`, on top of current main\nincluding merged\n[#7469](https://github.com/paradedb/paradedb/pull/7469).\n\n`PostFilterStage::BeforeQuantizedScoring` checks routed cluster members;\n`AfterQuantizedScoring` checks the approximate shortlist before exact\nscoring. EXPLAIN identifies the selected stage. The shortlist stage\nretains serial worker selection and disabled scan adaptive probing; the\nother strategies retain the existing worker policy.\n\nValidation: workspace formatting, Clippy (all targets, warnings denied),\ncargo check, cargo doc, and commit hooks passed. PostgreSQL 16 passed\nall 105 scan tests and 12 vector tests, including the spill test that\nintermittently failed in CI. Fresh CI is running on the updated branch;\nthe Nix workflow refreshes the dependency hash after the pin change.\n\n---------\n\nCo-authored-by: paradedb-github-bot[bot] <282009505+paradedb-github-bot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-17T10:24:08Z",
+          "url": "https://github.com/paradedb/paradedb/commit/d772968d27cec8df940085e773e6bc42de1f0264"
+        },
+        "date": 1794978576979,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "msmarco_vchordrq_idx build time",
+            "value": 482.46657737981667,
+            "unit": "min"
+          },
+          {
+            "name": "msmarco_vchordrq_idx index size",
+            "value": 614386.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "msmarco_vchordrq_idx peak container memory",
+            "value": 14.312625885009766,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14399607291-index"
       }
     ],
     "benchmarker cohere-1m-8cpu-32gb (latency)": [

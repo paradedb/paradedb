@@ -152,6 +152,28 @@ BEGIN
     );
 END;
 $$;
+-- Older background-worker snapshots can prevent VACUUM from marking pages all-visible.
+DO $$
+DECLARE
+    snapshot_wait_timeout CONSTANT interval := interval '2 minutes';
+    snapshot_poll_interval CONSTANT double precision := 0.1;
+    deadline timestamptz := clock_timestamp() + snapshot_wait_timeout;
+BEGIN
+    LOOP
+        PERFORM pg_stat_clear_snapshot();
+        EXIT WHEN NOT EXISTS (
+            SELECT FROM pg_stat_activity
+            WHERE pid <> pg_backend_pid()
+              AND backend_xmin IS NOT NULL
+              AND (datname = current_database() OR datname IS NULL)
+        );
+        IF clock_timestamp() >= deadline THEN
+            RAISE EXCEPTION 'timed out waiting for older snapshots before index-only scan VACUUM';
+        END IF;
+        PERFORM pg_sleep(snapshot_poll_interval);
+    END LOOP;
+END;
+$$;
 VACUUM (FREEZE, ANALYZE) index_only_max_keys;
 SELECT bool_and(pg_index_column_has_property('index_only_max_keys_idx', i, 'returnable')
                 IS NOT DISTINCT FROM (i = current_setting('max_index_keys')::int)) AS correct_capabilities

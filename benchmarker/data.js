@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794978628280,
+  "lastUpdate": 1794990527570,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -101127,6 +101127,571 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14394105729-index"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-8cpu-32gb (latency)": [
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6718494ca10b1acd77cd31cf01c20bfbf04a862b",
+          "message": "fix: stop auto_explain from crashing Aggregate Scan and Join Scan queries (#7426)\n\n# Ticket(s) Closed\n\n- Closes #6906\n\n## What\n\nWith `auto_explain` loaded and `log_analyze` off, a query that runs as\nan Aggregate Scan or Join Scan no longer crashes its backend with a\nsegfault when auto_explain logs the plan.\n\n## Why\n\nauto_explain prints plans from its `ExecutorEnd` hook. For a top-level\nquery, PostgreSQL calls that hook when it drops the portal, or at\n`COMMIT` for cursors and extended-protocol portals, and no snapshot is\nactive at that point. Without ANALYZE, both scans rebuild their\nDataFusion plan to print it. The rebuild calls `GetActiveSnapshot()`,\nwhich dereferences the NULL active snapshot. Plain `EXPLAIN` works\nbecause the EXPLAIN command runs with a snapshot.\n\n## How\n\nThe shared `explain_custom_scan` callback in\n`planner/src/postgres/customscan/exec.rs` now holds\n`ActiveSnapshotGuard::ensure()` while the scan prints its plan. The\nguard pushes the transaction snapshot only when no snapshot is active,\nand pops it when the callback returns. Plain `EXPLAIN`, `EXPLAIN\nANALYZE`, and auto_explain with `log_analyze` already run with a\nsnapshot, so they behave as before.\n\n## Tests\n\n- The new `issue_6906` regress test runs both queries from the issue\nunder auto_explain. On `main` the backend crashes at the first query\nwith `server closed the connection unexpectedly`. With the fix both\nqueries return their rows. The test is its own commit, ahead of the fix.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I ran 33 more auto_explain cases, each in its own backend. They cover\n`log_analyze` on and off, `log_nested_statements`, EXPLAIN inside\nPL/pgSQL, cursors closed by `COMMIT`, `CLOSE`, or `ROLLBACK`, `WITH\nHOLD` cursors, REPEATABLE READ and SERIALIZABLE, the extended protocol,\nand parallel plans. None crashed or logged a `snapshot ... still active`\nwarning. On `main`, 13 of them crash.\n- `cargo fmt --all -- --check` and `cargo clippy -p planner\n--all-targets -- -D warnings --no-deps` are clean.\n\nThe changelog entry is in\n`docs/project/changelog/unreleased/7426.bugfix.mdx`. The crash was\nreported on 0.26.2, so could a maintainer add the `cherry-pick/0.26.x`\nlabel?",
+          "timestamp": "2026-11-18T03:54:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6718494ca10b1acd77cd31cf01c20bfbf04a862b"
+        },
+        "date": 1794990524592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) p50 latency",
+            "value": 28.416,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p95 latency",
+            "value": 35.08,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r90) p99 latency",
+            "value": 43.532,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p50 latency",
+            "value": 34.361,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p95 latency",
+            "value": 43.441,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) p99 latency",
+            "value": 50.64,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p50 latency",
+            "value": 56.386,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p95 latency",
+            "value": 68.444,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) p99 latency",
+            "value": 75.043,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p50 latency",
+            "value": 12.889,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p95 latency",
+            "value": 16.356,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) p99 latency",
+            "value": 17.782,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p50 latency",
+            "value": 21.653,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p95 latency",
+            "value": 27.149,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) p99 latency",
+            "value": 29.368,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p50 latency",
+            "value": 65.37,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p95 latency",
+            "value": 81.869,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) p99 latency",
+            "value": 91.732,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p50 latency",
+            "value": 19.75,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p95 latency",
+            "value": 24.212,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) p99 latency",
+            "value": 25.014,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p50 latency",
+            "value": 29.501,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p95 latency",
+            "value": 33.831,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) p99 latency",
+            "value": 34.251,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p50 latency",
+            "value": 456.227,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p95 latency",
+            "value": 502.798,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) p99 latency",
+            "value": 532.203,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p50 latency",
+            "value": 3.317,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p95 latency",
+            "value": 3.353,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) p99 latency",
+            "value": 3.414,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p50 latency",
+            "value": 3.318,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p95 latency",
+            "value": 3.355,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) p99 latency",
+            "value": 3.409,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p50 latency",
+            "value": 3.313,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p95 latency",
+            "value": 3.348,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) p99 latency",
+            "value": 3.408,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p50 latency",
+            "value": 10.703,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p95 latency",
+            "value": 10.959,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) p99 latency",
+            "value": 11.741,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p50 latency",
+            "value": 10.676,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p95 latency",
+            "value": 10.923,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) p99 latency",
+            "value": 11.716,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p50 latency",
+            "value": 10.775,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p95 latency",
+            "value": 11.028,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) p99 latency",
+            "value": 11.845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p50 latency",
+            "value": 20.022,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p95 latency",
+            "value": 22.493,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) p99 latency",
+            "value": 22.883,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p50 latency",
+            "value": 32.862,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p95 latency",
+            "value": 35.735,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) p99 latency",
+            "value": 36.922,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p50 latency",
+            "value": 63.203,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p95 latency",
+            "value": 66.903,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) p99 latency",
+            "value": 68.015,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14410133524-latency"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-8cpu-32gb (throughput)": [
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6718494ca10b1acd77cd31cf01c20bfbf04a862b",
+          "message": "fix: stop auto_explain from crashing Aggregate Scan and Join Scan queries (#7426)\n\n# Ticket(s) Closed\n\n- Closes #6906\n\n## What\n\nWith `auto_explain` loaded and `log_analyze` off, a query that runs as\nan Aggregate Scan or Join Scan no longer crashes its backend with a\nsegfault when auto_explain logs the plan.\n\n## Why\n\nauto_explain prints plans from its `ExecutorEnd` hook. For a top-level\nquery, PostgreSQL calls that hook when it drops the portal, or at\n`COMMIT` for cursors and extended-protocol portals, and no snapshot is\nactive at that point. Without ANALYZE, both scans rebuild their\nDataFusion plan to print it. The rebuild calls `GetActiveSnapshot()`,\nwhich dereferences the NULL active snapshot. Plain `EXPLAIN` works\nbecause the EXPLAIN command runs with a snapshot.\n\n## How\n\nThe shared `explain_custom_scan` callback in\n`planner/src/postgres/customscan/exec.rs` now holds\n`ActiveSnapshotGuard::ensure()` while the scan prints its plan. The\nguard pushes the transaction snapshot only when no snapshot is active,\nand pops it when the callback returns. Plain `EXPLAIN`, `EXPLAIN\nANALYZE`, and auto_explain with `log_analyze` already run with a\nsnapshot, so they behave as before.\n\n## Tests\n\n- The new `issue_6906` regress test runs both queries from the issue\nunder auto_explain. On `main` the backend crashes at the first query\nwith `server closed the connection unexpectedly`. With the fix both\nqueries return their rows. The test is its own commit, ahead of the fix.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I ran 33 more auto_explain cases, each in its own backend. They cover\n`log_analyze` on and off, `log_nested_statements`, EXPLAIN inside\nPL/pgSQL, cursors closed by `COMMIT`, `CLOSE`, or `ROLLBACK`, `WITH\nHOLD` cursors, REPEATABLE READ and SERIALIZABLE, the extended protocol,\nand parallel plans. None crashed or logged a `snapshot ... still active`\nwarning. On `main`, 13 of them crash.\n- `cargo fmt --all -- --check` and `cargo clippy -p planner\n--all-targets -- -D warnings --no-deps` are clean.\n\nThe changelog entry is in\n`docs/project/changelog/unreleased/7426.bugfix.mdx`. The crash was\nreported on 0.26.2, so could a maintainer add the `cherry-pick/0.26.x`\nlabel?",
+          "timestamp": "2026-11-18T03:54:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6718494ca10b1acd77cd31cf01c20bfbf04a862b"
+        },
+        "date": 1794990525818,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (range_0.1pct@r90) QPS",
+            "value": 33.90828579073152,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r95) QPS",
+            "value": 28.244872662298054,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_0.1pct@r99) QPS",
+            "value": 17.54524167439678,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r90) QPS",
+            "value": 75.98227681333297,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r95) QPS",
+            "value": 45.734934949056154,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_10pct@r99) QPS",
+            "value": 14.970330781951517,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r90) QPS",
+            "value": 51.70294465258701,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r95) QPS",
+            "value": 34.70204939931534,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (range_1pct@r99) QPS",
+            "value": 2.162505993884417,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r90) QPS",
+            "value": 298.6289625140528,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r95) QPS",
+            "value": 298.5057100630835,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.001pct@r99) QPS",
+            "value": 299.0214097304513,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r90) QPS",
+            "value": 92.78483663682013,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r95) QPS",
+            "value": 93.02240931392008,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.01pct@r99) QPS",
+            "value": 92.1964364284358,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r90) QPS",
+            "value": 50.44136596415498,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r95) QPS",
+            "value": 30.436648726277294,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (single_term_0.1pct@r99) QPS",
+            "value": 15.842634390319036,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14410133524-throughput"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-8cpu-32gb (buffers)": [
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6718494ca10b1acd77cd31cf01c20bfbf04a862b",
+          "message": "fix: stop auto_explain from crashing Aggregate Scan and Join Scan queries (#7426)\n\n# Ticket(s) Closed\n\n- Closes #6906\n\n## What\n\nWith `auto_explain` loaded and `log_analyze` off, a query that runs as\nan Aggregate Scan or Join Scan no longer crashes its backend with a\nsegfault when auto_explain logs the plan.\n\n## Why\n\nauto_explain prints plans from its `ExecutorEnd` hook. For a top-level\nquery, PostgreSQL calls that hook when it drops the portal, or at\n`COMMIT` for cursors and extended-protocol portals, and no snapshot is\nactive at that point. Without ANALYZE, both scans rebuild their\nDataFusion plan to print it. The rebuild calls `GetActiveSnapshot()`,\nwhich dereferences the NULL active snapshot. Plain `EXPLAIN` works\nbecause the EXPLAIN command runs with a snapshot.\n\n## How\n\nThe shared `explain_custom_scan` callback in\n`planner/src/postgres/customscan/exec.rs` now holds\n`ActiveSnapshotGuard::ensure()` while the scan prints its plan. The\nguard pushes the transaction snapshot only when no snapshot is active,\nand pops it when the callback returns. Plain `EXPLAIN`, `EXPLAIN\nANALYZE`, and auto_explain with `log_analyze` already run with a\nsnapshot, so they behave as before.\n\n## Tests\n\n- The new `issue_6906` regress test runs both queries from the issue\nunder auto_explain. On `main` the backend crashes at the first query\nwith `server closed the connection unexpectedly`. With the fix both\nqueries return their rows. The test is its own commit, ahead of the fix.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I ran 33 more auto_explain cases, each in its own backend. They cover\n`log_analyze` on and off, `log_nested_statements`, EXPLAIN inside\nPL/pgSQL, cursors closed by `COMMIT`, `CLOSE`, or `ROLLBACK`, `WITH\nHOLD` cursors, REPEATABLE READ and SERIALIZABLE, the extended protocol,\nand parallel plans. None crashed or logged a `snapshot ... still active`\nwarning. On `main`, 13 of them crash.\n- `cargo fmt --all -- --check` and `cargo clippy -p planner\n--all-targets -- -D warnings --no-deps` are clean.\n\nThe changelog entry is in\n`docs/project/changelog/unreleased/7426.bugfix.mdx`. The crash was\nreported on 0.26.2, so could a maintainer add the `cherry-pick/0.26.x`\nlabel?",
+          "timestamp": "2026-11-18T03:54:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6718494ca10b1acd77cd31cf01c20bfbf04a862b"
+        },
+        "date": 1794990526671,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "range_0.1pct@r90 shared hits/query",
+            "value": 19957.87,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r95 shared hits/query",
+            "value": 25651.25,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_0.1pct@r99 shared hits/query",
+            "value": 41358.9,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r90 shared hits/query",
+            "value": 6567.51,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r95 shared hits/query",
+            "value": 10094.14,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_10pct@r99 shared hits/query",
+            "value": 25496.88,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r90 shared hits/query",
+            "value": 11192.28,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r95 shared hits/query",
+            "value": 16055.05,
+            "unit": "hits/query"
+          },
+          {
+            "name": "range_1pct@r99 shared hits/query",
+            "value": 433454.89,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r90 shared hits/query",
+            "value": 1325.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r95 shared hits/query",
+            "value": 1325.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.001pct@r99 shared hits/query",
+            "value": 1325.63,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r90 shared hits/query",
+            "value": 7375.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r95 shared hits/query",
+            "value": 7375.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.01pct@r99 shared hits/query",
+            "value": 7375.72,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r90 shared hits/query",
+            "value": 9423.06,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r95 shared hits/query",
+            "value": 17076.33,
+            "unit": "hits/query"
+          },
+          {
+            "name": "single_term_0.1pct@r99 shared hits/query",
+            "value": 33114.36,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14410133524-buffers"
+      }
+    ],
+    "benchmarker hackernews-vector-28m-8cpu-32gb (index build)": [
+      {
+        "commit": {
+          "author": {
+            "name": "dayan02dev",
+            "username": "dayan02dev",
+            "email": "pawarudayan92@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6718494ca10b1acd77cd31cf01c20bfbf04a862b",
+          "message": "fix: stop auto_explain from crashing Aggregate Scan and Join Scan queries (#7426)\n\n# Ticket(s) Closed\n\n- Closes #6906\n\n## What\n\nWith `auto_explain` loaded and `log_analyze` off, a query that runs as\nan Aggregate Scan or Join Scan no longer crashes its backend with a\nsegfault when auto_explain logs the plan.\n\n## Why\n\nauto_explain prints plans from its `ExecutorEnd` hook. For a top-level\nquery, PostgreSQL calls that hook when it drops the portal, or at\n`COMMIT` for cursors and extended-protocol portals, and no snapshot is\nactive at that point. Without ANALYZE, both scans rebuild their\nDataFusion plan to print it. The rebuild calls `GetActiveSnapshot()`,\nwhich dereferences the NULL active snapshot. Plain `EXPLAIN` works\nbecause the EXPLAIN command runs with a snapshot.\n\n## How\n\nThe shared `explain_custom_scan` callback in\n`planner/src/postgres/customscan/exec.rs` now holds\n`ActiveSnapshotGuard::ensure()` while the scan prints its plan. The\nguard pushes the transaction snapshot only when no snapshot is active,\nand pops it when the callback returns. Plain `EXPLAIN`, `EXPLAIN\nANALYZE`, and auto_explain with `log_analyze` already run with a\nsnapshot, so they behave as before.\n\n## Tests\n\n- The new `issue_6906` regress test runs both queries from the issue\nunder auto_explain. On `main` the backend crashes at the first query\nwith `server closed the connection unexpectedly`. With the fix both\nqueries return their rows. The test is its own commit, ahead of the fix.\n- The full PG 18 suite passes: `cargo pgrx regress pg18` reports\n`passed=468 failed=0`.\n- I ran 33 more auto_explain cases, each in its own backend. They cover\n`log_analyze` on and off, `log_nested_statements`, EXPLAIN inside\nPL/pgSQL, cursors closed by `COMMIT`, `CLOSE`, or `ROLLBACK`, `WITH\nHOLD` cursors, REPEATABLE READ and SERIALIZABLE, the extended protocol,\nand parallel plans. None crashed or logged a `snapshot ... still active`\nwarning. On `main`, 13 of them crash.\n- `cargo fmt --all -- --check` and `cargo clippy -p planner\n--all-targets -- -D warnings --no-deps` are clean.\n\nThe changelog entry is in\n`docs/project/changelog/unreleased/7426.bugfix.mdx`. The crash was\nreported on 0.26.2, so could a maintainer add the `cherry-pick/0.26.x`\nlabel?",
+          "timestamp": "2026-11-18T03:54:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6718494ca10b1acd77cd31cf01c20bfbf04a862b"
+        },
+        "date": 1794990527557,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hn_items_bm25_idx build time",
+            "value": 95.57528290118333,
+            "unit": "min"
+          },
+          {
+            "name": "hn_items_bm25_idx index size",
+            "value": 162537.203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "hn_items_bm25_idx peak container memory",
+            "value": 21.184852600097656,
+            "unit": "GiB"
+          }
+        ],
+        "publication_id": "14410133524-index"
       }
     ]
   }

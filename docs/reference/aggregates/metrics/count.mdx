@@ -1,10 +1,80 @@
 ---
 title: Count
-description: Count the number of values in a field
+description: Count matching rows or non-null field values
 canonical: https://www.paradedb.com/docs/reference/aggregates/metrics/count
 ---
 
-The following query counts the number of values in a field:
+## Count Rows
+
+Use `{"filter": "*"}` to count all matching rows, including rows with missing or null field values.
+This is the recommended `pdb.agg` form for row counts.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"filter": "*"}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ filter: "*" }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"filter": "*"}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(pdb.agg({"filter": "*"}))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: { filter: "*" })
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { filter = "*" }))
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+```ini Expected Response
+       agg
+-----------------
+ {"doc_count": 41}
+(1 row)
+```
+
+## Count Non-Null Field Values
+
+Use `value_count` when you need to count field values and ignore documents where a particular field is missing or null.
+This adds a performance cost compared to `{"filter": "*"}` because it needs to check for null values.
 
 <CodeGroup>
 ```sql SQL
@@ -68,26 +138,28 @@ await dbContext
 (1 row)
 ```
 
-See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html) for all available options.
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html) for all available `value_count` options, including `missing`, which supplies a value for documents without one.
 
 ## SQL Count Syntax
 
-SQL's `COUNT` syntax is supported in beta and is enabled by default. To disable it, run
+Use `COUNT(*)` to count all matching rows, including rows with null values, without reading a field's columnar data:
 
-```sql
-SET paradedb.enable_aggregate_custom_scan TO off;
+```sql SQL
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all();
 ```
 
-The following query is equivalent to the above and is executed in the same way.
+Use `COUNT(rating)` to ignore rows with a null `rating`. Like `value_count`, it needs to read the field's columnar data and has a performance cost compared to a row count:
 
 ```sql SQL
 SELECT COUNT(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
-To count all rows, including rows with null values, use `COUNT(*)`:
+SQL's `COUNT` syntax is supported in beta and is enabled by default. To disable aggregate pushdown, run:
 
-```sql SQL
-SELECT COUNT(*) FROM mock_items
-WHERE id @@@ pdb.all();
+```sql
+SET paradedb.enable_aggregate_custom_scan TO off;
 ```
+
+`{"filter": "*"}` is supported on the single-table aggregate path. For JSON aggregates over joins, see [Limitations](/reference/aggregates/limitations#join-support).

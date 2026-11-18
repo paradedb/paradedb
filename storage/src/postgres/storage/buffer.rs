@@ -208,7 +208,23 @@ struct UnlockReleaseBufferOnMainThread(pg_sys::Buffer);
 
 crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
     unsafe {
-        if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState() {
+        if !crate::postgres::utils::IsTransactionState() {
+            return;
+        }
+        // Shared buffers (`> 0`) acquire a content LWLock in `LockBuffer`, keeping
+        // `InterruptHoldoffCount > 0` until released or cleared by `(Sub)TransactionAbort`. Local
+        // `TEMP` buffers (`< 0`) take no LWLock in `LockBuffer`, so when `SearchIndexManifest` or
+        // `FFHelper` drops at `EndCustomScan` (outside `HeldInterrupts`), `InterruptHoldoffCount`
+        // is `0`; check `LocalRefCount` directly so local `TEMP` buffer pins do not leak.
+        let still_held = if self.0 < 0 {
+            let bufid = (-self.0 - 1) as isize;
+            !pg_sys::LocalRefCount.is_null()
+                && (bufid as i32) < pg_sys::NLocBuffer
+                && *pg_sys::LocalRefCount.offset(bufid) > 0
+        } else {
+            pg_sys::InterruptHoldoffCount > 0
+        };
+        if still_held {
             pg_sys::UnlockReleaseBuffer(self.0);
         }
     }
@@ -1121,36 +1137,21 @@ impl BufferManager {
     }
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
-        /// Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
-        /// runs `Drop` handlers when a function it wraps raises an ERROR.
-        struct InFlightCleanupGuard {
-            #[cfg_attr(not(feature = "block_tracker"), allow(dead_code))]
-            blockno: pg_sys::BlockNumber,
-            active: bool,
-        }
-
-        // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to run
-        // while an ERROR unwinds, and its body is only tracker bookkeeping.
-        impl Drop for InFlightCleanupGuard {
-            fn drop(&mut self) {
-                if self.active {
-                    block_tracker::forget!(self.blockno);
-                }
-            }
-        }
-
         unsafe {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);
-            let mut guard = InFlightCleanupGuard {
-                blockno,
-                active: true,
-            };
+            // Forgets a block tracked before `LockBufferForCleanup` if that call errors out: pgrx
+            // runs `Drop` handlers when a function it wraps raises an ERROR.
+            // NOTE: We intentionally do NOT use `impl_safe_drop!` here because the guard exists to
+            // run while an ERROR unwinds, and its body is only tracker bookkeeping.
+            let guard = std::mem::DropGuard::new((), |()| {
+                block_tracker::forget!(blockno);
+            });
 
             pg_sys::LockBufferForCleanup(pg_buffer);
 
             // Hand over tracking responsibility to BufferMut's Drop
-            guard.active = false;
+            std::mem::DropGuard::dismiss(guard);
 
             BufferMut {
                 style: XlogFlag::ExistingBuffer.into_style(self.rbufacc.rel()),

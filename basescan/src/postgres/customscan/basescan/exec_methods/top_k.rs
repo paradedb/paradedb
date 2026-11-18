@@ -40,6 +40,7 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::interrupt::{PgTokioRuntime, block_on_next};
 use crate::postgres::heap::VisibilityChecker;
+use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::{
     LazyParallelMode, LazySortConfig, LazySortTelemetry, LazySortTelemetryState, PgSearchScanPlan,
     ScanState, ScannerConfig, TopKSelectivity,
@@ -66,6 +67,11 @@ pub struct TopKScanExecState {
     /// sides are static at construction; otherwise resolved in `init` from
     /// the `LimitOffset` carried on `ExecMethodType::TopK`.
     limit: Option<usize>,
+    /// Whether to stop after `limit` rows. False when the relation is row-marked
+    /// (`FOR UPDATE`/`FOR SHARE`): `LockRows` can drop rows (`SKIP LOCKED`, concurrently
+    /// deleted or updated rows), so the outer Limit must be able to pull past K
+    /// (#7170, #7201). Keyed on the row mark, not the wait policy, to cover all three.
+    stop_at_limit: bool,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     visibility_selectivity: TopKSelectivity,
@@ -99,6 +105,7 @@ impl TopKScanExecState {
         // ExecMethodType::TopK.
         Self {
             limit: limit_offset.static_fetch(),
+            stop_at_limit: true,
             orderby_info,
             visibility_selectivity,
             window_aggregates: Vec::new(),
@@ -259,7 +266,11 @@ impl TopKScanExecState {
         let index_rel = state.indexrel.as_ref().unwrap();
         let heap_rel = state.heaprel.as_ref().unwrap();
 
-        let which_fast_fields = vec![WhichFastField::Ctid, WhichFastField::Score(None)];
+        let which_fast_fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Score(None),
+            WhichFastField::DocAddress,
+        ];
         let ffhelper = Arc::new(FFHelper::for_ctid(search_reader));
         let visibility = state
             .visibility_checker
@@ -292,6 +303,7 @@ impl TopKScanExecState {
             initial_window: self
                 .visibility_selectivity
                 .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: Some(telemetry),
         };
@@ -374,26 +386,28 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        let estate = unsafe { (*cstate).ss.ps.state };
+        // Non-locking marks also match; then we skip the early stop for nothing.
+        self.stop_at_limit =
+            unsafe { pg_sys::ExecFindRowMark(estate, state.execution_rti, true).is_null() };
+
         // Resolve K = LIMIT + OFFSET from EState when not already known.
-        // `fetch_mut` converts each `Param` → `Static` in place on the
+        // `resolve_mut` converts each `Param` → `Static` in place on the
         // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
         // sees resolved values without us holding a separate copy.
-        if self.limit.is_none() {
-            let estate = unsafe { (*cstate).ss.ps.state };
-            if let ExecMethodType::TopK {
+        if self.limit.is_none()
+            && let ExecMethodType::TopK {
                 ref mut limit_offset,
                 ..
             } = state.exec_method_type
-            {
-                self.limit = limit_offset
-                    .resolve_mut(estate)
-                    .expect("LIMIT must be resolvable from EState (param missing or NULL)")
-                    .static_fetch();
-            }
+        {
+            self.limit = limit_offset
+                .resolve_mut(estate)
+                .expect("LIMIT must be resolvable from EState (param missing or NULL)")
+                .static_fetch();
         }
 
         // handle parameterized vectors
-        let estate = unsafe { (*cstate).ss.ps.state };
         let planstate = unsafe { std::ptr::addr_of_mut!((*cstate).ss.ps) };
         if !estate.is_null() {
             let resolve = |infos: &mut [OrderByInfo]| {
@@ -421,7 +435,7 @@ impl ExecMethod for TopKScanExecState {
     }
 
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if self.found >= self.limit() {
+        if self.stop_at_limit && self.found >= self.limit() {
             return false;
         }
 
@@ -471,7 +485,7 @@ impl ExecMethod for TopKScanExecState {
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         check_for_interrupts();
 
-        if self.found >= self.limit() {
+        if self.stop_at_limit && self.found >= self.limit() {
             return ExecState::Eof;
         }
 
@@ -499,9 +513,16 @@ impl ExecMethod for TopKScanExecState {
             .downcast_ref::<Float32Array>()
             .expect("score column should be Float32Array");
 
+        let doc_address_array = record_batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("doc address column should be UInt64Array");
+
         ExecState::FromHeap {
             ctid: ctid_array.value(row_idx),
             score: score_array.value(row_idx),
+            doc_address: unpack_doc_address(doc_address_array.value(row_idx)),
         }
     }
 

@@ -312,7 +312,9 @@ pub struct ScanInfo {
     /// True when `estimate` is the index's total document count rather than a match count.
     /// The estimator substitutes the total when the query carries a Postgres expression or a
     /// heap filter it cannot evaluate at plan time; consumers that need a match count (the MPP
-    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan, and
+    /// `JoinSource::reestimate_solved_rows` replaces `estimate` and clears this flag once runtime
+    /// `Param`/`SubPlan` expressions have been solved.
     pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,
@@ -321,6 +323,10 @@ pub struct ScanInfo {
     pub mvcc_visibility: MvccVisibility,
     /// Vector distance `ORDER BY` pushed down to this scan, if any.
     pub vector_order_by: Option<crate::api::OrderByInfo>,
+    /// Per-table `parallel_workers` reloption (`ALTER TABLE ... SET (parallel_workers = N)`),
+    /// or `None` when unset (`-1`).
+    #[serde(default)]
+    pub rel_parallel_workers: Option<u32>,
 }
 
 impl ScanInfo {
@@ -345,6 +351,7 @@ impl ScanInfo {
             segment_count: 0,
             mvcc_visibility: MvccVisibility::default(),
             vector_order_by: None,
+            rel_parallel_workers: None,
         }
     }
 

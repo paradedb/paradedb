@@ -6,7 +6,7 @@ noindex: true
 
 See GitHub release: [v0.26.0](https://github.com/paradedb/paradedb/releases/tag/v0.26.0)
 
-## Breaking Changes 🚨
+## Breaking Changes 🚨 {#breaking-changes}
 
 ### Vector storage
 
@@ -14,7 +14,7 @@ Vector storage uses per-segment metadata and a block-major layout. After upgradi
 
 Vector searches fail with a rebuild-required error until `REINDEX` completes. Writes continue: merges skip segments with unsupported vector storage. `REINDEX CONCURRENTLY` can rebuild the index while writes proceed.
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 ### Quantized Vector Search
 
@@ -111,7 +111,7 @@ See the [Partitioning Guide](/reference/indexing/partition-by) for data type con
 
 - Enabled Block-Max WAND (BMW) and MAXSCORE dynamic pruning on queries combined with non-scoring filters, accelerating filtered full-text searches.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 ### Faster Text Search
 
@@ -125,7 +125,7 @@ To benefit from all of these improvements, existing indexes must be [reindexed](
 
 - Added automatic MaxScore pruning for eligible top-k OR queries and `paradedb.disjunction_pruning` to choose `auto`, `wand`, or `maxscore` at execution time.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed incorrect results for `ORDER BY column::text LIMIT` on numeric and range columns. These queries now sort by the cast text value instead of the underlying column value, while explicitly indexed cast expressions remain eligible for Top K.
 
@@ -155,7 +155,7 @@ To benefit from all of these improvements, existing indexes must be [reindexed](
 
 - Fixed wrong results from Aggregate Scan for an aggregate with its own `ORDER BY`, such as `COUNT(id ORDER BY kind)`. On Postgres 16 and later, the scan grouped on the sort column and returned one row for each of its values (#6607).
 
-## Other Changes 🛠️
+## Other Changes 🛠️ {#other-changes}
 
 - Streamlined Docker image builds and removed extraneous bundled extensions in official container images to conform with Docker Official Images guidelines.
 

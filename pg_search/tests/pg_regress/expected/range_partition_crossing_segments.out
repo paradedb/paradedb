@@ -114,21 +114,23 @@ WHERE p.title ||| 'error';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      :   │   HashJoinExec: mode=Partitioned, join_type=Right, on=[(id@0, owner_user_id@0)], projection=[id@0]
      :   │     DistributedLeafExec:
      :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1228), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1228..1754), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1754..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1754..1846), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t3: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1846..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │     DistributedLeafExec:
      :   │       t0: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[-∞..1228), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │       t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=6}, partition=owner_user_id[1228..1754), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │       t2: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[1754..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=4, included=0, pruned=5}, partition=owner_user_id[1754..1846), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t3: PgSearchScan: table=p, segments={partial=3, included=1, pruned=5}, partition=owner_user_id[1846..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
-(23 rows)
+(25 rows)
 
 SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
@@ -153,21 +155,23 @@ WHERE u.id @@@ pdb.all() AND p.title ||| 'error';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0]
      :   │   HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, owner_user_id@0)], projection=[]
      :   │     DistributedLeafExec:
      :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1228), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1228..1754), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1754..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1754..1846), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t3: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1846..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │     DistributedLeafExec:
      :   │       t0: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[-∞..1228), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │       t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=6}, partition=owner_user_id[1228..1754), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │       t2: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[1754..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=4, included=0, pruned=5}, partition=owner_user_id[1754..1846), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t3: PgSearchScan: table=p, segments={partial=3, included=1, pruned=5}, partition=owner_user_id[1846..∞), dynamic_filters=1, visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
-(23 rows)
+(25 rows)
 
 SELECT count(*) AS owner_join_rows
 FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
@@ -196,22 +200,24 @@ LIMIT 6;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[id@2 as col_1, pdb.score(p)@0 as col_2, ctid_1@1 as ctid_1]
      : │   SortPreservingMergeExec: [id@2 DESC], fetch=6
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ SortExec: TopK(fetch=6), expr=[id@2 DESC], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[u, p], pruned=[u]
      :   │     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@0, owner_user_id@2)], projection=[pdb.score(p)@2, ctid_1@3, id@5, ctid_0@1]
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1228), query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1228..1754), query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1754..∞), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1754..1846), query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t3: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1846..∞), query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[-∞..1228), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │         t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=6}, partition=owner_user_id[1228..1754), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t2: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[1754..∞), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=4, included=0, pruned=5}, partition=owner_user_id[1754..1846), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t3: PgSearchScan: table=p, segments={partial=3, included=1, pruned=5}, partition=owner_user_id[1846..∞), dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
-(25 rows)
+(27 rows)
 
 SELECT p.id, pdb.score(p.id) AS score
 FROM rpx_users u JOIN rpx_posts p ON u.id = p.owner_user_id
@@ -247,22 +253,24 @@ LIMIT 8;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[id@2 as col_1, pdb.score(p)@0 as col_2, id@3 IS NULL as col_3, ctid_0@1 as ctid_0]
      : │   SortPreservingMergeExec: [pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], fetch=8
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ SortExec: TopK(fetch=8), expr=[pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[p]
      :   │     HashJoinExec: mode=Partitioned, join_type=Right, on=[(id@0, owner_user_id@2)], projection=[pdb.score(p)@1, ctid_0@2, id@4, id@0]
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=id[-∞..1228), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1228..1754), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1754..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=id[1754..1846), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t3: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=id[1846..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       DistributedLeafExec:
      :   │         t0: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[-∞..1228), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   │         t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=6}, partition=owner_user_id[1228..1754), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t2: PgSearchScan: table=p, segments={partial=2, included=3, pruned=4}, partition=owner_user_id[1754..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=4, included=0, pruned=5}, partition=owner_user_id[1754..1846), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t3: PgSearchScan: table=p, segments={partial=3, included=1, pruned=5}, partition=owner_user_id[1846..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
-(25 rows)
+(27 rows)
 
 SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.id = p.owner_user_id AND u.id @@@ pdb.all()
@@ -334,21 +342,23 @@ WHERE p.title ||| 'error';
      : ┌───── DistributedExec
      : │ AggregateExec: mode=Final, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      : │   CoalescePartitionsExec
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ AggregateExec: mode=Partial, gby=[], aggr=[count(1) as agg_0, count(1) FILTER (WHERE u_1.id IS NULL) as agg_1]
      :   │   HashJoinExec: mode=Partitioned, join_type=Right, on=[(display_name@1, owner_name@0)], projection=[id@0]
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1232"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t0: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name[-∞.."user_0874"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t1: PgSearchScan: table=u, segments={partial=2, included=0, pruned=2}, partition=display_name["user_0874".."user_1232"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t2: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │       t3: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │     DistributedLeafExec:
-     :   │       t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1232"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │       t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │       t2: PgSearchScan: table=p, segments={partial=2, included=2, pruned=4}, partition=owner_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t0: PgSearchScan: table=p, segments={partial=2, included=1, pruned=5}, partition=owner_name[-∞.."user_0874"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_0874".."user_1232"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t2: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │       t3: PgSearchScan: table=p, segments={partial=2, included=2, pruned=4}, partition=owner_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"match":{"field":"title","value":"error","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
-(23 rows)
+(25 rows)
 
 SELECT count(*) AS total, count(*) FILTER (WHERE u.id IS NULL) AS orphans
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()
@@ -376,22 +386,24 @@ LIMIT 8;
      : ┌───── DistributedExec
      : │ ProjectionExec: expr=[id@2 as col_1, pdb.score(p)@0 as col_2, id@3 IS NULL as col_3, ctid_0@1 as ctid_0]
      : │   SortPreservingMergeExec: [pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], fetch=8
-     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=3, input_tasks=3
+     : │     [Stage 1] => NetworkCoalesceExec: output_partitions=4, input_tasks=4
      : └──────────────────────────────────────────────────
-     :   ┌───── Stage 1 ── tasks=3, partitions=3
+     :   ┌───── Stage 1 ── tasks=4, partitions=4
      :   │ SortExec: TopK(fetch=8), expr=[pdb.score(p)@0 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
      :   │   VisibilityFilterExec: tables=[p]
      :   │     HashJoinExec: mode=Partitioned, join_type=Right, on=[(display_name@0, owner_name@2)], projection=[pdb.score(p)@2, ctid_0@3, id@5, id@1]
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=u, segments={partial=1, included=1, pruned=2}, partition=display_name[-∞.."user_1232"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t1: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
-     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t0: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name[-∞.."user_0874"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t1: PgSearchScan: table=u, segments={partial=2, included=0, pruned=2}, partition=display_name["user_0874".."user_1232"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t2: PgSearchScan: table=u, segments={partial=1, included=0, pruned=3}, partition=display_name["user_1232".."user_1750"), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
+     :   │         t3: PgSearchScan: table=u, segments={partial=1, included=2, pruned=1}, partition=display_name["user_1750"..∞), visibility=eager, query={"with_index":{"query":{"all":{"field":"id"}}}}
      :   │       DistributedLeafExec:
-     :   │         t0: PgSearchScan: table=p, segments={partial=1, included=3, pruned=4}, partition=owner_name[-∞.."user_1232"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_1232".."user_1750"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     :   │         t2: PgSearchScan: table=p, segments={partial=2, included=2, pruned=4}, partition=owner_name["user_1750"..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t0: PgSearchScan: table=p, segments={partial=2, included=1, pruned=5}, partition=owner_name[-∞.."user_0874"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t1: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_0874".."user_1232"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t2: PgSearchScan: table=p, segments={partial=3, included=0, pruned=5}, partition=owner_name["user_1232".."user_1750"), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+     :   │         t3: PgSearchScan: table=p, segments={partial=2, included=2, pruned=4}, partition=owner_name["user_1750"..∞), dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"error without owner","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
      :   └──────────────────────────────────────────────────
-(25 rows)
+(27 rows)
 
 SELECT p.id, pdb.score(p.id) AS score, u.id IS NULL AS orphan
 FROM rpx_posts p LEFT JOIN rpx_users u ON u.display_name = p.owner_name AND u.id @@@ pdb.all()

@@ -14,7 +14,6 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-#![cfg_attr(test, allow(unused_crate_dependencies))]
 
 // Direct dep, not just via `dst`: a cdylib drops the transitively-referenced shim, so reference it
 // here to keep its `.init_array` constructor.
@@ -61,7 +60,7 @@ unsafe impl Sync for AnchorPtr {}
 
 #[cfg(not(test))]
 #[used]
-static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 21] = [
+static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 22] = [
     AnchorPtr(common::api::fieldname_in as *const ()),
     AnchorPtr(common::api::fieldname_out as *const ()),
     AnchorPtr(common::api::tokenizers::typmod::generic_typmod_in as *const ()),
@@ -77,6 +76,10 @@ static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 21] = [
     AnchorPtr(planner::postgres::customscan::projections::placeholder_support as *const ()),
     AnchorPtr(
         planner::postgres::customscan::basescan::projections::score::pdb::score_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::score::pdb::explain_score_from_relation
             as *const (),
     ),
     AnchorPtr(

@@ -6,11 +6,11 @@ noindex: true
 
 See GitHub release: [v0.15.2](https://github.com/paradedb/paradedb/releases/tag/v0.15.2)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Improved the performance of queries that don't fetch results, for example `select count(*) from t where ... @@@ ...`
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed an issue where the Postgres `NOT` operator would not be pushed down to Tantivy properly
 - Fixed an issue where snippets and scores would not be properly returned in querying with JOIN clauses

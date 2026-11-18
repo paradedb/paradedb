@@ -1,0 +1,91 @@
+name: Build Vector Benchmark Index
+description: Finalize a pdbench load and report build time, index size, and peak container memory
+
+inputs:
+  config:
+    description: "Load config path relative to the pdbench checkout"
+    required: true
+  artifact_name:
+    description: "Unique name for the early load-report artifact"
+    required: true
+  max_parallel_workers:
+    description: "Override the load config worker limit to match the benchmark cluster"
+    default: ""
+  max_parallel_maintenance_workers:
+    description: "Override the load config maintenance-worker limit to match the benchmark cluster"
+    default: ""
+  report_memory:
+    description: "Include peak container memory in the published metrics"
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Build Index and Report Metrics
+      shell: bash
+      env:
+        LOAD_CONFIG: ${{ inputs.config }}
+        MAX_PARALLEL_WORKERS: ${{ inputs.max_parallel_workers }}
+        MAX_PARALLEL_MAINTENANCE_WORKERS: ${{ inputs.max_parallel_maintenance_workers }}
+        REPORT_MEMORY: ${{ inputs.report_memory }}
+      run: |
+        set -euo pipefail
+        psql "$PARADEDB_URL" -X -v ON_ERROR_STOP=1 \
+          -c "SELECT name, setting, unit FROM pg_settings
+              WHERE name IN ('maintenance_work_mem', 'shared_buffers', 'max_parallel_workers',
+                             'max_worker_processes', 'max_parallel_maintenance_workers',
+                             'parallel_leader_participation', 'paradedb.global_target_segment_count',
+                             'paradedb.vector_router_rerank_factor', 'paradedb.vector_router_min_beam_fraction',
+                             'paradedb.vector_router_aps')
+              ORDER BY name;" \
+          | tee benchmark-artifacts/index-build-settings.log
+        # The load config owns index definitions and PostgreSQL settings.
+        (
+          cd pdbench
+          overrides=()
+          if [ -n "$MAX_PARALLEL_WORKERS" ]; then
+            overrides+=(--set "datastore.settings.max_parallel_workers=$MAX_PARALLEL_WORKERS")
+          fi
+          if [ -n "$MAX_PARALLEL_MAINTENANCE_WORKERS" ]; then
+            overrides+=(--set "datastore.settings.max_parallel_maintenance_workers=$MAX_PARALLEL_MAINTENANCE_WORKERS")
+          fi
+          pdbench-load finalize "$LOAD_CONFIG" \
+            --set "datastore.url=$PARADEDB_URL" --set datastore.container=paradedb \
+            --set "output=$GITHUB_WORKSPACE/benchmark-artifacts/load" "${overrides[@]}"
+        ) 2>&1 | tee benchmark-artifacts/index-build.log
+        runs=(benchmark-artifacts/load/*/*_load)
+        test "${#runs[@]}" -eq 1
+        # Keep the HTML report with the build diagnostics.
+        pdbench-report html "${runs[0]}"
+        index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
+        build_seconds="$(jq -se --arg statement "CREATE INDEX $index ON " '
+          [.[] | select(.type == "Point" and .metric == "sql_statement_duration"
+            and .tags.phase == "finalize" and (.tags.statement | startswith($statement))) | .value]
+          | if length == 1 and .[0] > 0 then .[0] / 1000
+            else error("Expected one positive CREATE INDEX duration") end
+        ' "${runs[0]}/points.jsonl")"
+        size_bytes="$(psql "$PARADEDB_URL" -XAt -v ON_ERROR_STOP=1 \
+          -c "SELECT pg_total_relation_size('${index}'::regclass)")"
+        jq -n --arg index "$index" --argjson build_seconds "$build_seconds" \
+          --argjson size_bytes "$size_bytes" '[
+          {name: ($index + " build time"), unit: "min", value: ($build_seconds / 60)},
+          {name: ($index + " index size"), unit: "MiB", value: ($size_bytes / 1048576)}
+        ]' > benchmark-artifacts/index-metrics.json
+        if [ "$REPORT_MEMORY" = true ]; then
+          # Container memory excluding inactive page cache, sampled once a second.
+          peak_bytes="$(jq -n '[inputs | select(.type == "Point" and .metric == "container_memory") | .value] | max' \
+            "${runs[0]}/points.jsonl")"
+          jq --arg index "$index" --argjson peak_bytes "$peak_bytes" \
+            '. + [{name: ($index + " peak container memory"), unit: "GiB", value: ($peak_bytes / 1073741824)}]' \
+            benchmark-artifacts/index-metrics.json > benchmark-artifacts/index-metrics.tmp
+          mv benchmark-artifacts/index-metrics.tmp benchmark-artifacts/index-metrics.json
+        fi
+
+    - name: Upload Load Report
+      if: always() && hashFiles('benchmark-artifacts/load/**/report.html') != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: benchmark-artifacts/load/
+        retention-days: 30
+        if-no-files-found: error

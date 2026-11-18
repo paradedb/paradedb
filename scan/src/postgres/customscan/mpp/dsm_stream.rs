@@ -17,14 +17,19 @@
 
 //! Lock-free SPSC byte rings in Postgres DSM implementing Tokio `AsyncRead` and `AsyncWrite`.
 //!
-//! Topology for `1` leader (`proc 0`) and `W` workers (`1..=W`):
-//! - Leader (`ClientProc(0)`) opens `W` client connections to `ServerProc(1..=W)`.
-//! - Each worker `w` (`1..=W`) opens `W - 1` client connections to peer workers `s != w`, and
-//!   accepts `W` server connections (`1` from `ClientProc(0)` and `W - 1` from `ClientProc(c != w)`).
+//! Symmetric all-to-all topology across `N = 1 + W` processes (`proc 0` for the leader, `1..=W`
+//! for background workers, `W >= 1`):
+//! - Every process `c` (`0..N`) has `N - 1` outbound client connections to `ServerProc(s != c)` and
+//!   `N - 1` inbound server connections from `ClientProc(c' != c)`.
 //! - Each directed connection is a pair of SPSC byte rings (`client -> server` and
-//!   `server -> client`), giving `W + W * (W - 1) = W^2` duplex connections = `2 * W^2` SPSC rings.
-//! - Same-worker stage reads (`w == s`) short-circuit in memory via `datafusion-distributed`'s
-//!   `LocalWorkerContext` (`InProcessWorkerChannel`) and never touch DSM.
+//!   `server -> client`), giving `N * (N - 1)` duplex connections = `2 * N * (N - 1)` SPSC rings
+//!   (`4` rings at `W = 1`, `12` rings at `W = 2`).
+//! - When `parallel_leader_participation = on`, the leader runs an in-process Tonic `Worker`
+//!   (`http://worker-0`) over its `incoming_server_streams` so background workers (`1..=W`) can
+//!   pull shuffle partitions from `worker-0`; when `off`, the leader drops `incoming_server_streams`
+//!   at setup.
+//! - Same-process stage reads (`coordinator -> worker-0` and `w == s`) short-circuit in memory via
+//!   `datafusion-distributed`'s `LocalWorkerContext` (`InProcessWorkerChannel`) and never touch DSM.
 
 use std::io;
 use std::pin::Pin;
@@ -50,11 +55,11 @@ pub const DEFAULT_SPSC_RING_CAPACITY: usize = 64 * 1024;
 /// Minimum byte capacity per SPSC ring (`16 KiB`, matching HTTP/2 minimum `MAX_FRAME_SIZE`).
 pub const MIN_SPSC_RING_CAPACITY: usize = 16 * 1024;
 
-/// Client process index in the MPP mesh (`0` for leader, `1..=W` for workers).
+/// Client process index in the MPP mesh (`0` for leader, `1..=W` for background workers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ClientProc(pub u32);
 
-/// Server process index in the MPP mesh (`1..=W` for workers; leader is never a server).
+/// Server process index in the MPP mesh (`0` for participating leader, `1..=W` for background workers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ServerProc(pub u32);
 
@@ -110,7 +115,7 @@ const fn align_up_64(val: usize) -> usize {
     (val + 63) & !63
 }
 
-/// Compute the connection index in `0..W^2` for `(client, server)`.
+/// Compute the connection index in `0..(n_procs * (n_procs - 1))` for `(client, server)`.
 pub fn connection_index(
     n_procs: u32,
     client: ClientProc,
@@ -119,32 +124,28 @@ pub fn connection_index(
     if n_procs < 2 {
         return Err(format!("mpp: invalid n_procs {n_procs}"));
     }
-    let w = (n_procs - 1) as usize;
+    let n = n_procs as usize;
     let c = client.0 as usize;
     let s = server.0 as usize;
-    if s == 0 || s > w {
-        return Err(format!("mpp: server proc {s} out of range 1..={w}"));
+    if s >= n {
+        return Err(format!("mpp: server proc {s} out of range 0..{n}"));
     }
-    if c > w || c == s {
+    if c >= n || c == s {
         return Err(format!("mpp: invalid client proc {c} for server proc {s}"));
     }
-    if c == 0 {
-        Ok(s - 1)
-    } else {
-        let peer_ord = if s < c { s - 1 } else { s - 2 };
-        Ok(w + (c - 1) * (w - 1) + peer_ord)
-    }
+    let peer_ord = if s < c { s } else { s - 1 };
+    Ok(c * (n - 1) + peer_ord)
 }
 
-/// Total number of SPSC rings (`2 * W^2`) for `n_procs = 1 + W`.
+/// Total number of SPSC rings (`2 * n_procs * (n_procs - 1)`) for `n_procs = 1 + W`.
 #[inline]
 pub fn total_spsc_rings(n_procs: u32) -> Result<usize, String> {
     if n_procs < 2 {
         return Err(format!("mpp: n_procs must be >= 2, got {n_procs}"));
     }
-    let w = (n_procs - 1) as usize;
-    w.checked_mul(w)
-        .and_then(|w2| w2.checked_mul(2))
+    let n = n_procs as usize;
+    n.checked_mul(n - 1)
+        .and_then(|conns| conns.checked_mul(2))
         .ok_or_else(|| format!("mpp: ring count overflow for n_procs={n_procs}"))
 }
 
@@ -181,7 +182,8 @@ pub fn dsm_region_bytes(n_procs: u32, ring_capacity: usize) -> Result<usize, Str
         .ok_or_else(|| "mpp: DSM region size overflow".to_string())
 }
 
-/// Initialize the DSM mesh header, wakeup slot table, and all `2 * W^2` SPSC ring headers.
+/// Initialize the DSM mesh header, wakeup slot table, and all `2 * N * (N - 1)` SPSC ring headers
+/// (`N = n_procs`).
 ///
 /// # Safety
 /// `base` must point to an 8-byte-aligned DSM allocation of at least
@@ -647,8 +649,9 @@ impl DsmLeaderShutdownHandle {
         self.active_streams.load(Ordering::Acquire)
     }
 
-    /// Set `shutdown_flag = true`, mark all `2 * W^2` rings in the mesh closed so every worker's
-    /// HTTP/2 server/client tasks observe immediate EOF, and wake all workers (`1..n_procs`).
+    /// Set `shutdown_flag = true`, mark all `2 * N * (N - 1)` rings in the mesh closed so every
+    /// participant's HTTP/2 server/client tasks observe immediate EOF, and wake all processes
+    /// (`0..n_procs`, including any Tonic `Worker` running on the leader).
     pub fn signal_shutdown(&self) {
         if self.dsm_detached.load(Ordering::Acquire) {
             return;
@@ -667,7 +670,7 @@ impl DsmLeaderShutdownHandle {
 
             fence(Ordering::SeqCst);
 
-            for s in 1..self.n_procs {
+            for s in 0..self.n_procs {
                 let slot_ptr = wakeup_slot_ptr(self.base, s);
                 let raw_slot = (*slot_ptr).load(Ordering::SeqCst);
                 wake_slot(WakeupSlot::from_raw(raw_slot));
@@ -712,28 +715,38 @@ impl DsmWorkerShutdownWatcher {
     }
 }
 
-/// Initialize the leader's wakeup slot in an already-initialized DSM mesh and construct the `W`
-/// client streams (`ClientProc(0) -> ServerProc(1..=W)`) plus the [`DsmLeaderShutdownHandle`].
+/// Bundles the leader's outbound client streams (`ClientProc(0) -> ServerProc(1..=W)`), inbound
+/// server streams (`ClientProc(1..=W) -> ServerProc(0)` for leader participation), shutdown
+/// watcher, and [`DsmLeaderShutdownHandle`].
+pub struct LeaderDsmStreams {
+    pub client_streams: Vec<(ServerProc, DsmAsyncStream)>,
+    pub incoming_server_streams: Vec<DsmAsyncStream>,
+    pub shutdown_watcher: DsmWorkerShutdownWatcher,
+    pub shutdown_handle: DsmLeaderShutdownHandle,
+}
+
+/// Initialize the leader's wakeup slot in an already-initialized DSM mesh and construct its `W`
+/// client streams, `W` incoming server streams, shutdown watcher, and [`DsmLeaderShutdownHandle`].
 ///
 /// # Safety
 /// `base` must point to a DSM mesh initialized via [`init_dsm_mesh`].
 pub unsafe fn build_leader_streams(
     base: *mut u8,
     dispatcher: &WakeupDispatcher,
-) -> Result<(Vec<(ServerProc, DsmAsyncStream)>, DsmLeaderShutdownHandle), String> {
+) -> Result<LeaderDsmStreams, String> {
     let hdr = unsafe { validate_mesh_header(base)? };
     let n_procs = hdr.n_procs;
     let ring_capacity = hdr.ring_capacity as usize;
     let dsm_detached = Arc::new(AtomicBool::new(false));
-    let n_streams = (n_procs - 1) as usize;
-    let active_streams = Arc::new(AtomicUsize::new(n_streams));
+    let n_peers = (n_procs - 1) as usize;
+    let active_streams = Arc::new(AtomicUsize::new(2 * n_peers));
 
     let leader_slot_ptr = unsafe { wakeup_slot_ptr(base, 0) };
     unsafe {
         (*leader_slot_ptr).store(dispatcher.slot().raw(), Ordering::SeqCst);
     }
 
-    let mut client_streams = Vec::with_capacity(n_streams);
+    let mut client_streams = Vec::with_capacity(n_peers);
     for s in 1..n_procs {
         let server = ServerProc(s);
         let conn_idx = connection_index(n_procs, ClientProc(0), server)?;
@@ -755,14 +768,48 @@ pub unsafe fn build_leader_streams(
         client_streams.push((server, stream));
     }
 
-    let shutdown = DsmLeaderShutdownHandle {
+    let mut incoming_server_streams = Vec::with_capacity(n_peers);
+    for c in 1..n_procs {
+        let conn_idx = connection_index(n_procs, ClientProc(c), ServerProc(0))?;
+        // For the server side of `(ClientProc(c), ServerProc(0))`:
+        // - ring `2 * conn_idx` is `client -> server` (so server's `rx`)
+        // - ring `2 * conn_idx + 1` is `server -> client` (so server's `tx`)
+        let (rx_hdr, rx_data) = unsafe { ring_ptrs(base, n_procs, ring_capacity, 2 * conn_idx) };
+        let (tx_hdr, tx_data) =
+            unsafe { ring_ptrs(base, n_procs, ring_capacity, 2 * conn_idx + 1) };
+        let peer_wakeup_slot = unsafe { wakeup_slot_ptr(base, c) };
+        incoming_server_streams.push(DsmAsyncStream {
+            tx_hdr,
+            tx_data,
+            rx_hdr,
+            rx_data: rx_data as *const u8,
+            peer_wakeup_slot,
+            read_waker: dispatcher.register_waker(),
+            write_waker: dispatcher.register_waker(),
+            dsm_detached: Arc::clone(&dsm_detached),
+            active_streams: Some(Arc::clone(&active_streams)),
+        });
+    }
+
+    let shutdown_watcher = DsmWorkerShutdownWatcher {
+        base: base as *const u8,
+        waker: dispatcher.register_waker(),
+        dsm_detached: Arc::clone(&dsm_detached),
+    };
+
+    let shutdown_handle = DsmLeaderShutdownHandle {
         base,
         n_procs,
         ring_capacity,
         dsm_detached,
         active_streams,
     };
-    Ok((client_streams, shutdown))
+    Ok(LeaderDsmStreams {
+        client_streams,
+        incoming_server_streams,
+        shutdown_watcher,
+        shutdown_handle,
+    })
 }
 
 /// Worker handle invoked on worker exit and from `on_dsm_detach` (immediately before the DSM
@@ -798,10 +845,10 @@ impl DsmWorkerDetachHandle {
         }
         let w = self.worker_proc.0;
         unsafe {
-            // 1. Outbound client connections `ClientProc(w) -> ServerProc(s)` (`s in 1..n_procs, s != w`):
+            // 1. Outbound client connections `ClientProc(w) -> ServerProc(s)` (`s in 0..n_procs, s != w`):
             //    - `2 * conn_idx` is `tx` (w is producer, s is consumer)
             //    - `2 * conn_idx + 1` is `rx` (s is producer, w is consumer)
-            for s in (1..self.n_procs).filter(|&s| s != w) {
+            for s in (0..self.n_procs).filter(|&s| s != w) {
                 if let Ok(conn_idx) = connection_index(self.n_procs, ClientProc(w), ServerProc(s)) {
                     let (tx_hdr, _) =
                         ring_ptrs(self.base, self.n_procs, self.ring_capacity, 2 * conn_idx);
@@ -887,8 +934,8 @@ pub unsafe fn build_worker_streams(
         (*my_slot_ptr).store(dispatcher.slot().raw(), Ordering::SeqCst);
     }
 
-    let mut client_streams = Vec::with_capacity((n_procs - 2) as usize);
-    for s in 1..n_procs {
+    let mut client_streams = Vec::with_capacity((n_procs - 1) as usize);
+    for s in 0..n_procs {
         if s == w {
             continue;
         }
@@ -1009,12 +1056,11 @@ mod tests {
             let mut w1_disp = WakeupDispatcher::new(slots[1]);
             w1_disp.start(&handle).unwrap();
 
-            let (mut leader_clients, shutdown) =
-                unsafe { build_leader_streams(base, &leader_disp).unwrap() };
+            let mut leader_streams = unsafe { build_leader_streams(base, &leader_disp).unwrap() };
             let w1_streams =
                 unsafe { build_worker_streams(base, ServerProc(1), &w1_disp).unwrap() };
 
-            let (_, mut c_to_w1) = leader_clients.remove(0);
+            let (_, mut c_to_w1) = leader_streams.client_streams.remove(0);
             let mut w1_from_c = w1_streams
                 .incoming_server_streams
                 .into_iter()
@@ -1046,8 +1092,9 @@ mod tests {
             writer.await.unwrap();
             reader.await.unwrap();
 
-            shutdown.signal_shutdown();
+            leader_streams.shutdown_handle.signal_shutdown();
             w1_streams.shutdown_watcher.wait().await;
+            leader_streams.shutdown_watcher.wait().await;
         });
     }
 
@@ -1079,21 +1126,31 @@ mod tests {
             let mut w2_disp = WakeupDispatcher::new(slots[2]);
             w2_disp.start(&handle).unwrap();
 
-            let (mut leader_clients, _shutdown) =
-                unsafe { build_leader_streams(base, &leader_disp).unwrap() };
+            let mut leader_streams = unsafe { build_leader_streams(base, &leader_disp).unwrap() };
             let w1_streams =
                 unsafe { build_worker_streams(base, ServerProc(1), &w1_disp).unwrap() };
             let mut w2_streams =
                 unsafe { build_worker_streams(base, ServerProc(2), &w2_disp).unwrap() };
 
             // Leader reading from worker 1 (server stream on worker 1).
-            let (_, mut leader_to_w1) = leader_clients.remove(0);
-            // Sibling worker 2 reading from worker 1 (client stream from worker 2 to worker 1).
-            let (_, mut w2_to_w1) = w2_streams.client_streams.remove(0);
+            let (_, mut leader_to_w1) = leader_streams.client_streams.remove(0);
+            // Leader's incoming server stream from worker 1 (`ClientProc(1) -> ServerProc(0)`).
+            let mut leader_from_w1 = leader_streams.incoming_server_streams.remove(0);
+            // Sibling worker 2 reading from worker 1 (`ClientProc(2) -> ServerProc(1)`).
+            let w1_pos = w2_streams
+                .client_streams
+                .iter()
+                .position(|(s, _)| *s == ServerProc(1))
+                .unwrap();
+            let (_, mut w2_to_w1) = w2_streams.client_streams.remove(w1_pos);
 
             let leader_read = tokio::spawn(async move {
                 let mut buf = [0u8; 8];
                 leader_to_w1.read(&mut buf).await.unwrap()
+            });
+            let leader_srv_read = tokio::spawn(async move {
+                let mut buf = [0u8; 8];
+                leader_from_w1.read(&mut buf).await.unwrap()
             });
             let w2_read = tokio::spawn(async move {
                 let mut buf = [0u8; 8];
@@ -1112,9 +1169,29 @@ mod tests {
                     .load(Ordering::Acquire)
             );
 
-            // Both the leader and sibling worker 2 should wake and observe immediate EOF (0 bytes).
+            // Leader (both client and server sides) and sibling worker 2 should wake and observe EOF.
             assert_eq!(leader_read.await.unwrap(), 0);
+            assert_eq!(leader_srv_read.await.unwrap(), 0);
             assert_eq!(w2_read.await.unwrap(), 0);
         });
+    }
+
+    #[test]
+    fn symmetric_mesh_connection_bijection() {
+        assert!(connection_index(1, ClientProc(0), ServerProc(0)).is_err());
+        for n_procs in 2..=6u32 {
+            let expected_conns = (n_procs * (n_procs - 1)) as usize;
+            assert_eq!(total_spsc_rings(n_procs).unwrap(), 2 * expected_conns);
+            let mut seen = std::collections::HashSet::new();
+            for c in 0..n_procs {
+                assert!(connection_index(n_procs, ClientProc(c), ServerProc(c)).is_err());
+                for s in (0..n_procs).filter(|&s| s != c) {
+                    let idx = connection_index(n_procs, ClientProc(c), ServerProc(s)).unwrap();
+                    assert!(idx < expected_conns);
+                    assert!(seen.insert(idx));
+                }
+            }
+            assert_eq!(seen.len(), expected_conns);
+        }
     }
 }

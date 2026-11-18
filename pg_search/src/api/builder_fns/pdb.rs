@@ -98,7 +98,11 @@ mod pdb {
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "phrase")]
     pub fn phrase_string(phrase: String) -> pdb::Query {
-        pdb::Query::TokenizedPhrase { phrase, slop: None }
+        pdb::Query::TokenizedPhrase {
+            phrase,
+            slop: None,
+            synonyms: None,
+        }
     }
 
     #[builder_fn]
@@ -176,7 +180,19 @@ mod pdb {
             lenient,
             conjunction_mode,
             fuzzy_data: None,
+            synonyms: None,
         }
+    }
+
+    fn non_negative_slop(slop: i32) -> u32 {
+        if slop < 0 {
+            pgrx::ereport!(
+                ERROR,
+                pgrx::PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+                "slop must be non-negative"
+            );
+        }
+        slop as u32
     }
 
     #[builder_fn]
@@ -184,7 +200,7 @@ mod pdb {
     pub fn phrase(phrases: Vec<String>, slop: default!(Option<i32>, "NULL")) -> pdb::Query {
         pdb::Query::Phrase {
             phrases,
-            slop: slop.map(|n| n as u32),
+            slop: slop.map(non_negative_slop),
         }
     }
 
@@ -194,6 +210,14 @@ mod pdb {
         phrases: Vec<String>,
         max_expansion: default!(Option<i32>, "NULL"),
     ) -> pdb::Query {
+        if max_expansion.is_some_and(|n| n < 0) {
+            pgrx::ereport!(
+                ERROR,
+                pgrx::PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+                "max_expansion must be non-negative"
+            );
+        }
+
         pdb::Query::PhrasePrefix {
             phrases,
             max_expansions: max_expansion.map(|n| n as u32),
@@ -383,7 +407,7 @@ mod pdb {
     ) -> pdb::Query {
         pdb::Query::RegexPhrase {
             regexes,
-            slop: slop.map(|n| n as u32),
+            slop: slop.map(non_negative_slop),
             max_expansions: max_expansions.map(|n| n as u32),
         }
     }

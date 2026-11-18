@@ -11,11 +11,18 @@ eight segments, a 0.32 training sample ratio, and English stemming/stopwords on
 `text`. Cohere, MS MARCO, HN, Wikipedia, and Stack Exchange share
 `setup-docker-benchmark-cluster`. Cohere, MS MARCO, and HN start the `paradedb`
 service from pdbench's `datasets/<dataset>/docker-compose.yml`, which is the
-same for every dataset: CPUs 0–63, 128 GiB memory, 64 GiB shared memory, 32 GiB
-shared buffers, 52428 MB maintenance memory, a 96 GiB effective cache, and 16
-parallel workers in a 32-process pool. k6 runs on CPUs 64–67. Wikipedia and
+overridden in CI for these datasets: 8 CPUs on cores 0–7, 32 GiB memory, 16 GiB shared memory, 8 GiB
+shared buffers, 8 GiB maintenance memory, a 24 GiB effective cache, and eight
+parallel workers in a 32-process pool. Index builds can use seven parallel maintenance workers;
+queries can use four. VectorChord retains eight internal build threads. k6 runs on CPUs 64–67. Wikipedia and
 Stack Exchange keep the Compose file on S3. Both tools use the same database
 and index throughout a run.
+
+The RunsOn host remains unchanged; the CPU and memory limits apply to the
+database container. Result dataset and artifact names include `-8cpu-32gb`,
+keeping both recall/router baselines and published metrics separate from the
+previous 64-CPU runs. Run diagnostics include `runtime-compose.yml` with the
+resolved container configuration.
 
 The benchmark index enables `vector_router_quantization = true` in its
 `CREATE INDEX ... WITH (...)` clause. This boolean index option defaults to false
@@ -115,8 +122,10 @@ The workflow runs daily on main and via `benchmarks`, `benchmark-cohere-pg_searc
 `benchmark-benchmarker-cohere`, or `benchmark-cohere-router-quality`; only the
 daily run and `benchmark-cohere-router-quality` add the router-quality section.
 Manual runs can select a size, pg_search commit, and tool refs, and add the
-router-quality section with `router_quality`. Competitor vector CI
-implementations and labels are retired.
+router-quality section with `router_quality`. Manual runs also accept
+`engine=pg_vectorsearch`, `vectorchord`, or `vectorchord-prefilter` with `size=10m`
+and `router_quality=false`. `runner_type=on-demand` selects an on-demand runner;
+`benchmark-nonspot` controls PR-triggered pg_search runs.
 The pdbench checkout uses the ParadeDB GitHub App's read access to the private
 repository. Both tool revisions are pinned and recorded in diagnostics. The
 fixture import only populates pdbench's ground-truth table; the corpus is restored
@@ -128,8 +137,11 @@ and throughput. Index build time (minutes) and size (MiB) have a separate
 `benchmarker cohere-<size> (index build)` history. Its first run has no previous
 baseline; subsequent PR runs compare with main and do not update its baseline.
 
-Diagnostics upload after plan verification, before the longer k6 pass, so recall
-sweeps can be reviewed while latency measurements continue.
+The `cohere-<size>-load-report` artifact uploads immediately after the index build,
+before recall sweeps and k6. Download it from the running workflow's Artifacts
+section (or the Upload Load Report step's artifact URL) and open `report.html`.
+The remaining diagnostics upload after plan verification, before the longer k6
+pass, so recall sweeps can be reviewed while latency measurements continue.
 Artifacts retain index-build logs, the pdbench-load run and its `report.html`, pdbench search reports (including
 all sweep points, recall and buffer diagnostics), selected operating points,
 query vectors, checked plans, and k6 JSON/HTML dashboards. The full workload is opt-in
@@ -138,6 +150,44 @@ on PRs; the small handoff tests can be run with:
 ```sh
 python3 -m unittest discover -s benchmarks/cohere -p 'test_*.py'
 ```
+
+## Cohere 10M comparison engines
+
+The comparison jobs install the pinned extension into the same `paradedb`
+service and restore the same Cohere 10M heap as pg_search. Docker inspection
+asserts the CPU limit, CPU affinity, RAM, and shared-memory size. Both the build
+and recall profiles assert the common PostgreSQL settings before doing work.
+The comparison pdbench pin includes VectorChord support and the same Compose
+settings as the pg_search pin.
+
+`10m-vectorchord.toml` and `10m-vectorchord-prefilter.toml` use one global cosine
+index with 16,000 lists, residual quantization, spherical centroids, eight build
+threads, `sampling_factor=64`, hierarchical k-means, and clustering dimension 100. The list count targets roughly 625 vectors per partition at 10M rows;
+the sample cap is 1,024,000 vectors. These are initial settings for the 32 GiB
+budget, not a claim of optimal performance. Hierarchical clustering, reduced
+sampling, and reduced clustering dimension follow the
+[VectorChord partitioning guidance](https://docs.vectorchord.ai/vectorchord/usage/partitioning-tuning.html).
+Build and search use the same profile, and the two profiles differ only in
+`vchordrq.prefilter`. Probes sweep from 1 through all 16,000 lists with
+`epsilon=1.9` and no scan-tuple cap.
+
+pg_vectorsearch uses automatic `nlist`, default replication, and integer
+`prism.nprobe` from 1 through 4096. Both engines reuse pdbench's existing Cohere
+comparison SQL: cosine ordering and PostgreSQL English full-text matching on
+`text` for `year` and `battle`, with no scalar filter index. They are evaluated
+against the same published ground truth as pg_search, without changing the
+strict r90/r95/r99 gates. Pilot sweeps locate candidates; only operating points
+validated against all 100 vectors may enter k6. Missed targets and exhausted
+budgets remain visible. k6 retains one VU, 10 seconds of warmup, and 50 seconds
+of measurement. Executed plans must use the selected ANN index and preserve
+both text predicates; VectorChord's prefilter setting is checked in the same
+session as each plan.
+
+Results use separate `cohere-10m-pg_vectorsearch`, `cohere-10m-vectorchord`, and
+`cohere-10m-vectorchord-prefilter` identities. Diagnostics include build/search
+profiles, tool and extension commits, container resources, executed plans,
+recall outcomes, PostgreSQL logs, and k6 dashboards. The existing pg_search
+nightly and router-quality paths retain their own profiles and tool pin.
 
 ## Router quality
 

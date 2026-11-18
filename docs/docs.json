@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.26.6",
+        "version": "v0.26.8",
         "tabs": [
           {
             "tab": "Start",
@@ -49,6 +49,7 @@
               {
                 "group": "Indexing",
                 "pages": [
+                  "reference/indexing/schema-modeling",
                   {
                     "group": "Creating an Index",
                     "pages": [
@@ -334,6 +335,8 @@
                   {
                     "group": "v0.26",
                     "pages": [
+                      "project/changelog/0.26.8",
+                      "project/changelog/0.26.7",
                       "project/changelog/0.26.6",
                       "project/changelog/0.26.5",
                       "project/changelog/0.26.4",
@@ -634,11 +637,6 @@
       "twitter": "https://x.com/paradedb",
       "linkedin": "https://www.linkedin.com/company/paradedb",
       "slack": "https://paradedb.com/slack"
-    }
-  },
-  "integrations": {
-    "gtm": {
-      "tagId": "GTM-KMGRG564"
     }
   },
   "seo": {

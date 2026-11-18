@@ -20,6 +20,7 @@ use crate::api::Cardinality;
 use crate::api::operator::{SelectivityAndCost, estimate_selectivity_and_cost};
 use crate::index::mvcc::SegmentViewDocs;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::heap::BLOCKS_PER_DOC_FOR_LAZY_VISIBILITY;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -63,6 +64,39 @@ impl std::fmt::Display for WorkerDecisionReason {
             Self::DocumentCount => "Document count",
             Self::RowHeuristic => "Row-capped",
         })
+    }
+}
+
+/// Per-table `parallel_workers` reloption (`ALTER TABLE ... SET (parallel_workers = N)`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RelParallelWorkers {
+    /// Reloption not set (`-1` in PostgreSQL).
+    #[default]
+    Unset,
+    /// Explicitly set to `0`, disabling parallel workers on this relation.
+    Disabled,
+    /// Explicitly set to `N > 0`, capping workers to `N` and bypassing row/size heuristics.
+    Fixed(NonZeroUsize),
+}
+
+impl RelParallelWorkers {
+    pub fn from_pg(raw: i32) -> Self {
+        if raw < 0 {
+            Self::Unset
+        } else {
+            match NonZeroUsize::new(raw as usize) {
+                Some(n) => Self::Fixed(n),
+                None => Self::Disabled,
+            }
+        }
+    }
+
+    pub fn from_opt(opt: Option<u32>) -> Self {
+        match opt {
+            None => Self::Unset,
+            Some(0) => Self::Disabled,
+            Some(n) => Self::Fixed(NonZeroUsize::new(n as usize).expect("checked > 0")),
+        }
     }
 }
 
@@ -115,9 +149,18 @@ pub fn aggregate_nworkers(
     solve_mvcc: bool,
 ) -> (usize, Option<ParallelCost>) {
     unsafe {
-        let nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
+        let Some(heap) = index.heap_relation() else {
+            return (0, None);
+        };
+        let rel_pw = RelParallelWorkers::from_opt(heap.parallel_workers());
+        let mut nworkers = (pg_sys::max_parallel_workers_per_gather as usize)
             .min(reader.segment_pruning_estimate().candidate_segments)
             .saturating_sub(usize::from(pg_sys::parallel_leader_participation));
+        match rel_pw {
+            RelParallelWorkers::Disabled => return (0, None),
+            RelParallelWorkers::Fixed(cap) => nworkers = nworkers.min(cap.get()),
+            RelParallelWorkers::Unset => {}
+        }
         let Some(workers) = NonZeroUsize::new(
             clamp_to_gather_limits(nworkers).min(pg_sys::max_worker_processes as usize),
         ) else {
@@ -130,15 +173,12 @@ pub fn aggregate_nworkers(
         let Some(updates_per_doc) = aggregation.updates_per_doc(reader) else {
             return (nworkers, None);
         };
-        let Some(heap) = index.heap_relation() else {
-            return (nworkers, None);
-        };
         let total_rows = RowEstimate::from_reltuples(heap.reltuples().map(f64::from));
         let SelectivityAndCost {
             selectivity,
             query_cost: Some(cost),
             ..
-        } = estimate_selectivity_and_cost(index, query.clone(), Some(reader))
+        } = estimate_selectivity_and_cost(index, query.clone(), Some(reader), None)
         else {
             return (nworkers, None);
         };
@@ -216,6 +256,39 @@ fn clamp_to_gather_limits(nworkers: usize) -> usize {
     }
 }
 
+/// Whether a scan's quals depend on outer-relation values or correlated `PARAM_EXEC` nodes
+/// that prevent normal parallel segment partitioning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QualParallelDependency {
+    Independent,
+    ExternalVar,
+    CorrelatedParam,
+}
+
+impl QualParallelDependency {
+    /// Classify `quals` against `root` for parallel worker selection.
+    ///
+    /// # Safety
+    /// `root` must point to a valid `PlannerInfo` for the duration of this call.
+    pub unsafe fn from_quals(quals: &Qual, root: *mut pg_sys::PlannerInfo) -> Self {
+        if quals.contains_external_var() {
+            Self::ExternalVar
+        } else if unsafe { quals.contains_correlated_param(root) } {
+            Self::CorrelatedParam
+        } else {
+            Self::Independent
+        }
+    }
+}
+
+/// Structural parallelism inputs shared by [`compute_nworkers`] and [`max_useful_workers`].
+#[derive(Clone, Copy, Debug)]
+pub struct ScanParallelStructure {
+    pub segment_count: usize,
+    pub rel_parallel_workers: RelParallelWorkers,
+    pub qual_dependency: QualParallelDependency,
+}
+
 /// Compute the number of workers that should be used for the given ExecMethod.
 ///
 /// This calculation determines the "Parallel Awareness" of the path:
@@ -231,15 +304,27 @@ pub fn compute_nworkers(
     declares_sorted_output: bool,
     limit: Option<Cardinality>,
     estimated_total_rows: RowEstimate,
-    segment_count: usize,
-    has_external_quals: bool,
-    has_correlated_param: bool,
+    structure: ScanParallelStructure,
     is_join_context: bool,
 ) -> usize {
+    let ScanParallelStructure {
+        segment_count,
+        rel_parallel_workers,
+        qual_dependency,
+    } = structure;
+    let rel_worker_cap = match rel_parallel_workers {
+        RelParallelWorkers::Disabled => return 0,
+        RelParallelWorkers::Fixed(cap) => Some(cap.get()),
+        RelParallelWorkers::Unset => None,
+    };
+
     // Start with segment-based parallelism. The leader is not included in `nworkers`,
     // so exclude it here. For example: if we expect to need to query 1 segment, then
     // we don't need any workers.
     let mut nworkers = segment_count.saturating_sub(1);
+    if let Some(cap) = rel_worker_cap {
+        nworkers = nworkers.min(cap);
+    }
 
     // For scans with reliable row estimates (RowEstimate::Known) we cap workers two
     // ways; an Unknown estimate (table not ANALYZEd) caps nothing, since we can't
@@ -250,7 +335,9 @@ pub fn compute_nworkers(
     //    it is exempt (#4457).
     // 2. Row-based: cap so each worker processes at least `min_rows_per_worker` rows
     //    (~300K default), for both sorted and unsorted output. Skipped in join
-    //    contexts to avoid preventing Parallel Hash Join.
+    //    contexts to avoid preventing Parallel Hash Join, and bypassed when the user
+    //    explicitly set the `parallel_workers` reloption on the table (matching
+    //    PostgreSQL's `compute_parallel_worker`).
     //
     // See: https://github.com/paradedb/paradedb/issues/3055
     if let RowEstimate::Known(total_rows) = estimated_total_rows {
@@ -267,7 +354,7 @@ pub fn compute_nworkers(
         // Cap so each worker processes at least min_rows_per_worker rows.
         // Skipped for joins: failing to claim workers can prevent the planner from
         // choosing Parallel Hash Join, leading to inefficient serial plans.
-        if !is_join_context {
+        if !is_join_context && rel_worker_cap.is_none() {
             let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
             #[allow(clippy::manual_checked_ops)]
             if min_rows_per_worker > 0 {
@@ -279,33 +366,35 @@ pub fn compute_nworkers(
 
     nworkers = clamp_to_gather_limits(nworkers);
 
-    if has_external_quals {
-        // Don't attempt to parallelize if we depend on external variables (e.g. inner side of a nested loop join).
-        // This occurs when a qual contains a Param that references a value from another relation
-        // (e.g. t1.val @@@ t2.val). In this case, we are likely executing a parameterized scan
-        // where we are re-executed for every row of the outer relation. Parallelism here is
-        // complex and often not desired.
-        //
-        // This is distinct from `is_join_context`, which indicates we are part of a join query
-        // (e.g. Hash Join) but our scan keys are independent.
-        //
-        // TODO: Re-evaluate.
-        nworkers = 0;
-    }
-
-    if has_correlated_param {
-        // Don't attempt to parallelize when we have correlated PARAM_EXEC nodes. Uncorrelated
-        // params are solved during BeginCustomScan and pushed down to parallel workers, but
-        // correlated params need to be evaluated during the scan itself.
-        // TODO: Implement proper correlated PARAM_EXEC param sharing with parallel workers.
-        nworkers = 0;
+    match qual_dependency {
+        QualParallelDependency::Independent => {}
+        QualParallelDependency::ExternalVar => {
+            // Don't attempt to parallelize if we depend on external variables (e.g. inner side of a nested loop join).
+            // This occurs when a qual contains a Param that references a value from another relation
+            // (e.g. t1.val @@@ t2.val). In this case, we are likely executing a parameterized scan
+            // where we are re-executed for every row of the outer relation. Parallelism here is
+            // complex and often not desired.
+            //
+            // This is distinct from `is_join_context`, which indicates we are part of a join query
+            // (e.g. Hash Join) but our scan keys are independent.
+            //
+            // TODO: Re-evaluate.
+            nworkers = 0;
+        }
+        QualParallelDependency::CorrelatedParam => {
+            // Don't attempt to parallelize when we have correlated PARAM_EXEC nodes. Uncorrelated
+            // params are solved during BeginCustomScan and pushed down to parallel workers, but
+            // correlated params need to be evaluated during the scan itself.
+            // TODO: Implement proper correlated PARAM_EXEC param sharing with parallel workers.
+            nworkers = 0;
+        }
     }
 
     #[cfg(not(feature = "pg15"))]
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             // force a parallel worker if the `debug_parallel_query` GUC is on
-            nworkers = 1;
+            nworkers = clamp_to_gather_limits(1);
         }
     }
 
@@ -322,27 +411,39 @@ pub fn compute_nworkers(
 /// Returns 0 if parallelism is structurally impossible:
 /// - External quals (parameterized scan in a nested loop).
 /// - Correlated PARAM_EXEC nodes.
+/// - Per-table `parallel_workers = 0`.
 ///
-/// Otherwise returns `min(segment_count - 1, max_parallel_workers_per_gather,
-/// max_parallel_workers)`. The leader is excluded from `segment_count - 1`.
-pub fn max_useful_workers(
-    segment_count: usize,
-    has_external_quals: bool,
-    has_correlated_param: bool,
-) -> usize {
-    if has_external_quals || has_correlated_param {
+/// Otherwise returns `min(segment_count - 1, rel_parallel_workers,
+/// max_parallel_workers_per_gather, max_parallel_workers)` (with the leader
+/// excluded from `segment_count - 1`), bumped to `clamp_to_gather_limits(1)`
+/// on PG16+ when `debug_parallel_query != off` so single-segment tables still
+/// exercise the parallel Gather path.
+pub fn max_useful_workers(structure: ScanParallelStructure) -> usize {
+    let ScanParallelStructure {
+        segment_count,
+        rel_parallel_workers,
+        qual_dependency,
+    } = structure;
+    if !matches!(qual_dependency, QualParallelDependency::Independent) {
         return 0;
+    }
+
+    let mut structural = segment_count.saturating_sub(1);
+    match rel_parallel_workers {
+        RelParallelWorkers::Disabled => return 0,
+        RelParallelWorkers::Fixed(cap) => structural = structural.min(cap.get()),
+        RelParallelWorkers::Unset => {}
     }
 
     // Only the pg15+ `debug_parallel_query` block below mutates this; on pg15
     // that block is compiled out, leaving the binding immutable.
     #[cfg_attr(feature = "pg15", allow(unused_mut))]
-    let mut nworkers = clamp_to_gather_limits(segment_count.saturating_sub(1));
+    let mut nworkers = clamp_to_gather_limits(structural);
 
     #[cfg(not(feature = "pg15"))]
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
-            nworkers = 1;
+            nworkers = clamp_to_gather_limits(1);
         }
     }
 

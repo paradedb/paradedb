@@ -162,7 +162,12 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
             }
             SimplifyRhs::Rewrite(operator) => {
                 let rhs = match (&field, operator) {
-                    (Some(field), SearchOperator::Conjunction | SearchOperator::Disjunction) => {
+                    (
+                        Some(field),
+                        SearchOperator::Conjunction
+                        | SearchOperator::Disjunction
+                        | SearchOperator::Phrase,
+                    ) => {
                         let root = (*request).root;
                         match expand::replace_expand_subquery(root, rhs, &indexrel, field) {
                             Some(replaced) => replaced,

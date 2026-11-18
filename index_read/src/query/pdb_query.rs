@@ -18,6 +18,7 @@
 
 use crate::api::FieldName;
 use crate::api::version::{Version, VersionInfo};
+use crate::gucs;
 use crate::index::synonym_index::{
     expand_with_index, expand_with_rules, open_synonym_index, rule_tokenizer,
 };
@@ -57,12 +58,13 @@ use std::ffi::CStr;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur, PhrasePrefixQuery, PhraseQuery,
-    Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
-    TermSetQuery,
+    Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery,
+    SynonymQuery, TermQuery, TermSetQuery,
 };
 use tantivy::query_grammar::{self, UserInputAst, UserInputBound, UserInputLeaf, UserInputLiteral};
 use tantivy::schema::FieldType;
 use tantivy::synonyms::{Expansion, expansion_query};
+use tantivy::tokenizer::TextAnalyzer;
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
@@ -306,6 +308,9 @@ pub mod pdb {
         TokenizedPhrase {
             phrase: String,
             slop: Option<u32>,
+            /// The rules that expand the tokens of `phrase`.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            synonyms: Option<SynonymRules>,
         },
         Range {
             #[serde(
@@ -687,13 +692,18 @@ impl pdb::Query {
                 distance,
                 right,
             } => proximity(&field, schema, left, distance, right)?,
-            pdb::Query::TokenizedPhrase { phrase, slop } => tokenized_phrase(
+            pdb::Query::TokenizedPhrase {
+                phrase,
+                slop,
+                synonyms,
+            } => tokenized_phrase(
                 &field,
                 schema,
                 index_created_by_version,
                 searcher,
                 &phrase,
                 slop,
+                synonyms,
             )?,
             pdb::Query::Range {
                 lower_bound,
@@ -1920,6 +1930,7 @@ fn tokenized_phrase(
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
+    synonyms: Option<pdb::SynonymRules>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1927,34 +1938,87 @@ fn tokenized_phrase(
         .with_positions()?;
 
     let field_type = search_field.field_entry().field_type();
-    let mut tokenizer = resolve_search_tokenizer(&search_field, schema, searcher)?;
-    let mut stream = tokenizer.token_stream(phrase);
-    let path = field.path();
-
+    let mut analyzer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut tokens = Vec::new();
-    while let Some(token) = stream.next() {
-        let value = PdbOwnedValue::Str(token.text.clone());
-        let term = value_to_term(
+    {
+        let mut stream = analyzer.token_stream(phrase);
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
+    }
+    if tokens.is_empty() {
+        return Ok(Box::new(EmptyQuery));
+    }
+
+    let variants = match synonyms {
+        Some(rules) => {
+            let expansions =
+                expand_tokens(&rules, &search_field, schema, None, &mut analyzer, &tokens)?;
+            phrase_variants(&expansions)
+        }
+        None => vec![tokens],
+    };
+    let path = field.path();
+    let term = |token: String| {
+        value_to_term(
             search_field.field(),
-            &value,
+            &PdbOwnedValue::Str(token),
             field_type,
             path.as_deref(),
             index_created_by_version,
-        )?;
-        tokens.push(term);
-    }
-    Ok(if tokens.is_empty() {
-        Box::new(EmptyQuery)
-    } else if tokens.len() == 1 {
-        Box::new(TermQuery::new(
-            tokens.remove(0),
-            IndexRecordOption::WithFreqs.into(),
-        ))
-    } else {
-        let mut query = PhraseQuery::new(tokens);
+        )
+    };
+    let mut variants = variants
+        .into_iter()
+        .map(|variant| variant.into_iter().map(term).collect())
+        .collect::<anyhow::Result<Vec<Vec<Term>>>>()?;
+
+    let variant_query = |mut terms: Vec<Term>| -> Box<dyn TantivyQuery> {
+        if terms.len() == 1 {
+            return Box::new(TermQuery::new(
+                terms.remove(0),
+                IndexRecordOption::WithFreqs.into(),
+            ));
+        }
+        let mut query = PhraseQuery::new(terms);
         query.set_slop(slop.unwrap_or(0));
         Box::new(query)
+    };
+    Ok(match variants.len() {
+        1 => variant_query(variants.remove(0)),
+        // A match scores the alternatives of one word as one term, and so does a phrase of one word.
+        _ if variants.iter().all(|terms| terms.len() == 1) => {
+            Box::new(SynonymQuery::new(variants.into_iter().flatten().collect()))
+        }
+        _ => Box::new(DisjunctionMaxQuery::new(
+            variants.into_iter().map(variant_query).collect(),
+        )),
     })
+}
+
+/// One phrase for each choice of an alternative for every run, since a `PhraseQuery` has one term
+/// at a position. The choices multiply, so `synonyms_max_alternatives` caps the phrases too.
+fn phrase_variants(expansions: &[Expansion]) -> Vec<Vec<String>> {
+    let max_variants = gucs::synonyms_max_alternatives();
+    let mut variants = vec![Vec::new()];
+    for expansion in expansions {
+        let mut alternatives: Vec<&Vec<String>> = match &expansion.alternatives {
+            Some(alternatives) => alternatives.iter().collect(),
+            None => vec![&expansion.tokens],
+        };
+        // The typed tokens are the first choice of a run, so the cap never drops the typed phrase.
+        alternatives.sort_by_key(|alternative| **alternative != expansion.tokens);
+        variants = variants
+            .iter()
+            .flat_map(|variant| {
+                alternatives
+                    .iter()
+                    .map(move |alternative| [variant.as_slice(), alternative.as_slice()].concat())
+            })
+            .take(max_variants)
+            .collect();
+    }
+    variants
 }
 
 fn phrase_prefix(
@@ -2263,12 +2327,15 @@ fn match_query(
         }
     }
 
-    let mut expansions = match synonyms {
-        Some(pdb::SynonymRules::Index(index)) => {
-            expand_match(index, &search_field, schema, tokenizer.as_ref(), &tokens)?
-        }
-        // The analyzer of the query tokens compiles the rules, so a key matches the same tokens.
-        Some(pdb::SynonymRules::Rules(rules)) => expand_with_rules(&rules, &mut analyzer, &tokens)?,
+    let mut expansions = match &synonyms {
+        Some(rules) => expand_tokens(
+            rules,
+            &search_field,
+            schema,
+            tokenizer.as_ref(),
+            &mut analyzer,
+            &tokens,
+        )?,
         None => no_expansion(&tokens),
     };
 
@@ -2373,17 +2440,31 @@ pub(crate) fn match_expands_with_synonyms(
         }
     }
     // The selectivity estimate builds the same query first, so it has already raised any error.
-    let expansions = match rules {
-        pdb::SynonymRules::Index(index) => {
-            expand_match(*index, search_field, schema, None, &tokens)
-        }
-        pdb::SynonymRules::Rules(rules) => expand_with_rules(rules, &mut analyzer, &tokens),
-    };
+    let expansions = expand_tokens(rules, search_field, schema, None, &mut analyzer, &tokens);
     expansions.is_ok_and(|expansions| {
         expansions
             .iter()
             .any(|expansion| !expansion.is_single_term())
     })
+}
+
+/// The runs of `tokens` with the alternatives that `rules` give them. `analyzer` is the one that
+/// made `tokens`, and `tokenizer` is the one that the query names, if any.
+fn expand_tokens(
+    rules: &pdb::SynonymRules,
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    tokenizer: Option<&Value>,
+    analyzer: &mut TextAnalyzer,
+    tokens: &[String],
+) -> anyhow::Result<Vec<Expansion>> {
+    match rules {
+        pdb::SynonymRules::Index(index) => {
+            expand_match(*index, search_field, schema, tokenizer, tokens)
+        }
+        // The analyzer of the query tokens compiles the rules, so a key matches the same tokens.
+        pdb::SynonymRules::Rules(rules) => expand_with_rules(rules, analyzer, tokens),
+    }
 }
 
 /// The tokenizer of a query on `search_field`, from the index options.
@@ -3251,6 +3332,7 @@ mod tests {
             Query::TokenizedPhrase {
                 phrase: "database".into(),
                 slop: None,
+                synonyms: None,
             },
         ];
         for query in queries {

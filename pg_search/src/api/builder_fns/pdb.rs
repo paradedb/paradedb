@@ -98,7 +98,11 @@ mod pdb {
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "phrase")]
     pub fn phrase_string(phrase: String) -> pdb::Query {
-        pdb::Query::TokenizedPhrase { phrase, slop: None }
+        pdb::Query::TokenizedPhrase {
+            phrase,
+            slop: None,
+            synonyms: None,
+        }
     }
 
     #[builder_fn]

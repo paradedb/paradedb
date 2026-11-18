@@ -11,9 +11,9 @@ For example:
 <CodeGroup>
 ```sql SQL
 SELECT
-    pdb.agg('{"value_count": {"field": "id"}}')
+    pdb.agg('{"filter": "*"}')
     FILTER (WHERE category === 'electronics') AS electronics_count,
-    pdb.agg('{"value_count": {"field": "id"}}')
+    pdb.agg('{"filter": "*"}')
     FILTER (WHERE category === 'footwear') AS footwear_count
 FROM mock_items;
 ```
@@ -24,10 +24,10 @@ import { search } from "@paradedb/drizzle-paradedb";
 await db
   .select({
     electronicsCount: search
-      .agg({ value_count: { field: "id" } })
+      .agg({ filter: "*" })
       .filter(search.term(mockItems.category, "electronics")),
     footwearCount: search
-      .agg({ value_count: { field: "id" } })
+      .agg({ filter: "*" })
       .filter(search.term(mockItems.category, "footwear")),
   })
   .from(mockItems);
@@ -39,11 +39,11 @@ from paradedb import Agg, ParadeDB, Term
 
 MockItem.objects.aggregate(
     electronics_count=Agg(
-        '{"value_count": {"field": "id"}}',
+        '{"filter": "*"}',
         filter=Q(category=ParadeDB(Term('electronics'))),
     ),
     footwear_count=Agg(
-        '{"value_count": {"field": "id"}}',
+        '{"filter": "*"}',
         filter=Q(category=ParadeDB(Term('footwear'))),
     ),
 )
@@ -52,13 +52,13 @@ MockItem.objects.aggregate(
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = select(
-    pdb.agg(facets.value_count(field="id"))
+    pdb.agg({"filter": "*"})
     .filter(search.term(MockItem.category, "electronics"))
     .label("electronics_count"),
-    pdb.agg(facets.value_count(field="id"))
+    pdb.agg({"filter": "*"})
     .filter(search.term(MockItem.category, "footwear"))
     .label("footwear_count"),
 ).select_from(MockItem)
@@ -70,12 +70,12 @@ with Session(engine) as session:
 ```ruby Rails
 result = MockItem.facets_agg(
   electronics_count: ParadeDB::Aggregations.filtered(
-    ParadeDB::Aggregations.value_count(:id),
+    { filter: "*" },
     field: :category,
     term: "electronics"
   ),
   footwear_count: ParadeDB::Aggregations.filtered(
-    ParadeDB::Aggregations.value_count(:id),
+    { filter: "*" },
     field: :category,
     term: "footwear"
   )
@@ -87,11 +87,11 @@ await dbContext
     .MockItems.Select(item => new
     {
         ElectronicsCount = EF.Functions.AggFilter(
-            new { value_count = new { field = "id" } },
+            new { filter = "*" },
             EF.Functions.Term(item.Category, "electronics")
         ),
         FootwearCount = EF.Functions.AggFilter(
-            new { value_count = new { field = "id" } },
+            new { filter = "*" },
             EF.Functions.Term(item.Category, "footwear")
         )
     })
@@ -112,6 +112,6 @@ await dbContext
 ```ini Expected Response
  electronics_count | footwear_count
 -------------------+----------------
- {"value": 5.0}    | {"value": 6.0}
+ {"doc_count": 5}  | {"doc_count": 6}
 (1 row)
 ```

@@ -67,6 +67,11 @@ pub struct TopKScanExecState {
     /// sides are static at construction; otherwise resolved in `init` from
     /// the `LimitOffset` carried on `ExecMethodType::TopK`.
     limit: Option<usize>,
+    /// Whether to stop after `limit` rows. False when the relation is row-marked
+    /// (`FOR UPDATE`/`FOR SHARE`): `LockRows` can drop rows (`SKIP LOCKED`, concurrently
+    /// deleted or updated rows), so the outer Limit must be able to pull past K
+    /// (#7170, #7201). Keyed on the row mark, not the wait policy, to cover all three.
+    stop_at_limit: bool,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     visibility_selectivity: TopKSelectivity,
@@ -100,6 +105,7 @@ impl TopKScanExecState {
         // ExecMethodType::TopK.
         Self {
             limit: limit_offset.static_fetch(),
+            stop_at_limit: true,
             orderby_info,
             visibility_selectivity,
             window_aggregates: Vec::new(),
@@ -297,6 +303,7 @@ impl TopKScanExecState {
             initial_window: self
                 .visibility_selectivity
                 .compute_initial_window(self.limit(), crate::gucs::limit_fetch_multiplier()),
+            unpushed_join_selectivity: TopKSelectivity::ALL,
             parallel_mode: LazyParallelMode::WorkerPool,
             telemetry: Some(telemetry),
         };
@@ -379,26 +386,28 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        let estate = unsafe { (*cstate).ss.ps.state };
+        // Non-locking marks also match; then we skip the early stop for nothing.
+        self.stop_at_limit =
+            unsafe { pg_sys::ExecFindRowMark(estate, state.execution_rti, true).is_null() };
+
         // Resolve K = LIMIT + OFFSET from EState when not already known.
-        // `fetch_mut` converts each `Param` → `Static` in place on the
+        // `resolve_mut` converts each `Param` → `Static` in place on the
         // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
         // sees resolved values without us holding a separate copy.
-        if self.limit.is_none() {
-            let estate = unsafe { (*cstate).ss.ps.state };
-            if let ExecMethodType::TopK {
+        if self.limit.is_none()
+            && let ExecMethodType::TopK {
                 ref mut limit_offset,
                 ..
             } = state.exec_method_type
-            {
-                self.limit = limit_offset
-                    .resolve_mut(estate)
-                    .expect("LIMIT must be resolvable from EState (param missing or NULL)")
-                    .static_fetch();
-            }
+        {
+            self.limit = limit_offset
+                .resolve_mut(estate)
+                .expect("LIMIT must be resolvable from EState (param missing or NULL)")
+                .static_fetch();
         }
 
         // handle parameterized vectors
-        let estate = unsafe { (*cstate).ss.ps.state };
         let planstate = unsafe { std::ptr::addr_of_mut!((*cstate).ss.ps) };
         if !estate.is_null() {
             let resolve = |infos: &mut [OrderByInfo]| {
@@ -426,7 +435,7 @@ impl ExecMethod for TopKScanExecState {
     }
 
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if self.found >= self.limit() {
+        if self.stop_at_limit && self.found >= self.limit() {
             return false;
         }
 
@@ -476,7 +485,7 @@ impl ExecMethod for TopKScanExecState {
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         check_for_interrupts();
 
-        if self.found >= self.limit() {
+        if self.stop_at_limit && self.found >= self.limit() {
             return ExecState::Eof;
         }
 

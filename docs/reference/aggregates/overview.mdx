@@ -50,11 +50,13 @@ See [Limitations](/reference/aggregates/limitations) for the full list of suppor
 
 The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query string. This is useful when you want bucketed or faceted responses in Elasticsearch-compatible JSON.
 
+For row counts, use `{"filter": "*"}`. It counts matching documents without opening or reading a field's columnar data. Use [`value_count`](/reference/aggregates/metrics/count#count-non-null-field-values) only when you need to ignore missing or null field values, which adds a column-read cost.
+
 For example, the following query counts the total number of results for a search query:
 
 <CodeGroup>
 ```sql SQL
-SELECT pdb.agg('{"value_count": {"field": "id"}}')
+SELECT pdb.agg('{"filter": "*"}')
 FROM mock_items
 WHERE category === 'electronics';
 ```
@@ -64,7 +66,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
-    agg: search.agg({ value_count: { field: "id" } }),
+    agg: search.agg({ filter: "*" }),
   })
   .from(mockItems)
   .where(search.term(mockItems.category, "electronics"));
@@ -75,16 +77,16 @@ from paradedb import Agg, ParadeDB, Term
 
 MockItem.objects.filter(
     category=ParadeDB(Term('electronics'))
-).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
+).aggregate(agg=Agg('{"filter": "*"}'))
 ```
 
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
-    select(pdb.agg(facets.value_count(field="id")))
+    select(pdb.agg({"filter": "*"}))
     .select_from(MockItem)
     .where(search.term(MockItem.category, "electronics"))
 )
@@ -96,13 +98,13 @@ with Session(engine) as session:
 ```ruby Rails
 MockItem.search(:category)
         .term("electronics")
-        .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
+        .facets_agg(agg: { filter: "*" })
 ```
 
 ```cs EF Core
 await dbContext
     .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
-    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }))
+    .Select(item => EF.Functions.Agg(new { filter = "*" }))
     .ToListAsync();
 ```
 
@@ -111,7 +113,7 @@ await dbContext
 ```ini Expected Response
       agg
 ----------------
- {"value": 5.0}
+ {"doc_count": 5}
 (1 row)
 ```
 
@@ -119,7 +121,7 @@ This query counts the number of results for every distinct group:
 
 <CodeGroup>
 ```sql SQL
-SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
+SELECT rating, pdb.agg('{"filter": "*"}')
 FROM mock_items
 WHERE category === 'electronics'
 GROUP BY rating
@@ -133,7 +135,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 await db
   .select({
     rating: mockItems.rating,
-    agg: search.agg({ value_count: { field: "id" } }),
+    agg: search.agg({ filter: "*" }),
   })
   .from(mockItems)
   .where(search.term(mockItems.category, "electronics"))
@@ -148,17 +150,17 @@ from paradedb import Agg, ParadeDB, Term
 MockItem.objects.filter(
     category=ParadeDB(Term('electronics'))
 ).values('rating').annotate(
-    agg=Agg('{"value_count": {"field": "id"}}')
+    agg=Agg('{"filter": "*"}')
 ).order_by('rating')[:5]
 ```
 
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
-    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    select(MockItem.rating, pdb.agg({"filter": "*"}).label("agg"))
     .where(search.term(MockItem.category, "electronics"))
     .group_by(MockItem.rating)
     .order_by(MockItem.rating)
@@ -174,7 +176,7 @@ MockItem.search(:category)
         .term("electronics")
         .aggregate_by(
           :rating,
-          agg: ParadeDB::Aggregations.value_count(:id)
+          agg: { filter: "*" }
         )
         .order(:rating)
         .limit(5)
@@ -187,7 +189,7 @@ await dbContext
     .Select(group => new
     {
         Rating = group.Key,
-        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+        Agg = EF.Functions.Agg(new { filter = "*" })
     })
     .OrderBy(result => result.Rating)
     .Take(5)
@@ -199,9 +201,9 @@ await dbContext
 ```ini Expected Response
  rating |      agg
 --------+----------------
-      3 | {"value": 1.0}
-      4 | {"value": 3.0}
-      5 | {"value": 1.0}
+      3 | {"doc_count": 1}
+      4 | {"doc_count": 3}
+      5 | {"doc_count": 1}
 (3 rows)
 ```
 
@@ -213,7 +215,7 @@ To compute multiple aggregations at once, simply include multiple `pdb.agg` func
 ```sql SQL
 SELECT
   pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
-  pdb.agg('{"value_count": {"field": "id"}}') AS count
+  pdb.agg('{"filter": "*"}') AS count
 FROM mock_items
 WHERE category === 'electronics';
 ```
@@ -224,7 +226,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 await db
   .select({
     avgRating: search.agg({ avg: { field: "rating" } }),
-    count: search.agg({ value_count: { field: "id" } }),
+    count: search.agg({ filter: "*" }),
   })
   .from(mockItems)
   .where(search.term(mockItems.category, "electronics"));
@@ -237,7 +239,7 @@ MockItem.objects.filter(
     category=ParadeDB(Term('electronics'))
 ).aggregate(
     avg_rating=Agg('{"avg": {"field": "rating"}}'),
-    count=Agg('{"value_count": {"field": "id"}}'),
+    count=Agg('{"filter": "*"}'),
 )
 ```
 
@@ -249,7 +251,7 @@ from paradedb.sqlalchemy import facets, pdb, search
 stmt = (
     select(
         pdb.agg(facets.avg(field="rating")).label("avg_rating"),
-        pdb.agg(facets.value_count(field="id")).label("count"),
+        pdb.agg({"filter": "*"}).label("count"),
     )
     .select_from(MockItem)
     .where(search.term(MockItem.category, "electronics"))
@@ -264,7 +266,7 @@ MockItem.search(:category)
         .term("electronics")
         .facets_agg(
           avg_rating: ParadeDB::Aggregations.avg(:rating),
-          count: ParadeDB::Aggregations.value_count(:id)
+          count: { filter: "*" }
         )
 ```
 
@@ -274,7 +276,7 @@ await dbContext
     .Select(item => new
     {
         AvgRating = EF.Functions.Agg(new { avg = new { field = "rating" } }),
-        Count = EF.Functions.Agg(new { value_count = new { field = "id" } })
+        Count = EF.Functions.Agg(new { filter = "*" })
     })
     .ToListAsync();
 ```
@@ -284,7 +286,7 @@ await dbContext
 ```ini Expected Response
    avg_rating   |     count
 ----------------+----------------
- {"value": 4.0} | {"value": 5.0}
+ {"value": 4.0} | {"doc_count": 5}
 (1 row)
 ```
 
@@ -303,7 +305,7 @@ To do so, set `visibility` to `'raw'`.
 
 <CodeGroup>
 ```sql SQL
-SELECT pdb.agg('{"value_count": {"field": "id"}}', 'raw')
+SELECT pdb.agg('{"filter": "*"}', 'raw')
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```
@@ -313,7 +315,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
-    agg: search.agg({ value_count: { field: "id" } }, false),
+    agg: search.agg({ filter: "*" }, false),
   })
   .from(mockItems)
   .where(search.matchAny(mockItems.description, "running shoes"));
@@ -325,17 +327,17 @@ from paradedb import Agg, MatchAny, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(MatchAny('running shoes'))
 ).aggregate(
-    agg=Agg('{"value_count": {"field": "id"}}', exact=False)
+    agg=Agg('{"filter": "*"}', exact=False)
 )
 ```
 
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
-    select(pdb.agg(facets.value_count(field="id"), approximate=True).label("agg"))
+    select(pdb.agg({"filter": "*"}, approximate=True).label("agg"))
     .where(search.match_any(MockItem.description, "running shoes"))
 )
 
@@ -346,13 +348,13 @@ with Session(engine) as session:
 ```ruby Rails
 MockItem.search(:description)
         .match_any("running shoes")
-        .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
+        .facets_agg(exact: false, agg: { filter: "*" })
 ```
 
 ```cs EF Core
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
-    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }, false))
+    .Select(item => EF.Functions.Agg(new { filter = "*" }, false))
     .ToListAsync();
 ```
 
@@ -366,7 +368,7 @@ An unvacuumed dead tuple skews a small result visibly and a large one barely at 
 
 <CodeGroup>
 ```sql SQL
-SELECT pdb.agg('{"value_count": {"field": "id"}}', 'threshold')
+SELECT pdb.agg('{"filter": "*"}', 'threshold')
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```
@@ -376,7 +378,7 @@ import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
-    agg: search.agg({ value_count: { field: "id" } }, "threshold"),
+    agg: search.agg({ filter: "*" }, "threshold"),
   })
   .from(mockItems)
   .where(search.matchAny(mockItems.description, "running shoes"));
@@ -388,17 +390,17 @@ from paradedb import Agg, MatchAny, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(MatchAny('running shoes'))
 ).aggregate(
-    agg=Agg('{"value_count": {"field": "id"}}', visibility="threshold")
+    agg=Agg('{"filter": "*"}', visibility="threshold")
 )
 ```
 
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
-    select(pdb.agg(facets.value_count(field="id"), visibility="threshold").label("agg"))
+    select(pdb.agg({"filter": "*"}, visibility="threshold").label("agg"))
     .where(search.match_any(MockItem.description, "running shoes"))
 )
 
@@ -409,13 +411,13 @@ with Session(engine) as session:
 ```ruby Rails
 MockItem.search(:description)
         .match_any("running shoes")
-        .facets_agg(visibility: :threshold, agg: ParadeDB::Aggregations.value_count(:id))
+        .facets_agg(visibility: :threshold, agg: { filter: "*" })
 ```
 
 ```cs EF Core
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
-    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }, "threshold"))
+    .Select(item => EF.Functions.Agg(new { filter = "*" }, "threshold"))
     .ToListAsync();
 ```
 

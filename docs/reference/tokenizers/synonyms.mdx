@@ -183,8 +183,8 @@ A few things stay exact:
   both match the alternatives exactly. A directed rule drops the words you typed, with or without fuzzy, and a group with
   a fuzzy word scores with the best of its alternatives.
 - `pdb.expand` takes text. A text array, such as `ARRAY['sofa']`, has no tokenizer to match the rules with.
-- The match operators, `|||` and `&&&`, and the [phrase](#phrases) operator, `###`, expand. With
-  [term](/reference/full-text/term) or the [query parser](/reference/full-text/query-parser), `pdb.expand` is an error.
+- The match operators, `|||` and `&&&`, the [phrase](#phrases) operator, `###`, and the [query parser](#query-parser)
+  operator, `@@@`, expand. With [term](/reference/full-text/term), `pdb.expand` is an error.
 
 The fuzzy and boost casts go on the subquery:
 
@@ -463,6 +463,87 @@ The [slop](/reference/full-text/phrase#adding-slop) cast goes on the subquery, a
 with a rule multiplies the phrases. The query searches at most `paradedb.synonyms_max_alternatives` of them. The phrase
 you typed stays when the rules list its words.
 
+### Query Parser
+
+The [query parser](/reference/full-text/query-parser) takes the same subquery when a text or JSON field is on its left
+side. It expands each word of the query string on its own, and each quoted phrase as a [phrase](#phrases). An operator of
+the query string, such as `AND` or `-`, applies to a word together with its alternatives:
+
+<CodeGroup>
+```sql SQL
+SELECT description FROM mock_items
+WHERE description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms);
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+const rules = db
+  .select({
+    query: sql`pdb.expand(${"sleek AND sneakers"}, ${shopSynonyms.rule})`,
+  })
+  .from(shopSynonyms);
+
+await db
+  .select({ description: mockItems.description })
+  .from(mockItems)
+  .where(sql`${mockItems.description} @@@ ${rules}`);
+```
+
+```python Django
+MockItem.objects.extra(
+    where=[
+        "description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms)"
+    ]
+).values('description')
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+rules = select(
+    func.pdb.expand("sleek AND sneakers", ShopSynonym.rule)
+).scalar_subquery()
+
+stmt = (
+    select(MockItem.description)
+    .where(MockItem.description.op("@@@")(rules))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.where(
+  "description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms)"
+).select(:description)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.FromSql(
+        $"SELECT * FROM mock_items WHERE description @@@ (SELECT pdb.expand('sleek AND sneakers', rule) FROM shop_synonyms)"
+    )
+    .Select(item => new { item.Description })
+    .ToListAsync();
+```
+
+</CodeGroup>
+
+The parser makes one query for each word, so a term of several words expands only in a quoted phrase. With a rule
+`trail shoes, hikers`, the query string `"trail shoes"` also finds `hikers`, and `trail shoes` does not.
+
+A few things differ from the match and phrase operators:
+
+- Only the field on the left side expands, and a JSON field expands at each of its paths. A word for another field, such
+  as `category:sofa`, stays as typed, and so does a range, a set or a prefix phrase.
+- The slop of a phrase goes in the query string, as in `"red sofa"~2`, and not on the subquery. The `lenient` and
+  `conjunction_mode` options of `pdb.parse` are not available.
+- The parser does not use a [search tokenizer](/reference/tokenizers/search-tokenizer), so the query uses the synonym
+  index that has the tokenizer of the field.
+
 ### Which Index a Query Uses
 
 The subquery names the table and not an index. The query uses the synonym index on the rule column that holds the rows
@@ -499,7 +580,8 @@ Each alternative is one more term the query has to look up, so a long rule costs
 
 - `paradedb.synonyms_max_alternatives` (default `32`) caps how many alternatives one run of words expands to, in sorted
   order. For a [phrase](#phrases) query, it also caps how many phrases the query searches. The words you typed stay in
-  both cases when a rule lists them.
+  both cases when a rule lists them. The [query parser](#query-parser) caps a word as a match, and a quoted phrase as a
+  phrase query.
 - `paradedb.synonyms_max_rules_per_key` (default `1024`) caps how many rules one word reads in each segment of the synonym
   index. A word in more rules reads only the first ones. Without a synonym index, the cap counts the rules that the
   subquery returns.

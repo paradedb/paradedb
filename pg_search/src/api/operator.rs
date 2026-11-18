@@ -29,7 +29,7 @@ pub(crate) use crate::postgres::var::find_var_relation;
 use crate::api::FieldName;
 use crate::api::operator::boost::{BoostType, boost_to_boost};
 use crate::api::operator::fuzzy::{FuzzyType, fuzzy_to_fuzzy};
-use crate::api::operator::rewrite::SearchOperator;
+pub(crate) use crate::api::operator::rewrite::SearchOperator;
 use crate::api::operator::slop::{SlopType, slop_to_slop};
 use crate::api::tokenizers::{type_can_be_tokenized, type_is_alias, type_is_tokenizer};
 use crate::gucs::per_tuple_cost;
@@ -161,15 +161,12 @@ impl ReturnedNodePointerSupport for ReturnedNodePointer {
                 rhs
             }
             SimplifyRhs::Rewrite(operator) => {
-                let rhs = match (&field, operator) {
-                    (
-                        Some(field),
-                        SearchOperator::Conjunction
-                        | SearchOperator::Disjunction
-                        | SearchOperator::Phrase,
-                    ) => {
+                let rhs = match &field {
+                    // The term operator does not tokenize its text, so no rule applies to it.
+                    Some(field) if operator != SearchOperator::Term => {
                         let root = (*request).root;
-                        match expand::replace_expand_subquery(root, rhs, &indexrel, field) {
+                        let parsed = operator == SearchOperator::Parse;
+                        match expand::replace_expand_subquery(root, rhs, &indexrel, field, parsed) {
                             Some(replaced) => replaced,
                             None => {
                                 selectivity_now = expand::selectivity_now(

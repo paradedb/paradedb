@@ -311,6 +311,8 @@ fn collect_join_edges<'a>(joins: &[&'a Join]) -> Vec<JoinEdge<'a>> {
             if l_idx == r_idx {
                 continue;
             }
+            let l_field = l_field.filter(|_| l_prov.scan_info.rel_parallel_workers != Some(0));
+            let r_field = r_field.filter(|_| r_prov.scan_info.rel_parallel_workers != Some(0));
             edges.push(JoinEdge {
                 join_idx,
                 join_type: join.join_type,
@@ -590,10 +592,7 @@ impl OptimizerRule for RangePartitioningRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        if !crate::gucs::enable_range_partitioned_join()
-            || !crate::postgres::customscan::mpp::glue::mpp_is_active()
-            || !plan_has_mpp_provider(&plan)
-        {
+        if !crate::gucs::enable_range_partitioned_join() || !plan_has_mpp_provider(&plan) {
             return Ok(Transformed::no(plan));
         }
 
@@ -767,10 +766,13 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
     fn optimize(
         &self,
         plan: Arc<dyn ExecutionPlan>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         if !crate::gucs::enable_range_partitioned_join()
-            || !crate::postgres::customscan::mpp::glue::mpp_is_active()
+            || config
+                .extensions
+                .get::<datafusion_distributed::DistributedConfig>()
+                .is_none()
         {
             return Ok(plan);
         }

@@ -53,7 +53,7 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
 
             // The oid of a synonym index differs between databases. EXPLAIN names the index on
             // its own line.
-            for expanded in ["match", "tokenized_phrase"] {
+            for expanded in ["match", "tokenized_phrase", "parse_with_field"] {
                 if let Some(query) = obj
                     .get_mut(expanded)
                     .and_then(|query| query.as_object_mut())

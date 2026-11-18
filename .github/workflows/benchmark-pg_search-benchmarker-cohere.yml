@@ -433,6 +433,9 @@ jobs:
           set -euo pipefail
           printf 'Database resources: 8 CPUs on cores 0-7, 32 GiB RAM, seven parallel maintenance workers, four query workers, and eight global parallel workers. k6 runs on cores 64-67.\n\n' > benchmark-artifacts/context.md
           cat benchmark-artifacts/operating_points.md >> benchmark-artifacts/context.md
+          if [ -f benchmark-artifacts/plan-modes.md ]; then
+            cat benchmark-artifacts/plan-modes.md >> benchmark-artifacts/context.md
+          fi
           if [ "$ROUTER_QUALITY" = true ]; then
             cat benchmark-artifacts/router/router_quality.md >> benchmark-artifacts/context.md
           fi

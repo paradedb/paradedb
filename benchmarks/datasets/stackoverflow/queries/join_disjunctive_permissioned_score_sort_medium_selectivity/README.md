@@ -1,7 +1,7 @@
 # Permissioned Disjunctive Search, Medium Selectivity (Score Sort)
 
 - **Join**: stackoverflow_posts -> comments
-- **Description**: Disjunctive (`OR`) full-text search across `stackoverflow_posts` and `comments` ordered by combined BM25 relevance (`pdb.score(p.id) + pdb.score(c.id) DESC, c.id ASC`), restricted by an `InitPlan`-parameterized base filter on `stackoverflow_posts` (`p.view_count >= (SELECT 42) AND p.view_count < (SELECT 43)`). Models a multi-table search under a row-level security / tenant filter that exceeds both `paradedb.rank_join_min_rows` (`10,000`) and `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`20,000`), while staying selective (`0.20% < paradedb.rank_join_unscored_selectivity_threshold = 0.08`) where parallel `HashJoinExec` outperforms `RankJoinExec` (which otherwise amplifies `SA` misses on `comments`).
+- **Description**: Disjunctive (`OR`) full-text search across `stackoverflow_posts` and `comments` ordered by combined BM25 relevance (`pdb.score(p.id) + pdb.score(c.id) DESC, c.id ASC`), restricted by an `InitPlan`-parameterized base filter on `stackoverflow_posts` (`p.view_count >= (SELECT 42) AND p.view_count < (SELECT 43)`). Models a multi-table search under a row-level security / tenant filter that exceeds both `paradedb.rank_join_min_rows` (`10,000`) and `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`5,000`), while staying selective (`0.20% < paradedb.rank_join_unscored_selectivity_threshold = 0.08`) where parallel `HashJoinExec` outperforms `RankJoinExec` (which otherwise amplifies `SA` misses on `comments`).
 
 ## Query Info (statistics from 20M dataset):
 

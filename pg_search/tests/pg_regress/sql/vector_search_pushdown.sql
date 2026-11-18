@@ -588,8 +588,8 @@ LIMIT 2;
 
 RESET paradedb.term_set_bitset_max_density_multi;
 
--- Edge Case 2: Build distinct-key count exceeding `lazy_sort_inlist_pushdown_max_distinct_values`
-SET paradedb.lazy_sort_inlist_pushdown_max_distinct_values = 1;
+-- Edge Case 2: Build distinct-key count exceeding `hash_join_inlist_pushdown_max_distinct_values`
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
@@ -612,7 +612,7 @@ WHERE c.id @@@ pdb.all()
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 2;
 
-RESET paradedb.lazy_sort_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
 
 -- Edge Case 3: Sparse join where total matching rows < K (exhausts LazySort cleanly)
 SELECT c.id, c.parent_id
@@ -858,7 +858,7 @@ LIMIT 2;
 
 -- Edge Case 7: Selective parent filter (2 / 100 = 2% < rank_join_unscored_selectivity_threshold)
 -- over an IVF segment where build distinct-key count exceeds
--- `lazy_sort_inlist_pushdown_max_distinct_values` (`HashTableLookupExpr` fallback).
+-- `hash_join_inlist_pushdown_max_distinct_values` (`HashTableLookupExpr` -> `TermPredicateQuery`).
 INSERT INTO vsp_parents
 SELECT i, 'gamma', '{"score": 0}'::jsonb
 FROM generate_series(5, 100) i;
@@ -866,7 +866,7 @@ FROM generate_series(5, 100) i;
 REINDEX INDEX vsp_parents_idx;
 ANALYZE vsp_parents;
 
-SET paradedb.lazy_sort_inlist_pushdown_max_distinct_values = 1;
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 1;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT c.id, c.parent_id
@@ -889,7 +889,7 @@ WHERE c.id @@@ pdb.all()
 ORDER BY c.vec <=> '[1,0,0]'::vector, c.id
 LIMIT 5;
 
-RESET paradedb.lazy_sort_inlist_pushdown_max_distinct_values;
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
 
 DROP TABLE vsp_children, vsp_parents;
 

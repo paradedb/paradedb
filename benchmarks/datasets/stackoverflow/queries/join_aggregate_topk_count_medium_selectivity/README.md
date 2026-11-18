@@ -11,11 +11,10 @@
 ## Query Info (statistics from 20m dataset):
 
 - 'regex' selectivity on stackoverflow_posts.body: ~0.90% (~179K matches).
-  At 20M scale, per-partition build-side cardinality (~11K-32K rows, <= 20K distinct keys on most
-  partitions) causes `HashJoinExec` to emit a dynamic `InListExpr` that exceeds Tantivy's
-  `BitsetFromPostings` density gate (`paradedb.term_set_bitset_max_density_multi`) or K-cap
-  (`paradedb.hash_join_inlist_pushdown_max_distinct_values`), exercising vectorized `PreFilter`
-  `InListExpr` evaluation over fast-field batches.
+  At 20M scale, per-partition build-side cardinality (~11K-32K rows) exceeds
+  `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`5,000`), avoiding `InListExpr`
+  literal materialization in favor of `HashJoinExec`'s zero-copy `HashTableLookupExpr`
+  (`TermPredicateQuery`).
 
 ## Comparison Strategy
 

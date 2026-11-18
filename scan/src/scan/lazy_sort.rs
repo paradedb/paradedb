@@ -35,6 +35,7 @@ use datafusion::common::{DataFusionError, Result, ScalarValue};
 use datafusion::physical_expr::expressions::{DynamicFilterPhysicalExpr, Literal};
 use datafusion::physical_expr::{DynamicFilterTracking, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::expressions::InListExpr;
+use datafusion::physical_plan::joins::HashTableLookupExpr;
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, Count, ExecutionPlanMetricsSet, MetricBuilder, RecordOutput,
 };
@@ -187,9 +188,10 @@ pub struct LazySortConfig {
     pub initial_window: f64,
     /// Combined build-side selectivity of upstream `HashJoinExec` nodes along a `lazy_sort` probe
     /// spine. Used at stream initialization to scale `initial_window` when a join dynamic filter
-    /// was not pushed into the Tantivy reader (`HashTableLookupExpr` or unpushable join key), and
-    /// to scale `estimate_vector_matches` when re-planning `VectorFilterStrategy` after pushing an
-    /// `InList` (`TermSetQuery`) into a vector scan.
+    /// was not pushed into the Tantivy reader (e.g. a multi-column `HashTableLookupExpr` or
+    /// unpushable join key), and to scale `estimate_vector_matches` when re-planning
+    /// `VectorFilterStrategy` after pushing an `InList` (`TermSetQuery`) or `HashTableLookupExpr`
+    /// (`TermPredicateQuery`) into a vector scan.
     pub unpushed_join_selectivity: TopKSelectivity,
     /// Controls how a non-range-partitioned (`ExecutionState::Shared`) scan interacts with
     /// `ParallelScanState` for segment claiming and first-pull cross-worker threshold sharing.
@@ -660,16 +662,16 @@ fn record_pull_telemetry(
 }
 
 /// Returns `true` when an upstream `HashJoinExec` filter was not pushed into the Tantivy reader
-/// (e.g. `HashTableLookupExpr`, an unpushable `InListExpr`, or an expression join key with no
-/// dynamic filter), excluding empty build sides (`lit(false)`).
+/// (e.g. a multi-column `HashTableLookupExpr`, an unpushable `InListExpr`, or an expression join
+/// key with no dynamic filter), excluding empty build sides (`lit(false)`).
 ///
 /// Every entry in `PgSearchScanPlan::dynamic_filters` starts as a `DynamicFilterPhysicalExpr` and
 /// only becomes `DynamicFilterTracking::Static` when `try_dynamic_filter_pushdown` pushes at least
-/// one `InListExpr` into `reader` and replaces it with `lit(true)`. DataFusion wraps `InList` join
-/// filters with min/max bounds (`col >= min AND col <= max AND col IN (...)`), leaving a redundant
-/// static `col >= min AND col <= max AND true` expression after pushdown; that rewritten static
-/// expression only represents an unpushed filter if a sibling `InListExpr` returned
-/// `InListPushdown::Keep`.
+/// one `InListExpr` or `HashTableLookupExpr` into `reader` and replaces it with `lit(true)`.
+/// DataFusion wraps join dynamic filters with min/max bounds (`col >= min AND col <= max AND ...`),
+/// leaving a redundant static `col >= min AND col <= max AND true` expression after pushdown; that
+/// rewritten static expression only represents an unpushed filter if a sibling `InListExpr` or
+/// `HashTableLookupExpr` remained unpushed.
 fn has_unpushed_join_filter(pushed: bool, dynamic_filters: &[Arc<dyn PhysicalExpr>]) -> bool {
     let mut saw_unpushed_completed = false;
     for df in dynamic_filters {
@@ -695,7 +697,7 @@ fn has_unpushed_join_filter(pushed: bool, dynamic_filters: &[Arc<dyn PhysicalExp
                     return false;
                 }
                 if df
-                    .exists(|node| Ok(node.is::<InListExpr>()))
+                    .exists(|node| Ok(node.is::<InListExpr>() || node.is::<HashTableLookupExpr>()))
                     .unwrap_or(false)
                 {
                     saw_unpushed_completed = true;
@@ -788,16 +790,18 @@ impl LazySortStreamState {
             .map(|_| reader.clone());
         let filter_metrics = FilterStepMetrics::init(
             &mut reader,
+            &schema,
             &mut dynamic_filters,
             InListLinearFallback::PushToIndex,
         );
-        if filter_metrics.pushed
+        let any_pushed = filter_metrics.outcome.any_pushed();
+        if any_pushed
             && let (Some(field), Some(base_reader)) = (&vector_order_field, pre_push_reader)
         {
-            // Re-plan `VectorFilterStrategy` after `AND`-ing `TermSetQuery`: `TermSetQuery`
-            // does not implement `QueryEstimate`, so scale the pre-push match estimate by the
-            // join's `unpushed_join_selectivity` while inspecting the updated `reader.weight()`
-            // (`uses_fast_fields()`).
+            // Re-plan `VectorFilterStrategy` after `AND`-ing `TermSetQuery` /
+            // `TermPredicateQuery`: neither implements `QueryEstimate`, so scale the pre-push
+            // match estimate by the join's `unpushed_join_selectivity` while inspecting the
+            // updated `reader.weight()` (`uses_fast_fields()`).
             let estimated_matches = (base_reader.estimate_vector_matches()
                 * lazy_sort.unpushed_join_selectivity.0)
                 .ceil() as usize;
@@ -818,7 +822,7 @@ impl LazySortStreamState {
         let (mut sa_reader, ra_weights, is_disjunctive_sa) = prepare_sa_and_ra(
             &reader,
             &scanner_config.scan_mode,
-            filter_metrics.pushed,
+            any_pushed,
             segment_target.range_target(),
         );
         if is_disjunctive_sa && let Some(field) = &vector_order_field {
@@ -844,7 +848,7 @@ impl LazySortStreamState {
             });
         let effective_initial_window = if !is_rank_join_leaf
             && lazy_sort.unpushed_join_selectivity.0 < 1.0
-            && has_unpushed_join_filter(filter_metrics.pushed, &dynamic_filters)
+            && has_unpushed_join_filter(any_pushed, &dynamic_filters)
         {
             lazy_sort
                 .unpushed_join_selectivity
@@ -933,7 +937,7 @@ impl LazySortStreamState {
                 &self.schema,
                 self.reader.schema(),
                 self.reader.index_created_by_version(),
-                Some(self.filter_metrics.strategy_sink.clone()),
+                Some(self.filter_metrics.inlist_sink()),
             ) {
             let ra_results = self.reader.search_ra_lookup(
                 &self.ra_weights,

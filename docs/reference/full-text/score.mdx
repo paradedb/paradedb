@@ -507,6 +507,8 @@ and it lists each word of the group that the row holds.
   [join pushdown](/reference/joins/overview).
 - It costs more than a score, because ParadeDB reads the terms of the row again. Ask for it on a few rows, for example
   with a `LIMIT`.
+- The explanation is for you to read while you tune a query. Its keys and its wording can change between releases, so
+  don't make application code depend on them.
 
 ## Score Refresh
 

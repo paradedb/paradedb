@@ -323,6 +323,10 @@ pub struct ScanInfo {
     pub mvcc_visibility: MvccVisibility,
     /// Vector distance `ORDER BY` pushed down to this scan, if any.
     pub vector_order_by: Option<crate::api::OrderByInfo>,
+    /// Per-table `parallel_workers` reloption (`ALTER TABLE ... SET (parallel_workers = N)`),
+    /// or `None` when unset (`-1`).
+    #[serde(default)]
+    pub rel_parallel_workers: Option<u32>,
 }
 
 impl ScanInfo {
@@ -347,6 +351,7 @@ impl ScanInfo {
             segment_count: 0,
             mvcc_visibility: MvccVisibility::default(),
             vector_order_by: None,
+            rel_parallel_workers: None,
         }
     }
 

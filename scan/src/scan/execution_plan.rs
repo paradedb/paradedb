@@ -1835,6 +1835,17 @@ impl ExecutionPlan for PgSearchScanPlan {
         Ok(self)
     }
 
+    fn reset_state(self: Arc<Self>) -> Result<Arc<dyn ExecutionPlan>> {
+        // When `parallel_leader_participation = on`, `datafusion-distributed` runs stages assigned
+        // to `worker-0` in-process via `LocalWorkerContext`, calling `isolate_stage_plan_state` ->
+        // `ExecutionPlan::reset_state` per task. Because `PgSearchScanPlan::with_new_children` is a
+        // leaf no-op (`Ok(self)`), override `reset_state` to clone a fresh `ExecutionState` and
+        // `ExecutionPlanMetricsSet` so in-process tasks do not share `Consumed` state or metrics.
+        let mut cloned = (*self).clone();
+        cloned.metrics = ExecutionPlanMetricsSet::new();
+        Ok(Arc::new(cloned))
+    }
+
     fn execute(
         &self,
         partition: usize,
@@ -1939,7 +1950,12 @@ impl PgSearchScanPlan {
     ) -> Result<SendableRecordBatchStream> {
         #[cfg(debug_assertions)]
         crate::postgres::customscan::mpp::try_run_on_main_thread(|_token| {
-            if crate::gucs::mpp_test_panic_in_worker() {
+            // Gate on `is_parallel_worker()` so `mpp_test_panic_in_worker` tests remote background
+            // worker error propagation over DSM/gRPC even when the leader also participates as
+            // `worker-0`.
+            if crate::gucs::mpp_test_panic_in_worker()
+                && crate::postgres::customscan::mpp::is_parallel_worker()
+            {
                 pgrx::error!("artificial panic to test worker error propagation");
             }
             Ok(())

@@ -645,14 +645,14 @@ ORDER BY c.author, l;
          DataFusion Physical Plan: 
            : ┌───── DistributedExec
            : │ CoalescePartitionsExec
-           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=6, input_tasks=2
+           : │   [Stage 3] => NetworkCoalesceExec: output_partitions=8, input_tasks=2
            : └──────────────────────────────────────────────────
-           :   ┌───── Stage 3 ── tasks=2, partitions=3
+           :   ┌───── Stage 3 ── tasks=2, partitions=4
            :   │ AggregateExec: mode=FinalPartitioned, gby=[author@0 as author, c_1_labels@1 as c_1_labels], aggr=[count(1) as agg_0]
-           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=3, input_tasks=2
+           :   │   [Stage 2] => NetworkShuffleExec: output_partitions=4, input_tasks=2
            :   └──────────────────────────────────────────────────
-           :     ┌───── Stage 2 ── tasks=2, partitions=6
-           :     │ RepartitionExec: partitioning=Hash([author@0, c_1_labels@1], 6), input_partitions=1
+           :     ┌───── Stage 2 ── tasks=2, partitions=8
+           :     │ RepartitionExec: partitioning=Hash([author@0, c_1_labels@1], 8), input_partitions=1
            :     │   AggregateExec: mode=Partial, gby=[author@0 as author, c_1_labels@1 as c_1_labels], aggr=[count(1) as agg_0]
            :     │     UnnestExec
            :     │       TantivyDecodeExec: decode=[author, labels]

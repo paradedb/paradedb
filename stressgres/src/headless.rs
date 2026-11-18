@@ -170,9 +170,7 @@ pub fn run(
         let finished = finished.clone();
         let suite_runner = suite_runner.clone();
         std::thread::spawn(move || {
-            let errors = suite_runner
-                .wait_for_finish()
-                .expect("wait_for_finish() should not fail");
+            let errors = suite_runner.wait_for_finish();
 
             let mut reported_errors = 0;
             for error in errors {

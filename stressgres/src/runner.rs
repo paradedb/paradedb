@@ -998,7 +998,7 @@ impl SuiteRunner {
         self.paused.store(new_val, Ordering::Relaxed);
     }
 
-    pub fn wait_for_finish(&self) -> Result<Vec<Arc<anyhow::Error>>> {
+    pub fn wait_for_finish(&self) -> Vec<Arc<anyhow::Error>> {
         // wait on main
         let mut all_errors = vec![];
         for thread_handle in self.handles.lock().drain(..) {
@@ -1064,7 +1064,7 @@ impl SuiteRunner {
             self.have_error.store(true, Ordering::Relaxed);
         }
 
-        Ok(all_errors)
+        all_errors
     }
 }
 
@@ -1790,3 +1790,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod shutdown_test;

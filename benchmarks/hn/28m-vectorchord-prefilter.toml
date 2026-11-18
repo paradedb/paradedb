@@ -12,11 +12,11 @@ s3_base_path = "s3://paradedb-benchmark/datasets/hackernews/vector/v1"
 [postgres.build]
 shared_buffers = "8GB"
 maintenance_work_mem = "8GB"
-max_parallel_maintenance_workers = 8
+max_parallel_maintenance_workers = 7
 
 [postgres.search]
 shared_buffers = "8GB"
-max_parallel_workers = 16
+max_parallel_workers = 8
 max_worker_processes = 32
 
 [index]
@@ -42,7 +42,7 @@ explain_sample = 10
 enable_seqscan = "off"
 enable_bitmapscan = "off"
 enable_sort = "off"
-max_parallel_workers_per_gather = "8"
+max_parallel_workers_per_gather = "4"
 jit = "off"
 plan_cache_mode = "force_custom_plan"
 "vchordrq.prefilter" = "on"

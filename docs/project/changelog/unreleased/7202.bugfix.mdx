@@ -1,0 +1,5 @@
+---
+header: stability
+---
+
+- `ORDER BY ... LIMIT` with `FOR UPDATE SKIP LOCKED` no longer returns fewer rows than the limit when the top-ranked rows are locked by another transaction.

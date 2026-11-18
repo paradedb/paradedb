@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794989379728,
+  "lastUpdate": 1794989407089,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -533381,6 +533381,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14310736513-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989404210,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - tps",
+            "value": 3906.7933186281443,
+            "unit": "median tps",
+            "extra": "avg tps: 3907.7421378570284, max tps: 4347.676604482878, count: 58907"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - tps",
+            "value": 4480.674459426033,
+            "unit": "median tps",
+            "extra": "avg tps: 4484.136900222054, max tps: 5197.6935082183945, count: 58907"
+          },
+          {
+            "name": "Replicated Updates - Publisher - tps",
+            "value": 77.86466208935737,
+            "unit": "median tps",
+            "extra": "avg tps: 165.6563212750805, max tps: 2868.8041845390358, count: 58907"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - tps",
+            "value": 23.423740115230263,
+            "unit": "median tps",
+            "extra": "avg tps: 39.42296902666238, max tps: 563.4932162841163, count: 58907"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - tps",
+            "value": 23.469268042437488,
+            "unit": "median tps",
+            "extra": "avg tps: 39.445795019356225, max tps: 558.5716074006089, count: 58907"
+          }
+        ],
+        "publication_id": "14408978752-tps"
       }
     ],
     "pg_search logical-replication-multi-subscriber.toml Performance - Other Metrics": [
@@ -549384,6 +549437,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14310736513-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989406980,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Replicated Deletes - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.317317777752928, max cpu: 9.1211405, count: 58907"
+          },
+          {
+            "name": "Replicated Deletes - Publisher - mem",
+            "value": 22.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 22.60455198448402, max mem: 22.65625, count: 58907"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - cpu",
+            "value": 4.5649076,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.459577567272416, max cpu: 4.6647234, count: 58907"
+          },
+          {
+            "name": "Replicated Inserts - Publisher - mem",
+            "value": 21.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 21.96651236270732, max mem: 21.96875, count: 58907"
+          },
+          {
+            "name": "Replicated Updates - Publisher - cpu",
+            "value": 9.173435,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.330851407498521, max cpu: 36.72884, count: 58907"
+          },
+          {
+            "name": "Replicated Updates - Publisher - mem",
+            "value": 22.875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.87159951279135, max mem: 22.875, count: 58907"
+          },
+          {
+            "name": "Subscriber A Documents - SubscriberA - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.048449250513, max document_count: 10002.0, count: 58907"
+          },
+          {
+            "name": "Subscriber B Documents - SubscriberB - document_count",
+            "value": 10001,
+            "unit": "median document_count",
+            "extra": "avg document_count: 10001.044341080007, max document_count: 10002.0, count: 58907"
+          },
+          {
+            "name": "Subscriber Lag - Publisher - subscriber_count",
+            "value": 2,
+            "unit": "median subscriber_count",
+            "extra": "avg subscriber_count: 2.0, max subscriber_count: 2.0, count: 58907"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - cpu",
+            "value": 18.19043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.505170571121575, max cpu: 42.34049, count: 58907"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberA - mem",
+            "value": 58.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.46631614504643, max mem: 72.01953125, count: 58907"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - cpu",
+            "value": 18.199053,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.564543633023746, max cpu: 42.34049, count: 58907"
+          },
+          {
+            "name": "Subscriber Top K Base Scan - SubscriberB - mem",
+            "value": 58.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.31741233798615, max mem: 68.8359375, count: 58907"
+          }
+        ],
+        "publication_id": "14408978752-other"
       }
     ]
   }

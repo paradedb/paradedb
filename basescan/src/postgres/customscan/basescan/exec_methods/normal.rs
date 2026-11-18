@@ -267,7 +267,7 @@ impl ExecMethod for NormalScanExecState {
             } => ExecState::FromHeap {
                 ctid,
                 score,
-                doc_address: Some(doc_address),
+                doc_address,
             },
         }
     }

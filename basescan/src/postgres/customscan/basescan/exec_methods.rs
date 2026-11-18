@@ -43,7 +43,7 @@ pub enum ExecState {
     FromHeap {
         ctid: u64,
         score: Score,
-        doc_address: Option<DocAddress>,
+        doc_address: DocAddress,
     },
     /// Produces the given tuple directly.
     ///

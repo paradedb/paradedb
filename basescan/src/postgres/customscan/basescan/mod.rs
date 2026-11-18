@@ -2349,9 +2349,6 @@ impl CustomScan for BaseScan {
                                 );
 
                                 if state.custom_state().need_score_explanation {
-                                    let doc_address = doc_address.expect(
-                                        "the exec method should give the doc address of a row",
-                                    );
                                     let explanation =
                                         state.custom_state().explain_score(doc_address);
                                     projection.set(

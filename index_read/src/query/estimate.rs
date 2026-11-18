@@ -35,10 +35,10 @@
 //! 2. For analyzed scalar heap columns, PostgreSQL's `pg_statistic` (`null_frac`, MCVs, and
 //!    equi-depth histogram) supplied by [`ColumnStatsProvider`] estimates the range's selectivity,
 //!    conditioned on the segment's `.stats` `[empirical.min, empirical.max]`
-//!    (`estimate_fraction_from_column_stats`) and blended with uniform `.stats` interpolation over
-//!    any post-`ANALYZE` span outside `[stat_min, stat_max]`. Segment `.stats` alone cannot
-//!    estimate nullable or skewed columns (`view_count`, `score`), while table-wide `pg_statistic`
-//!    alone ignores `partition_by` or key-ordered segment value bounds.
+//!    (`estimate_fraction_from_column_stats`) with outer histogram bin endpoints clamped to the
+//!    segment's `[min, max]` (mirroring PostgreSQL's `ineq_histogram_selectivity`). Segment
+//!    `.stats` alone cannot estimate nullable or skewed columns (`view_count`, `score`), while
+//!    table-wide `pg_statistic` alone ignores `partition_by` or key-ordered segment value bounds.
 //! 3. When `pg_statistic` is unavailable, not applicable (e.g. JSON subpaths), or unusable for the
 //!    segment, estimation falls back to uniform interpolation over non-nullable segment `.stats`
 //!    (`estimate_uniform_from_empirical`), or returns `None` so callers fall back to Tantivy
@@ -252,6 +252,14 @@ impl ColumnStats {
     /// the equi-depth histogram (mirroring PostgreSQL's `clauselist_selectivity` /
     /// `ineq_histogram_selectivity`).
     fn estimate_range_selectivity(&self, bounds: RangeBoundsRef<'_>) -> Option<f64> {
+        self.estimate_range_selectivity_with_actual(bounds, None)
+    }
+
+    fn estimate_range_selectivity_with_actual(
+        &self,
+        bounds: RangeBoundsRef<'_>,
+        actual_range: Option<&EmpiricalStats>,
+    ) -> Option<f64> {
         if ends_before(bounds.upper.as_ref(), bounds.lower.as_ref()) {
             return Some(0.0);
         }
@@ -293,13 +301,13 @@ impl ColumnStats {
         }
         let cdf_lo = match bounds.lower {
             Bound::Unbounded => 0.0,
-            Bound::Included(v) => self.hist_cdf(CdfCutoff::Below, v)?,
-            Bound::Excluded(v) => self.hist_cdf(CdfCutoff::AtOrBelow, v)?,
+            Bound::Included(v) => self.hist_cdf(CdfCutoff::Below, v, actual_range)?,
+            Bound::Excluded(v) => self.hist_cdf(CdfCutoff::AtOrBelow, v, actual_range)?,
         };
         let cdf_hi = match bounds.upper {
             Bound::Unbounded => 1.0,
-            Bound::Included(v) => self.hist_cdf(CdfCutoff::AtOrBelow, v)?,
-            Bound::Excluded(v) => self.hist_cdf(CdfCutoff::Below, v)?,
+            Bound::Included(v) => self.hist_cdf(CdfCutoff::AtOrBelow, v, actual_range)?,
+            Bound::Excluded(v) => self.hist_cdf(CdfCutoff::Below, v, actual_range)?,
         };
         let hist_frac = (cdf_hi - cdf_lo).clamp(0.0, 1.0);
         Some((mcv_match + other_frac * hist_frac).clamp(0.0, 1.0))
@@ -309,7 +317,12 @@ impl ColumnStats {
     /// `value`. Bucket `i` spans `[b_i, b_{i+1})`, except the final bucket `[b_{n-1}, b_n]` which
     /// includes the maximum endpoint (`+ step` on discrete integer/date domains so adjacent
     /// intervals partition `[b_0, b_n]` additively).
-    fn hist_cdf(&self, cutoff: CdfCutoff, value: &PdbOwnedValue) -> Option<f64> {
+    fn hist_cdf(
+        &self,
+        cutoff: CdfCutoff,
+        value: &PdbOwnedValue,
+        actual_range: Option<&EmpiricalStats>,
+    ) -> Option<f64> {
         let nbuckets = self.histogram.len().checked_sub(1)?;
         if nbuckets == 0 || !comparable(value, &self.histogram[0]) {
             return None;
@@ -317,8 +330,19 @@ impl ColumnStats {
         let step = discrete_step(&self.histogram[0]);
         let mut sum = 0.0;
         for idx in 0..nbuckets {
-            let lo = &self.histogram[idx];
-            let hi = &self.histogram[idx + 1];
+            let mut lo = &self.histogram[idx];
+            let mut hi = &self.histogram[idx + 1];
+            if let Some(emp) = actual_range {
+                if idx == 0 && comparable(&emp.min, lo) && emp.min.total_cmp(lo) == Ordering::Less {
+                    lo = &emp.min;
+                }
+                if idx + 1 == nbuckets
+                    && comparable(&emp.max, hi)
+                    && emp.max.total_cmp(hi) == Ordering::Greater
+                {
+                    hi = &emp.max;
+                }
+            }
             let bucket_extra = if idx + 1 == nbuckets { step } else { 0.0 };
             let (before_lo, past_hi, cutoff_step) = match cutoff {
                 CdfCutoff::Below => (
@@ -531,6 +555,7 @@ fn tighter_upper(a: &Bound<PdbOwnedValue>, b: &Bound<PdbOwnedValue>) -> Bound<Pd
     }
 }
 
+#[cfg(test)]
 impl ColumnStats {
     /// Returns `(stat_min, stat_max)` across all MCVs and histogram bounds when non-empty and
     /// mutually comparable.
@@ -559,8 +584,9 @@ impl ColumnStats {
 }
 
 /// Conditions table-wide `ColumnStats` on this segment's observed `[empirical.min, empirical.max]`
-/// and nullability, blending `ColumnStats` inside `[stat_min, stat_max]` with uniform `.stats`
-/// interpolation over any post-`ANALYZE` span outside `[stat_min, stat_max]`.
+/// and nullability, clamping the outermost histogram bin endpoints to the segment's `[min, max]`
+/// (mirroring PostgreSQL's `ineq_histogram_selectivity`) when the segment extends past the
+/// analyzed histogram.
 fn estimate_fraction_from_column_stats(
     col_stats: &ColumnStats,
     empirical: Option<&EmpiricalStats>,
@@ -580,61 +606,42 @@ fn estimate_fraction_from_column_stats(
     if col_stats.null_frac >= 1.0 - 1e-9 {
         return None;
     }
-    let (stat_min, stat_max) = col_stats.value_domain()?;
+    let stat_sample = col_stats
+        .histogram
+        .first()
+        .or_else(|| col_stats.mcvs.first().map(|(v, _)| v))?;
     let segment_lower = Bound::Included(empirical_stats.min.clone());
     let segment_upper = Bound::Included(empirical_stats.max.clone());
     let segment_bounds = RangeBoundsRef {
         lower: &segment_lower,
         upper: &segment_upper,
     };
-    if !comparable(&empirical_stats.min, stat_min)
-        || !comparable(&empirical_stats.max, stat_max)
+    if !comparable(&empirical_stats.min, stat_sample)
+        || !comparable(&empirical_stats.max, stat_sample)
         || !ranges_comparable(segment_bounds, bounds)
     {
         return col_stats.estimate_range_selectivity(bounds);
     }
+    if col_stats.estimate_range_selectivity(segment_bounds)? <= 0.0 {
+        // Stale or out-of-sample statistics assign zero mass to this segment's `[min, max]`;
+        // let the caller fall back to empirical segment bounds.
+        return None;
+    }
+    let non_null_in_segment =
+        col_stats.estimate_range_selectivity_with_actual(segment_bounds, Some(empirical_stats))?;
+    if non_null_in_segment <= 0.0 {
+        return None;
+    }
     let intersected_lower = tighter_lower(&segment_lower, bounds.lower);
     let intersected_upper = tighter_upper(&segment_upper, bounds.upper);
-    let intersected = RangeBoundsRef {
-        lower: &intersected_lower,
-        upper: &intersected_upper,
-    };
-    let emp_non_null = EmpiricalStats {
-        min: empirical_stats.min.clone(),
-        max: empirical_stats.max.clone(),
-        nullable: false,
-    };
-    let stat_lower = tighter_lower(&segment_lower, &Bound::Included(stat_min.clone()));
-    let stat_upper = tighter_upper(&segment_upper, &Bound::Included(stat_max.clone()));
-    let stat_in_seg = RangeBoundsRef {
-        lower: &stat_lower,
-        upper: &stat_upper,
-    };
-    let in_stats_span = estimate_uniform_from_empirical(&emp_non_null, stat_in_seg)?;
-    let in_stats_seg = col_stats.estimate_range_selectivity(stat_in_seg)?;
-    let non_null_ratio = if in_stats_span >= 1.0 {
-        if in_stats_seg <= 0.0 {
-            return None;
-        }
-        col_stats.estimate_range_selectivity(intersected)? / in_stats_seg
-    } else {
-        let intersected_in_stats_lo = tighter_lower(&intersected_lower, &stat_lower);
-        let intersected_in_stats_hi = tighter_upper(&intersected_upper, &stat_upper);
-        let intersected_in_stats = RangeBoundsRef {
-            lower: &intersected_in_stats_lo,
-            upper: &intersected_in_stats_hi,
-        };
-        let out_of_stats = (estimate_uniform_from_empirical(&emp_non_null, intersected)?
-            - estimate_uniform_from_empirical(&emp_non_null, intersected_in_stats)?)
-        .max(0.0);
-        let in_stats = if in_stats_span > 0.0 && in_stats_seg > 0.0 {
-            in_stats_span
-                * (col_stats.estimate_range_selectivity(intersected_in_stats)? / in_stats_seg)
-        } else {
-            estimate_uniform_from_empirical(&emp_non_null, intersected_in_stats)?
-        };
-        in_stats + out_of_stats
-    };
+    let numerator = col_stats.estimate_range_selectivity_with_actual(
+        RangeBoundsRef {
+            lower: &intersected_lower,
+            upper: &intersected_upper,
+        },
+        Some(empirical_stats),
+    )?;
+    let non_null_ratio = numerator / non_null_in_segment;
     let fraction = if empirical_stats.nullable {
         // Spread `null_frac` across nullable segments (`P(non-null | segment) = 1 - null_frac`).
         // TODO: Consult `SegmentStats::logical(field)` when `partition_by` splits on this field,
@@ -1309,7 +1316,7 @@ mod tests {
         let del_seg = searcher.segment_reader(0);
         assert_eq!(estimate(&AllQuery, del_seg), Some((7, 100)));
 
-        // Post-ANALYZE append-only growth beyond `stat_max`.
+        // Outer-bucket clamping on post-ANALYZE append-only growth, heavy-tail max, and single outlier.
         let append_hist: Vec<PdbOwnedValue> = (0..=100)
             .map(|i| PdbOwnedValue::I64(if i == 0 { 1 } else { i * 2_000 }))
             .collect();
@@ -1318,28 +1325,69 @@ mod tests {
             mcvs: Vec::new(),
             histogram: append_hist,
         };
-        let append_emp = EmpiricalStats {
-            min: PdbOwnedValue::I64(1),
-            max: PdbOwnedValue::I64(220_000),
-            nullable: false,
-        };
-        for (lo, hi, expected_rows) in [
-            (Bound::Excluded(200_000), Bound::Unbounded, 20_000.0),
-            (Bound::Excluded(199_000), Bound::Unbounded, 21_000.0),
-            (Bound::Unbounded, Bound::Included(100_000), 100_000.0),
+        for (emp_min, emp_max, total_rows, lo, hi, expected) in [
+            (
+                1,
+                220_000,
+                220_000.0,
+                Bound::Excluded(200_000),
+                Bound::Unbounded,
+                Some(2_000.0),
+            ),
+            (
+                1,
+                220_000,
+                220_000.0,
+                Bound::Excluded(199_000),
+                Bound::Unbounded,
+                Some(2_100.0),
+            ),
+            (
+                1,
+                1_357_603,
+                200_000.0,
+                Bound::Unbounded,
+                Bound::Included(100_000),
+                Some(100_000.0),
+            ),
+            (
+                1,
+                100_000_000,
+                200_001.0,
+                Bound::Unbounded,
+                Bound::Included(100_000),
+                Some(100_000.0),
+            ),
+            (
+                200_001,
+                220_000,
+                20_000.0,
+                Bound::Excluded(200_000),
+                Bound::Unbounded,
+                None,
+            ),
         ] {
+            let emp = EmpiricalStats {
+                min: PdbOwnedValue::I64(emp_min),
+                max: PdbOwnedValue::I64(emp_max),
+                nullable: false,
+            };
             let lo_b = lo.map(PdbOwnedValue::I64);
             let hi_b = hi.map(PdbOwnedValue::I64);
             let frac = estimate_fraction_from_column_stats(
                 &append_stats,
-                Some(&append_emp),
+                Some(&emp),
                 RangeBoundsRef {
                     lower: &lo_b,
                     upper: &hi_b,
                 },
-            )
-            .unwrap();
-            assert!(((frac * 220_000.0) - expected_rows).abs() <= 15.0);
+            );
+            match expected {
+                Some(expected_rows) => {
+                    assert!(((frac.unwrap() * total_rows) - expected_rows).abs() <= 15.0);
+                }
+                None => assert_eq!(frac, None),
+            }
         }
 
         // Mostly-NULL column (`null_frac = 0.95`) on a segment covering a 1/8 slice of the range:
@@ -1630,29 +1678,66 @@ mod tests {
                 };
                 prop_assert!((full_segment - expected_full).abs() <= 1e-9);
                 let (stat_min, stat_max) = stats.value_domain().unwrap();
-                if (!is_float || s_lo < s_hi) && empirical.max.total_cmp(stat_max) == Ordering::Greater {
-                    let above = estimate_fraction_from_column_stats(
-                        &stats,
-                        Some(&empirical),
-                        RangeBoundsRef {
-                            lower: &Bound::Excluded(stat_max.clone()),
-                            upper: &Bound::Unbounded,
-                        },
-                    )
-                    .unwrap();
-                    prop_assert!(above > 0.0);
+                if stats.histogram.len() >= 2 && (!is_float || s_lo < s_hi) {
+                    if empirical.max.total_cmp(stat_max) == Ordering::Greater {
+                        let above = estimate_fraction_from_column_stats(
+                            &stats,
+                            Some(&empirical),
+                            RangeBoundsRef {
+                                lower: &Bound::Excluded(stat_max.clone()),
+                                upper: &Bound::Unbounded,
+                            },
+                        )
+                        .unwrap();
+                        prop_assert!(above > 0.0);
+                    }
+                    if empirical.min.total_cmp(stat_min) == Ordering::Less {
+                        let below = estimate_fraction_from_column_stats(
+                            &stats,
+                            Some(&empirical),
+                            RangeBoundsRef {
+                                lower: &Bound::Unbounded,
+                                upper: &Bound::Excluded(stat_min.clone()),
+                            },
+                        )
+                        .unwrap();
+                        prop_assert!(below > 0.0);
+                    }
                 }
-                if (!is_float || s_lo < s_hi) && empirical.min.total_cmp(stat_min) == Ordering::Less {
-                    let below = estimate_fraction_from_column_stats(
-                        &stats,
-                        Some(&empirical),
-                        RangeBoundsRef {
-                            lower: &Bound::Unbounded,
-                            upper: &Bound::Excluded(stat_min.clone()),
-                        },
-                    )
-                    .unwrap();
-                    prop_assert!(below > 0.0);
+                // Outlier invariance: extending `empirical.max` above `stat_max` leaves interior
+                // bins (`< histogram[nbuckets - 1]`) unchanged and shifts `<= stat_max` by at most
+                // `1 / nbuckets`.
+                if stats.histogram.len() >= 3 {
+                    let nbuckets = stats.histogram.len() - 1;
+                    let base_emp = EmpiricalStats {
+                        min: stat_min.clone(),
+                        max: stat_max.clone(),
+                        nullable: seg_nullable,
+                    };
+                    let outlier_emp = EmpiricalStats {
+                        min: stat_min.clone(),
+                        max: val(100_000),
+                        nullable: seg_nullable,
+                    };
+                    for (cap, tol) in [
+                        (Bound::Excluded(stats.histogram[nbuckets - 1].clone()), 1e-9),
+                        (Bound::Included(stat_max.clone()), 1.0 / nbuckets as f64 + 1e-6),
+                    ] {
+                        let capped_hi = tighter_upper(&upper, &cap);
+                        let capped = RangeBoundsRef {
+                            lower: &lower,
+                            upper: &capped_hi,
+                        };
+                        let b = estimate_fraction_from_column_stats(&stats, Some(&base_emp), capped)
+                            .unwrap();
+                        let o = estimate_fraction_from_column_stats(
+                            &stats,
+                            Some(&outlier_emp),
+                            capped,
+                        )
+                        .unwrap();
+                        prop_assert!((o - b).abs() <= tol);
+                    }
                 }
                 let mid_cut = val(mid_raw);
                 let left_upper = tighter_upper(&upper, &Bound::Excluded(mid_cut.clone()));
@@ -1677,10 +1762,6 @@ mod tests {
                 .unwrap();
                 prop_assert!((conditioned_left + conditioned_right - conditioned_prob).abs() <= 1e-6);
             } else {
-                // Returning `None` (falling back to empirical uniform bounds) is only valid when
-                // `ColumnStats` assigns zero mass to `[emp.min, emp.max]` and the segment has no
-                // positive-width tail outside `[stat_min, stat_max]`.
-                let (stat_min, stat_max) = stats.value_domain().unwrap();
                 let in_stats_seg = stats
                     .estimate_range_selectivity(RangeBoundsRef {
                         lower: &segment_lower,
@@ -1688,10 +1769,6 @@ mod tests {
                     })
                     .unwrap();
                 prop_assert_eq!(in_stats_seg, 0.0);
-                if !is_float || s_lo < s_hi {
-                    prop_assert!(empirical.min.total_cmp(stat_min) != Ordering::Less);
-                    prop_assert!(empirical.max.total_cmp(stat_max) != Ordering::Greater);
-                }
             }
         }
 
@@ -1721,7 +1798,7 @@ mod tests {
             let mut map = BTreeMap::new();
             if use_col_stats {
                 // Stale `[1, 80]` histogram over a `1..=100` segment exercises `ColumnStatsProvider`
-                // and post-ANALYZE out-of-stats blending end-to-end through `QueryEstimate::estimate_docs`.
+                // and outer-bucket clamping end-to-end through `QueryEstimate::estimate_docs`.
                 map.insert(
                     RANGE_FIXTURE.id_search.field(),
                     Arc::new(ColumnStats {

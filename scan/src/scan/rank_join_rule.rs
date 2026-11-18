@@ -637,6 +637,15 @@ struct DecomposedJoinScore {
     combiner: ScoreCombiner,
 }
 
+fn non_vector_probe_eligibility(k: usize) -> NonVectorProbeEligibility {
+    let std_cap = crate::gucs::InListPushdownMode::Standard.max_distinct_values();
+    if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K && std_cap > 0 {
+        NonVectorProbeEligibility::Eligible
+    } else {
+        NonVectorProbeEligibility::Disallowed
+    }
+}
+
 /// Walks down from `SortExec` through pass-through nodes to find, verify (Gates 1, 2, and 3),
 /// and rewrite an eligible `HashJoinExec` subtree into `RankJoinExec` in a single pass, or falls
 /// back to [`try_rewrite_lazy_sort_probe_join`] when `RankJoinExec` is declined on a single-sided
@@ -661,15 +670,6 @@ struct DecomposedJoinScore {
 /// - For multi-sided scored joins, ordering joins by score contribution / rank correlation and
 ///   fanout (rather than pure filter selectivity) would tighten the top-K threshold earlier and
 ///   reduce wasted `SA` window expansions and `RA` point lookups.
-fn non_vector_probe_eligibility(k: usize) -> NonVectorProbeEligibility {
-    let std_cap = crate::gucs::InListPushdownMode::Standard.max_distinct_values();
-    if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K && std_cap > 0 {
-        NonVectorProbeEligibility::Eligible
-    } else {
-        NonVectorProbeEligibility::Disallowed
-    }
-}
-
 fn try_rewrite_under_sort(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,

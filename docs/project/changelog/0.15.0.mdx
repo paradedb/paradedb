@@ -11,7 +11,7 @@ See GitHub release: [v0.15.0](https://github.com/paradedb/paradedb/releases/tag/
   recreated with `REINDEX`.
 </Note>
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 ### Match Query
 
@@ -23,19 +23,19 @@ custom tokenizers and fuzzy matching. It supersedes the `paradedb.fuzzy_phrase` 
 
 `paradedb.term_set` now supports JSON fields.
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Modified the block storage layout for faster reads. This breaking change necessitates existing indexes to be
   recreated.
 - Significantly improved `VACUUM` times when the table contains updated or deleted rows - `VACUUM`ing one million
   updated rows went from 20 minutes to 0.8 seconds.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed a bug where datetime values with sub-second precision were truncated to second precision.
 - Fixed an issue where `VACUUM`s could not receive `SIGINT`s.
 - Fixed concurrency issues around concurrent `UPDATE`, `VACUUM`, and parallel custom scans.
 
-## New Contributors 👋
+## New Contributors 👋 {#new-contributors}
 
 - [AdamGS](https://github.com/AdamGS) made their first contribution in [2146](https://github.com/paradedb/paradedb/pull/2146).

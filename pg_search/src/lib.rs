@@ -60,7 +60,7 @@ unsafe impl Sync for AnchorPtr {}
 
 #[cfg(not(test))]
 #[used]
-static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 21] = [
+static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 22] = [
     AnchorPtr(common::api::fieldname_in as *const ()),
     AnchorPtr(common::api::fieldname_out as *const ()),
     AnchorPtr(common::api::tokenizers::typmod::generic_typmod_in as *const ()),
@@ -76,6 +76,10 @@ static _SUBCRATE_PGRX_ANCHORS: [AnchorPtr; 21] = [
     AnchorPtr(planner::postgres::customscan::projections::placeholder_support as *const ()),
     AnchorPtr(
         planner::postgres::customscan::basescan::projections::score::pdb::score_from_relation
+            as *const (),
+    ),
+    AnchorPtr(
+        planner::postgres::customscan::basescan::projections::score::pdb::explain_score_from_relation
             as *const (),
     ),
     AnchorPtr(

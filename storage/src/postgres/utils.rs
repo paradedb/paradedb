@@ -60,10 +60,7 @@ pub unsafe fn extract_field_attributes(
                 let node = expression.cast();
                 let source = FieldSource::Expression {
                     att_idx: expression_idx,
-                    attno: nodecast!(Var, strip_tokenizer_cast(node))
-                        .map(|var| (*var).varattno)
-                        .filter(|&attno| attno > 0)
-                        .map(|attno| (attno - 1) as usize),
+                    attno: heap_attno_read_by(node).map(|attno| (attno - 1) as usize),
                 };
 
                 let typoid = pg_sys::exprType(node);

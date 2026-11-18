@@ -88,6 +88,9 @@ This query returns:
 Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
 `shoes` because they appear in the wrong order or with other words in between.
 
+To also find the phrase with a synonym in place of a word, give the query its rules with a
+[`pdb.expand`](/reference/tokenizers/synonyms#phrases) subquery.
+
 ## How It Works
 
 Let's look at what happens under the hood for the above phrase query:

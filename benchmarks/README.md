@@ -12,6 +12,11 @@ install comparison extensions, report index builds, and run k6 with profiling.
 Dataset workflows own fixture checks, recall profiles, and result context.
 For MS MARCO 113M vector CI, see [the MS MARCO pipeline](msmarco/README.md).
 
+RunsOn benchmarks default to Spot. For on-demand, add `benchmark-nonspot`
+before the PR benchmark trigger label, or select `runner_type=on-demand` in
+**Run workflow** (CLI: `-f runner_type=on-demand`). Stack Overflow comment-triggered
+runs also honor the label. Scheduled runs remain on Spot.
+
 This is a basic, single-query latency, benchmarking suite for ParadeDB. It executes all of the queries belonging to a dataset, capturing both hot and cold measurements of their performance. After setup, queries are executed until a 3-run window shows <0.1% variance/mean (or 10 runs pass). Then `--runs` samples are taken for the hot measurements. The cold measurement is always recorded from the first query run.
 
 ## Prerequisites

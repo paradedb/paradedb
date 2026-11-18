@@ -76,7 +76,7 @@ pub const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
 pub const DEFAULT_MUTABLE_SEGMENT_ROWS: usize = 1000;
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 
-pub const DEFAULT_TARGET_LEAF_SIZE: i32 = clustering::DEFAULT_TARGET_LEAF_SIZE as i32;
+pub const DEFAULT_TARGET_LEAF_SIZE: i32 = 400;
 pub const DEFAULT_TRAINING_SAMPLE_RATIO: f64 = clustering::DEFAULT_TRAINING_SAMPLE_RATIO;
 /// Default `replication`: every vector of a quantized IVF field in two clusters.
 pub const DEFAULT_REPLICATION: i32 = 2;
@@ -490,7 +490,8 @@ impl BM25IndexOptions {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the configured target vectors per clustering leaf on the full
+    /// dataset. Tantivy scales this by `training_sample_ratio` during training.
     pub fn target_leaf_size(&self) -> usize {
         self.options_data().target_leaf_size()
     }
@@ -954,7 +955,8 @@ impl BM25IndexOptionsData {
         }
     }
 
-    /// Returns the target number of training vectors per clustering leaf.
+    /// Returns the configured target vectors per clustering leaf on the full
+    /// dataset. Tantivy scales this by `training_sample_ratio` during training.
     pub fn target_leaf_size(&self) -> usize {
         self.target_leaf_size as usize
     }

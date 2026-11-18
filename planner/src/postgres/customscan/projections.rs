@@ -480,6 +480,7 @@ pub unsafe fn inject_placeholders(
     targetlist: *mut pg_sys::List,
     rti: pg_sys::Index,
     score_funcoids: [pg_sys::Oid; 2],
+    explain_score_funcoid: pg_sys::Oid,
     snippet_funcoids: [pg_sys::Oid; 2],
     snippets_funcoids: [pg_sys::Oid; 2],
     snippet_positions_funcoids: [pg_sys::Oid; 2],
@@ -488,6 +489,7 @@ pub unsafe fn inject_placeholders(
     columns: &mut PlaceholderColumns,
 ) -> (
     *mut pg_sys::List,
+    PlaceholderColumn,
     PlaceholderColumn,
     HashMap<SnippetType, Vec<PlaceholderColumn>>,
 ) {
@@ -506,6 +508,9 @@ pub unsafe fn inject_placeholders(
 
             if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.score_var.cast());
+            }
+            if (*funcexpr).funcid == data.explain_score_funcoid {
+                return Some(data.score_explanation_var.cast());
             }
 
             let mut this_snippet_type = None;
@@ -579,6 +584,9 @@ pub unsafe fn inject_placeholders(
         score_funcoids: [pg_sys::Oid; 2],
         score_var: *mut pg_sys::Var,
 
+        explain_score_funcoid: pg_sys::Oid,
+        score_explanation_var: *mut pg_sys::Var,
+
         snippet_funcoids: [pg_sys::Oid; 2],
         snippets_funcoids: [pg_sys::Oid; 2],
         snippet_positions_funcoids: [pg_sys::Oid; 2],
@@ -590,11 +598,16 @@ pub unsafe fn inject_placeholders(
     }
 
     let (score_placeholder, score_var) = columns.add(pg_sys::FLOAT4OID, pg_sys::Oid::INVALID);
+    let (score_explanation_placeholder, score_explanation_var) =
+        columns.add(pg_sys::JSONBOID, pg_sys::Oid::INVALID);
     let mut data = Data {
         rti,
 
         score_funcoids,
         score_var,
+
+        explain_score_funcoid,
+        score_explanation_var,
 
         snippet_funcoids,
         snippets_funcoids,
@@ -608,6 +621,7 @@ pub unsafe fn inject_placeholders(
     (
         targetlist.cast(),
         score_placeholder,
+        score_explanation_placeholder,
         data.snippet_placeholders,
     )
 }

@@ -138,7 +138,7 @@ pub fn aggregate_nworkers(
             selectivity,
             query_cost: Some(cost),
             ..
-        } = estimate_selectivity_and_cost(index, query.clone(), Some(reader))
+        } = estimate_selectivity_and_cost(index, query.clone(), Some(reader), None)
         else {
             return (nworkers, None);
         };

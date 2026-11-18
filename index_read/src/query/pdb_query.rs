@@ -1954,7 +1954,7 @@ fn tokenized_phrase(
         Some(rules) => {
             let expansions =
                 expand_tokens(&rules, &search_field, schema, None, &mut analyzer, &tokens)?;
-            phrase_variants(tokens, &expansions)
+            phrase_variants(&expansions)
         }
         None => vec![tokens],
     };
@@ -1998,30 +1998,24 @@ fn tokenized_phrase(
 
 /// One phrase for each choice of an alternative for every run, since a `PhraseQuery` has one term
 /// at a position. The choices multiply, so `synonyms_max_alternatives` caps the phrases too.
-fn phrase_variants(tokens: Vec<String>, expansions: &[Expansion]) -> Vec<Vec<String>> {
+fn phrase_variants(expansions: &[Expansion]) -> Vec<Vec<String>> {
     let max_variants = gucs::synonyms_max_alternatives();
-    let count = expansions.iter().try_fold(1usize, |count, expansion| {
-        let choices = expansion.alternatives.as_ref().map_or(1, Vec::len);
-        count
-            .checked_mul(choices)
-            .filter(|count| *count <= max_variants)
-    });
-    if count.is_none() {
-        return vec![tokens];
-    }
     let mut variants = vec![Vec::new()];
     for expansion in expansions {
-        let alternatives = match &expansion.alternatives {
-            Some(alternatives) => alternatives.as_slice(),
-            None => std::slice::from_ref(&expansion.tokens),
+        let mut alternatives: Vec<&Vec<String>> = match &expansion.alternatives {
+            Some(alternatives) => alternatives.iter().collect(),
+            None => vec![&expansion.tokens],
         };
+        // The typed tokens are the first choice of a run, so the cap never drops the typed phrase.
+        alternatives.sort_by_key(|alternative| **alternative != expansion.tokens);
         variants = variants
             .iter()
             .flat_map(|variant| {
                 alternatives
                     .iter()
-                    .map(move |alternative| [variant.as_slice(), alternative].concat())
+                    .map(move |alternative| [variant.as_slice(), alternative.as_slice()].concat())
             })
+            .take(max_variants)
             .collect();
     }
     variants

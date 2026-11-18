@@ -19,7 +19,8 @@ INSERT INTO phrase_products VALUES
     (6, 'blue running shoes'),
     (7, 'blue shoes for running'),
     (8, 'blue sneakers'),
-    (9, 'couch');
+    (9, 'couch'),
+    (10, 'sofa cot');
 CREATE INDEX phrase_products_idx ON phrase_products USING bm25 (id, description);
 
 -- The rules table needs no index. The subquery reads the rules, and the phrase expands with them.
@@ -37,14 +38,15 @@ WHERE description ### (SELECT pdb.expand('red sofa', rule) FROM phrase_synonyms)
 SELECT id FROM phrase_products
 WHERE description ### (SELECT pdb.expand('red sofa', rule) FROM phrase_synonyms) ORDER BY id;
 
--- Each word with a rule multiplies the phrases, so `sofa bed` is four of them.
+-- Each word with a rule multiplies the phrases, so `sofa bed` is six of them.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id FROM phrase_products
 WHERE description ### (SELECT pdb.expand('sofa bed', rule) FROM phrase_synonyms);
 SELECT id FROM phrase_products
 WHERE description ### (SELECT pdb.expand('sofa bed', rule) FROM phrase_synonyms) ORDER BY id;
 
--- Past `paradedb.synonyms_max_alternatives` phrases, only the typed phrase is searched.
+-- The cap keeps the typed phrase and the first phrases after it. `sofa cot` stays, and `couch cot`
+-- does not.
 SET paradedb.synonyms_max_alternatives = 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id FROM phrase_products

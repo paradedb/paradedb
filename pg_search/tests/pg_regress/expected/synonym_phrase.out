@@ -16,7 +16,8 @@ INSERT INTO phrase_products VALUES
     (6, 'blue running shoes'),
     (7, 'blue shoes for running'),
     (8, 'blue sneakers'),
-    (9, 'couch');
+    (9, 'couch'),
+    (10, 'sofa cot');
 CREATE INDEX phrase_products_idx ON phrase_products USING bm25 (id, description);
 -- The rules table needs no index. The subquery reads the rules, and the phrase expands with them.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -75,7 +76,7 @@ WHERE description ### (SELECT pdb.expand('red sofa', rule) FROM phrase_synonyms)
   1
 (1 row)
 
--- Each word with a rule multiplies the phrases, so `sofa bed` is four of them.
+-- Each word with a rule multiplies the phrases, so `sofa bed` is six of them.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id FROM phrase_products
 WHERE description ### (SELECT pdb.expand('sofa bed', rule) FROM phrase_synonyms);
@@ -99,9 +100,11 @@ WHERE description ### (SELECT pdb.expand('sofa bed', rule) FROM phrase_synonyms)
 ----
   4
   5
-(2 rows)
+ 10
+(3 rows)
 
--- Past `paradedb.synonyms_max_alternatives` phrases, only the typed phrase is searched.
+-- The cap keeps the typed phrase and the first phrases after it. `sofa cot` stays, and `couch cot`
+-- does not.
 SET paradedb.synonyms_max_alternatives = 3;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id FROM phrase_products
@@ -125,7 +128,8 @@ WHERE description ### (SELECT pdb.expand('sofa bed', rule) FROM phrase_synonyms)
  id 
 ----
   4
-(1 row)
+ 10
+(2 rows)
 
 RESET paradedb.synonyms_max_alternatives;
 -- A multi-word alternative adds all its words to the phrase, and a directed rule drops the typed
@@ -208,13 +212,14 @@ WHERE description ### (SELECT pdb.expand('sofa', rule) FROM phrase_synonyms)
 ORDER BY pdb.score(id) DESC, id;
  id |   score   
 ----+-----------
-  9 | 1.3845065
-  1 | 1.1341828
-  4 | 1.1341828
-  5 | 1.1341828
-  2 | 0.9605178
-  3 | 0.9605178
-(6 rows)
+  9 | 1.5040545
+  1 | 1.2289224
+  4 | 1.2289224
+  5 | 1.2289224
+ 10 | 1.2289224
+  2 | 1.0388829
+  3 | 1.0388829
+(7 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, pdb.score(id) FROM phrase_products
@@ -242,12 +247,13 @@ WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM phrase_synonyms)
 ORDER BY pdb.score(id) DESC, id;
  id |   score   
 ----+-----------
-  9 | 1.3845065
-  1 | 1.1341828
-  4 | 1.1341828
-  5 | 1.1341828
-  2 | 0.9605178
-  3 | 0.9605178
-(6 rows)
+  9 | 1.5040545
+  1 | 1.2289224
+  4 | 1.2289224
+  5 | 1.2289224
+ 10 | 1.2289224
+  2 | 1.0388829
+  3 | 1.0388829
+(7 rows)
 
 DROP TABLE phrase_products, phrase_synonyms;

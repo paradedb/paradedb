@@ -1,0 +1,46 @@
+-- Negative expansion limits must not become huge unsigned limits.
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'])::text;
+                            phrase_prefix                             
+----------------------------------------------------------------------
+ {"phrase_prefix":{"phrases":["running","sh"],"max_expansions":null}}
+(1 row)
+
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => NULL)::text;
+                            phrase_prefix                             
+----------------------------------------------------------------------
+ {"phrase_prefix":{"phrases":["running","sh"],"max_expansions":null}}
+(1 row)
+
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => 0)::text;
+                           phrase_prefix                           
+-------------------------------------------------------------------
+ {"phrase_prefix":{"phrases":["running","sh"],"max_expansions":0}}
+(1 row)
+
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => 1)::text;
+                           phrase_prefix                           
+-------------------------------------------------------------------
+ {"phrase_prefix":{"phrases":["running","sh"],"max_expansions":1}}
+(1 row)
+
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => 2147483647)::text;
+                               phrase_prefix                                
+----------------------------------------------------------------------------
+ {"phrase_prefix":{"phrases":["running","sh"],"max_expansions":2147483647}}
+(1 row)
+
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => -1)::text;
+ERROR:  max_expansion must be non-negative
+\echo :SQLSTATE
+22023
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => -2147483648)::text;
+ERROR:  max_expansion must be non-negative
+\echo :SQLSTATE
+22023
+-- A valid call still works after the errors.
+SELECT pdb.phrase_prefix(ARRAY['running', 'sh'], max_expansion => 1)::text;
+                           phrase_prefix                           
+-------------------------------------------------------------------
+ {"phrase_prefix":{"phrases":["running","sh"],"max_expansions":1}}
+(1 row)
+

@@ -125,6 +125,37 @@ SELECT id FROM products
 WHERE description ||| (SELECT pdb.expand('tv', rule) FROM shop_synonyms) ORDER BY id;
 DELETE FROM products WHERE id IN (11, 12);
 
+-- A join and an aggregate over a join print the synonym index too. The function keeps the
+-- lines of the plan that do not depend on its shape.
+CREATE TABLE product_groups (id int PRIMARY KEY, product_id int);
+INSERT INTO product_groups VALUES (1, 1), (2, 2);
+CREATE INDEX product_groups_idx ON product_groups USING bm25 (id, product_id);
+CREATE FUNCTION scan_and_synonyms(query text) RETURNS SETOF text LANGUAGE plpgsql AS $$
+DECLARE
+    line text;
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) ' || query LOOP
+        IF line ~ 'Custom Scan|Backend|Synonyms' THEN
+            RETURN NEXT line;
+        END IF;
+    END LOOP;
+END $$;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.enable_aggregate_custom_scan = on;
+SELECT scan_and_synonyms($$
+    SELECT p.id FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+    ORDER BY p.id LIMIT 5
+$$);
+SELECT scan_and_synonyms($$
+    SELECT count(*) FROM products p JOIN product_groups g ON g.product_id = p.id
+    WHERE p.description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms)
+$$);
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP FUNCTION scan_and_synonyms;
+DROP TABLE product_groups;
+
 -- A JSON field expands the same way, with a group and with a phrase.
 CREATE TABLE json_products (id int PRIMARY KEY, attrs jsonb);
 INSERT INTO json_products VALUES (1, '{"seat": "red couch"}'), (2, '{"shoes": "running shoes"}');

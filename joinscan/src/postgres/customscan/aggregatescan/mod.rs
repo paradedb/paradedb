@@ -1129,6 +1129,14 @@ impl CustomScan for AggregateScan {
                 // only needs the distributed planner for boundary node
                 // construction, not live worker channels. Build failures
                 // here shouldn't crash EXPLAIN; surface them as a note.
+                let sources = df_state.plan.sources();
+                let predicates = df_state.plan.search_predicates();
+                explainer.add_synonym_indexes(
+                    sources
+                        .iter()
+                        .flat_map(|source| source.scan_info.mode.queries())
+                        .chain(predicates.iter().map(|(_, predicate)| &predicate.query)),
+                );
                 Self::render_df_physical_plan(df_state, explainer);
                 if explainer.is_verbose()
                     && let Some(t) = df_state.launch_timing

@@ -11,17 +11,17 @@ SET paradedb.vector_cluster_max_probe = 100;
 ```
 
 <ParamField body="paradedb.vector_cluster_max_probe" default={100}>
-  Controls the global probe-work budget in average-cluster units. One unit
-  covers opening an average cluster and scoring its rows. Accepts integers
-  between `1` and `100000`. PostgreSQL rounds fractional input to the nearest
-  integer. The budget
-  is shared across segments and checked between clusters.
+  Controls the global probe budget. Accepts integers between `1` and `1000000`;
+  PostgreSQL rounds fractional input to the nearest integer. The internal work
+  budget is `round(max_probe * (0.1 + 0.9 * selectivity))`, with a minimum of one
+  average-cluster unit. Selectivity is estimated before search; filters applied
+  after quantized scoring use `1`. Unfiltered budgets are unchanged.
 
-Selective filters score fewer rows, so the same budget can probe more clusters.
-The router's requested cluster count follows this budget and the filter's
-selectivity. Adaptive probing uses the same router request and work ceiling.
-A budget at least as large as the index's total cluster count allows probing
-all clusters, but adaptive stopping can still end the scan early.
+The budget is shared across segments and checked between clusters. Selective
+filters score fewer rows, so the same budget can probe more clusters. The router,
+adaptive stopping, and scan planning all use the internal work budget. To retain
+an existing operating point, divide its previous setting by
+`0.1 + 0.9 * selectivity` and round to the nearest integer.
 
 </ParamField>
 

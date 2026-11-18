@@ -73,7 +73,7 @@ use tantivy::query::{ConstScoreQuery, EnableScoring, QueryClone, QueryParser, Sc
 use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::vector::{
-    ProbeParams, ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
+    ProbeStats, TopClustersBySimilarityCollector, TopDocsByVectorSimilarity,
     TopDocsByVectorSimilarityBuilder, VectorFilterStrategy, VectorSearchBudget, VectorSegment,
     VectorSimilarityFruit,
 };
@@ -1031,7 +1031,7 @@ impl SearchIndexReader {
             .candidate_segment_readers()
             .map(VectorSegment::from)
             .collect::<Vec<_>>();
-        VectorSearchBudget::for_segments(field, &probe_params(), &segments)
+        VectorSearchBudget::for_segments(field, &probe_params(self), &segments)
             .inspect_err(|error| report_vector_error(self.index_rel.name(), error))
             .expect("vector budget should be valid")
     }
@@ -1066,10 +1066,7 @@ impl SearchIndexReader {
         let router = TopClustersBySimilarityCollector::new(
             field,
             query.to_vec(),
-            ProbeParams {
-                filter_strategy: Some(self.vector_filter_strategy()),
-                ..probe_params()
-            },
+            probe_params(self),
             match_fraction,
         )
         .expect("vector routing parameters should be valid")
@@ -2629,10 +2626,7 @@ impl SearchIndexReader {
                 let mut collector = TopDocs::with_limit(n)
                     .and_offset(offset)
                     .order_by_similarity(tantivy_field, query_vector)
-                    .with_probe_params(ProbeParams {
-                        filter_strategy: Some(self.vector_filter_strategy()),
-                        ..probe_params()
-                    })
+                    .with_probe_params(probe_params(self))
                     .with_max_scan_levels(max_scan_levels);
                 if let Some(state) = parallel_state_holding_shared_threshold {
                     collector = collector.with_shared_threshold(std::sync::Arc::new(
@@ -4013,9 +4007,34 @@ mod tests {
                 score: 1.0,
             },
         ] {
-            let reader = open_snapshot_reader(&index, query, false);
+            let mut reader = open_snapshot_reader(&index, query, false);
             assert_eq!(reader.estimate_vector_match_fraction(), 0.2);
             assert_eq!(reader.search().count(), 2);
+            for (strategy, budget) in [
+                (
+                    VectorFilterStrategy::Pre {
+                        uses_fast_fields: true,
+                    },
+                    28,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::BeforeQuantizedScoring,
+                        estimated_selectivity: 0.2,
+                    },
+                    28,
+                ),
+                (
+                    VectorFilterStrategy::Post {
+                        stage: PostFilterStage::AfterQuantizedScoring,
+                        estimated_selectivity: 0.2,
+                    },
+                    100,
+                ),
+            ] {
+                reader.vector_filter_strategy = Some(strategy);
+                assert_eq!(probe_params(&reader).max_probe, budget);
+            }
         }
         for (query, expected) in [
             (SearchQueryInput::All, 1.0),

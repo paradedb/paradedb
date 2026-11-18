@@ -20,11 +20,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use pgrx::pg_sys;
 use tantivy::query::Scorer;
 use tantivy::vector::{
-    AtomicVectorWork, Candidate, ClusterRef, LocatedPath, ProbeParams, SharedVectorWork,
-    VectorRoutingStats, VectorSearchBudget,
+    AtomicVectorWork, Candidate, ClusterRef, LocatedPath, PostFilterStage, ProbeParams,
+    SharedVectorWork, VectorFilterStrategy, VectorRoutingStats, VectorSearchBudget,
 };
 use tantivy::{Result as TantivyResult, Score, SegmentReader};
 
+use super::index::SearchIndexReader;
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::ParallelScanState;
@@ -163,10 +164,24 @@ pub unsafe fn shared_vector_work(
     Arc::new(PgSharedVectorWork(unsafe { (*state).vector_work(source) }))
 }
 
-pub(super) fn probe_params() -> ProbeParams {
+pub(super) fn probe_params(reader: &SearchIndexReader) -> ProbeParams {
+    let strategy = reader.vector_filter_strategy();
+    let selectivity = match strategy {
+        VectorFilterStrategy::Post {
+            stage: PostFilterStage::AfterQuantizedScoring,
+            ..
+        } => 1.0,
+        VectorFilterStrategy::Post {
+            estimated_selectivity,
+            ..
+        } => estimated_selectivity,
+        VectorFilterStrategy::Pre { .. } => reader.estimate_vector_match_fraction(),
+    };
+    let max_probe = gucs::vector_probe_budget(selectivity);
     let params = ProbeParams {
-        adaptive_probing: gucs::vector_adaptive_probing(),
-        max_probe: gucs::vector_cluster_max_probe(),
+        adaptive_probing: gucs::vector_adaptive_probing(max_probe),
+        max_probe,
+        filter_strategy: Some(strategy),
         fixed_probe_cost_rows: gucs::vector_fixed_probe_cost_rows(),
         router_rerank_factor: gucs::vector_router_rerank_factor(),
         router_min_beam_fraction: gucs::vector_router_min_beam_fraction(),

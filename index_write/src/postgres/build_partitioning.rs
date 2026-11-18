@@ -825,24 +825,54 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                         .as_ref()
                         .map(|state| state.evaluate(slot))
                         .unwrap_or_default();
+                    let unpacked_composites = CompositeSlotValues::from_composites(
+                        projection.fields().filter_map(|field| {
+                            if let FieldSource::CompositeField {
+                                expression_idx,
+                                composite_type_oid,
+                                ..
+                            } = field.categorized.source
+                            {
+                                let (datum, is_null) = expr_results[expression_idx];
+                                Some((expression_idx, datum, is_null, composite_type_oid))
+                            } else {
+                                None
+                            }
+                        }),
+                    );
+                    let get_field = |field: &CategorizedFieldData| {
+                        resolve_field_value(
+                            &field.source,
+                            values,
+                            isnull,
+                            &expr_results,
+                            &unpacked_composites,
+                        )
+                    };
+                    let target_slot = if !P::SAMPLE_NULLS
+                        && projection
+                            .fields()
+                            .any(|field| get_field(&field.categorized).1)
+                    {
+                        None
+                    } else {
+                        selected_row.or_else(select_row)
+                    };
 
                     // The sample uses the tuple's own physical ctid, whereas `build_callback`
                     // routes the HOT root.
                     let ctid_u64 = item_pointer_to_u64(t_self);
-                    let point = project_row(
-                        projection,
-                        values,
-                        isnull,
-                        ctid_u64,
-                        &expr_results,
-                        created_by_version,
-                        || selected_row.or_else(select_row),
-                    );
+                    let point = target_slot.map(|row| {
+                        (
+                            row,
+                            projection.project(ctid_u64, created_by_version, get_field),
+                        )
+                    });
                     // The stored pointer targets this iteration's `tuple`; clear it before that
                     // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
-                    if let Some((target_slot, point)) = point? {
-                        collect(target_slot, point, ctid_u64)?;
+                    if let Some((target_slot, point)) = point {
+                        collect(target_slot, point?, ctid_u64)?;
                     }
                 }
                 anyhow::Ok(())
@@ -864,55 +894,6 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
         seen_rows.min(sample_rows)
     );
     Ok(())
-}
-
-/// Checks sample eligibility before selecting a slot and projecting the row's values.
-unsafe fn project_row<P: PartitionProjection + ?Sized>(
-    projection: &P,
-    values: &[pg_sys::Datum],
-    isnull: &[bool],
-    ctid: u64,
-    expr_results: &[(pg_sys::Datum, bool)],
-    created_by_version: Option<Version>,
-    select_row: impl FnOnce() -> Option<usize>,
-) -> anyhow::Result<Option<(usize, P::Point)>> {
-    let unpacked_composites = unsafe {
-        CompositeSlotValues::from_composites(projection.fields().filter_map(|field| {
-            if let FieldSource::CompositeField {
-                expression_idx,
-                composite_type_oid,
-                ..
-            } = field.categorized.source
-            {
-                let (datum, is_null) = expr_results[expression_idx];
-                Some((expression_idx, datum, is_null, composite_type_oid))
-            } else {
-                None
-            }
-        }))
-    };
-
-    let mut get_field = |field: &CategorizedFieldData| unsafe {
-        resolve_field_value(
-            &field.source,
-            values,
-            isnull,
-            expr_results,
-            &unpacked_composites,
-        )
-    };
-    if !P::SAMPLE_NULLS
-        && projection
-            .fields()
-            .any(|field| get_field(&field.categorized).1)
-    {
-        return Ok(None);
-    }
-    let Some(row) = select_row() else {
-        return Ok(None);
-    };
-    let point = unsafe { projection.project(ctid, created_by_version, &mut get_field)? };
-    Ok(Some((row, point)))
 }
 
 #[cfg(any(test, feature = "pg_test"))]

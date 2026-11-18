@@ -62,10 +62,10 @@ use crate::schema::{CategorizedFieldData, SearchField};
 use crate::vector::metric::VectorMetric;
 use crate::vector::{PgVector, normalize_for_metric};
 
-/// Upper bound on the heap blocks read for scalar samples. Blocks are chosen uniformly at random,
+/// Scalar block sample cap and vector block sample floor. Blocks are chosen uniformly at random,
 /// so a table physically ordered by a `partition_by` field still yields a spread of positions
 /// across its key range.
-const MAX_SAMPLE_BLOCKS: u32 = 4096;
+const BASE_SAMPLE_BLOCKS: u32 = 4096;
 
 /// Scalar sample cap and vector sample floor, before applying the training memory budget.
 const BASE_SAMPLE_ROWS: usize = 30_000;
@@ -75,6 +75,7 @@ const VECTOR_SAMPLE_RATIO: f64 = 0.01;
 /// Minimum recommended sampled rows per coarse vector partition before warning that
 /// `maintenance_work_mem` is constraining partition training.
 const VECTOR_MIN_SAMPLES_PER_PARTITION: usize = 64;
+const VECTOR_SAMPLE_BLOCK_HEADROOM: f64 = 2.0;
 
 /// Current, previous, and returned centroids coexist at the end of training.
 const VECTOR_TRAINING_CENTROID_BUFFERS: usize = 3;
@@ -412,7 +413,7 @@ pub(super) fn plan_partition_boundaries(
             snapshot,
             projection.as_slice(),
             sample_rows,
-            Some(MAX_SAMPLE_BLOCKS),
+            Some(BASE_SAMPLE_BLOCKS),
             collect,
         )?;
     }
@@ -678,7 +679,7 @@ impl PartitionProjection for CategorizedPartitionField {
     }
 }
 
-/// Reservoir-samples eligible rows from all heap blocks, or a random subset of blocks.
+/// Reservoir-samples eligible rows from a bounded random subset of heap blocks.
 unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
@@ -718,22 +719,23 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
         .any(|field| !matches!(field.categorized.source, FieldSource::Heap { .. }));
     let expression_state = needs_expressions.then(|| ExpressionState::new(indexrel));
 
-    let mut sampler = max_sample_blocks.map(|max_blocks| unsafe {
+    let sample_blocks = max_sample_blocks.unwrap_or_else(|| {
+        let estimated_rows = estimate_heap_reltuples(heaprel).max(1.0);
+        let sample_fraction = sample_rows as f64 / estimated_rows;
+        let blocks =
+            (f64::from(nblocks) * sample_fraction * VECTOR_SAMPLE_BLOCK_HEADROOM).ceil() as u32;
+        blocks.max(BASE_SAMPLE_BLOCKS)
+    });
+    let mut sampler = unsafe {
         let mut sampler: pg_sys::BlockSamplerData = std::mem::zeroed();
         pg_sys::BlockSampler_Init(
             addr_of_mut!(sampler),
             nblocks,
-            nblocks.min(max_blocks) as i32,
+            nblocks.min(sample_blocks).min(i32::MAX as u32) as i32,
             SAMPLE_SEED,
         );
         sampler
-    });
-    let blocks = (0..nblocks).map_while(|block| match sampler.as_mut() {
-        None => Some(block),
-        Some(sampler) => unsafe {
-            pg_sys::BlockSampler_HasMore(sampler).then(|| pg_sys::BlockSampler_Next(sampler))
-        },
-    });
+    };
 
     let mut rng = StdRng::seed_from_u64(SAMPLE_SEED as u64);
     let mut per_block_context = PgMemoryContexts::new("pg_search partition sampling");
@@ -747,8 +749,9 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     let mut indexed_offsets: Vec<pg_sys::OffsetNumber> = Vec::new();
     let mut result: anyhow::Result<()> = Ok(());
     unsafe {
-        for blockno in blocks {
+        while pg_sys::BlockSampler_HasMore(addr_of_mut!(sampler)) {
             check_for_interrupts();
+            let blockno = pg_sys::BlockSampler_Next(addr_of_mut!(sampler));
 
             let buffer = HeapBufferPin::read(heaprel, blockno);
             let buf = buffer.buffer();

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794989431388,
+  "lastUpdate": 1794989465341,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -113235,6 +113235,53 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14310378397-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989462233,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1764.827603821085,
+            "unit": "median tps",
+            "extra": "avg tps: 1777.8944671716065, max tps: 1969.5221394182963, count: 59288"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - tps",
+            "value": 5.888611886441782,
+            "unit": "median tps",
+            "extra": "avg tps: 5.939322283543581, max tps: 7.002316156114959, count: 59288"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1885.7096014647645,
+            "unit": "median tps",
+            "extra": "avg tps: 1871.790362643173, max tps: 1892.136439489064, count: 59288"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 2885.904892449962,
+            "unit": "median tps",
+            "extra": "avg tps: 2813.051270441676, max tps: 3119.410329275754, count: 59288"
+          }
+        ],
+        "publication_id": "14408698793-tps"
       }
     ],
     "pg_search wide-table.toml Performance - Other Metrics": [
@@ -158810,6 +158857,107 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14310378397-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989465241,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 1,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 1.0626602347861287, max background_merging: 3.0, count: 59288"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.366051575928811, max cpu: 9.795918, count: 59288"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.54752121002564, max mem: 26.5546875, count: 59288"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.650245721718285, max cpu: 9.8209715, count: 59288"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 43.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.25317669416661, max mem: 43.25390625, count: 59288"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 45319,
+            "unit": "median block_count",
+            "extra": "avg block_count: 45055.60190932398, max block_count: 45319.0, count: 59288"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.481986236675212, max segment_count: 20.0, count: 59288"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - cpu",
+            "value": 23.17721,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.700945001464795, max cpu: 34.320732, count: 59288"
+          },
+          {
+            "name": "Postgres Seq Scan + Sort Fallback - Primary - mem",
+            "value": 37.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 37.36221995808595, max mem: 37.3828125, count: 59288"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.485501384054614, max cpu: 9.43489, count: 59288"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 42.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 42.75892188870429, max mem: 42.8203125, count: 59288"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.414264508936973, max cpu: 9.7859335, count: 59288"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 43.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 43.17537921354237, max mem: 43.19140625, count: 59288"
+          }
+        ],
+        "publication_id": "14408698793-other"
       }
     ],
     "pg_search background-merge.toml Performance - TPS": [

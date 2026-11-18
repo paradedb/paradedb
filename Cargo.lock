@@ -7248,6 +7248,8 @@ dependencies = [
  "shutdown_hooks",
  "sysinfo",
  "tempfile",
+ "tokio",
+ "tokio-postgres",
  "toml",
  "url",
 ]

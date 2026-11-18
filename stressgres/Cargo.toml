@@ -40,6 +40,8 @@ serde_json = { version = "1.0.149", features = [
 ] }
 shutdown_hooks = "0.1.0"
 sysinfo = { version = "0.40.1", features = ["multithread"] }
+tokio = { version = "1.54.1", features = ["rt", "time"] }
+tokio-postgres = "0.7.18"
 toml = "1.1.6"
 url = "2.5.8"
 

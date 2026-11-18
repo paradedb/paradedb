@@ -86,7 +86,7 @@ impl SearchOperator {
                 array,
                 fuzzy_data,
                 slop_data,
-            } if self != Self::Parse => (self.array_query(array), fuzzy_data, slop_data, None),
+            } => (self.array_query(array), fuzzy_data, slop_data, None),
             query => (query, None, None, None),
         };
         if let Some(rules) = synonyms {

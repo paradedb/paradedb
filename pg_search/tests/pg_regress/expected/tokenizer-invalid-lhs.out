@@ -23,45 +23,45 @@ SELECT * FROM invalid_lhs WHERE t::text ||| 'this is a test';
 -- all of these are invalid
 --
 SELECT * FROM invalid_lhs where (t::pdb.literal) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.literal" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=oopsie')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=simple', 'stemmer=english')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.ngram('3', '6')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.literal) &&& 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.literal" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) &&& 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=oopsie')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) &&& 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=simple', 'stemmer=english')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) &&& 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.ngram('3', '6')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.literal) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.literal" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=oopsie')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=simple', 'stemmer=english')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) ||| 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.ngram('3', '6')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.literal) ### 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.literal" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) ### 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=oopsie')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) ### 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=simple', 'stemmer=english')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) ### 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.ngram('3', '6')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.literal) === 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.literal" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=oopsie')) === 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=oopsie')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.simple('alias=simple', 'stemmer=english')) === 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.simple('alias=simple', 'stemmer=english')" is not included in ParadeDB index "idxinvalid_lhs"
 SELECT * FROM invalid_lhs where (t::pdb.ngram(3, 6)) === 'This is a TEST';
-ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
+ERROR:  expression "(t)::pdb.ngram('3', '6')" is not included in ParadeDB index "idxinvalid_lhs"
 SET paradedb.enable_custom_scan = off;
 SET enable_seqscan = off;
 SELECT * FROM invalid_lhs WHERE (t::pdb.literal) ||| 'This is a TEST';

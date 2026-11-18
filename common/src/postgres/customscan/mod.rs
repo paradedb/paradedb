@@ -69,6 +69,8 @@ pub fn explain_score_funcoid() -> pg_sys::Oid {
             &["pdb.explain_score(anyelement)".into_datum()],
         )
     };
+    // Only a found oid is cached. `ALTER EXTENSION pg_search UPDATE` creates the function, and a
+    // session that is open at that time must find it afterwards.
     match funcoid {
         Some(funcoid) => *OID_CACHE.get_or_init(|| funcoid),
         None => pg_sys::InvalidOid,

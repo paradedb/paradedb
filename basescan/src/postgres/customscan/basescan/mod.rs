@@ -1749,7 +1749,8 @@ impl CustomScan for BaseScan {
             .target_list()
             .as_ptr()
             .contains_explain_score_for_relation(builder.custom_state().execution_rti);
-        // The scan explains the scores that it computes, so it needs scores too.
+        // A query can call `pdb.explain_score` and not `pdb.score`. The scan must still score the
+        // rows, because the explanation is of that score.
         builder.custom_state().need_scores = builder.custom_state().need_score_explanation
             || builder
                 .target_list()

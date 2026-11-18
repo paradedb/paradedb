@@ -513,12 +513,14 @@ pub enum FieldSource {
 
 impl FieldSource {
     /// The zero-based heap attribute the field holds. A tokenizer cast leaves the
-    /// column's value as it is, so it names that column; a computed expression or a
-    /// composite field has no single column to read back.
+    /// column's value as it is, so it names that column. A computed expression has no
+    /// column to read back, and a composite field does not record the column it reads.
     pub fn heap_attno(&self) -> Option<usize> {
         match *self {
             FieldSource::Heap { attno } => Some(attno),
             FieldSource::Expression { attno, .. } => attno,
+            // A column for a composite field changes the vector sort and the synonym rule
+            // column check, which both find their fields through this function.
             FieldSource::CompositeField { .. } => None,
         }
     }
@@ -670,6 +672,14 @@ pub fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
     }
 
     node
+}
+
+/// The one-based heap attribute that `node` reads, when `node` is a column, plain or under a
+/// tokenizer cast. A field over such a node holds the column's value as it is.
+pub fn heap_attno_read_by(node: *mut pg_sys::Node) -> Option<pg_sys::AttrNumber> {
+    let var = unsafe { nodecast!(Var, strip_tokenizer_cast(node)) }?;
+    let attno = unsafe { (*var).varattno };
+    (attno > 0).then_some(attno)
 }
 
 /// Strips the `RelabelType` wrappers from an expression.

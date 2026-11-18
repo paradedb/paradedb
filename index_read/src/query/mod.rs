@@ -449,6 +449,8 @@ impl SearchQueryInput {
                     query,
                     pdb::Query::All
                         | pdb::Query::Term { .. }
+                        | pdb::Query::Range { .. }
+                        | pdb::Query::StoredRange { .. }
                         | pdb::Query::Match {
                             distance: None | Some(0),
                             ..
@@ -1127,7 +1129,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
-    /// The synonym indexes that the match queries of this tree name.
+    /// The synonym indexes that the match and phrase queries of this tree name.
     pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
         let mut indexes = Vec::new();
         self.visit_ref(&mut |input| {
@@ -1139,6 +1141,10 @@ impl SearchQueryInput {
                 query = inner;
             }
             if let pdb::Query::Match {
+                synonyms: Some(pdb::SynonymRules::Index(index)),
+                ..
+            }
+            | pdb::Query::TokenizedPhrase {
                 synonyms: Some(pdb::SynonymRules::Index(index)),
                 ..
             } = query

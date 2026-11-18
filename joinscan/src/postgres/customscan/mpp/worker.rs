@@ -361,10 +361,15 @@ pub fn init_worker_base_session_state() {
 /// Process-wide base [`SessionState`] for MPP workers: pre-registers DataFusion's default
 /// function registries plus `pg_search` UDFs/UDAFs with empty analyzer/optimizer rule lists so
 /// neither `Worker` creation nor per-task `coordinator_channel` setup rebuilds them, and applies
-/// current GUC settings (`apply_paradedb_session_config`) once per query.
-fn worker_base_session_state() -> SessionState {
+/// current GUC settings (`apply_paradedb_session_config` plus `inlist_mode`) once per query.
+fn worker_base_session_state(inlist_mode: crate::gucs::InListPushdownMode) -> SessionState {
     let mut cfg = WORKER_BASE_SESSION_STATE.config().clone();
     crate::postgres::customscan::joinscan::scan_state::apply_paradedb_session_config(&mut cfg);
+    if inlist_mode == crate::gucs::InListPushdownMode::LazySortProbe {
+        cfg.options_mut()
+            .optimizer
+            .hash_join_inlist_pushdown_max_distinct_values = inlist_mode.max_distinct_values();
+    }
     SessionStateBuilder::new_from_existing(WORKER_BASE_SESSION_STATE.clone())
         .with_config(cfg)
         .build()
@@ -459,6 +464,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
     let spill_state = SpillNotifier(parallel_state);
     let peer_resolver_for_builder = Arc::clone(&peer_resolver);
 
+    let inlist_mode = unsafe { (*parallel_state).inlist_pushdown_mode };
     let worker = Worker::from_session_builder(move |ctx: WorkerQueryContext| {
         let codec = codec.clone();
         let peer_resolver: Arc<dyn ChannelResolver + Send + Sync> =
@@ -487,7 +493,7 @@ pub(crate) fn run_mpp_worker(inputs: MppWorkerInputs, runtime: &PgTokioRuntime) 
                 .build())
         }
     })
-    .with_base_session_state(worker_base_session_state());
+    .with_base_session_state(worker_base_session_state(inlist_mode));
     let incoming = tokio_stream::StreamExt::chain(
         tokio_stream::iter(
             streams

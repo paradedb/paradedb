@@ -182,6 +182,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::explain_score_funcoid;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::{
     distinct_collations_are_deterministic, distinct_columns_are_fast_fields,
@@ -642,6 +643,16 @@ impl JoinScan {
             return Err(JoinDeclineReason::ContainsAggregate);
         }
 
+        // Only the Base Scan has the document and the query that an explanation needs.
+        if (*(*root).parse)
+            .targetList
+            .contains_functions(&[explain_score_funcoid()])
+        {
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: pdb.explain_score is not supported",
+            ));
+        }
+
         if (*(*root).parse).limitOption == pg_sys::LimitOption::LIMIT_OPTION_WITH_TIES {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: FETCH FIRST ... WITH TIES is not supported",
@@ -1069,14 +1080,16 @@ impl JoinScan {
         )
     }
 
-    /// First-exec solve of Param/SubPlan-backed expressions on the leader, and rebaking of the
-    /// logical plan when either expressions were solved or the target execution mode (`Serial` vs
-    /// `Mpp`) differs from the mode `logical_plan` was baked in (e.g. a cached generic plan built
-    /// before MPP became eligible, or vice versa). Called before `build_plan` in `exec_custom_scan`,
-    /// ahead of the plan-first MPP launch (#5667). Rebaking failures abort at the operation that
-    /// violated the invariant rather than being represented as a recoverable absence of plan bytes.
+    /// Leader-side solve of Param/SubPlan-backed expressions on initial execution and rescans,
+    /// re-estimation of affected `JoinSource`s (`reestimate_solved_rows`, reusing
+    /// `source_manifests` across rescans) and `mpp_eligible` (`target_mode`, while preserving
+    /// `MppLifecycle::Declined`), and rebaking of the logical plan when either expressions were
+    /// solved or the target execution mode (`Serial` vs `Mpp`) differs from the mode
+    /// `logical_plan` was baked in. Called before `build_plan` in `exec_custom_scan`, ahead of
+    /// the plan-first MPP launch (#5667). Rebaking failures abort at the operation that violated
+    /// the invariant rather than being represented as a recoverable absence of plan bytes.
     fn maybe_solve_and_rebake(state: &mut CustomScanStateWrapper<Self>) {
-        let target_mode = if matches!(state.custom_state().mpp, MppLifecycle::Pending) {
+        let mut target_mode = if matches!(state.custom_state().mpp, MppLifecycle::Pending) {
             LogicalPlanMode::Mpp
         } else {
             LogicalPlanMode::Serial
@@ -1089,6 +1102,7 @@ impl JoinScan {
         }
 
         if needs_solve {
+            Self::ensure_source_manifests(state);
             let estate = state.csstate.ss.ps.state;
             let planstate = state.planstate();
             // Solved in `ps_ExprContext`: JoinScan never resets it per row (see `solve_expr.rs`).
@@ -1108,10 +1122,39 @@ impl JoinScan {
             for ob in &mut custom_state.join_clause.order_by {
                 unsafe { ob.resolve_query_vector(estate, planstate) };
             }
-            for source in custom_state.join_clause.plan.sources_mut() {
+            let JoinScanState {
+                join_clause,
+                source_manifests,
+                ..
+            } = custom_state;
+            let mut any_reestimated = false;
+            for source in join_clause.plan.sources_mut() {
                 if let Some(ref mut vec_ob) = source.scan_info.vector_order_by {
                     unsafe { vec_ob.resolve_query_vector(estate, planstate) };
                 }
+                let manifest = source_manifests.get(source.plan_position);
+                any_reestimated |= source.reestimate_solved_rows(manifest);
+            }
+            if any_reestimated
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+                && matches!(
+                    custom_state.mpp,
+                    MppLifecycle::Inactive | MppLifecycle::Pending
+                )
+            {
+                custom_state.mpp = if mpp_eligible(
+                    custom_state.parallel_mode_ok,
+                    &custom_state.join_clause.plan,
+                ) {
+                    MppLifecycle::Pending
+                } else {
+                    MppLifecycle::Inactive
+                };
+                target_mode = if matches!(custom_state.mpp, MppLifecycle::Pending) {
+                    LogicalPlanMode::Mpp
+                } else {
+                    LogicalPlanMode::Serial
+                };
             }
         }
 
@@ -1720,7 +1763,7 @@ impl CustomScan for JoinScan {
             // physical plan. The finished stages then provide the exact dispatch payload before
             // DSM allocation. Only the leader runs this branch (`ParallelWorkerNumber == -1`).
             // The size gate decides here, before any MPP work: a gated query takes the plain
-            // serial path and never builds the distributed plan or captures manifests.
+            // serial path and never builds the distributed plan.
             if mpp_eligible(
                 state.custom_state().parallel_mode_ok,
                 &state.custom_state().join_clause.plan,

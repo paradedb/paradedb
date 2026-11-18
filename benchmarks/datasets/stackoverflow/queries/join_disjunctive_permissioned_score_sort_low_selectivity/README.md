@@ -1,7 +1,7 @@
 # Permissioned Disjunctive Search, Low Selectivity (Score Sort)
 
 - **Join**: stackoverflow_posts -> comments
-- **Description**: Disjunctive (`OR`) full-text search across `stackoverflow_posts` and `comments` ordered by combined BM25 relevance (`pdb.score(p.id) + pdb.score(c.id) DESC, c.id ASC`), restricted by a low-selectivity `InitPlan`-parameterized base filter on `stackoverflow_posts` (`p.view_count >= (SELECT 42) AND p.view_count < (SELECT 150)`). Models a multi-table search under a broad row-level security / tenant filter that passes `RankJoinRule` Gate 3 (`>= paradedb.rank_join_min_rows = 10,000` across `100K`, `1M`, and `20M` datasets, and `11.23% >= paradedb.rank_join_unscored_selectivity_threshold = 0.025`), where `RankJoinExec` (`ScanMode::Disjunctive` with `RaBaseFilter::Filter` and per-leaf `SA` window scaling) early-terminates without scanning all 2.25M filtered posts and 59M comments.
+- **Description**: Disjunctive (`OR`) full-text search across `stackoverflow_posts` and `comments` ordered by combined BM25 relevance (`pdb.score(p.id) + pdb.score(c.id) DESC, c.id ASC`), restricted by a low-selectivity `InitPlan`-parameterized base filter on `stackoverflow_posts` (`p.view_count >= (SELECT 42) AND p.view_count < (SELECT 150)`). Models a multi-table search under a broad row-level security / tenant filter that passes `RankJoinRule` Gate 3 (`>= paradedb.rank_join_min_rows = 10,000` across `100K`, `1M`, and `20M` datasets, and `11.23% >= paradedb.rank_join_unscored_selectivity_threshold = 0.08`), where `RankJoinExec` (`ScanMode::Disjunctive` with `RaBaseFilter::Filter` and per-leaf `SA` window scaling) early-terminates without scanning all 2.25M filtered posts and 59M comments.
 
 ## Query Info (statistics from 20M dataset):
 

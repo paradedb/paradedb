@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::cell::UnsafeCell;
+use std::cell::{OnceCell, UnsafeCell};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -47,8 +47,10 @@ use std::ptr::NonNull;
 use crate::index::reader::vector::SharedVectorRouting;
 use crate::postgres::customscan::basescan::privdat::VectorFilterPlan;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{PgTupleDesc, pg_sys};
+use pgrx::{JsonB, PgTupleDesc, pg_sys};
+use tantivy::DocAddress;
 use tantivy::index::SegmentId;
+use tantivy::query::Weight;
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
@@ -107,6 +109,10 @@ pub struct BaseScanState {
     pub need_scores: bool,
     pub score_funcoids: [pg_sys::Oid; 2],
 
+    pub need_score_explanation: bool,
+    /// The weight of the scan's query, built when the first row needs an explanation.
+    pub score_explanation_weight: OnceCell<Box<dyn Weight>>,
+
     /// True when a junk ORDER-BY `embedding <-> query` `OpExpr` in the scan's
     /// targetlist was replaced with a NULL placeholder `Const` (see
     /// `inject_vector_distance_placeholders`). The value is never read — the
@@ -154,6 +160,7 @@ pub struct BaseScanState {
 pub struct BasePlaceholders {
     pub projection: PlaceholderProjection,
     pub score: PlaceholderColumn,
+    pub score_explanation: PlaceholderColumn,
     pub snippets: HashMap<SnippetType, Vec<PlaceholderColumn>>,
     /// Indexed by target entry position.
     pub window_aggs: HashMap<usize, PlaceholderColumn>,
@@ -316,6 +323,28 @@ impl BaseScanState {
     #[inline(always)]
     pub fn visibility_checker(&mut self) -> &mut VisibilityChecker {
         self.visibility_checker.as_mut().unwrap()
+    }
+
+    /// Tantivy's explanation of the score that the scan's query gives to the document.
+    pub fn explain_score(&self, doc_address: DocAddress) -> JsonB {
+        let search_reader = self
+            .search_reader
+            .as_ref()
+            .expect("BaseScanState: search_reader should be initialized");
+        let weight = self
+            .score_explanation_weight
+            .get_or_init(|| search_reader.weight());
+        let segment_reader = search_reader
+            .searcher()
+            .segment_reader(doc_address.segment_ord);
+        let explanation = weight
+            .explain(segment_reader, doc_address.doc_id)
+            .unwrap_or_else(|e| panic!("failed to explain the score of a row: {e}"));
+        // A `serde_json::Value` keeps an `f32` as an `f64`, which has digits that the `f32` does
+        // not have. The JSON text has the digits that `pdb.score` prints.
+        let json = serde_json::to_string(&explanation)
+            .expect("a score explanation should serialize to JSON");
+        JsonB(serde_json::from_str(&json).expect("a score explanation should be valid JSON"))
     }
 
     pub fn make_snippet(

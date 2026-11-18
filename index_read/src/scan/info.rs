@@ -318,7 +318,9 @@ pub struct ScanInfo {
     /// True when `estimate` is the index's total document count rather than a match count.
     /// The estimator substitutes the total when the query carries a Postgres expression or a
     /// heap filter it cannot evaluate at plan time; consumers that need a match count (the MPP
-    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+    /// size gate) discount it by `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan, and
+    /// `JoinSource::reestimate_solved_rows` replaces `estimate` and clears this flag once runtime
+    /// `Param`/`SubPlan` expressions have been solved.
     pub estimate_from_total_docs: bool,
     /// The number of segments in the index.
     pub segment_count: usize,

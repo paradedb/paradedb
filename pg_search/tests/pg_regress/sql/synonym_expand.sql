@@ -327,9 +327,9 @@ DROP INDEX shop_synonyms_idx;
 SELECT id FROM sofa_products ORDER BY id;
 DROP VIEW sofa_products;
 
--- Only `|||` and `&&&` expand.
+-- The term operator does not tokenize its text, so it does not expand.
 SELECT id FROM products
-WHERE description ### (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+WHERE description === (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
 
 -- A text column works too, and a value that is not a rule is an error.
 CREATE TABLE text_rules (rule text);

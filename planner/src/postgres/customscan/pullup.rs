@@ -27,7 +27,7 @@ use crate::index::fast_fields_helper::{FieldCardinality, FieldDelivery, WhichFas
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::node::NodeExt;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::strip_tokenizer_cast;
+use crate::postgres::utils::{heap_attno_read_by, strip_tokenizer_cast};
 use crate::schema::{
     CategorizedFieldData, FieldSource, SearchField, SearchFieldType, SearchIndexSchema,
 };
@@ -163,11 +163,29 @@ impl SourceContext {
                 let attno = data
                     .source
                     .heap_attno()
+                    .or_else(|| self.composite_field_heap_attno(data.source))
                     .map(|n| n as pg_sys::AttrNumber + 1);
                 Some(ResolvedHeapField::new(attno, name.into(), field, data))
             }
             _ => unreachable!("only attno and field supported"),
         }
+    }
+
+    /// The zero-based heap attribute a composite field reads. A `ROW(...)` argument
+    /// that is a column, plain or under a tokenizer cast, keeps the column's value.
+    fn composite_field_heap_attno(&self, source: FieldSource) -> Option<usize> {
+        let FieldSource::CompositeField {
+            expression_idx,
+            field_idx,
+            ..
+        } = source
+        else {
+            return None;
+        };
+        let expr = self.index_expressions()?.get_ptr(expression_idx)?;
+        let row_expr = unsafe { row_expr_from_indexed_expr(expr) }?;
+        let args = unsafe { PgList::<pg_sys::Node>::from_pg((*row_expr).args) };
+        heap_attno_read_by(args.get_ptr(field_idx)?).map(|attno| (attno - 1) as usize)
     }
 
     /// Resolves a ColumnRef to a Tantivy fast field, from this source

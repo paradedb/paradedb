@@ -28,6 +28,12 @@ use tantivy::vector::AdaptiveProbeParams;
 
 pub const MAX_MUTABLE_SEGMENT_ROWS: usize = 10000;
 pub const MAX_TARGET_SEGMENT_COUNT: i32 = 1024;
+/// Default value for `paradedb.rank_join_unscored_selectivity_threshold` (`0.08`).
+///
+/// Calibrated around Tantivy's `DocSet::size_hint()` when `QueryEstimate::estimate_docs` falls
+/// back to `scorer_estimate`: `FastFieldRangeQuery` reports `column.num_docs() / 10` (`~0.09999`),
+/// `TermSetQuery` reports `~1.0` under `Gallop` / `LinearScan` and exact `bitset.len()` under
+/// `BitsetFromPostings`, and text queries use segment `doc_freq` counts.
 pub const UNSCORED_SELECTIVITY_THRESHOLD: f64 = 0.08;
 
 #[derive(pgrx::PostgresGucEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -240,7 +246,8 @@ static ENABLE_RANK_JOIN: GucSetting<bool> = GucSetting::<bool>::new(true);
 static RANK_JOIN_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 /// Minimum estimated selectivity (`planner_estimated_rows / total_docs`) required across
-/// unscored (`RA`) inputs of a single-sided (`NRJN`) join when `rank_join_min_rows > 0`.
+/// unscored (`RA`) inputs of a single-sided (`NRJN`) join and unscored `base_query` filters of
+/// `ScanMode::Disjunctive` joins when `rank_join_min_rows > 0`.
 static RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD: GucSetting<f64> =
     GucSetting::<f64>::new(UNSCORED_SELECTIVITY_THRESHOLD);
 
@@ -291,25 +298,38 @@ static MPP_MIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(500_000);
 /// launch cost, not what a query can carry.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(8 * 1024 * 1024);
 
-/// The maximum size of an InList that can be pushed down to a TermSet Query.
+/// Maximum byte size of a build-side `InListExpr` dynamic filter materialized by DataFusion's
+/// `HashJoinExec` before falling back to `HashTableLookupExpr`.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
 
-/// The maximum number of distinct values in an InList that can be pushed down
-/// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
-/// DataFusion (HashExpr at the join, or PreFilter when the join feeds a
-/// dynamic filter).
+/// Maximum number of distinct keys in a build-side `InListExpr` dynamic filter materialized by
+/// DataFusion's `HashJoinExec` on standard (unsorted) joins before falling back to
+/// `HashTableLookupExpr`, and `RankJoinRule`'s build-row threshold for rewriting non-vector
+/// (`Score` / `Field`) top-K joins into `lazy_sort` probe joins.
 ///
-/// Bench-tuned: on a sorted-segment index, pushdown wins through K=14K
-/// (1.08×–9.27× over PreFilter at N=1M) and loses at K=20K (0.90×). 20,000
-/// is the upper edge of the crossover band — admits K=15K–19K (interpolated
-/// wins) at the cost of one boundary cell (K=20,000 exact: 11% slowdown).
-///
-/// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
-/// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
-/// bound. Set to 0 to disable pushdown entirely.
+/// Bench-tuned: on unsorted scans, materializing `Vec<Arc<dyn PhysicalExpr>>` literals in
+/// `InListExpr` (and Tantivy `LinearScan` on `Score`/`Field` joins) loses to zero-copy
+/// `HashTableLookupExpr` past ~20,000 keys, whereas plans that already probe a `lazy_sort` scan
+/// elevate the runtime cap to [`LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`]. Set to 0 to
+/// disable join `InListExpr` dynamic filter materialization globally (including `lazy_sort` probe
+/// joins).
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(20_000);
+
+/// Maximum number of distinct keys in a build-side `InListExpr` dynamic filter materialized by
+/// DataFusion's `HashJoinExec` when the physical plan executes a `HashJoinExec` with a `lazy_sort`
+/// probe side (e.g. selective `OrderByFeature::VectorDistance` joins, or `Score`/`Field` joins
+/// already rewritten to `lazy_sort`).
+///
+/// Unlike unsorted joins governed by [`HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES`] (`20,000`),
+/// falling back to `HashTableLookupExpr` on a `lazy_sort` probe scan leaves the join filter
+/// outside Tantivy's top-K / IVF collector (`PreparedVectorSearch` / `TopDocs`) and forces
+/// expanding unfiltered windows, so this cap matches `HASH_JOIN_SINGLE_PARTITION_THRESHOLD_ROWS`
+/// (`131,072`). Set to 0 (or set `paradedb.hash_join_inlist_pushdown_max_distinct_values` to 0)
+/// to disable.
+static LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
+    GucSetting::<i32>::new(128 * 1024);
 
 /// Row count threshold below which DataFusion converts a partitioned HashJoinExec
 /// to CollectLeft (broadcast). Set to 0 to force Partitioned mode.
@@ -471,7 +491,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.synonyms_max_alternatives",
         c"The most alternatives that one run of query tokens expands to",
-        c"Alternatives past this count are dropped. The tokens of the query stay when a rule lists them.",
+        c"A match query drops the alternatives of a run past this count. A phrase query searches one phrase for each combination of alternatives, and it drops the phrases past this count. Both keep the tokens of the query when a rule lists them.",
         &SYNONYMS_MAX_ALTERNATIVES,
         1,
         i32::MAX,
@@ -995,9 +1015,11 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.rank_join_unscored_selectivity_threshold",
-        c"Minimum estimated selectivity on unscored (RA) join inputs for RankJoinExec",
+        c"Minimum estimated selectivity on unscored join inputs and disjunctive base filters for RankJoinExec",
         c"Minimum estimated selectivity (matched_rows / total_docs) across unscored (RA) \
-          inputs of a single-sided (NRJN) join when paradedb.rank_join_min_rows > 0.",
+          inputs of a single-sided (NRJN) join and peer unscored base filters of a disjunctive \
+          (ScanMode::Disjunctive) join when paradedb.rank_join_min_rows > 0 (single-sided vector \
+          joins keep RankJoinExec below this threshold when InList pushdown does not fit).",
         &RANK_JOIN_UNSCORED_SELECTIVITY_THRESHOLD,
         0.0,
         1.0,
@@ -1017,8 +1039,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_size",
-        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
-        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        c"Maximum byte size of a join-derived InList dynamic filter materialized by DataFusion.",
+        c"Maximum byte size of a build-side InList dynamic filter materialized by DataFusion before falling back to HashTableLookupExpr.",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE,
         0,
         i32::MAX,
@@ -1028,9 +1050,20 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
-        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
-        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
+        c"Maximum number of distinct values in a join-derived InList dynamic filter on standard joins. Set to 0 to disable.",
+        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion on standard unsorted joins (and planner gate for non-vector lazy_sort probe joins), where InList literal materialization loses to HashTableLookupExpr past ~20,000 keys. Plans that probe a lazy_sort scan use paradedb.lazy_sort_inlist_pushdown_max_distinct_values instead, unless this setting is 0 (which disables all join InList pushdown).",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.lazy_sort_inlist_pushdown_max_distinct_values",
+        c"Maximum number of distinct values in a join-derived InList dynamic filter when probing a lazy_sort scan. Set to 0 to disable.",
+        c"Maximum number of distinct build-side keys materialized as an InList dynamic filter by DataFusion when HashJoinExec probes a lazy_sort scan. Higher than paradedb.hash_join_inlist_pushdown_max_distinct_values because falling back to HashTableLookupExpr on a lazy_sort scan leaves the join filter outside Tantivy's top-K / IVF collector and forces expanding unfiltered windows. Set this or paradedb.hash_join_inlist_pushdown_max_distinct_values to 0 to disable.",
+        &LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -1469,6 +1502,42 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn lazy_sort_inlist_pushdown_max_distinct_values() -> i32 {
+    LAZY_SORT_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+/// Which `InList` distinct-key cap applies when executing a DataFusion plan.
+///
+/// TODO: This currently overrides `SessionConfig`'s `hash_join_inlist_pushdown_max_distinct_values`
+/// plan-wide (so an unrelated outer `HashJoinExec` in the same plan inherits `LazySortProbe`).
+/// Rather than plumbing a per-join cap into DataFusion, we plan to push `HashTableLookupExpr` into
+/// Tantivy (fast-field / candidate-scorer lookups) so `lazy_sort` probe joins no longer need an
+/// elevated `InList` cap and `InListPushdownMode` can be removed altogether.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum InListPushdownMode {
+    /// Standard unsorted join execution (`paradedb.hash_join_inlist_pushdown_max_distinct_values`).
+    #[default]
+    Standard = 0,
+    /// Plan contains a `HashJoinExec` probing a `lazy_sort` `PgSearchScan`
+    /// (`paradedb.lazy_sort_inlist_pushdown_max_distinct_values`, unless disabled by `= 0` on
+    /// `paradedb.hash_join_inlist_pushdown_max_distinct_values`).
+    LazySortProbe = 1,
+}
+
+impl InListPushdownMode {
+    pub fn max_distinct_values(self) -> usize {
+        let base = hash_join_inlist_pushdown_max_distinct_values();
+        if base <= 0 {
+            return 0;
+        }
+        match self {
+            Self::Standard => base as usize,
+            Self::LazySortProbe => lazy_sort_inlist_pushdown_max_distinct_values().max(0) as usize,
+        }
+    }
 }
 
 pub fn hash_join_single_partition_threshold_rows() -> i32 {

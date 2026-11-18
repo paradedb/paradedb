@@ -53,11 +53,14 @@ extension_sql!(
     requires = [text_to_fieldname]
 );
 
+/// The `@@@` operator calls this function for a query that it can't fold during planning, so the
+/// function classifies the query the same way as the planner does for a constant.
 #[pg_extern(immutable, parallel_safe)]
 pub fn to_search_query_input(
     field: FieldName,
     query: crate::query::pdb_query::pdb::Query,
 ) -> crate::query::SearchQueryInput {
+    let query = operator::SearchOperator::Parse.classify_query(query);
     crate::query::pdb_query::to_search_query_input(field, query)
 }
 

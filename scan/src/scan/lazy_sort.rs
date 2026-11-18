@@ -30,9 +30,11 @@ use std::sync::{Arc, Mutex};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion::common::{DataFusionError, Result};
-use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
+use datafusion::common::tree_node::TreeNode;
+use datafusion::common::{DataFusionError, Result, ScalarValue};
+use datafusion::physical_expr::expressions::{DynamicFilterPhysicalExpr, Literal};
 use datafusion::physical_expr::{DynamicFilterTracking, LexOrdering, PhysicalExpr};
+use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, Count, ExecutionPlanMetricsSet, MetricBuilder, RecordOutput,
 };
@@ -77,9 +79,10 @@ pub enum LazyParallelMode {
 }
 
 /// Estimated probability `[0.0, 1.0]` that a candidate document from a Top-K scan
-/// survives downstream filtering (e.g., MVCC heap visibility in `BaseScan`, or `RA`
-/// join probes and cross-table tag filters in `RankJoinExec`).
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+/// survives downstream filtering (e.g., MVCC heap visibility in `BaseScan`, `RA`
+/// join probes and cross-table tag/base filters in `RankJoinExec`, or unpushed
+/// `HashJoinExec` filters above a `lazy_sort` probe scan).
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct TopKSelectivity(pub f64);
 
 impl TopKSelectivity {
@@ -119,14 +122,22 @@ impl TopKSelectivity {
         Self((1.0 - (1.0 - p_a) * (1.0 - p_b)).clamp(0.0, 1.0))
     }
 
-    /// Computes the initial Top-K window size for a target `k` and base `fetch_multiplier`,
-    /// scaled inversely by `self` and clamped to `max_topk_chunk_size`.
-    pub fn compute_initial_window(self, k: usize, fetch_multiplier: f64) -> f64 {
+    /// Scales an existing `base_window` inversely by `self`, clamped to `max_topk_chunk_size`.
+    fn scale_window(self, base_window: f64) -> f64 {
+        if base_window <= 0.0 {
+            return 0.0;
+        }
         let max_window = crate::gucs::max_topk_chunk_size().max(1) as f64;
-        let base_window = ((k as f64) * fetch_multiplier).max(1.0);
         let min_window = base_window.min(max_window);
         let s = self.0.clamp(0.0, 1.0);
         (base_window / s).clamp(min_window, max_window)
+    }
+
+    /// Computes the initial Top-K window size for a target `k` and base `fetch_multiplier`,
+    /// scaled inversely by `self` and clamped to `max_topk_chunk_size`.
+    pub fn compute_initial_window(self, k: usize, fetch_multiplier: f64) -> f64 {
+        let base_window = ((k as f64) * fetch_multiplier).max(1.0);
+        self.scale_window(base_window)
     }
 }
 
@@ -174,6 +185,12 @@ pub struct LazySortConfig {
     /// Initial Top-K window size (`TopKSelectivity::compute_initial_window` for `BaseScan` and joins,
     /// or `0.0` for `RA`-only mode).
     pub initial_window: f64,
+    /// Combined build-side selectivity of upstream `HashJoinExec` nodes along a `lazy_sort` probe
+    /// spine. Used at stream initialization to scale `initial_window` when a join dynamic filter
+    /// was not pushed into the Tantivy reader (`HashTableLookupExpr` or unpushable join key), and
+    /// to scale `estimate_vector_matches` when re-planning `VectorFilterStrategy` after pushing an
+    /// `InList` (`TermSetQuery`) into a vector scan.
+    pub unpushed_join_selectivity: TopKSelectivity,
     /// Controls how a non-range-partitioned (`ExecutionState::Shared`) scan interacts with
     /// `ParallelScanState` for segment claiming and first-pull cross-worker threshold sharing.
     pub parallel_mode: LazyParallelMode,
@@ -187,6 +204,7 @@ impl std::fmt::Debug for LazySortConfig {
             .field("orderby_info", &self.orderby_info)
             .field("ordering", &self.ordering)
             .field("initial_window", &self.initial_window)
+            .field("unpushed_join_selectivity", &self.unpushed_join_selectivity)
             .field("parallel_mode", &self.parallel_mode)
             .field("has_telemetry", &self.telemetry.is_some())
             .finish()
@@ -641,6 +659,54 @@ fn record_pull_telemetry(
     }
 }
 
+/// Returns `true` when an upstream `HashJoinExec` filter was not pushed into the Tantivy reader
+/// (e.g. `HashTableLookupExpr`, an unpushable `InListExpr`, or an expression join key with no
+/// dynamic filter), excluding empty build sides (`lit(false)`).
+///
+/// Every entry in `PgSearchScanPlan::dynamic_filters` starts as a `DynamicFilterPhysicalExpr` and
+/// only becomes `DynamicFilterTracking::Static` when `try_dynamic_filter_pushdown` pushes at least
+/// one `InListExpr` into `reader` and replaces it with `lit(true)`. DataFusion wraps `InList` join
+/// filters with min/max bounds (`col >= min AND col <= max AND col IN (...)`), leaving a redundant
+/// static `col >= min AND col <= max AND true` expression after pushdown; that rewritten static
+/// expression only represents an unpushed filter if a sibling `InListExpr` returned
+/// `InListPushdown::Keep`.
+fn has_unpushed_join_filter(pushed: bool, dynamic_filters: &[Arc<dyn PhysicalExpr>]) -> bool {
+    let mut saw_unpushed_completed = false;
+    for df in dynamic_filters {
+        match DynamicFilterTracking::classify(df) {
+            DynamicFilterTracking::AllComplete => {
+                let resolved = df
+                    .downcast_ref::<DynamicFilterPhysicalExpr>()
+                    .and_then(|dyn_filter| dyn_filter.current().ok());
+                let expr = resolved.as_ref().unwrap_or(df);
+                if let Some(lit) = expr.downcast_ref::<Literal>() {
+                    match lit.value() {
+                        ScalarValue::Boolean(Some(false)) => return false,
+                        ScalarValue::Boolean(Some(true)) => continue,
+                        _ => {}
+                    }
+                }
+                saw_unpushed_completed = true;
+            }
+            DynamicFilterTracking::Static => {
+                if let Some(lit) = df.downcast_ref::<Literal>()
+                    && matches!(lit.value(), ScalarValue::Boolean(Some(false)))
+                {
+                    return false;
+                }
+                if df
+                    .exists(|node| Ok(node.is::<InListExpr>()))
+                    .unwrap_or(false)
+                {
+                    saw_unpushed_completed = true;
+                }
+            }
+            DynamicFilterTracking::Watching(_) => {}
+        }
+    }
+    !pushed || saw_unpushed_completed
+}
+
 /// Mutable state machine driving a lazy-sorted [`PgSearchScanPlan`] stream across
 /// interleaved Sorted Access (`SA`) Top-K windows and Random Access (`RA`) point lookups.
 ///
@@ -710,11 +776,37 @@ impl LazySortStreamState {
             .position(|wff| wff.is_score());
 
         let queries = MetricBuilder::new(&plan_metrics).counter("queries", target_partition);
+        let vector_order_field = lazy_sort
+            .orderby_info
+            .as_deref()
+            .and_then(|orders| orders.first())
+            .and_then(OrderByInfo::as_vector_distance)
+            .map(|(field, _, _)| field.clone());
+        let pre_push_reader = vector_order_field
+            .as_ref()
+            .filter(|_| !dynamic_filters.is_empty())
+            .map(|_| reader.clone());
         let filter_metrics = FilterStepMetrics::init(
             &mut reader,
             &mut dynamic_filters,
             InListLinearFallback::PushToIndex,
         );
+        if filter_metrics.pushed
+            && let (Some(field), Some(base_reader)) = (&vector_order_field, pre_push_reader)
+        {
+            // Re-plan `VectorFilterStrategy` after `AND`-ing `TermSetQuery`: `TermSetQuery`
+            // does not implement `QueryEstimate`, so scale the pre-push match estimate by the
+            // join's `unpushed_join_selectivity` while inspecting the updated `reader.weight()`
+            // (`uses_fast_fields()`).
+            let estimated_matches = (base_reader.estimate_vector_matches()
+                * lazy_sort.unpushed_join_selectivity.0)
+                .ceil() as usize;
+            reader.vector_filter_strategy = Some(
+                reader
+                    .plan_vector_filter_with_matches(field, estimated_matches)
+                    .map_err(|e| DataFusionError::External(e.into_boxed_dyn_error()))?,
+            );
+        }
         let segment_target = LazySegmentTarget::new(
             &reader,
             range_boundaries.as_ref(),
@@ -723,14 +815,20 @@ impl LazySortStreamState {
             parallel_state,
             source_idx,
         );
-        let (sa_reader, ra_weights, is_disjunctive_sa) = prepare_sa_and_ra(
+        let (mut sa_reader, ra_weights, is_disjunctive_sa) = prepare_sa_and_ra(
             &reader,
             &scanner_config.scan_mode,
             filter_metrics.pushed,
             segment_target.range_target(),
         );
+        if is_disjunctive_sa && let Some(field) = &vector_order_field {
+            sa_reader.vector_filter_strategy = Some(
+                sa_reader
+                    .plan_vector_filter(field)
+                    .map_err(|e| DataFusionError::External(e.into_boxed_dyn_error()))?,
+            );
+        }
         let scanner = init_lazy_sort_scanner(&reader, scanner_config, &scan_fetched_fields)?;
-        let window_cursor = TopKWindowCursor::new(lazy_sort.initial_window);
 
         // `RankJoinRule` sets `LazyParallelMode::Unpartitioned`, and `RankJoinExec` pushes its
         // incomplete (`Watching`) lookup `DynamicFilterPhysicalExpr` to every child that can be
@@ -744,6 +842,18 @@ impl LazySortStreamState {
                     DynamicFilterTracking::Watching(_)
                 )
             });
+        let effective_initial_window = if !is_rank_join_leaf
+            && lazy_sort.unpushed_join_selectivity.0 < 1.0
+            && has_unpushed_join_filter(filter_metrics.pushed, &dynamic_filters)
+        {
+            lazy_sort
+                .unpushed_join_selectivity
+                .scale_window(lazy_sort.initial_window)
+                .min((reader.total_docs() as f64).max(lazy_sort.initial_window))
+        } else {
+            lazy_sort.initial_window
+        };
+        let window_cursor = TopKWindowCursor::new(effective_initial_window);
         let exhaustion_behavior = if !is_rank_join_leaf {
             ExhaustionBehavior::TerminateStream
         } else if is_disjunctive_sa || lazy_sort.initial_window <= 0.0 {

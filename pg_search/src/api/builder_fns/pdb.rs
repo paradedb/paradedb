@@ -98,7 +98,11 @@ mod pdb {
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "phrase")]
     pub fn phrase_string(phrase: String) -> pdb::Query {
-        pdb::Query::TokenizedPhrase { phrase, slop: None }
+        pdb::Query::TokenizedPhrase {
+            phrase,
+            slop: None,
+            synonyms: None,
+        }
     }
 
     #[builder_fn]
@@ -205,6 +209,14 @@ mod pdb {
         phrases: Vec<String>,
         max_expansion: default!(Option<i32>, "NULL"),
     ) -> pdb::Query {
+        if max_expansion.is_some_and(|n| n < 0) {
+            pgrx::ereport!(
+                ERROR,
+                pgrx::PgSqlErrorCode::ERRCODE_INVALID_PARAMETER_VALUE,
+                "max_expansion must be non-negative"
+            );
+        }
+
         pdb::Query::PhrasePrefix {
             phrases,
             max_expansions: max_expansion.map(|n| n as u32),

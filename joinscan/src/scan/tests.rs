@@ -140,7 +140,7 @@ mod tests {
     fn shared_vector_scan_requires_prepared_routing() {
         use crate::api::{FieldName, OrderByFeature, OrderByInfo, QueryVector, SortDirection};
         use crate::scan::execution_plan::{ScanState, ScannerConfig};
-        use crate::scan::lazy_sort::{LazyParallelMode, LazySortConfig};
+        use crate::scan::lazy_sort::{LazyParallelMode, LazySortConfig, TopKSelectivity};
         use crate::scan::range_partitioning::RangeSplitPoints;
         use crate::vector::metric::VectorMetric;
 
@@ -214,6 +214,7 @@ mod tests {
                 }]),
                 ordering: None,
                 initial_window: 10.0,
+                unpushed_join_selectivity: TopKSelectivity::ALL,
                 parallel_mode: LazyParallelMode::Unpartitioned,
                 telemetry: None,
             });

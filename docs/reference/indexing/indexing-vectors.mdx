@@ -168,7 +168,7 @@ recall and latency, especially over large datasets. The following `WITH` options
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING paradedb (id, description, category, embedding vector_cosine_ops)
-WITH (training_sample_ratio=0.32, target_leaf_size=128, replication=2);
+WITH (training_sample_ratio=0.32, target_leaf_size=400, replication=2);
 ```
 
 ```ts Drizzle
@@ -177,7 +177,7 @@ import { indexing } from "@paradedb/drizzle-paradedb";
 indexing
   .paradedbIndex("search_idx", {
     trainingSampleRatio: 0.32,
-    targetLeafSize: 200,
+    targetLeafSize: 400,
   })
   .on(
     mockItems.id,
@@ -213,7 +213,7 @@ idx = Index(
     indexing.ParadeDBField(MockItem.category),
     indexing.VectorField(MockItem.embedding, metric="cosine"),
     postgresql_using="paradedb",
-    postgresql_with={'training_sample_ratio': 0.32, 'target_leaf_size': 128},
+    postgresql_with={'training_sample_ratio': 0.32, 'target_leaf_size': 400},
 )
 
 with engine.begin() as conn:
@@ -251,13 +251,13 @@ modelBuilder.Entity<MockItem>()
   every vector. The default samples 32% of the vectors. Larger samples can
   improve centroid quality at the cost of a slower, more memory-intensive build.
 </ParamField>
-<ParamField body="target_leaf_size" default={128}>
-  The target number of sampled training vectors in a leaf of the hierarchical
-  clustering tree. Must be an integer between `1` and `2147483647`. Smaller
-  values generally produce more centroids and smaller clusters. Training leaves
-  are split until they contain at most this many vectors. This setting is
-  independent of `training_sample_ratio` and does not cap the number of indexed
-  vectors assigned to a cluster.
+<ParamField body="target_leaf_size" default={400}>
+  The target number of indexed vectors in a leaf of the hierarchical clustering
+  tree. Must be an integer between `1` and `2147483647`. Training scales this by
+  `training_sample_ratio` so sampled leaves stay proportional and final clusters
+  approximate this size. Smaller values generally produce more centroids and
+  smaller clusters. Actual leaves may be somewhat larger than the target. This
+  setting does not cap the number of indexed vectors assigned to a cluster.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the
@@ -279,8 +279,8 @@ modelBuilder.Entity<MockItem>()
   These options replace `centroid_ratio` and `training_samples_per_centroid`.
   The old names are no longer accepted. Recreate indexes that explicitly store
   either old option using the new options. `REINDEX` alone does not remove
-  obsolete index options. The new defaults sample 32% of vectors and use a
-  maximum training leaf size of 128.
+  obsolete index options. The new defaults sample 32% of vectors and target
+  about 128 vectors per clustering leaf.
 </Note>
 
 <ParamField body="quantization" default="[1,1]">

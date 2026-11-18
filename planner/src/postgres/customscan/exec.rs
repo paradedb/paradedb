@@ -17,6 +17,7 @@
 
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::{CustomScan, MarkRestoreCapable, wrap_custom_scan_state};
+use crate::postgres::utils::ActiveSnapshotGuard;
 use pgrx::{pg_guard, pg_sys};
 
 /// Complete initialization of the supplied CustomScanState. Standard fields have been initialized
@@ -125,6 +126,9 @@ pub extern "C-unwind" fn explain_custom_scan<CS: CustomScan>(
     es: *mut pg_sys::ExplainState,
 ) {
     let custom_state = wrap_custom_scan_state::<CS>(node);
+    // auto_explain calls this from its ExecutorEnd hook, where no snapshot is active, and the
+    // Aggregate and Join Scans rebuild their DataFusion plans here, which needs one.
+    let _snapshot = ActiveSnapshotGuard::ensure();
     unsafe {
         let plan = (*node).ss.ps.plan;
         if !es.is_null() && !(*es).deparse_cxt.is_null() && !plan.is_null() {

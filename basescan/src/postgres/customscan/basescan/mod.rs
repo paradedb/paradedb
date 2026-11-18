@@ -85,11 +85,11 @@ use crate::postgres::customscan::qual_inspect::{
     PlannerContext, Qual, QualExtractState, SecurityPushdown, classify_security_pushdown,
     extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
 };
-use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     self, CustomScan, CustomScanState, RelPathlistHookArgs, range_table,
 };
+use crate::postgres::customscan::{explain_score_funcoid, score_funcoids};
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::pgstat::{count_heap_fetch, count_index_scan, count_index_tuples};
 use crate::postgres::rel::PgSearchRelation;
@@ -235,6 +235,7 @@ impl BaseScan {
             checker.set_ffhelper(Arc::clone(&ffhelper));
         }
         state.custom_state_mut().search_reader = Some(search_reader);
+        state.custom_state_mut().score_explanation_weight.take();
 
         let parallel_aware = unsafe { (*(*state.planstate()).plan).parallel_aware };
         if !parallel_aware
@@ -1560,6 +1561,7 @@ impl CustomScan for BaseScan {
             let funcoids: Vec<pg_sys::Oid> = score_funcoids()
                 .iter()
                 .copied()
+                .chain([explain_score_funcoid()])
                 .chain(snippet_funcoids().iter().copied())
                 .chain(snippets_funcoids().iter().copied())
                 .chain(snippet_positions_funcoids().iter().copied())
@@ -1749,10 +1751,17 @@ impl CustomScan for BaseScan {
         builder.custom_state().snippet_funcoids = snippet_funcoids;
         builder.custom_state().snippets_funcoids = snippets_funcoids;
         builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-        builder.custom_state().need_scores = builder
+        builder.custom_state().need_score_explanation = builder
             .target_list()
             .as_ptr()
-            .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
+            .contains_explain_score_for_relation(builder.custom_state().execution_rti);
+        // A query can call `pdb.explain_score` and not `pdb.score`. The scan must still score the
+        // rows, because the explanation is of that score.
+        builder.custom_state().need_scores = builder.custom_state().need_score_explanation
+            || builder
+                .target_list()
+                .as_ptr()
+                .contains_score_for_relation(score_funcoids, builder.custom_state().execution_rti);
 
         // Store join snippet predicates in the scan state
         builder.custom_state().join_predicates = builder.custom_private().join_predicates().clone();
@@ -2254,7 +2263,11 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::FromHeap { ctid, score } => {
+                ExecState::FromHeap {
+                    ctid,
+                    score,
+                    doc_address,
+                } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
                             // the ctid is visible
@@ -2341,6 +2354,15 @@ impl CustomScan for BaseScan {
                                     estate,
                                 );
 
+                                if state.custom_state().need_score_explanation {
+                                    let explanation =
+                                        state.custom_state().explain_score(doc_address);
+                                    projection.set(
+                                        placeholders.score_explanation,
+                                        explanation.into_datum(),
+                                    );
+                                }
+
                                 projection.project(slot)
                             });
                             finish_result_assembly_accounting(state, result_assembly_accounting);
@@ -2381,6 +2403,7 @@ impl CustomScan for BaseScan {
         state.custom_state_mut().drop_exec_method();
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
+        drop(state.custom_state_mut().score_explanation_weight.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
@@ -2929,10 +2952,11 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     // the forced projection we must do later.
     let mut columns = PlaceholderColumns::default();
 
-    let (targetlist, score, snippets) = inject_placeholders(
+    let (targetlist, score, score_explanation, snippets) = inject_placeholders(
         (*(*planstate).plan).targetlist,
         state.custom_state().planning_rti,
         state.custom_state().score_funcoids,
+        explain_score_funcoid(),
         state.custom_state().snippet_funcoids,
         state.custom_state().snippets_funcoids,
         state.custom_state().snippet_positions_funcoids,
@@ -2971,6 +2995,7 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     state.custom_state_mut().placeholders = Some(BasePlaceholders {
         projection,
         score,
+        score_explanation,
         snippets,
         window_aggs,
     });

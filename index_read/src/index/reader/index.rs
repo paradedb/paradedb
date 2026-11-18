@@ -50,7 +50,7 @@ use crate::postgres::sequentialscan::KeySet;
 use crate::postgres::storage::metadata::{CleanupAdmission, MetaPage};
 use crate::postgres::types::TantivyValue;
 use crate::query::SearchQueryInput;
-use crate::query::estimate::QueryEstimate;
+use crate::query::estimate::{EstimateContext, PgColumnStats, QueryEstimate};
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::segment_pruning::SegmentPruner;
 use crate::scan::info::RowEstimate;
@@ -999,9 +999,11 @@ impl SearchIndexReader {
     }
 
     pub fn estimate_vector_matches(&self) -> f64 {
+        let stats = PgColumnStats::new(&self.schema);
         self.candidate_segment_readers()
             .map(|(_, reader)| {
-                self.query.0.estimate_docs(reader).ok().flatten().map_or(
+                let ctx = EstimateContext::new(reader, &stats);
+                self.query.0.estimate_docs(&ctx).ok().flatten().map_or(
                     f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
                     |estimate| estimate.live_docs(reader) as f64,
                 )
@@ -1010,16 +1012,11 @@ impl SearchIndexReader {
     }
 
     pub fn estimate_vector_match_fraction(&self) -> f64 {
-        let (matches, docs) =
-            self.candidate_segment_readers()
-                .fold((0.0, 0u64), |(matches, docs), (_, reader)| {
-                    let estimated = self.query.0.estimate_docs(reader).ok().flatten().map_or(
-                        f64::from(reader.num_docs()) * DEFAULT_VECTOR_MATCH_FRACTION,
-                        |estimate| estimate.live_docs(reader) as f64,
-                    );
-                    (matches + estimated, docs + u64::from(reader.num_docs()))
-                });
-        matches / docs.max(1) as f64
+        let docs = self
+            .candidate_segment_readers()
+            .map(|(_, reader)| u64::from(reader.num_docs()))
+            .sum::<u64>();
+        self.estimate_vector_matches() / docs.max(1) as f64
     }
 
     pub fn vector_filter_strategy(&self) -> VectorFilterStrategy {
@@ -1028,6 +1025,14 @@ impl SearchIndexReader {
     }
 
     pub fn plan_vector_filter(&self, name: &FieldName) -> Result<VectorFilterStrategy> {
+        self.plan_vector_filter_with_matches(name, self.estimate_vector_matches().ceil() as usize)
+    }
+
+    pub fn plan_vector_filter_with_matches(
+        &self,
+        name: &FieldName,
+        estimated_matches: usize,
+    ) -> Result<VectorFilterStrategy> {
         let field = self.schema.tantivy_schema().get_field(&name.root())?;
         let segments = self
             .candidate_segment_readers()
@@ -1036,7 +1041,7 @@ impl SearchIndexReader {
         Ok(VectorFilterStrategy::plan(
             field,
             self.weight().as_ref(),
-            self.estimate_vector_matches().ceil() as usize,
+            estimated_matches,
             gucs::vector_max_scan_levels(),
             &segments,
         )?)
@@ -3080,9 +3085,11 @@ impl SearchIndexReader {
             };
         };
 
+        let stats = PgColumnStats::new(&self.schema);
+        let ctx = EstimateContext::new(largest_reader, &stats);
         let (count, mut cost) = self
             .estimate_from_statistics
-            .then(|| self.query.0.estimate_docs(largest_reader).ok().flatten())
+            .then(|| self.query.0.estimate_docs(&ctx).ok().flatten())
             .flatten()
             .map(|estimate| (estimate.live_docs(largest_reader), estimate.cost))
             .unwrap_or_else(|| scorer_estimate(self.weight().as_ref(), largest_reader));
@@ -3173,9 +3180,11 @@ impl SearchIndexReader {
             return 0.0;
         }
         let query = self.make_query(query_input, None);
+        let stats = PgColumnStats::new(&self.schema);
+        let ctx = EstimateContext::new(largest_reader, &stats);
         let count = query_input
             .supports_statistics_estimation()
-            .then(|| query.estimate_docs(largest_reader).ok().flatten())
+            .then(|| query.estimate_docs(&ctx).ok().flatten())
             .flatten()
             .map(|estimate| estimate.live_docs(largest_reader))
             .unwrap_or_else(|| {
@@ -3286,9 +3295,11 @@ impl SearchIndexReader {
 
         // Keep EXPLAIN's child estimates on the same path as the whole query.
         let estimate_from_statistics = query_tree.query.supports_statistics_estimation();
+        let stats = PgColumnStats::new(&self.schema);
+        let ctx = EstimateContext::new(largest_reader, &stats);
         self.estimate_node_recursive(
             query_tree,
-            largest_reader,
+            &ctx,
             segment_doc_proportion,
             parser,
             estimate_from_statistics,
@@ -3298,7 +3309,7 @@ impl SearchIndexReader {
     fn estimate_node_recursive<QueryParserCtor: Fn() -> QueryParser>(
         &self,
         node: &mut QueryWithEstimates,
-        largest_reader: &SegmentReader,
+        ctx: &EstimateContext<'_>,
         segment_doc_proportion: f64,
         parser: &QueryParserCtor,
         estimate_from_statistics: bool,
@@ -3307,7 +3318,7 @@ impl SearchIndexReader {
         for child in node.children_mut() {
             self.estimate_node_recursive(
                 child,
-                largest_reader,
+                ctx,
                 segment_doc_proportion,
                 parser,
                 estimate_from_statistics,
@@ -3346,11 +3357,9 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
-        if estimate_from_statistics
-            && let Ok(Some(estimate)) = tantivy_query.estimate_docs(largest_reader)
-        {
+        if estimate_from_statistics && let Ok(Some(estimate)) = tantivy_query.estimate_docs(ctx) {
             node.set_estimate(scale_largest_segment_estimate(
-                estimate.live_docs(largest_reader),
+                estimate.live_docs(ctx.reader),
                 segment_doc_proportion,
             ) as usize);
             return;
@@ -3360,7 +3369,7 @@ impl SearchIndexReader {
             .weight(enable_scoring(node.query.need_scores(), &self.searcher))
             .expect("creating weight for estimation should not fail");
 
-        let (count, _) = scorer_estimate(weight.as_ref(), largest_reader);
+        let (count, _) = scorer_estimate(weight.as_ref(), ctx.reader);
         let estimated = scale_largest_segment_estimate(count, segment_doc_proportion) as usize;
 
         node.set_estimate(estimated);
@@ -4137,7 +4146,9 @@ mod tests {
                 };
                 let reader = open_snapshot_reader(&index, query, false);
                 let segment = reader.searcher.segment_reader(0);
-                let estimate = reader.query.0.estimate_docs(segment).unwrap().unwrap();
+                let stats = PgColumnStats::new(&reader.schema);
+                let ctx = EstimateContext::new(segment, &stats);
+                let estimate = reader.query.0.estimate_docs(&ctx).unwrap().unwrap();
                 assert_eq!(estimate.live_docs(segment), expected, "{field}");
             }
         }
@@ -4198,11 +4209,13 @@ mod tests {
             };
             let reader = open_snapshot_reader(&index, query, false);
             let segment = reader.searcher.segment_reader(0);
+            let stats = PgColumnStats::new(&reader.schema);
+            let ctx = EstimateContext::new(segment, &stats);
             assert_eq!(
                 reader
                     .query
                     .0
-                    .estimate_docs(segment)
+                    .estimate_docs(&ctx)
                     .unwrap()
                     .map(|estimate| estimate.live_docs(segment)),
                 expected,
@@ -4217,11 +4230,13 @@ mod tests {
             },
         };
         let reader = open_snapshot_reader(&index, query, false);
+        let segment = reader.searcher.segment_reader(0);
+        let stats = PgColumnStats::new(&reader.schema);
         assert!(
             reader
                 .query
                 .0
-                .estimate_docs(reader.searcher.segment_reader(0))
+                .estimate_docs(&EstimateContext::new(segment, &stats))
                 .unwrap()
                 .is_none()
         );
@@ -4236,6 +4251,7 @@ mod tests {
             query: pdb::Query::TokenizedPhrase {
                 phrase: "silver dragon".into(),
                 slop: None,
+                synonyms: None,
             },
         };
         let match_query = SearchQueryInput::FieldedQuery {
@@ -4277,6 +4293,7 @@ mod tests {
                             query: Box::new(pdb::Query::TokenizedPhrase {
                                 phrase: "silver dragon".into(),
                                 slop: None,
+                                synonyms: None,
                             }),
                             score: Some(pdb::ScoreAdjustStyle::Boost(2.0)),
                         }),
@@ -4324,6 +4341,7 @@ mod tests {
                 },
                 1,
             ),
+            (range_query("id", 1, 5), 5),
         ] {
             for query in [
                 query.clone(),
@@ -4374,7 +4392,6 @@ mod tests {
             *distance = Some(1);
         }
         for unsupported in [
-            range_query("id", 1, 5),
             fuzzy_match,
             SearchQueryInput::Parse {
                 query_string: "title:silver".into(),

@@ -1,0 +1,5 @@
+---
+header: performance
+---
+
+Range filters (`<`, `<=`, `>`, `>=`, `BETWEEN`, and `pdb.range`) now produce more accurate row estimates on skewed columns, and joins with query parameters (`$1`) or subqueries refine their estimates once parameter values are bound. Selective `ORDER BY ... LIMIT` joins (ordered by search score, vector distance, or an indexed column) use these estimates to push matching join keys directly into the search or vector index instead of scanning past non-matching rows.

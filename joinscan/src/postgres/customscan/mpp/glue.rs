@@ -130,9 +130,9 @@ pub struct MppLeaderState {
     /// Leader participation mode captured when this MPP launch was planned and initialized.
     pub leader_participation: LeaderParticipation,
     /// The builder handle owning the launched background workers. The leader controls the launch,
-    /// so it owns the teardown too: `end_custom_scan` takes this and calls `wait_for_finish` to
-    /// join the workers and destroy the parallel context. `None` until `launch` installs it on the
-    /// success path.
+    /// so it owns the teardown too: `shutdown_custom_scan` takes this and calls `wait_for_finish`
+    /// to join the workers and destroy the parallel context. `None` until `launch` installs it on
+    /// the success path, and again after that teardown.
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
     pub timing: MppLaunchTiming,
@@ -496,22 +496,23 @@ fn mpp_did_spill(finish: &ParallelProcessFinish) -> bool {
     }
 }
 
-/// Folds the workers' DSM spill flag into the leader's own flag. Call it before the
-/// leader finishes (and so destroys) a launch whose flag `warn_if_spilled` will not see,
-/// such as a relaunch on rescan.
-fn record_worker_spill(spilled: &AtomicBool, finish: &ParallelProcessFinish) {
-    if mpp_did_spill(finish) {
+/// Joins the background workers, records their DSM spill flag in `spilled`, and destroys the
+/// parallel context. `wait_for_finish` also exits parallel mode.
+fn finish_parallel_context(mut finish: ParallelProcessFinish, spilled: &AtomicBool) {
+    // Join first: a producer can still spill while it winds down, and the join is what orders
+    // its store before this load. `recv` is idempotent, so the one inside `wait_for_finish`
+    // returns at once.
+    let _ = finish.recv();
+    if mpp_did_spill(&finish) {
         spilled.store(true, Ordering::Relaxed);
     }
+    finish.wait_for_finish();
 }
 
-/// Emits the spill warning, once per scan node per `ExecutorRun`. `spilled_locally` is
-/// the leader's own flag, sticky across rescans; the worker flag lives in the DSM behind
-/// `finish`, so this must run after the workers are joined. Before the join a worker can
-/// still be executing (an early-terminated `LIMIT` query, for one) and spill after the
-/// load, and the join is also what orders a worker's relaxed store before this load.
-fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcessFinish>) {
-    if spilled_locally.load(Ordering::Relaxed) || finish.is_some_and(mpp_did_spill) {
+/// Emits the spill warning, once per scan node per `ExecutorRun`. `spilled` includes a worker's
+/// spill only after `finish_parallel_context`, so call this after it.
+fn warn_if_spilled(spilled: &AtomicBool) {
+    if spilled.load(Ordering::Relaxed) {
         pgrx::warning!(
             "query exceeded work_mem and spilled to disk; consider raising work_mem \
              for better performance (paradedb.spill_to_disk allowed it to complete \
@@ -526,7 +527,8 @@ fn warn_if_spilled(spilled_locally: &AtomicBool, finish: Option<&ParallelProcess
 /// `ReScanCustomScan` tears it down. An MPP launch drops `stream` (triggering `EndStreamNotifier`
 /// on `DistributedExec` so `c2w_stream` closes and workers flush their final `TaskMetrics`), shuts
 /// down the leader session, and joins the background workers so their metrics land before
-/// `EXPLAIN ANALYZE` renders. Either way, emits the spill warning if any operator spilled.
+/// `EXPLAIN ANALYZE` renders. It then destroys the parallel context, as `ExecShutdownGather` does.
+/// Either way, emits the spill warning if any operator spilled.
 pub fn shutdown_mpp_scan(
     stream: &mut Option<SendableRecordBatchStream>,
     runtime: Option<&PgTokioRuntime>,
@@ -538,22 +540,20 @@ pub fn shutdown_mpp_scan(
         *stream = None;
         finish_leader_execution(runtime, physical_plan, leader);
     }
-    if let Some(leader) = mpp.as_leader_mut()
-        && let Some(finish) = leader.finish.as_mut()
-    {
-        let _ = finish.recv();
+    // The backend must leave parallel mode before `ExecutorRun` returns. PostgreSQL applies a
+    // configuration reload between protocol messages, and that fails in parallel mode.
+    if let Some(finish) = mpp.as_leader_mut().and_then(|leader| leader.finish.take()) {
+        finish_parallel_context(finish, spilled);
     }
-    warn_if_spilled(
-        spilled,
-        mpp.as_leader().and_then(|leader| leader.finish.as_ref()),
-    );
+    warn_if_spilled(spilled);
 }
 
 /// Shared `EndCustomScan` and `ReScanCustomScan` teardown for `JoinScan` and `AggregateScan`:
 /// drops `stream`, shuts down the leader session (or quiesces serial tasks), transitions `mpp`
 /// according to `teardown`, clears `current_batch`, `physical_plan`, and `runtime` before the DSM
 /// is destroyed, and joins and destroys the parallel worker context while folding any worker spill
-/// flag into `spilled`.
+/// flag into `spilled`. The parallel context still exists here only if `shutdown_mpp_scan` did not
+/// run for this launch, for example on a rescan in the middle of a scan.
 pub fn teardown_mpp_scan(
     stream: &mut Option<SendableRecordBatchStream>,
     current_batch: &mut Option<RecordBatch>,
@@ -586,13 +586,8 @@ pub fn teardown_mpp_scan(
     *current_batch = None;
     *physical_plan = None;
     *runtime = None;
-    if let Some(mut finish) = finish {
-        // Join first: a producer can still spill while it winds down, and the join is what orders
-        // its store before this load. `recv` is idempotent, so the one inside `wait_for_finish`
-        // returns at once.
-        let _ = finish.recv();
-        record_worker_spill(spilled, &finish);
-        finish.wait_for_finish();
+    if let Some(finish) = finish {
+        finish_parallel_context(finish, spilled);
     }
 }
 

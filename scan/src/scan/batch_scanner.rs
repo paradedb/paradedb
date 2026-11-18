@@ -22,6 +22,7 @@ use crate::index::fast_fields_helper::{
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::{VisibilityChecker, VisibilityCtids, VisibilityMask};
+use crate::scan::deferred_encode::pack_doc_addresses;
 use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{
     Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, RecordBatchOptions, UInt64Array,
@@ -114,7 +115,8 @@ fn ensure_column_fetched(
         | WhichFastField::Ctid
         | WhichFastField::TableOid
         | WhichFastField::Junk(_)
-        | WhichFastField::MatchTag(_) => {}
+        | WhichFastField::MatchTag(_)
+        | WhichFastField::DocAddress => {}
         WhichFastField::DeferredCtid(alias) => {
             panic!(
                 "pre-filter referenced DeferredCtid column '{alias}' at index {ff_index} \
@@ -833,6 +835,9 @@ impl Scanner {
                         &ids,
                     )),
                 },
+                WhichFastField::DocAddress => {
+                    Some(Arc::new(pack_doc_addresses(segment_ord, &ids)) as ArrayRef)
+                }
                 WhichFastField::MatchTag(tag_name) => Some(
                     memoized_columns[ff_index].clone().unwrap_or_else(|| {
                         panic!(

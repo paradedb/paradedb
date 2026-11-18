@@ -22,7 +22,6 @@ use crate::index::merge_policy::{
 };
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
-use crate::postgres::PgSearchRelation;
 use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
@@ -31,6 +30,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::{MergePins, MetaPage};
+use crate::postgres::{IsLogicalWorker, PgSearchRelation};
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys::panic::CaughtError;
@@ -325,7 +325,7 @@ fn backpressure(
 
 /// Kick off a merge of the index, if needed.
 ///
-/// Launch background work when possible; overfull indexes also need one eligible foreground merge.
+/// Prefer a background worker; help with one eligible merge when workers are busy or unavailable.
 pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
     // don't kick off merges for invalid indexes
     if !index.is_valid() {
@@ -346,12 +346,11 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     warn_unsupported_vector_merge(index, skipped);
     let needs_background_merge =
         layer_sizes.user_configured_background_layers() && !candidates.is_empty();
-    let needs_foreground_backpressure = matches!(style, MergeStyle::Insert { .. })
-        && layer_sizes.visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count;
-
     let background_launched =
         needs_background_merge && try_launch_background_merger(index, largest_layer_size);
-    if background_launched && !needs_foreground_backpressure {
+    // If a background merger launched successfully, exit before applying more backpressure
+    // so foreground backpressure does not race with it to claim segments.
+    if background_launched {
         return Ok(());
     }
     if let MergeStyle::Insert {
@@ -359,11 +358,24 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         next_xid,
     } = style
     {
-        let foreground_candidate = candidates
-            .iter()
-            .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
-            .min_by_key(|(layer, _)| *layer)
-            .map(|(_, candidate)| candidate);
+        // Stopgap: prevent apply workers from doing expensive foreground immutable merges,
+        // which can stall replication and cause WAL buildup on the publisher.
+        let foreground_candidate = if IsLogicalWorker() {
+            merge_policy.retain(
+                merger
+                    .all_entries()
+                    .into_iter()
+                    .filter_map(|(id, entry)| entry.is_mutable().then_some(id))
+                    .collect(),
+            );
+            None
+        } else {
+            candidates
+                .iter()
+                .filter(|(layer, _)| layer_sizes.foreground_layer_sizes.contains(layer))
+                .min_by_key(|(layer, _)| *layer)
+                .map(|(_, candidate)| candidate)
+        };
         merge_policy.prepare_backpressure(layer_sizes.backpressure_layer_size);
         let (backpressure_candidates, _, skipped) = merge_policy.simulate_supported(&merger)?;
         warn_unsupported_vector_merge(index, skipped);
@@ -943,7 +955,7 @@ mod tests {
             .collect::<Vec<_>>();
         drop(index);
         Spi::run(&format!(
-            "ALTER INDEX backpressure_idx SET (background_layer_sizes='{bytes} bytes')"
+            "ALTER INDEX backpressure_idx SET (layer_sizes='{bytes} bytes')"
         ))
         .unwrap();
         let index = PgSearchRelation::open(oid);
@@ -979,7 +991,6 @@ mod tests {
         assert!(candidates.len() > 1);
         drop(merger);
         drop(merge_lock);
-        assert!(MergeSlot::for_layer_size(oid, bytes).is_available());
         do_merge(
             &index,
             MergeStyle::Insert {

@@ -194,7 +194,8 @@ impl FFHelper {
                 | WhichFastField::VectorScore(_)
                 | WhichFastField::Junk(_)
                 | WhichFastField::DeferredCtid(_)
-                | WhichFastField::MatchTag(_) => FFType::Junk,
+                | WhichFastField::MatchTag(_)
+                | WhichFastField::DocAddress => FFType::Junk,
             }
         })
     }
@@ -705,6 +706,9 @@ pub enum WhichFastField {
     DeferredCtid(String),
     /// Synthetic match tag column (e.g. "__users_tag_0") for disjunctive search join filtering.
     MatchTag(String),
+    /// The packed `DocAddress` of the row, for a caller that reads the document from the
+    /// index again.
+    DocAddress,
 }
 
 impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
@@ -761,6 +765,7 @@ impl WhichFastField {
             WhichFastField::Named { name, .. } => name.clone(),
             WhichFastField::DeferredCtid(alias) => alias.clone(),
             WhichFastField::MatchTag(alias) => alias.clone(),
+            WhichFastField::DocAddress => "doc_address".into(),
         }
     }
 
@@ -792,7 +797,7 @@ impl WhichFastField {
                 delivery: FieldDelivery::Deferred,
                 ..
             } => crate::scan::deferred_encode::deferred_data_type(),
-            WhichFastField::DeferredCtid(_) => DataType::UInt64,
+            WhichFastField::DeferredCtid(_) | WhichFastField::DocAddress => DataType::UInt64,
             WhichFastField::MatchTag(_) => DataType::Boolean,
         }
     }
@@ -863,7 +868,8 @@ impl WhichFastField {
             | WhichFastField::Score(_)
             | WhichFastField::VectorScore(_)
             | WhichFastField::DeferredCtid(_)
-            | WhichFastField::MatchTag(_) => true,
+            | WhichFastField::MatchTag(_)
+            | WhichFastField::DocAddress => true,
             WhichFastField::Named { cardinality, .. } => match cardinality {
                 FieldCardinality::Scalar => true,
                 FieldCardinality::List => false,

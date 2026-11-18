@@ -1026,8 +1026,17 @@ impl Drop for QueryGuard<'_> {
 #[derive(Clone)]
 struct CancelTarget {
     server_name: String,
+    endpoint: String,
     pid: BackendPid,
     token: postgres::CancelToken,
+}
+
+// Log only the configured hosts and ports, never connection credentials or cancel keys.
+fn connection_endpoint(connstr: &str) -> String {
+    match tokio_connstr(connstr).parse::<postgres::Config>() {
+        Ok(config) => format!("{:?}:{:?}", config.get_hosts(), config.get_ports()),
+        Err(_) => "unavailable".to_owned(),
+    }
 }
 
 /// A single job’s runtime state.
@@ -1148,6 +1157,26 @@ impl JobRunner {
         self.state.load()
     }
 
+    pub fn log_shutdown_diagnostics(&self) {
+        let targets = self.cancel_targets.read();
+        eprintln!(
+            "shutdown worker job={} state={:?} connection_generation={} cancel_targets={}",
+            self.title(),
+            self.worker_state(),
+            self.last_conn_generation.load(Ordering::Relaxed),
+            targets.len()
+        );
+        for target in targets.iter() {
+            eprintln!(
+                "shutdown connection job={} server={} configured_endpoint={} pid={}",
+                self.title(),
+                target.server_name,
+                target.endpoint,
+                target.pid
+            );
+        }
+    }
+
     /// Is this job's worker thread still running?
     pub fn worker_active(&self) -> bool {
         self.worker_state() != WorkerState::Stopped
@@ -1214,12 +1243,25 @@ impl JobRunner {
         // Unlike a SQL session, a cancel request can be sent during smart shutdown.
         let targets = self.cancel_targets.read().clone();
         for target in targets {
+            let started = Instant::now();
+            eprintln!(
+                "sending cancellation job={} state={:?} server={} configured_endpoint={} pid={}",
+                self.title(),
+                self.worker_state(),
+                target.server_name,
+                target.endpoint,
+                target.pid
+            );
             if let Err(error) = target.token.cancel_query(Conn::tls_connector()) {
                 eprintln!(
-                    "could not send cancellation job={} server={} pid={}: {error:#}",
+                    "could not send cancellation job={} state={:?} server={} configured_endpoint={} pid={} elapsed_ms={}: {:#}",
                     self.title(),
+                    self.worker_state(),
                     target.server_name,
-                    target.pid
+                    target.endpoint,
+                    target.pid,
+                    started.elapsed().as_millis(),
+                    anyhow::Error::new(error)
                 );
             }
         }
@@ -1253,6 +1295,7 @@ impl JobRunner {
                 .iter()
                 .map(|(client, server, pid)| CancelTarget {
                     server_name: server.name.clone(),
+                    endpoint: connection_endpoint(&server.connstr()),
                     pid: *pid,
                     token: client.cancel_token(),
                 })
@@ -1441,7 +1484,23 @@ fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{AtomicWorkerState, QueryGuard, WorkerGuard, WorkerState, tokio_connstr};
+    use super::{
+        AtomicWorkerState, QueryGuard, WorkerGuard, WorkerState, connection_endpoint, tokio_connstr,
+    };
+
+    #[test]
+    fn shutdown_endpoint_omits_credentials_and_options() {
+        for connstr in [
+            "postgresql://private_user:private_password@localhost:5433/db?options=-csecret=value",
+            "host=localhost port=5433 user=private_user password=private_password options=-csecret=value",
+        ] {
+            let endpoint = connection_endpoint(connstr);
+            assert!(endpoint.contains("localhost"), "{endpoint}");
+            assert!(endpoint.contains("5433"), "{endpoint}");
+            assert!(!endpoint.contains("private"), "{endpoint}");
+            assert!(!endpoint.contains("secret"), "{endpoint}");
+        }
+    }
 
     #[test]
     fn worker_and_query_guards_restore_state_across_returns_and_panics() {

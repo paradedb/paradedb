@@ -6,11 +6,11 @@ noindex: true
 
 See GitHub release: [v0.15.6](https://github.com/paradedb/paradedb/releases/tag/v0.15.6)
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Significantly improves segment merge speeds, leading to 10-15X higher `INSERT`/`UPDATE` throughput in our testing and more optimal segment counts
 - Support for basic predicate pushdown: `<`, `>`, `=`, etc. predicates get "pushed down" to the BM25 index when used alonside an `@@@`
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Fixed a compatibility issue between `pg_search` and `pg_ivm`

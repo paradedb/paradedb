@@ -6,13 +6,13 @@ noindex: true
 
 See GitHub release: [v0.26.2](https://github.com/paradedb/paradedb/releases/tag/v0.26.2)
 
-## New Features ✨
+## New Features ✨ {#new-features}
 
 - Added `pdb.combine_agg(pdb.agg(...)) OVER ()` (and accompanying `COUNT`, `SUM`, `AVG`, `MIN`, and `MAX` `OVER ()` window aggregate pushdown) to compute global facets and aggregates across all groups in `GROUP BY` queries (#6806).
 
 - Search operators (`|||`, `&&&`, `@@@`) inside aggregate `FILTER (WHERE ...)` clauses are now pushed down for aggregates over joins and other DataFusion-backed aggregates (#6819).
 
-## Performance Improvements 🚀
+## Performance Improvements 🚀 {#performance-improvements}
 
 - Predicates the index cannot answer, such as a UDF over non-indexed columns, now run only on the
   rows the `@@@` predicates matched, in the Aggregate Scan and the Join Scan as well as the Base
@@ -26,7 +26,7 @@ See GitHub release: [v0.26.2](https://github.com/paradedb/paradedb/releases/tag/
 
 - Significantly improved Join Scan performance for hash joins with larger build sides by applying `IN`-list dynamic filters against fast fields before heap visibility checks and column materialization.
 
-## Stability Improvements 💪
+## Stability Improvements 💪 {#stability-improvements}
 
 - Prepared statements no longer fail on the `&&&`, `|||` and `###` operators when the right-hand side is a `pdb.query` value (for example `pdb.fuzzy`) and Postgres switches to a generic plan. A finished `pdb.query` on the right-hand side of these operators and `===` is now rejected the same way under generic and custom plans, and a `text[]` cast to `pdb.fuzzy` without a typmod no longer fails the match array assertion on `&&&` and `|||`.
 

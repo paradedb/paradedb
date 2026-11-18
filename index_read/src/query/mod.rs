@@ -43,7 +43,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 pub use crate::query::more_like_this::MoreLikeThisOptions;
 use crate::query::more_like_this::MoreLikeThisQueryBuilder;
-use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::{match_expands_with_synonyms, pdb};
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -648,50 +648,6 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn is_text_only(&self) -> bool {
-        let mut supported = true;
-        self.visit_ref(&mut |query| {
-            supported &= match query {
-                Self::All
-                | Self::Empty
-                | Self::Null
-                | Self::Boolean { .. }
-                | Self::WithIndex { .. }
-                | Self::Boost { .. }
-                | Self::ConstScore { .. }
-                | Self::TermSet { .. } => true,
-                Self::Parse { query_string, .. }
-                | Self::FieldedQuery {
-                    query:
-                        pdb::Query::Parse { query_string, .. }
-                        | pdb::Query::ParseWithField { query_string, .. },
-                    ..
-                } => parsed_query_is_text_only(query_string),
-                Self::FieldedQuery {
-                    query:
-                        pdb::Query::All
-                        | pdb::Query::Empty
-                        | pdb::Query::Term { .. }
-                        | pdb::Query::TermSet { .. }
-                        | pdb::Query::Match {
-                            distance: None | Some(0),
-                            ..
-                        }
-                        | pdb::Query::MatchArray {
-                            distance: None | Some(0),
-                            ..
-                        }
-                        | pdb::Query::Phrase { .. }
-                        | pdb::Query::PhraseArray { .. }
-                        | pdb::Query::TokenizedPhrase { .. },
-                    ..
-                } => true,
-                _ => false,
-            };
-        });
-        supported
-    }
-
     pub fn is_exists(&self) -> bool {
         match self {
             SearchQueryInput::WithIndex { query, .. }
@@ -944,6 +900,29 @@ impl SearchQueryInput {
         }
     }
 
+    /// Whether a synonym rule turns the token of this one-token match into a group of
+    /// alternatives. `is_topk_prunable` sees only the query input, and not the rules.
+    pub fn expands_with_synonyms(&self, schema: &SearchIndexSchema) -> bool {
+        match self {
+            SearchQueryInput::FieldedQuery {
+                field,
+                query:
+                    pdb::Query::Match {
+                        value,
+                        tokenizer: None,
+                        synonyms: Some(rules),
+                        ..
+                    },
+            } => schema
+                .search_field(field.root())
+                .is_some_and(|search_field| {
+                    match_expands_with_synonyms(&search_field, schema, value, rules)
+                }),
+            SearchQueryInput::WithIndex { query, .. } => query.expands_with_synonyms(schema),
+            _ => false,
+        }
+    }
+
     /// Whether a score-DESC TopK over this query can be Block-WAND-pruned by the
     /// collector, making it sublinear and not worth parallelizing. Call only when the
     /// ORDER BY is score-DESC; everything that returns false has a non-trivial docset
@@ -1145,7 +1124,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
-    /// The synonym indexes that the match queries of this tree name.
+    /// The synonym indexes that the match and phrase queries of this tree name.
     pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
         let mut indexes = Vec::new();
         self.visit_ref(&mut |input| {
@@ -1157,6 +1136,10 @@ impl SearchQueryInput {
                 query = inner;
             }
             if let pdb::Query::Match {
+                synonyms: Some(pdb::SynonymRules::Index(index)),
+                ..
+            }
+            | pdb::Query::TokenizedPhrase {
                 synonyms: Some(pdb::SynonymRules::Index(index)),
                 ..
             } = query
@@ -1174,32 +1157,6 @@ impl SearchQueryInput {
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
         serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
     }
-}
-
-fn parsed_query_is_text_only(query: &str) -> bool {
-    use tantivy::query_grammar::{UserInputAst, UserInputLeaf, parse_query};
-
-    let Ok(ast) = parse_query(query) else {
-        return false;
-    };
-    let mut nodes = vec![ast];
-    while let Some(node) = nodes.pop() {
-        match node {
-            UserInputAst::Clause(children) => {
-                nodes.extend(children.into_iter().map(|(_, child)| child));
-            }
-            UserInputAst::Boost(inner, _) => nodes.push(*inner),
-            UserInputAst::Leaf(leaf) => {
-                if !matches!(
-                    *leaf,
-                    UserInputLeaf::Literal(_) | UserInputLeaf::Set { .. } | UserInputLeaf::All
-                ) {
-                    return false;
-                }
-            }
-        }
-    }
-    true
 }
 
 /// Remove the oid from the with_index object
@@ -3141,5 +3098,39 @@ mod tests {
             tantivy::Term::from_field_i64(field, i64::MAX)
         );
         assert!(term(PdbOwnedValue::U64(1 << 63)).is_err());
+    }
+
+    // `PdbOwnedValue`'s serde reaches Postgres's date functions, so these can't be plain tests.
+    #[pg_test]
+    fn non_finite_floats_survive_json() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let json = serde_json::to_string(&PdbOwnedValue::F64(value)).unwrap();
+            assert!(json.contains(PDB_FLOAT_TAG), "not tagged: {json}");
+            let PdbOwnedValue::F64(decoded) = serde_json::from_str(&json).unwrap() else {
+                panic!("did not decode as a float: {json}");
+            };
+            assert_eq!(decoded.to_bits(), value.to_bits());
+        }
+    }
+
+    #[pg_test]
+    fn finite_floats_stay_plain_json_numbers() {
+        assert_eq!(
+            serde_json::to_string(&PdbOwnedValue::F64(1.5)).unwrap(),
+            "1.5"
+        );
+    }
+
+    #[pg_test]
+    fn float_tag_only_decodes_non_finite_values() {
+        use crate::postgres::pdb_owned_value::PDB_FLOAT_TAG;
+
+        for text in ["1.5", "not a float"] {
+            let value: PdbOwnedValue =
+                serde_json::from_value(serde_json::json!({ PDB_FLOAT_TAG: text })).unwrap();
+            assert!(matches!(value, PdbOwnedValue::Object(_)), "{value:?}");
+        }
     }
 }

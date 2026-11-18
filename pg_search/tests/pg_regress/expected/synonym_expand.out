@@ -278,6 +278,73 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
   8
 (4 rows)
 
+-- A default and its written value are one tokenizer, so a field with `lowercase=true` reads the
+-- index. `lowercase=false` gives other tokens, so that subquery runs as written.
+CREATE TABLE cased_products (id int PRIMARY KEY, description text, label text);
+INSERT INTO cased_products VALUES
+    (1, 'red couch', 'Red Couch'),
+    (2, 'leather sofa', 'Leather Sofa');
+CREATE INDEX cased_products_idx ON cased_products USING bm25 (
+    id,
+    (description::pdb.unicode_words('lowercase=true')),
+    (label::pdb.unicode_words('lowercase=false'))
+);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM cased_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.cased_products
+   Output: id
+   Table: cased_products
+   Index: cased_products_idx
+   Worker Selection: Cost model
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sofa","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+   Synonyms: shop_synonyms_idx
+(10 rows)
+
+SELECT id FROM cased_products
+WHERE description ||| (SELECT pdb.expand('sofa', rule) FROM shop_synonyms) ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM cased_products
+WHERE label ||| (SELECT pdb.expand('Sofa', rule) FROM shop_synonyms);
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `label`. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.cased_products
+   Output: cased_products.id
+   Table: cased_products
+   Index: cased_products_idx
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('cased_products_idx'::regclass, paradedb.match_disjunction_search_query_input('label'::paradedb.fieldname, $1))"}}}
+   InitPlan 1
+     ->  Aggregate
+           Output: pdb.expand('Sofa'::text, (shop_synonyms.rule)::text)
+           ->  Seq Scan on public.shop_synonyms
+                 Output: shop_synonyms.rule, shop_synonyms.shop
+(14 rows)
+
+SELECT id FROM cased_products
+WHERE label ||| (SELECT pdb.expand('Sofa', rule) FROM shop_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "shop_synonyms" has no synonym index for these rules with the tokenizer of field `label`. To disable this warning: SET paradedb.planner_warnings = 'off'
+ id 
+----
+  2
+(1 row)
+
+DROP TABLE cased_products;
 -- The index of a partitioned table has no storage. The query still reads the synonym index.
 CREATE TABLE parted_products (id int PRIMARY KEY, description text) PARTITION BY RANGE (id);
 CREATE TABLE parted_products_low PARTITION OF parted_products FOR VALUES FROM (0) TO (5);
@@ -676,10 +743,10 @@ WARNING:  a `pdb.expand` subquery reads its rules from the table on every query,
 (4 rows)
 
 DROP VIEW sofa_products;
--- Only `|||` and `&&&` expand.
+-- The term operator does not tokenize its text, so it does not expand.
 SELECT id FROM products
-WHERE description ### (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
-ERROR:  `pdb.expand` expands the `|||` and `&&&` operators, not `###`
+WHERE description === (SELECT pdb.expand('sofa', rule) FROM shop_synonyms);
+ERROR:  `pdb.expand` expands the `|||`, `&&&` and `###` operators, not `===`
 -- A text column works too, and a value that is not a rule is an error.
 CREATE TABLE text_rules (rule text);
 INSERT INTO text_rules VALUES ('sofa, couch'), (NULL), ('# seats');

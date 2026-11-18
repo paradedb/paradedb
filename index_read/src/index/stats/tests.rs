@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2026 ParadeDB, Inc./
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
 // This program is free software: you can redistribute it and/or modify

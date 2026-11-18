@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::fault_tolerance::{GraceWindow, tolerate_transient};
+use crate::fault_tolerance::{GraceWindow, is_transient_connection_error, tolerate_transient};
 use crate::sqlscanner::StatementDestination;
 use crate::suite::{Job, Server, ServerStyle, Suite};
 use anyhow::{Result, anyhow};
@@ -34,6 +34,8 @@ use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::AbortHandle;
+
+const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 type PostgresResult<T> = std::result::Result<T, Arc<postgres::Error>>;
 
@@ -149,7 +151,7 @@ pub struct MultiTransaction<'a> {
     server_lookup: Arc<HashMap<String, Server>>,
     transactions: Vec<(
         tokio_postgres::Transaction<'a>,
-        &'a Runtime,
+        &'a ConnectionIo,
         &'a Server,
         BackendPid,
     )>,
@@ -189,14 +191,17 @@ impl Conn {
             .collect::<Vec<_>>()
     }
 
-    pub fn open(suite: &Suite, job: &Job) -> Result<Self> {
+    fn open(suite: &Suite, job: &Job, policy: &IoPolicy) -> Result<Self> {
         let clients = job
             .destinations()
             .iter()
             .map(|destination| match destination {
                 StatementDestination::DefaultServer => {
                     let server = suite.default_server();
-                    Ok(vec![(Conn::_open_conn(server, job)?, server.clone())])
+                    Ok(vec![(
+                        Conn::open_client(server, job, policy)?,
+                        server.clone(),
+                    )])
                 }
                 StatementDestination::SpecificServers(server_names) => server_names
                     .iter()
@@ -204,12 +209,12 @@ impl Conn {
                         let server = suite
                             .server(name)
                             .ok_or_else(|| anyhow!("No such server named `{name}`"))?;
-                        Ok((Conn::_open_conn(server, job)?, server.clone()))
+                        Ok((Conn::open_client(server, job, policy)?, server.clone()))
                     })
                     .collect::<Result<Vec<_>>>(),
                 StatementDestination::AllServers => suite
                     .all_servers()
-                    .map(|server| Ok((Conn::_open_conn(server, job)?, server.clone())))
+                    .map(|server| Ok((Conn::open_client(server, job, policy)?, server.clone())))
                     .collect::<Result<Vec<_>>>(),
             })
             .collect::<Result<Vec<_>>>()?
@@ -239,19 +244,17 @@ impl Conn {
             transactions: Vec::with_capacity(self.clients.len()),
         };
         for (client, server, pid) in &mut self.clients {
-            let xact = client.runtime.block_on(client.client.transaction())?;
+            let xact = client.io.run(client.client.transaction())?;
             transaction
                 .transactions
-                .push((xact, &client.runtime, server, *pid));
+                .push((xact, &client.io, server, *pid));
         }
         Ok(transaction)
     }
 
     fn rollback_best_effort(&mut self) {
         for (client, ..) in &mut self.clients {
-            let _ = client
-                .runtime
-                .block_on(client.client.batch_execute("ROLLBACK"));
+            let _ = client.io.run(client.client.batch_execute("ROLLBACK"));
         }
     }
 
@@ -266,8 +269,8 @@ impl Conn {
         for (id, (client, server, pid)) in self.clients.iter_mut().enumerate() {
             let start = Instant::now();
             let result = client
-                .runtime
-                .block_on(client.client.query(&query, params))
+                .io
+                .run(client.client.query(&query, params))
                 .map_err(Arc::new);
             let duration = start.elapsed();
             results.push((result, duration, ConnInfo::new(id, server, *pid)));
@@ -286,6 +289,10 @@ impl Conn {
 
     #[doc(hidden)]
     pub(crate) fn _open_conn(server: &Server, job: &Job) -> Result<WorkerClient> {
+        Self::open_client(server, job, &IoPolicy::default())
+    }
+
+    fn open_client(server: &Server, job: &Job, policy: &IoPolicy) -> Result<WorkerClient> {
         let sanitized = job.title().replace(|c: char| !c.is_alphanumeric(), "_");
         let connstr = match server.style {
             // For ServerStyle::With, the connection string is expected to already
@@ -293,10 +300,10 @@ impl Conn {
             ServerStyle::With { .. } => server.connstr(),
             _ => format!("{} application_name={}", server.connstr(), sanitized),
         };
-        let conn = WorkerClient::connect(&connstr)?;
+        let conn = WorkerClient::connect(&connstr, policy)?;
 
         for query in job.on_connect() {
-            conn.runtime.block_on(conn.client.execute(query.sql, &[]))?;
+            conn.io.run(conn.client.execute(query.sql, &[]))?;
         }
 
         if !job.sql_plan_contains.is_empty() {
@@ -309,8 +316,8 @@ impl Conn {
             );
             let explain = format!("EXPLAIN (VERBOSE) {}", statements[0].sql);
             let plan = conn
-                .runtime
-                .block_on(conn.client.query(explain.as_str(), &[]))?
+                .io
+                .run(conn.client.query(explain.as_str(), &[]))?
                 .into_iter()
                 .map(|row| row.get::<_, String>(0))
                 .collect::<Vec<_>>()
@@ -329,26 +336,95 @@ impl Conn {
     }
 }
 
-// Drive each connection on the worker thread. Keeping its task handle lets shutdown
-// close the local socket even when a separate cancellation connection cannot get through.
-pub(crate) struct WorkerClient {
-    client: tokio_postgres::Client,
+// Shared by the suite and every connection, including connections still starting up.
+#[derive(Clone, Default)]
+struct IoPolicy {
+    operation_timeout: Option<Duration>,
+    shutdown: Arc<RwLock<Option<Instant>>>,
+    interrupt_shutdown: bool,
+}
+
+impl IoPolicy {
+    async fn wait<T>(&self, operation: impl Future<Output = T>) -> Option<T> {
+        if !self.interrupt_shutdown && self.operation_timeout.is_none() {
+            return Some(operation.await);
+        }
+
+        let started = Instant::now();
+        let mut operation = std::pin::pin!(operation);
+        loop {
+            let remaining = [
+                self.operation_timeout
+                    .map(|timeout| timeout.saturating_sub(started.elapsed())),
+                self.shutdown
+                    .read()
+                    .map(|deadline| deadline.saturating_duration_since(Instant::now())),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let delay = remaining
+                .unwrap_or(Duration::MAX)
+                .min(Duration::from_millis(100));
+            // Timeout polls the operation first, so a ready SQL response still wins.
+            if let Ok(result) = tokio::time::timeout(delay, operation.as_mut()).await {
+                return Some(result);
+            }
+            if remaining.is_some_and(|remaining| remaining <= delay) {
+                return None;
+            }
+        }
+    }
+}
+
+struct ConnectionIo {
     runtime: Runtime,
     connection: AbortHandle,
+    policy: IoPolicy,
+}
+
+impl ConnectionIo {
+    fn run<T>(
+        &self,
+        operation: impl Future<Output = Result<T, postgres::Error>>,
+    ) -> Result<T, postgres::Error> {
+        self.runtime.block_on(async {
+            let mut operation = std::pin::pin!(operation);
+            if let Some(result) = self.policy.wait(operation.as_mut()).await {
+                return result;
+            }
+            eprintln!("stressgres: database operation exceeded its deadline, closing connection (outcome may be unknown)");
+            self.connection.abort();
+            operation.await
+        })
+    }
+}
+
+pub(crate) struct WorkerClient {
+    client: tokio_postgres::Client,
+    io: ConnectionIo,
 }
 
 impl WorkerClient {
-    fn connect(connstr: &str) -> Result<Self> {
+    fn connect(connstr: &str, policy: &IoPolicy) -> Result<Self> {
         let runtime = Builder::new_current_thread().enable_all().build()?;
-        let (client, connection) = runtime.block_on(tokio_postgres::connect(
-            &tokio_connstr(connstr),
-            Conn::tls_connector(),
-        ))?;
+        let connstr = tokio_connstr(connstr);
+        let (client, connection) = runtime
+            .block_on(policy.wait(tokio_postgres::connect(&connstr, Conn::tls_connector())))
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "database connection exceeded its deadline",
+                )
+            })??;
         let connection = runtime.spawn(connection).abort_handle();
         Ok(Self {
             client,
-            runtime,
-            connection,
+            io: ConnectionIo {
+                runtime,
+                connection,
+                policy: policy.clone(),
+            },
         })
     }
 
@@ -357,7 +433,7 @@ impl WorkerClient {
         query: &str,
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Row, postgres::Error> {
-        self.runtime.block_on(self.client.query_one(query, params))
+        self.io.run(self.client.query_one(query, params))
     }
 }
 
@@ -370,12 +446,10 @@ impl MultiTransaction<'_> {
         let query = do_query_replacements(query, &self.server_lookup);
         let mut results = Vec::new();
 
-        for (id, (xact, runtime, server, pid)) in self.transactions.iter_mut().enumerate() {
+        for (id, (xact, io, server, pid)) in self.transactions.iter_mut().enumerate() {
             let start = Instant::now();
             results.push((
-                runtime
-                    .block_on(xact.query(&query, params))
-                    .map_err(Arc::new),
+                io.run(xact.query(&query, params)).map_err(Arc::new),
                 start.elapsed(),
                 ConnInfo::new(id, server, *pid),
             ));
@@ -386,10 +460,15 @@ impl MultiTransaction<'_> {
 
     pub fn commit(mut self) -> std::result::Result<(), postgres::Error> {
         let mut first_err = None;
-        for (xact, runtime, ..) in self.transactions.drain(..) {
+        for (xact, io, ..) in self.transactions.drain(..) {
             if first_err.is_some() {
-                let _ = runtime.block_on(xact.rollback());
-            } else if let Err(e) = runtime.block_on(xact.commit()) {
+                let _ = io.run(xact.rollback());
+            } else if let Err(e) = io.run(xact.commit()) {
+                if is_transient_connection_error(&e) {
+                    eprintln!(
+                        "stressgres: lost the COMMIT response, transaction outcome may be unknown"
+                    );
+                }
                 first_err = Some(e);
             }
         }
@@ -402,8 +481,8 @@ impl MultiTransaction<'_> {
 
 impl Drop for MultiTransaction<'_> {
     fn drop(&mut self) {
-        for (xact, runtime, ..) in self.transactions.drain(..) {
-            let _ = runtime.block_on(xact.rollback());
+        for (xact, io, ..) in self.transactions.drain(..) {
+            let _ = io.run(xact.rollback());
         }
     }
 }
@@ -460,6 +539,7 @@ pub struct SuiteRunner {
     have_error: Arc<AtomicBool>,
     first_error_duration_bits: Arc<AtomicU64>,
     reconnect_grace: GraceWindow,
+    io_policy: IoPolicy,
 
     monitors: Vec<Arc<JobRunner>>,
     sys: Arc<RwLock<System>>,
@@ -467,30 +547,28 @@ pub struct SuiteRunner {
 
 /// Run `op` against a live [`Conn`], tolerating transient connectivity faults.
 ///
-/// The connection lives in `conn` and is (re)opened lazily: whenever it is `None`
-/// — the first call, or after a prior error dropped it — a fresh one is opened and
-/// the reconnect grace window is reset (the fault-tolerance layer's `mark_recovered`).
-/// On any error from `op` the connection is dropped so the next attempt reconnects;
-/// replaying the whole `op` is what keeps transactional work correct.
-///
-/// One-shot callers (version probe, setup, teardown) pass a throwaway `&mut None`;
-/// the job worker passes a long-lived slot so its connection persists across
-/// iterations. This is the single place the open / `mark_recovered` / drop-on-error
-/// dance lives, so callers only have to say what to do with the connection.
-///
-/// Returns `Ok(None)` if `alive` went false while waiting out a fault.
+/// Open connections lazily and discard them on error. A new connection alone does
+/// not reset the grace period: the workload must complete an iteration.
 fn with_reconnect<T>(
     alive: &AtomicBool,
     grace: &GraceWindow,
     conn: &mut Option<Conn>,
     suite: &Suite,
     job: &Job,
+    io_policy: &IoPolicy,
     mut op: impl FnMut(&mut Conn) -> Result<T>,
 ) -> Result<Option<T>> {
-    tolerate_transient(alive, grace, |progress| {
+    tolerate_transient(alive, grace, || {
         if conn.is_none() {
-            *conn = Some(Conn::open(suite, job)?);
-            progress.mark_recovered();
+            *conn = Some(Conn::open(suite, job, io_policy)?);
+        }
+        if io_policy.shutdown.read().is_some() {
+            *conn = None;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "worker is shutting down",
+            )
+            .into());
         }
         let result = op(conn.as_mut().unwrap());
         if result.is_err() {
@@ -505,6 +583,12 @@ impl SuiteRunner {
     /// throwaway connection and fills in the runner's `alive` / grace / suite, so the
     /// caller only supplies the job and what to do with the connection.
     fn run_once<T>(&self, job: &Job, op: impl FnMut(&mut Conn) -> Result<T>) -> Result<Option<T>> {
+        // Setup and teardown use their own I/O budget. The worker cutoff only
+        // applies to the workload, and teardown starts after the workers join.
+        let io_policy = IoPolicy {
+            operation_timeout: self.io_policy.operation_timeout,
+            ..IoPolicy::default()
+        };
         let mut conn = None;
         with_reconnect(
             &self.alive,
@@ -512,6 +596,7 @@ impl SuiteRunner {
             &mut conn,
             &self.suite,
             job,
+            &io_policy,
             op,
         )
     }
@@ -519,14 +604,13 @@ impl SuiteRunner {
     /// Create a new SuiteRunner in the given [`SetupMode`], run whatever startup that mode
     /// needs (setup and/or the version probe), then spawn a thread per job and monitor.
     ///
-    /// No startup bound: the schema build runs in a separate setup process before fault
-    /// injection, so setup can never be pinned by a fault, and a `SkipSetup` driver does no blocking
-    /// startup work (see the probe skip below), letting `headless::run` bound the workload by
-    /// its runtime. So the process always finishes.
+    /// Antithesis builds the schema before fault injection. Its `SkipSetup` driver
+    /// starts workers without waiting for a version probe or schema setup.
     pub fn new(
         suite: Suite,
         paused: bool,
         reconnect_grace: GraceWindow,
+        operation_timeout: Option<Duration>,
         setup_mode: SetupMode,
     ) -> Result<Arc<Self>> {
         let suite = Arc::new(suite);
@@ -540,6 +624,11 @@ impl SuiteRunner {
             runners: Default::default(),
             have_error: Arc::new(AtomicBool::new(false)),
             first_error_duration_bits: Default::default(),
+            io_policy: IoPolicy {
+                operation_timeout,
+                interrupt_shutdown: !reconnect_grace.current().is_zero(),
+                ..IoPolicy::default()
+            },
             reconnect_grace,
 
             monitors: Default::default(),
@@ -703,6 +792,7 @@ impl SuiteRunner {
         let job_runner = Arc::new(job_runner);
         let refresh_ms = Duration::from_millis(job_runner.job.refresh_ms as u64);
         let reconnect_grace = self.reconnect_grace.clone();
+        let io_policy = self.io_policy.clone();
 
         // The actual thread loop
         job_runner.state.store(WorkerState::Active);
@@ -710,7 +800,13 @@ impl SuiteRunner {
             let job_runner = job_runner.clone();
             std::thread::spawn(move || {
                 let _worker = WorkerGuard(&job_runner.state);
-                match Self::job_runner_worker(paused, refresh_ms, reconnect_grace, &job_runner) {
+                match Self::job_runner_worker(
+                    paused,
+                    refresh_ms,
+                    reconnect_grace,
+                    io_policy,
+                    &job_runner,
+                ) {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         kill_suite();
@@ -736,6 +832,7 @@ impl SuiteRunner {
         paused: Arc<AtomicBool>,
         refresh_ms: Duration,
         reconnect_grace: GraceWindow,
+        io_policy: IoPolicy,
         job_runner: &Arc<JobRunner>,
     ) -> Result<(), anyhow::Error> {
         *job_runner.runtime_stats.write() = Conn::make_infos(&job_runner.suite, &job_runner.job)
@@ -768,13 +865,15 @@ impl SuiteRunner {
 
             // Run one iteration, riding out transient faults. `with_reconnect` drops
             // the (possibly poisoned) connection on error so the next attempt
-            // reconnects; replaying the whole iteration keeps transactional jobs correct.
+            // reconnects. If a response was lost, the next iteration may repeat work
+            // that PostgreSQL already committed.
             let outcome = with_reconnect(
                 &alive,
                 &reconnect_grace,
                 &mut conn,
                 &job_runner.suite,
                 &job_runner.job,
+                &io_policy,
                 |conn| job_runner.run(conn),
             )?;
             if outcome.is_none() {
@@ -852,12 +951,22 @@ impl SuiteRunner {
         self.terminate_with_timeout(Duration::from_secs(60));
     }
 
-    /// Stop scheduling work and retry native cancellation on active workers until `timeout`.
+    /// Stop scheduling work and try native cancellation. Fault-tolerant workers
+    /// close any remaining connections after a short cancellation window.
     pub fn terminate_with_timeout(&self, timeout: Duration) {
+        let start = Instant::now();
+        let cancel_window = if self.io_policy.interrupt_shutdown {
+            let window = timeout.min(CANCELLATION_TIMEOUT);
+            self.io_policy
+                .shutdown
+                .write()
+                .get_or_insert(start + window);
+            window
+        } else {
+            timeout
+        };
         self.alive.store(false, Ordering::Release);
         self.paused.store(false, Ordering::Release);
-        let start = Instant::now();
-        let disconnect_on_failure = !self.reconnect_grace.current().is_zero();
         // A failed cancellation connection must not prevent other jobs from being canceled
         // or stop the caller from enforcing the shutdown deadline.
         for runner in self.runners().chain(self.monitor_runners()) {
@@ -865,9 +974,9 @@ impl SuiteRunner {
                 continue;
             }
             std::thread::spawn(move || {
-                while start.elapsed() < timeout && runner.worker_active() {
+                while start.elapsed() < cancel_window && runner.worker_active() {
                     if runner.running() {
-                        runner.cancel_active_queries(disconnect_on_failure);
+                        runner.cancel_query();
                     }
                     let sleep_start = Instant::now();
                     while sleep_start.elapsed() < Duration::from_secs(1) && runner.worker_active() {
@@ -889,7 +998,7 @@ impl SuiteRunner {
         self.paused.store(new_val, Ordering::Relaxed);
     }
 
-    pub fn wait_for_finish(&self) -> Result<Vec<Arc<anyhow::Error>>> {
+    pub fn wait_for_finish(&self) -> Vec<Arc<anyhow::Error>> {
         // wait on main
         let mut all_errors = vec![];
         for thread_handle in self.handles.lock().drain(..) {
@@ -919,33 +1028,19 @@ impl SuiteRunner {
                     server.name.clone(),
                 ])];
 
-                let teardown_runner = JobRunner::new(
+                let result = JobRunner::new(
                     self.suite.clone(),
                     teardown_job,
                     false,
                     self.alive.clone(),
                     self.sys.clone(),
-                )?;
-                // Best-effort teardown: ride out a transient fault, and if connectivity
-                // is gone during shutdown (`alive` is already false here) skip it rather
-                // than panicking the shutdown thread.
-                self.run_once(&teardown_runner.job, |conn| teardown_runner.run(conn))?;
-            }
-        }
-
-        for job in &self.runners {
-            let job_errors = job.collect_errors().into_iter().filter(|e| {
-                e.source()
-                    .and_then(|e| e.downcast_ref::<postgres::Error>())
-                    .map(|e| is_ignorable_error(e, self.suite.ignore_errors()))
-                    .unwrap_or(false)
-            });
-
-            // Add job title to each error from this job
-            for error in job_errors {
-                let job_title = job.title();
-                let error_with_title = Arc::new(anyhow!("Job '{}' error: {}", job_title, error));
-                all_errors.push(error_with_title);
+                )
+                .and_then(|runner| self.run_once(&runner.job, |conn| runner.run(conn)));
+                if let Err(error) = result {
+                    all_errors.push(Arc::new(
+                        error.context(format!("Teardown for '{}' failed", server.name)),
+                    ));
+                }
             }
         }
 
@@ -953,7 +1048,7 @@ impl SuiteRunner {
             self.have_error.store(true, Ordering::Relaxed);
         }
 
-        Ok(all_errors)
+        all_errors
     }
 }
 
@@ -1082,7 +1177,6 @@ struct CancelTarget {
     endpoint: String,
     pid: BackendPid,
     token: tokio_postgres::CancelToken,
-    connection: AbortHandle,
 }
 
 // Log only the configured hosts and ports, never connection credentials or cancel keys.
@@ -1265,35 +1359,12 @@ impl JobRunner {
             .any(|(_, stats)| stats.results.is_err() || stats.assert_error.is_some())
     }
 
-    pub fn collect_errors(&self) -> Vec<Arc<anyhow::Error>> {
-        self.worker_error
-            .read()
-            .clone()
-            .into_iter()
-            .chain(self.runtime_stats.read().values().filter_map(|stats| {
-                if stats.assert_error.is_some() {
-                    Some(Arc::new(anyhow!(stats.assert_error.clone().unwrap())))
-                } else if stats.results.is_err() {
-                    let postgres_error = Clone::clone(stats.results.as_ref().err().unwrap());
-                    let msg = format_postgres_error(&postgres_error);
-                    Some(Arc::new(anyhow!(msg)))
-                } else {
-                    None
-                }
-            }))
-            .collect()
-    }
-
     pub fn worker_error(&self) -> Option<Arc<anyhow::Error>> {
         self.worker_error.read().clone()
     }
 
     /// Best-effort cancellation of the job's active queries.
     pub fn cancel_query(&self) {
-        self.cancel_active_queries(false);
-    }
-
-    fn cancel_active_queries(&self, disconnect_on_failure: bool) {
         if !self.running() {
             return;
         }
@@ -1318,12 +1389,11 @@ impl JobRunner {
                 target.pid
             );
             let result = runtime.block_on(async {
-                let cancel = target.token.cancel_query(Conn::tls_connector());
-                if disconnect_on_failure {
-                    tokio::time::timeout(Duration::from_secs(5), cancel).await?
-                } else {
-                    cancel.await
-                }
+                tokio::time::timeout(
+                    CANCELLATION_TIMEOUT,
+                    target.token.cancel_query(Conn::tls_connector()),
+                )
+                .await?
                 .map_err(anyhow::Error::new)
             });
             if let Err(error) = result {
@@ -1336,18 +1406,6 @@ impl JobRunner {
                     target.pid,
                     started.elapsed().as_millis(),
                 );
-                if disconnect_on_failure
-                    && error.chain().any(|cause| {
-                        cause.is::<std::io::Error>() || cause.is::<tokio::time::error::Elapsed>()
-                    })
-                {
-                    eprintln!(
-                        "closing local connection during shutdown job={} pid={}",
-                        self.title(),
-                        target.pid
-                    );
-                    target.connection.abort();
-                }
             }
         }
     }
@@ -1383,7 +1441,6 @@ impl JobRunner {
                     endpoint: connection_endpoint(&server.connstr()),
                     pid: *pid,
                     token: client.client.cancel_token(),
-                    connection: client.connection.clone(),
                 })
                 .collect();
 
@@ -1498,7 +1555,13 @@ impl JobRunner {
                 let mut assert_error = None;
                 if rows.is_err() {
                     rows = rows.inspect_err(|e| {
-                        if !is_ignorable_error(e, self.suite.ignore_errors()) {
+                        if !is_ignorable_error(e, self.suite.ignore_errors())
+                            && last_error
+                                .as_ref()
+                                .is_none_or(|previous: &Arc<postgres::Error>| {
+                                    is_transient_connection_error(previous)
+                                })
+                        {
                             last_error = Some(Clone::clone(e));
                         }
                     });
@@ -1571,8 +1634,38 @@ fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        AtomicWorkerState, QueryGuard, WorkerGuard, WorkerState, connection_endpoint, tokio_connstr,
+        AtomicWorkerState, IoPolicy, QueryGuard, WorkerGuard, WorkerState, connection_endpoint,
+        tokio_connstr,
     };
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn io_deadline_preserves_a_ready_response_and_bounds_a_stalled_response() {
+        let policy = IoPolicy {
+            operation_timeout: Some(Duration::from_millis(10)),
+            ..IoPolicy::default()
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            assert_eq!(
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    policy.wait(std::future::pending::<()>()),
+                )
+                .await
+                .unwrap(),
+                None
+            );
+            *policy.shutdown.write() = Some(Instant::now());
+            assert_eq!(
+                policy.wait(std::future::ready("SQL response")).await,
+                Some("SQL response")
+            );
+        });
+    }
 
     #[test]
     fn shutdown_endpoint_omits_credentials_and_options() {
@@ -1637,3 +1730,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod shutdown_test;

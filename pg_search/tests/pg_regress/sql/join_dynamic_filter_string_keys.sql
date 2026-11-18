@@ -97,7 +97,7 @@ ORDER BY b.ordinal ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 3: pushdown disabled, so the pre-filter fallback still gives the same rows
+-- TEST 3: InList materialization disabled, so HashTableLookupExpr pushdown still gives the same rows
 -- =============================================================================
 
 SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;

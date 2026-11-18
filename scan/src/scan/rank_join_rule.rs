@@ -77,14 +77,12 @@
 //!      (allowing `LimitPushdown` to push `fetch=K` directly into `HashJoinExec`), and configures
 //!      the probe leaf scan with `LazySortConfig` (`LazyParallelMode::WorkerPool`).
 //!    - For `OrderByFeature::Score` and `OrderByFeature::Field`, [`try_rewrite_lazy_sort_probe_join`]
-//!      is gated on the selective build side fitting within
-//!      `paradedb.hash_join_inlist_pushdown_max_distinct_values` and
-//!      `paradedb.hash_join_inlist_pushdown_max_size`, and the probe leaf supporting indexed
-//!      `InList` pushdown on the join keys (falling through to standard `HashJoinExec` +
-//!      `SortExec(TopK)` otherwise). For `OrderByFeature::VectorDistance` (which has no
-//!      non-`lazy_sort` scan fallback until <https://github.com/paradedb/paradedb/issues/7496>),
-//!      Gate 3 keeps `RankJoinExec` when `sa_survival < threshold` unless the selective build side
-//!      is estimated to fit `HashJoinExec` `InList` pushdown.
+//!      requires single-column equi-join keys along the probe spine whose probe leaf columns
+//!      support dynamic filter pushdown (`TermSetQuery` / `TermPredicateQuery`), falling through to
+//!      standard `HashJoinExec` + `SortExec(TopK)` otherwise. For `OrderByFeature::VectorDistance`
+//!      (which has no non-`lazy_sort` scan fallback until
+//!      <https://github.com/paradedb/paradedb/issues/7496>), Gate 3 keeps `RankJoinExec` when
+//!      `sa_survival < threshold` unless the probe join keys support dynamic filter pushdown.
 //!
 //! # Why Physical-Time Optimization & Tag Elision (`ScanMode::Tagged` -> `ScanMode::Disjunctive`)
 //!
@@ -425,18 +423,18 @@ struct SaSurvival(TopKSelectivity);
 
 /// Whether Gate 3 enforces `paradedb.rank_join_unscored_selectivity_threshold` immediately inside
 /// [`SubtreeScoreStats::combine`] or defers the check to [`try_rewrite_under_sort`] until
-/// `InList` pushdown fit is verified.
+/// dynamic filter pushdown support is verified.
 ///
-/// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Remove `DeferUntilInListCheck` once
+/// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Remove `DeferUntilProbeCheck` once
 /// cluster-ordered `pdb.vector_score` scans with Top-K dynamic filter pushdown land, so vector
-/// joins share the same 3-way fallback as `Score` and `Field` joins.
+/// joins share the same fallback as `Score` and `Field` joins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SelectivityGate {
     /// Enforce `sa_survival >= threshold` immediately (`Score`, `Field`, and two-sided joins).
     Enforce,
     /// Defer `sa_survival >= threshold` on single-sided vector joins so `RankJoinExec` is kept
-    /// when [`try_rewrite_lazy_sort_probe_join`] cannot push an `InList`.
-    DeferUntilInListCheck,
+    /// when [`try_rewrite_lazy_sort_probe_join`] cannot push the join filter into Tantivy.
+    DeferUntilProbeCheck,
 }
 
 /// Statistics and score range for a join input subtree used by Gates 2 and 3
@@ -637,15 +635,6 @@ struct DecomposedJoinScore {
     combiner: ScoreCombiner,
 }
 
-fn non_vector_probe_eligibility(k: usize) -> NonVectorProbeEligibility {
-    let std_cap = crate::gucs::InListPushdownMode::Standard.max_distinct_values();
-    if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K && std_cap > 0 {
-        NonVectorProbeEligibility::Eligible
-    } else {
-        NonVectorProbeEligibility::Disallowed
-    }
-}
-
 /// Walks down from `SortExec` through pass-through nodes to find, verify (Gates 1, 2, and 3),
 /// and rewrite an eligible `HashJoinExec` subtree into `RankJoinExec` in a single pass, or falls
 /// back to [`try_rewrite_lazy_sort_probe_join`] when `RankJoinExec` is declined on a single-sided
@@ -678,10 +667,9 @@ fn try_rewrite_under_sort(
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let mut eager_fields = Vec::new();
     let mut decline_reason = None;
-    let non_vector_eligibility = non_vector_probe_eligibility(k);
     if crate::gucs::enable_rank_join() {
         let selectivity_gate = if any_scan(node, |s| s.vector_order_by().is_some()) {
-            SelectivityGate::DeferUntilInListCheck
+            SelectivityGate::DeferUntilProbeCheck
         } else {
             SelectivityGate::Enforce
         };
@@ -711,7 +699,7 @@ fn try_rewrite_under_sort(
                     // TODO(<https://github.com/paradedb/paradedb/issues/7496>): Once
                     // cluster-ordered `pdb.vector_score` scans with Top-K dynamic filter pushdown
                     // exist, decline `RankJoinExec` uniformly on `below_threshold` without
-                    // checking `VectorProbePolicy::RequireInListFit`.
+                    // checking `ProbePushdownState::RequireAll`.
                     if below_threshold {
                         let mut probe_eager_fields = Vec::new();
                         if let Some(probe_plan) = try_rewrite_lazy_sort_probe_join(
@@ -722,8 +710,7 @@ fn try_rewrite_under_sort(
                                 k,
                                 level: BranchLevel::RootJoin,
                                 min_rows,
-                                non_vector_eligibility,
-                                vector_policy: VectorProbePolicy::RequireInListFit,
+                                pushdown_state: ProbePushdownState::RequireAll,
                                 unpushed_join_selectivity: TopKSelectivity::ALL,
                             },
                             &mut probe_eager_fields,
@@ -755,6 +742,11 @@ fn try_rewrite_under_sort(
         }
     }
     eager_fields.clear();
+    let pushdown_state = if crate::gucs::enable_rank_join() && k <= MAX_RANK_JOIN_K {
+        ProbePushdownState::IntactOrVectorFallback
+    } else {
+        ProbePushdownState::LostForVectorFallback
+    };
     if let Some(rewritten) = try_rewrite_lazy_sort_probe_join(
         node,
         required_ordering,
@@ -763,8 +755,7 @@ fn try_rewrite_under_sort(
             k,
             level: BranchLevel::RootJoin,
             min_rows,
-            non_vector_eligibility,
-            vector_policy: VectorProbePolicy::AllowUnpushedFallback,
+            pushdown_state,
             unpushed_join_selectivity: TopKSelectivity::ALL,
         },
         &mut eager_fields,
@@ -1680,6 +1671,16 @@ fn leaf_supports_key_sets(
     })
 }
 
+fn leaf_supports_probe_pushdown(
+    scan: &PgSearchScanPlan,
+    key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
+) -> bool {
+    key_sets.iter().flatten().all(|key| {
+        key.downcast_ref::<Column>()
+            .is_some_and(|col| scan.supports_probe_dynamic_filter_column(col.index()))
+    })
+}
+
 /// Inspects and rewrites an unscored child branch of a single-sided (`NRJN`) join: either a
 /// leaf `PgSearchScanPlan` in `ScanMode::Standard` or `ScanMode::Tagged`, or a nested
 /// `HashJoinExec` whose parent join keys map cleanly to one child side for cascading `RA` lookups.
@@ -1861,31 +1862,27 @@ fn try_rewrite_scored_leaf(
     Ok((Arc::new(configured_scan), stats))
 }
 
-/// Whether non-vector (`OrderByFeature::Score` / `OrderByFeature::Field`) leaf sorts are
-/// eligible for [`try_rewrite_lazy_sort_probe_join`] along the current probe spine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NonVectorProbeEligibility {
-    Eligible,
-    Disallowed,
-}
-
-/// Controls how [`try_rewrite_lazy_sort_probe_join`] handles `OrderByFeature::VectorDistance`
-/// when build-side `InList` pushdown does not fit.
+/// Tracks whether dynamic join filter pushdown (`TermSetQuery` / `TermPredicateQuery`) holds along
+/// the probe spine of [`try_rewrite_lazy_sort_probe_join`].
 ///
 /// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Once cluster-ordered
-/// `pdb.vector_score` scans with Top-K dynamic filter pushdown land, delete both this enum and
-/// [`NonVectorProbeEligibility`] so vector and non-vector single-sided joins share one uniform
-/// `InList`-fit check and fall through to `HashJoinExec` + `SortExec(TopK)` otherwise.
+/// `pdb.vector_score` scans with Top-K dynamic filter pushdown land, vector and non-vector
+/// single-sided joins can share `RequireAll` and fall through to `HashJoinExec` + `SortExec(TopK)`
+/// whenever pushdown is unavailable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VectorProbePolicy {
-    /// Require every join along the probe spine to fit `HashJoinExec` `InList` pushdown
-    /// (`LazySortProbe` distinct cap, `hash_join_inlist_pushdown_max_size`, and indexed join key),
-    /// returning `None` otherwise so [`try_rewrite_under_sort`] keeps [`RankJoinExec`].
-    RequireInListFit,
-    /// Allow unpushed `HashTableLookupExpr` / residual-filter fallback when [`RankJoinExec`] was
-    /// already declined for another reason (e.g. `k > MAX_RANK_JOIN_K`, `enable_rank_join = false`,
-    /// `BelowMinRows`, or a residual `JoinFilter`) and no non-`lazy_sort` vector scan exists yet.
-    AllowUnpushedFallback,
+enum ProbePushdownState {
+    /// Every join along the probe spine must support dynamic filter pushdown into the leaf
+    /// (`RankJoinExec` was otherwise eligible on a selective vector join; abort on failure so
+    /// [`RankJoinExec`] is preserved).
+    RequireAll,
+    /// Dynamic filter pushdown is intact along the probe spine (`Score`, `Field`, and `VectorDistance`
+    /// leaves are all eligible); if an upstream join cannot push down, transition to
+    /// [`Self::LostForVectorFallback`].
+    IntactOrVectorFallback,
+    /// Dynamic filter pushdown is unavailable (`enable_rank_join = false`, `k > MAX_RANK_JOIN_K`,
+    /// composite join key, or residual `JoinFilter`); only `OrderByFeature::VectorDistance` leaves
+    /// remain allowed because they have no non-`lazy_sort` scan yet (`#7496`).
+    LostForVectorFallback,
 }
 
 /// Top-down context threaded through [`try_rewrite_lazy_sort_probe_join`].
@@ -1894,8 +1891,7 @@ struct LazySortProbeContext {
     k: usize,
     level: BranchLevel,
     min_rows: usize,
-    non_vector_eligibility: NonVectorProbeEligibility,
-    vector_policy: VectorProbePolicy,
+    pushdown_state: ProbePushdownState,
     unpushed_join_selectivity: TopKSelectivity,
 }
 
@@ -1963,23 +1959,6 @@ fn wrap_with_pending_visibility(
     Ok(result)
 }
 
-/// Estimates an upper bound on the row count of a build-side subtree from its leaf
-/// `PgSearchScanPlan::planner_estimated_rows()`.
-fn estimate_subtree_rows(plan: &Arc<dyn ExecutionPlan>) -> Option<u64> {
-    if let Some(scan) = plan.downcast_ref::<PgSearchScanPlan>() {
-        return Some(scan.planner_estimated_rows());
-    }
-    if let Some(join) = plan.downcast_ref::<HashJoinExec>() {
-        let left = estimate_subtree_rows(join.left())?;
-        let right = estimate_subtree_rows(join.right())?;
-        return Some(left.min(right));
-    }
-    if plan.children().len() == 1 {
-        return estimate_subtree_rows(plan.children()[0]);
-    }
-    None
-}
-
 /// Estimates the combined selectivity `[0.0, 1.0]` of a build-side subtree from its leaf
 /// `PgSearchScanPlan::estimated_selectivity()`.
 fn estimate_subtree_selectivity(plan: &Arc<dyn ExecutionPlan>) -> TopKSelectivity {
@@ -2004,8 +1983,7 @@ fn route_probe_join_key_sets(
     parent_key_sets: &[Vec<Arc<dyn PhysicalExpr>>],
     probe_side: ExprSide,
 ) -> Result<Option<JoinKeySets>> {
-    // DataFusion's `HashJoinExec` wraps composite join keys in `struct(col1, col2) IN (...)`,
-    // which `try_convert_in_list_to_query` cannot convert into a single-column `TermSetQuery`.
+    // Composite join keys are not yet pushed into Tantivy as `TermSetQuery` / `TermPredicateQuery`.
     if join.on().len() != 1 {
         return Ok(None);
     }
@@ -2059,35 +2037,7 @@ fn route_probe_join_key_sets(
     Ok(Some(routed))
 }
 
-/// Estimates per-row Arrow buffer memory (`Array::get_array_memory_size()`) of a build-side join
-/// key column when `HashJoinExec` checks `hash_join_inlist_pushdown_max_size`.
-fn estimated_inlist_key_bytes(data_type: &DataType) -> u64 {
-    if let Some(width) = data_type.primitive_width() {
-        return width as u64;
-    }
-    match data_type {
-        DataType::Boolean => 1,
-        DataType::FixedSizeBinary(n) => (*n).max(1) as u64,
-        // 16-byte `ByteView` (or offset) + ~36-byte payload (e.g. UUID string).
-        DataType::Utf8
-        | DataType::LargeUtf8
-        | DataType::Utf8View
-        | DataType::Binary
-        | DataType::LargeBinary
-        | DataType::BinaryView
-        | DataType::Union(_, _) => 52,
-        _ => 32,
-    }
-}
-
-/// Updates `ctx` and routes `probe_key_sets` when descending into `probe_side` of `join`:
-/// - Disables non-vector probe eligibility if `join` has a residual `JoinFilter`, if
-///   `build_input`'s estimated rows exceed `InListPushdownMode::Standard` or
-///   `hash_join_inlist_pushdown_max_size`, or if the join keys cannot be routed as single-column
-///   `InList` dynamic filters.
-/// - Under [`VectorProbePolicy::RequireInListFit`], returns `Ok(None)` if `build_input` does not
-///   fit `InListPushdownMode::LazySortProbe` and `hash_join_inlist_pushdown_max_size`, or if the
-///   join keys cannot be routed as single-column `InList` dynamic filters.
+/// Updates `ctx` and routes `probe_key_sets` when descending into `probe_side` of `join`.
 fn advance_probe_join_context(
     ctx: LazySortProbeContext,
     join: &HashJoinExec,
@@ -2101,66 +2051,19 @@ fn advance_probe_join_context(
         .unpushed_join_selectivity
         .and(estimate_subtree_selectivity(build_input));
 
-    let single_equi_key = join.filter().is_none() && join.on().len() == 1;
-    let build_rows = estimate_subtree_rows(build_input);
-    let max_inlist_bytes = crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as u64;
-    let key_bytes = join
-        .on()
-        .first()
-        .and_then(|(l, r)| {
-            let build_key = match probe_side {
-                ExprSide::RightOnly => l,
-                ExprSide::LeftOnly => r,
-                _ => return None,
-            };
-            build_key.data_type(&build_input.schema()).ok()
-        })
-        .map_or(32, |dt| estimated_inlist_key_bytes(&dt));
-
-    let std_cap = crate::gucs::InListPushdownMode::Standard.max_distinct_values() as u64;
-    if !single_equi_key
-        || std_cap == 0
-        || max_inlist_bytes == 0
-        || !build_rows.is_some_and(|rows| {
-            rows <= std_cap && rows.saturating_mul(key_bytes) <= max_inlist_bytes
-        })
+    let routed_keys = if child_ctx.pushdown_state != ProbePushdownState::LostForVectorFallback
+        && join.filter().is_none()
     {
-        child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
-    }
-
-    if child_ctx.vector_policy == VectorProbePolicy::RequireInListFit {
-        let lazy_cap = crate::gucs::InListPushdownMode::LazySortProbe.max_distinct_values() as u64;
-        let part_count = if is_hash_join_range_co_partitioned(join)? {
-            build_input.output_partitioning().partition_count().max(1) as u64
-        } else {
-            1
-        };
-        let fits_vector = single_equi_key
-            && lazy_cap > 0
-            && max_inlist_bytes > 0
-            && build_rows.is_some_and(|rows| {
-                let per_part = rows.div_ceil(part_count);
-                per_part <= lazy_cap && per_part.saturating_mul(key_bytes) <= max_inlist_bytes
-            });
-        if !fits_vector {
+        route_probe_join_key_sets(join, probe_key_sets, probe_side)?
+    } else {
+        None
+    };
+    let Some(routed_keys) = routed_keys else {
+        if child_ctx.pushdown_state == ProbePushdownState::RequireAll {
             return Ok(None);
         }
-    }
-
-    let need_routed_keys = child_ctx.non_vector_eligibility == NonVectorProbeEligibility::Eligible
-        || child_ctx.vector_policy == VectorProbePolicy::RequireInListFit;
-    let routed_keys = if need_routed_keys {
-        if let Some(keys) = route_probe_join_key_sets(join, probe_key_sets, probe_side)? {
-            keys
-        } else {
-            child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
-            if child_ctx.vector_policy == VectorProbePolicy::RequireInListFit {
-                return Ok(None);
-            }
-            Vec::new()
-        }
-    } else {
-        Vec::new()
+        child_ctx.pushdown_state = ProbePushdownState::LostForVectorFallback;
+        return Ok(Some((child_ctx, Vec::new())));
     };
     Ok(Some((child_ctx, routed_keys)))
 }
@@ -2179,28 +2082,13 @@ fn advance_probe_join_context(
 /// `LazySortConfig` (`LazyParallelMode::WorkerPool`, supporting `OrderByFeature::VectorDistance`,
 /// `OrderByFeature::Score`, or `OrderByFeature::Field` plus any secondary tie-breakers).
 ///
-/// For `OrderByFeature::Score` and `OrderByFeature::Field`, this rewrite requires the build
-/// side's estimated row count and byte size to fit within
-/// `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`20,000`) and
-/// `paradedb.hash_join_inlist_pushdown_max_size`, and the probe leaf to support indexed `InList`
-/// pushdown on the join keys; above that size, standard `DocId`-order `HashJoinExec`
-/// (`HashTableLookupExpr` fast-field `PreFilter`) + post-join `SortExec(TopK)` is faster.
-///
-/// `OrderByFeature::VectorDistance` has no non-`lazy_sort` scan fallback yet
-/// (<https://github.com/paradedb/paradedb/issues/7496>): when `RankJoinExec` is otherwise eligible
-/// (`VectorProbePolicy::RequireInListFit`), this rewrite only succeeds if the build side fits
-/// `paradedb.lazy_sort_inlist_pushdown_max_distinct_values` (`131,072`) and
-/// `paradedb.hash_join_inlist_pushdown_max_size` with an indexed join key (keeping `RankJoinExec`
-/// otherwise); when `RankJoinExec` was already declined (`VectorProbePolicy::AllowUnpushedFallback`),
-/// it configures the `lazy_sort` vector probe unconditionally.
-///
-/// TODO(<https://github.com/paradedb/paradedb/issues/7496>): Once cluster-ordered
-/// `pdb.vector_score` scans with Top-K dynamic filter pushdown exist, remove
-/// [`VectorProbePolicy`] / [`NonVectorProbeEligibility`] so unpushable `< 0.08` vector joins fall
-/// through to `HashJoinExec` + `SortExec(TopK)` just like `Score` and `Field` joins (and with
-/// Tantivy's `VectorFilterStrategy` (`#7469` / `#7431`), implementing `Weight::uses_fast_fields()`
-/// and `Weight::scorer_for_candidates_unpositioned` for `HashTableLookupExpr` can also post-filter
-/// candidates lazily when `RankJoinExec` is ineligible).
+/// Single-column equi-join keys on supported probe leaf columns push down into Tantivy at any
+/// build cardinality (`TermSetQuery` for `InListExpr`, `TermPredicateQuery` for
+/// `HashTableLookupExpr`). Unpushable joins (such as composite join keys or residual
+/// `JoinFilter`s) fall through to `HashJoinExec` + `SortExec(TopK)` on `Score`/`Field` joins, keep
+/// `RankJoinExec` on vector joins when `RankJoinExec` was otherwise eligible
+/// ([`ProbePushdownState::RequireAll`]), and fall back to selectivity-scaled `lazy_sort` windows
+/// when `RankJoinExec` was already declined ([`ProbePushdownState::LostForVectorFallback`]).
 fn try_rewrite_lazy_sort_probe_join(
     node: &Arc<dyn ExecutionPlan>,
     required_ordering: &LexOrdering,
@@ -2235,10 +2123,10 @@ fn try_rewrite_lazy_sort_probe_join(
         let mut child_ctx = ctx;
         let mapped_keys = map_key_sets_through_passthrough(node, probe_key_sets);
         if mapped_keys.is_none() {
-            child_ctx.non_vector_eligibility = NonVectorProbeEligibility::Disallowed;
-            if child_ctx.vector_policy == VectorProbePolicy::RequireInListFit {
+            if child_ctx.pushdown_state == ProbePushdownState::RequireAll {
                 return Ok(None);
             }
+            child_ctx.pushdown_state = ProbePushdownState::LostForVectorFallback;
         }
         let child_key_sets = mapped_keys.as_deref().unwrap_or(&[]);
         let Some(new_child) = try_rewrite_lazy_sort_probe_join(
@@ -2273,6 +2161,9 @@ fn try_rewrite_lazy_sort_probe_join(
         else {
             return Ok(None);
         };
+        let pushdown_ready = ctx.level == BranchLevel::ChildBranch
+            && !probe_key_sets.is_empty()
+            && leaf_supports_probe_pushdown(scan, probe_key_sets);
         let selectivity = if primary_ob.is_vector_distance() {
             if scan.vector_order_by().is_none()
                 || !matches!(
@@ -2282,22 +2173,16 @@ fn try_rewrite_lazy_sort_probe_join(
             {
                 return Ok(None);
             }
-            if ctx.vector_policy == VectorProbePolicy::RequireInListFit
-                && (ctx.level != BranchLevel::ChildBranch
-                    || probe_key_sets.is_empty()
-                    || !leaf_supports_key_sets(scan, probe_key_sets))
-            {
+            if ctx.pushdown_state == ProbePushdownState::RequireAll && !pushdown_ready {
                 return Ok(None);
             }
             scan.estimated_tagged_selectivity()
                 .unwrap_or(TopKSelectivity::ALL)
         } else {
-            if ctx.non_vector_eligibility != NonVectorProbeEligibility::Eligible
-                || ctx.level != BranchLevel::ChildBranch
+            if ctx.pushdown_state == ProbePushdownState::LostForVectorFallback
+                || !pushdown_ready
                 || scan.planner_estimated_rows() < ctx.min_rows as u64
                 || !matches!(scan.scan_mode(), ScanMode::Standard { .. })
-                || probe_key_sets.is_empty()
-                || !leaf_supports_key_sets(scan, probe_key_sets)
             {
                 return Ok(None);
             }

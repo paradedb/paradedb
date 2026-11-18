@@ -141,7 +141,7 @@ fn scorer_estimate(weight: &dyn Weight, reader: &SegmentReader) -> (u64, u64) {
         .scorer(reader, 1.0)
         .expect("creating scorer for estimation should not fail");
     let mut count = scorer.size_hint() as u64;
-    let mut cost = scorer.cost();
+    let mut cost = scorer.cost().drive.0;
     if count == 0 {
         count = scorer.count_including_deleted() as u64;
         cost = cost.max(count);
@@ -403,6 +403,9 @@ impl<'a> DisjunctScorer<'a> {
 }
 
 /// Lazily initialized per-segment base filter for `RA` lookups.
+// TODO: When the base filter scorer has `cost().probe.prefers_batching()` (e.g. a pushed-down
+// `TermPredicateQuery`), batch candidate `DocId`s in `collect_lookup_only_segment` and
+// `intersect_scorer_with_lookup` via `DocSet::seek_danger_batch` instead of scalar `seek_danger`.
 struct SegmentBaseFilter<'a> {
     segment_reader: &'a SegmentReader,
     weight: Option<&'a Arc<LazyWeight>>,
@@ -428,19 +431,20 @@ impl<'a> SegmentBaseFilter<'a> {
         let Some(weight) = self.weight else {
             return true;
         };
-        // Non-`TermSetQuery` weights (such as `RangeQuery` or `BooleanQuery` from
-        // `and_query`) fall back to `Weight::scorer`, which positions the scorer at its first
-        // matching document (`scorer.doc()`) and records `last_seek_pos_opt` on any child
-        // `RangeDocSet`. Tracking `min_doc` avoids calling `seek_danger` with a `target_doc`
-        // below the scorer's current lower bound (which would underflow `new_seek -
-        // last_seek_pos` in `RangeDocSet::is_last_seek_distance_large`).
+        // Weights without an unpositioned candidate fast path (such as inverted-index
+        // `RangeQuery` or multi-clause `BooleanQuery` from `and_query`) fall back to
+        // `Weight::scorer`, which positions the scorer at its first matching document
+        // (`scorer.doc()`) and records `last_seek_pos_opt` on any child `RangeDocSet`.
+        // Tracking `min_doc` avoids calling `seek_danger` with a `target_doc` below the
+        // scorer's current lower bound (which would underflow `new_seek - last_seek_pos`
+        // in `RangeDocSet::is_last_seek_distance_large`).
         let (scorer, min_doc) = self.state.get_or_insert_with(|| {
             let scorer = weight
                 .get()
                 .scorer_for_candidates_unpositioned(
                     self.segment_reader,
                     1.0,
-                    self.candidate_size.max(1),
+                    tantivy::query::CandidateHint::Estimated(self.candidate_size.max(1)),
                 )
                 .expect("base filter scorer should be constructable");
             let first_doc = scorer.doc();
@@ -526,7 +530,11 @@ fn intersect_scorer_with_lookup<S: Scorer + ?Sized>(
     }
     let candidate_size = driver.size_hint().max(1);
     let mut lookup_scorer = lookup_weight
-        .scorer_for_candidates_unpositioned(segment_reader, 1.0, candidate_size)
+        .scorer_for_candidates_unpositioned(
+            segment_reader,
+            1.0,
+            tantivy::query::CandidateHint::Estimated(candidate_size),
+        )
         .expect("lookup scorer should be constructable");
     let first_lookup_doc = lookup_scorer.doc();
     if first_lookup_doc == tantivy::TERMINATED {

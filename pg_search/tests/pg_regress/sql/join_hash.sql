@@ -130,12 +130,14 @@ ORDER BY t1.id ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 disables
+-- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 forces
+--         HashTableLookupExpr pushdown (dynamic_filter_pushdown_hash_*)
 -- =============================================================================
--- The GUC is documented as a kill switch. DataFusion's HashJoinExec applies
--- the same predicate (`num_of_distinct_key > max_distinct_values` ⇒ fallback
--- to hash-table map), so 0 disables the InList materialization path on both
--- sides of the boundary. EXPLAIN should NOT show `dynamic_filter_pushdown=`.
+-- Setting `hash_join_inlist_pushdown_max_distinct_values = 0` causes DataFusion's
+-- HashJoinExec (`num_of_distinct_key > max_distinct_values`) to emit a
+-- `HashTableLookupExpr` instead of an `InListExpr`. That `HashTableLookupExpr`
+-- is pushed down into Tantivy via `TermPredicateQuery` and surfaces as
+-- `dynamic_filter_pushdown_hash_<strategy>=1` in EXPLAIN ANALYZE.
 SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -146,7 +148,152 @@ WHERE t1.val ||| 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
 
+SELECT t1.val, t2.val
+FROM hash_sorted_t1 t1
+JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val ||| 'val'
+ORDER BY t1.id ASC
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 4: HashTableLookupExpr pushdown on dictionary-encoded string keys
+--         (sorted gallop, selective bitset_from_postings, dense linear, and
+--          selective probe filter)
+-- =============================================================================
+
+DROP TABLE IF EXISTS hash_str_build CASCADE;
+DROP TABLE IF EXISTS hash_str_probe_sorted CASCADE;
+DROP TABLE IF EXISTS hash_str_probe_unsorted CASCADE;
+
+CREATE TABLE hash_str_build (
+    id   INTEGER PRIMARY KEY,
+    k    TEXT NOT NULL,
+    body TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+
+-- Mix short (<= 12 bytes, inlined Utf8View) and long (> 12 bytes, buffer-backed
+-- Utf8View) keys to exercise both StringViewArray hash representations.
+INSERT INTO hash_str_build
+SELECT i,
+       CASE WHEN i % 2 = 0 THEN 's' || i::text
+            ELSE 'long-join-key-value-' || lpad(i::text, 6, '0')
+       END,
+       'doc ' || i::text
+FROM generate_series(1, 500) i;
+
+CREATE TABLE hash_str_probe_sorted (
+    id   INTEGER PRIMARY KEY,
+    fk   TEXT NOT NULL,
+    tag  TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+
+INSERT INTO hash_str_probe_sorted
+SELECT i,
+       CASE WHEN ((i - 1) % 2500 + 1) % 2 = 0 THEN 's' || ((i - 1) % 2500 + 1)::text
+            ELSE 'long-join-key-value-' || lpad(((i - 1) % 2500 + 1)::text, 6, '0')
+       END,
+       CASE WHEN i IN (7, 507) THEN 'rare' ELSE 'common' END
+FROM generate_series(1, 5000) i;
+
+CREATE TABLE hash_str_probe_unsorted (
+    id      INTEGER PRIMARY KEY,
+    fk_lit  TEXT NOT NULL,
+    fk_tok  TEXT NOT NULL,
+    tag     TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+
+INSERT INTO hash_str_probe_unsorted
+SELECT i,
+       CASE WHEN ((i - 1) % 2500 + 1) % 2 = 0 THEN 's' || ((i - 1) % 2500 + 1)::text
+            ELSE 'long-join-key-value-' || lpad(((i - 1) % 2500 + 1)::text, 6, '0')
+       END,
+       CASE WHEN ((i - 1) % 2500 + 1) % 2 = 0 THEN 's' || ((i - 1) % 2500 + 1)::text
+            ELSE 'long-join-key-value-' || lpad(((i - 1) % 2500 + 1)::text, 6, '0')
+       END,
+       CASE WHEN i IN (7, 507) THEN 'rare' ELSE 'common' END
+FROM generate_series(1, 5000) i;
+
+CREATE INDEX hash_str_build_idx ON hash_str_build
+USING paradedb (id, (k::pdb.literal), (body::pdb.unicode_words('columnar=true')));
+
+CREATE INDEX hash_str_probe_sorted_idx ON hash_str_probe_sorted
+USING paradedb (id, (fk::pdb.literal), (tag::pdb.literal))
+WITH (sort_by = 'fk ASC NULLS FIRST');
+
+CREATE INDEX hash_str_probe_unsorted_idx ON hash_str_probe_unsorted
+USING paradedb (id, (fk_lit::pdb.literal), (fk_tok::pdb.unicode_words('columnar=true')), (tag::pdb.literal));
+
+ANALYZE hash_str_build;
+ANALYZE hash_str_probe_sorted;
+ANALYZE hash_str_probe_unsorted;
+
+-- 4a: Sorted literal column -> dynamic_filter_pushdown_hash_gallop
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_sorted p ON b.k = p.fk
+WHERE b.body ||| 'doc' AND b.id <= 200
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+-- 4b: Unsorted literal column, highly selective (K=5, N=5000, D=2 -> 5/5000 <= 0.005)
+--     -> dynamic_filter_pushdown_hash_bitset_from_postings
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 5
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+-- 4c: Unsorted tokenized (columnar=true, non-keyword) text column -> fast-field
+--     dictionary ordinal bitset (dynamic_filter_pushdown_hash_linear)
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_tok
+WHERE b.body ||| 'doc' AND b.id <= 200
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+-- 4d: Combined with a very selective probe-side filter (`p.tag = 'rare'`, 2 rows)
+SELECT b.id, p.id
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND p.tag = 'rare'
+ORDER BY b.id ASC, p.id ASC
+LIMIT 10;
+
+-- 4e: Equivalence check between HashTableLookupExpr (max_distinct=0) and InList
+CREATE TEMP TABLE res_hash AS
+SELECT b.id AS bid, p.id AS pid
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 200
+ORDER BY b.id ASC, p.id ASC
+LIMIT 100;
+
 RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
+
+CREATE TEMP TABLE res_inlist AS
+SELECT b.id AS bid, p.id AS pid
+FROM hash_str_build b
+JOIN hash_str_probe_unsorted p ON b.k = p.fk_lit
+WHERE b.body ||| 'doc' AND b.id <= 200
+ORDER BY b.id ASC, p.id ASC
+LIMIT 100;
+
+SELECT count(*) AS diff_rows FROM (
+    (SELECT * FROM res_hash EXCEPT ALL SELECT * FROM res_inlist)
+    UNION ALL
+    (SELECT * FROM res_inlist EXCEPT ALL SELECT * FROM res_hash)
+) d;
+
+DROP TABLE res_hash;
+DROP TABLE res_inlist;
+DROP TABLE IF EXISTS hash_str_build CASCADE;
+DROP TABLE IF EXISTS hash_str_probe_sorted CASCADE;
+DROP TABLE IF EXISTS hash_str_probe_unsorted CASCADE;
 
 -- =============================================================================
 -- CLEANUP

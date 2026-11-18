@@ -250,13 +250,13 @@ impl tantivy::query::Weight for VectorFilterWeight {
         &self,
         reader: &SegmentReader,
         boost: Score,
-        candidate_size: u32,
+        candidate_hint: tantivy::query::CandidateHint,
     ) -> TantivyResult<Box<dyn Scorer>> {
         if self.visible_docs.contains_key(&reader.segment_id()) {
             self.scorer(reader, boost)
         } else {
             self.get(reader)
-                .scorer_for_candidates_unpositioned(reader, boost, candidate_size)
+                .scorer_for_candidates_unpositioned(reader, boost, candidate_hint)
         }
     }
 

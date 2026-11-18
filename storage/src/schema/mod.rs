@@ -660,6 +660,27 @@ impl SearchField {
         self.is_text() && !self.is_keyword() && !self.is_numeric_bytes()
     }
 
+    /// Whether a `TermSetQuery` on this field can safely use the fast-field string dictionary
+    /// alongside exact postings.
+    ///
+    /// `SearchTokenizer::Keyword` indexes exact raw strings under `"keyword"`, while
+    /// `SearchNormalizer::Raw` stores the identical raw strings under `"raw"`. Tantivy's default
+    /// `ExactFastField::Infer` compares tokenizer names verbatim and would otherwise disable the
+    /// fast-field dictionary on UUID and keyword text columns.
+    #[allow(deprecated)]
+    pub fn exact_fast_field_for_term_set(&self) -> tantivy::query::ExactFastField {
+        match self.field_entry.field_type() {
+            FieldType::Str(opts)
+                if opts.is_fast()
+                    && opts.get_fast_field_tokenizer_name() == Some("raw")
+                    && self.is_keyword() =>
+            {
+                tantivy::query::ExactFastField::Available
+            }
+            _ => tantivy::query::ExactFastField::Infer,
+        }
+    }
+
     /// Whether this field's `.stats` min/max order the way query values compare, so a
     /// comparison against them can prove a segment holds no matching value. `is_sortable` does
     /// not advertise IP fields, but their fast-field and query representations are both
@@ -895,5 +916,66 @@ mod tests {
     fn test_default_config_ltree() {
         let config = SearchFieldConfig::default_ltree();
         assert!(matches!(config, SearchFieldConfig::Facet));
+    }
+
+    #[rstest]
+    #[case::uuid_default(
+        SearchFieldType::Uuid(pg_sys::UUIDOID),
+        SearchFieldConfig::default_uuid(),
+        tantivy::query::ExactFastField::Available
+    )]
+    #[case::keyword_text_raw_fast(
+        SearchFieldType::Text(pg_sys::TEXTOID),
+        SearchFieldConfig::from_json(serde_json::json!({
+            "Text": { "tokenizer": { "type": "keyword" }, "fast": true, "normalizer": "raw" }
+        })),
+        tantivy::query::ExactFastField::Available
+    )]
+    #[case::keyword_text_lowercase_fast(
+        SearchFieldType::Text(pg_sys::TEXTOID),
+        SearchFieldConfig::from_json(serde_json::json!({
+            "Text": { "tokenizer": { "type": "keyword" }, "fast": true, "normalizer": "lowercase" }
+        })),
+        tantivy::query::ExactFastField::Infer
+    )]
+    #[case::keyword_text_not_fast(
+        SearchFieldType::Text(pg_sys::TEXTOID),
+        SearchFieldConfig::from_json(serde_json::json!({
+            "Text": { "tokenizer": { "type": "keyword" }, "fast": false, "normalizer": "raw" }
+        })),
+        tantivy::query::ExactFastField::Infer
+    )]
+    #[case::analyzed_text_raw_fast(
+        SearchFieldType::Text(pg_sys::TEXTOID),
+        SearchFieldConfig::from_json(serde_json::json!({
+            "Text": { "tokenizer": { "type": "default" }, "fast": true, "normalizer": "raw" }
+        })),
+        tantivy::query::ExactFastField::Infer
+    )]
+    #[case::numeric_default(
+        SearchFieldType::I64(pg_sys::INT8OID),
+        SearchFieldConfig::default_numeric(),
+        tantivy::query::ExactFastField::Infer
+    )]
+    fn test_exact_fast_field_for_term_set(
+        #[case] field_type: SearchFieldType,
+        #[case] field_config: SearchFieldConfig,
+        #[case] expected: tantivy::query::ExactFastField,
+    ) {
+        let mut builder = tantivy::schema::Schema::builder();
+        let field = match &field_config {
+            SearchFieldConfig::Text { .. } => {
+                let opts: TextOptions = field_config.clone().into();
+                builder.add_text_field("f", opts)
+            }
+            SearchFieldConfig::Numeric { .. } => {
+                let opts: NumericOptions = field_config.clone().into();
+                builder.add_i64_field("f", opts)
+            }
+            other => unreachable!("unexpected config in test: {other:?}"),
+        };
+        let schema = builder.build();
+        let sf = super::SearchField::for_testing(field, &schema, field_type, field_config);
+        assert_eq!(sf.exact_fast_field_for_term_set(), expected);
     }
 }

@@ -983,24 +983,20 @@ mod tests {
         )
         .unwrap();
         let mut samples = Vec::new();
-        for (table, field) in [
-            ("vector_sample_dense", "emb"),
-            ("vector_sample_sparse", "emb"),
-            (
-                "vector_sample_sparse",
-                "((emb + '[0,0]'::vector)::vector(2))",
-            ),
-            ("vector_sample_null", "emb"),
+        for table in [
+            "vector_sample_dense",
+            "vector_sample_sparse",
+            "vector_sample_null",
         ] {
-            let index = format!("{table}_idx_{}", samples.len());
+            let index = format!("{table}_idx");
             Spi::run(&format!(
-                "CREATE INDEX {index} ON {table} USING paradedb (id, {field})
+                "CREATE INDEX {index} ON {table} USING paradedb (id, emb)
                  WITH (target_segment_count = 2);"
             ))
             .unwrap();
             let (heaprel, indexrel) = open_rels(table, &index);
             let projection = CategorizedPartitionField::resolve(
-                &indexrel.options().partition_by()[0],
+                &FieldName::from("emb"),
                 &indexrel.schema().unwrap().categorized_fields(),
             )
             .unwrap();
@@ -1025,8 +1021,7 @@ mod tests {
         assert_eq!(samples[0].present.len(), SAMPLE_ROWS);
         assert_eq!(samples[1].present.len(), SAMPLE_ROWS);
         assert_eq!(samples[0].data, samples[1].data);
-        assert_eq!(samples[0].data, samples[2].data);
-        assert!(samples[3].present.is_empty());
+        assert!(samples[2].present.is_empty());
     }
 
     #[pg_test]

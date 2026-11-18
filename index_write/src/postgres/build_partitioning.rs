@@ -425,6 +425,10 @@ pub(super) fn plan_partition_boundaries(
     ))))
 }
 
+/// Chooses how many non-NULL vectors to aim to retain for partition training.
+/// Targets the larger of 30,000 vectors or 1% of the estimated table rows, then
+/// reduces that target to keep estimated training memory within `maintenance_work_mem`.
+/// The memory estimate includes the sampled vectors, centroids, and working buffers.
 fn vector_sample_rows(
     dimensions: usize,
     target_partitions: usize,

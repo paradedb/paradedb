@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795005751481,
+  "lastUpdate": 1795005783042,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -38229,6 +38229,104 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14327571153-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1795005781500,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p50 latency",
+            "value": 1.301,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p95 latency",
+            "value": 3.655,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (count_mixed) (count-mixed) p99 latency",
+            "value": 11.339,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p50 latency",
+            "value": 1.562,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p95 latency",
+            "value": 4.012,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) p99 latency",
+            "value": 5.967,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p50 latency",
+            "value": 8.135,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p95 latency",
+            "value": 8.595,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) p99 latency",
+            "value": 9.948,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p50 latency",
+            "value": 2.503,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p95 latency",
+            "value": 8.42,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) p99 latency",
+            "value": 9.724,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p50 latency",
+            "value": 1.891,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p95 latency",
+            "value": 6.094,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) p99 latency",
+            "value": 10.173,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14426915765-latency"
       }
     ],
     "benchmarker wikipedia (throughput)": [
@@ -44730,6 +44828,54 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14327571153-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1795005783024,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (count_mixed) (count-mixed) QPS",
+            "value": 536.0268562440166,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_conjunction) (topk-conjunction) QPS",
+            "value": 500.6018326184749,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_disjunction) (topk-disjunction) QPS",
+            "value": 120.65717450474231,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_mixed) (topk-mixed) QPS",
+            "value": 229.6402061772542,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (topk_phrase) (topk-phrase) QPS",
+            "value": 370.4857996472186,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14426915765-throughput"
       }
     ],
     "benchmarker stackexchange (throughput)": [

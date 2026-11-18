@@ -1634,7 +1634,7 @@ pub mod plan {
     }
 
     // TODO: Convert to use RowEstimate.
-    pub(super) fn estimate_heap_reltuples(heap_relation: &PgSearchRelation) -> f64 {
+    pub(in crate::postgres) fn estimate_heap_reltuples(heap_relation: &PgSearchRelation) -> f64 {
         let mut reltuples = unsafe { (*heap_relation.rd_rel).reltuples };
 
         // if the reltuples estimate is not available, estimate the number of tuples in the heap

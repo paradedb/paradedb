@@ -48,6 +48,7 @@ use crate::api::version::Version;
 use crate::index::kdtree::{KdTree, Point};
 use crate::index::stats;
 use crate::index::stats::VectorPartition;
+use crate::postgres::build_parallel::plan::estimate_heap_reltuples;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapBufferPin};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
@@ -61,15 +62,15 @@ use crate::schema::{CategorizedFieldData, SearchField};
 use crate::vector::metric::VectorMetric;
 use crate::vector::{PgVector, normalize_for_metric};
 
-/// Upper bound on the heap blocks read for the sample. Blocks are chosen uniformly at random,
+/// Upper bound on the heap blocks read for scalar samples. Blocks are chosen uniformly at random,
 /// so a table physically ordered by a `partition_by` field still yields a spread of positions
 /// across its key range.
 const MAX_SAMPLE_BLOCKS: u32 = 4096;
 
-/// Upper bound on the rows kept from the sampled blocks, the same size `ANALYZE` uses at the
-/// default statistics target. Rows beyond it are reservoir-sampled so the kept set stays
-/// uniform over the visited blocks.
-const MAX_SAMPLE_ROWS: usize = 30_000;
+/// Scalar sample cap and vector sample floor, before applying the training memory budget.
+const BASE_SAMPLE_ROWS: usize = 30_000;
+
+const VECTOR_SAMPLE_RATIO: f64 = 0.01;
 
 /// Minimum recommended sampled rows per coarse vector partition before warning that
 /// `maintenance_work_mem` is constraining partition training.
@@ -352,9 +353,14 @@ pub(super) fn plan_partition_boundaries(
         }));
     }
 
-    let sample_rows = vector.map_or(MAX_SAMPLE_ROWS, |(dimensions, _)| {
+    let sample_rows = vector.map_or(BASE_SAMPLE_ROWS, |(dimensions, _)| {
         let budget = (unsafe { pg_sys::maintenance_work_mem } as usize).saturating_mul(1024);
-        vector_training_sample_rows(dimensions, target_partitions, budget)
+        vector_sample_rows(
+            dimensions,
+            target_partitions,
+            estimate_heap_reltuples(heaprel),
+            budget,
+        )
     });
     let categorized_fields = schema.categorized_fields();
     if let Some((dimensions, metric)) = vector {
@@ -367,6 +373,7 @@ pub(super) fn plan_partition_boundaries(
                 snapshot,
                 &projection,
                 sample_rows,
+                None,
                 |row, vector, _| sample.insert(row, vector),
             )?
         };
@@ -405,6 +412,7 @@ pub(super) fn plan_partition_boundaries(
             snapshot,
             projection.as_slice(),
             sample_rows,
+            Some(MAX_SAMPLE_BLOCKS),
             collect,
         )?;
     }
@@ -416,14 +424,17 @@ pub(super) fn plan_partition_boundaries(
     ))))
 }
 
-fn vector_training_sample_rows(
+fn vector_sample_rows(
     dimensions: usize,
     target_partitions: usize,
-    budget_bytes: usize,
+    estimated_rows: f64,
+    budget: usize,
 ) -> usize {
+    let target_rows =
+        ((estimated_rows * VECTOR_SAMPLE_RATIO).ceil() as usize).max(BASE_SAMPLE_ROWS);
     let min_rows = target_partitions
         .saturating_mul(VECTOR_MIN_SAMPLES_PER_PARTITION)
-        .min(MAX_SAMPLE_ROWS);
+        .min(target_rows);
     let vector_bytes = dimensions.saturating_mul(std::mem::size_of::<f32>());
     let centroid_bytes = target_partitions.saturating_mul(
         vector_bytes
@@ -440,7 +451,7 @@ fn vector_training_sample_rows(
     let row_bytes = vector_bytes
         .saturating_add(VECTOR_TRAINING_BOOKKEEPING_BYTES)
         .saturating_add(target_partitions.min(Y_BATCH_SIZE) * std::mem::size_of::<f32>());
-    let max_budget_rows = budget_bytes.saturating_sub(fixed_bytes) / row_bytes.max(1);
+    let max_budget_rows = budget.saturating_sub(fixed_bytes) / row_bytes.max(1);
     if max_budget_rows < min_rows {
         let samples_per_partition = max_budget_rows / target_partitions.max(1);
         let recommended_mb = fixed_bytes
@@ -453,7 +464,7 @@ fn vector_training_sample_rows(
             recommended_mb
         );
     }
-    max_budget_rows.clamp(1, MAX_SAMPLE_ROWS)
+    max_budget_rows.clamp(1, target_rows)
 }
 
 /// Whether `dim` has a columnar field at all, whatever order that column is in.
@@ -607,6 +618,8 @@ impl PartitionField {
 trait PartitionProjection {
     type Point;
 
+    const SAMPLE_NULLS: bool = true;
+
     fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField>;
 
     unsafe fn project(
@@ -648,6 +661,8 @@ impl PartitionProjection for [PartitionField] {
 impl PartitionProjection for CategorizedPartitionField {
     type Point = Option<PgVector>;
 
+    const SAMPLE_NULLS: bool = false;
+
     fn fields(&self) -> impl Iterator<Item = &CategorizedPartitionField> {
         std::iter::once(self)
     }
@@ -663,14 +678,14 @@ impl PartitionProjection for CategorizedPartitionField {
     }
 }
 
-/// Reads a random subset of `heaprel`'s blocks and projects every row the build will index
-/// onto `partition_by`, in that order.
+/// Reservoir-samples eligible rows from all heap blocks, or a random subset of blocks.
 unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
     snapshot: pg_sys::Snapshot,
     projection: &P,
     sample_rows: usize,
+    max_sample_blocks: Option<u32>,
     mut collect: impl FnMut(usize, P::Point, u64) -> Result<()>,
 ) -> anyhow::Result<()> {
     let nblocks = unsafe {
@@ -703,16 +718,22 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
         .any(|field| !matches!(field.categorized.source, FieldSource::Heap { .. }));
     let expression_state = needs_expressions.then(|| ExpressionState::new(indexrel));
 
-    let mut sampler = unsafe {
+    let mut sampler = max_sample_blocks.map(|max_blocks| unsafe {
         let mut sampler: pg_sys::BlockSamplerData = std::mem::zeroed();
         pg_sys::BlockSampler_Init(
             addr_of_mut!(sampler),
             nblocks,
-            nblocks.min(MAX_SAMPLE_BLOCKS) as i32,
+            nblocks.min(max_blocks) as i32,
             SAMPLE_SEED,
         );
         sampler
-    };
+    });
+    let blocks = (0..nblocks).map_while(|block| match sampler.as_mut() {
+        None => Some(block),
+        Some(sampler) => unsafe {
+            pg_sys::BlockSampler_HasMore(sampler).then(|| pg_sys::BlockSampler_Next(sampler))
+        },
+    });
 
     let mut rng = StdRng::seed_from_u64(SAMPLE_SEED as u64);
     let mut per_block_context = PgMemoryContexts::new("pg_search partition sampling");
@@ -726,9 +747,8 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     let mut indexed_offsets: Vec<pg_sys::OffsetNumber> = Vec::new();
     let mut result: anyhow::Result<()> = Ok(());
     unsafe {
-        while pg_sys::BlockSampler_HasMore(addr_of_mut!(sampler)) {
+        for blockno in blocks {
             check_for_interrupts();
-            let blockno = pg_sys::BlockSampler_Next(addr_of_mut!(sampler));
 
             let buffer = HeapBufferPin::read(heaprel, blockno);
             let buf = buffer.buffer();
@@ -767,16 +787,20 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
             // above stay valid while we read them here.
             let block_result = per_block_context.switch_to(|_| {
                 for &offset in &indexed_offsets {
-                    // Decide whether this row makes the sample before paying to project it.
-                    seen_rows += 1;
-                    let target_slot = if seen_rows <= sample_rows {
-                        seen_rows - 1
-                    } else {
-                        let j = rng.random_range(0..seen_rows);
-                        if j >= sample_rows {
-                            continue;
+                    let mut select_row = || {
+                        seen_rows += 1;
+                        if seen_rows <= sample_rows {
+                            Some(seen_rows - 1)
+                        } else {
+                            let j = rng.random_range(0..seen_rows);
+                            (j < sample_rows).then_some(j)
                         }
-                        j
+                    };
+                    let selected_row = if P::SAMPLE_NULLS {
+                        let Some(row) = select_row() else { continue };
+                        Some(row)
+                    } else {
+                        None
                     };
 
                     let item_id = pgrx::PageGetItemId!(Pointer::from(page), offset).get();
@@ -809,13 +833,14 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
                         ctid_u64,
                         &expr_results,
                         created_by_version,
+                        || selected_row.or_else(select_row),
                     );
                     // The stored pointer targets this iteration's `tuple`; clear it before that
                     // goes out of scope, on the error path too.
                     pg_sys::ExecClearTuple(slot);
-                    let point = point?;
-
-                    collect(target_slot, point, ctid_u64)?;
+                    if let Some((target_slot, point)) = point? {
+                        collect(target_slot, point, ctid_u64)?;
+                    }
                 }
                 anyhow::Ok(())
             });
@@ -838,8 +863,7 @@ unsafe fn sample_partition_fields<P: PartitionProjection + ?Sized>(
     Ok(())
 }
 
-/// Projects one deformed heap row (plus its evaluated index expressions) onto the sampled
-/// fields, converting each datum the same way the index writer does.
+/// Checks sample eligibility before selecting a slot and projecting the row's values.
 unsafe fn project_row<P: PartitionProjection + ?Sized>(
     projection: &P,
     values: &[pg_sys::Datum],
@@ -847,7 +871,8 @@ unsafe fn project_row<P: PartitionProjection + ?Sized>(
     ctid: u64,
     expr_results: &[(pg_sys::Datum, bool)],
     created_by_version: Option<Version>,
-) -> anyhow::Result<P::Point> {
+    select_row: impl FnOnce() -> Option<usize>,
+) -> anyhow::Result<Option<(usize, P::Point)>> {
     let unpacked_composites = unsafe {
         CompositeSlotValues::from_composites(projection.fields().filter_map(|field| {
             if let FieldSource::CompositeField {
@@ -864,17 +889,27 @@ unsafe fn project_row<P: PartitionProjection + ?Sized>(
         }))
     };
 
-    unsafe {
-        projection.project(ctid, created_by_version, |field| {
-            resolve_field_value(
-                &field.source,
-                values,
-                isnull,
-                expr_results,
-                &unpacked_composites,
-            )
-        })
+    let mut get_field = |field: &CategorizedFieldData| unsafe {
+        resolve_field_value(
+            &field.source,
+            values,
+            isnull,
+            expr_results,
+            &unpacked_composites,
+        )
+    };
+    if !P::SAMPLE_NULLS
+        && projection
+            .fields()
+            .any(|field| get_field(&field.categorized).1)
+    {
+        return Ok(None);
     }
+    let Some(row) = select_row() else {
+        return Ok(None);
+    };
+    let point = unsafe { projection.project(ctid, created_by_version, &mut get_field)? };
+    Ok(Some((row, point)))
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -886,6 +921,161 @@ mod tests {
     use crate::index::open_index;
     use pgrx::datum::DatumWithOid;
     use pgrx::prelude::*;
+
+    #[pg_test]
+    fn vector_partition_sample_size_scales_with_rows_and_memory() {
+        const DIMENSIONS: usize = 1536;
+        const PARTITIONS: usize = 8;
+        const LARGE_TABLE_ROWS: f64 = 10_000_000.0;
+        const LOW_BUDGET: usize = 64 * 1024 * 1024;
+        const HIGH_BUDGET: usize = 1024 * 1024 * 1024;
+
+        for estimated_rows in [0.0, 100.0, BASE_SAMPLE_ROWS as f64 / VECTOR_SAMPLE_RATIO] {
+            assert_eq!(
+                vector_sample_rows(DIMENSIONS, PARTITIONS, estimated_rows, HIGH_BUDGET),
+                BASE_SAMPLE_ROWS
+            );
+        }
+        assert_eq!(
+            vector_sample_rows(DIMENSIONS, PARTITIONS, LARGE_TABLE_ROWS, HIGH_BUDGET),
+            100_000
+        );
+        assert_eq!(
+            vector_sample_rows(
+                DIMENSIONS,
+                PARTITIONS,
+                BASE_SAMPLE_ROWS as f64 / VECTOR_SAMPLE_RATIO + 1.0,
+                HIGH_BUDGET,
+            ),
+            BASE_SAMPLE_ROWS + 1
+        );
+        let limited = vector_sample_rows(DIMENSIONS, PARTITIONS, LARGE_TABLE_ROWS, LOW_BUDGET);
+        assert!(limited > 0 && limited < BASE_SAMPLE_ROWS);
+        assert_eq!(
+            limited,
+            vector_sample_rows(DIMENSIONS, PARTITIONS, LARGE_TABLE_ROWS * 2.0, LOW_BUDGET)
+        );
+        assert!(
+            vector_sample_rows(DIMENSIONS * 2, PARTITIONS, LARGE_TABLE_ROWS, LOW_BUDGET) < limited
+        );
+        assert_eq!(
+            vector_sample_rows(DIMENSIONS, PARTITIONS, LARGE_TABLE_ROWS, 0),
+            1
+        );
+    }
+
+    #[pg_test]
+    fn vector_partition_sampling_nulls_do_not_consume_slots() {
+        const SAMPLE_ROWS: usize = 7;
+        Spi::run(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE vector_sample_dense (id BIGINT, emb vector(2));
+             INSERT INTO vector_sample_dense SELECT i, ARRAY[i, -i]::vector
+             FROM generate_series(1, 100) i;
+             CREATE TABLE vector_sample_sparse (id BIGINT, emb vector(2));
+             INSERT INTO vector_sample_sparse SELECT i, NULL FROM generate_series(1, 100) i;
+             INSERT INTO vector_sample_sparse
+             SELECT i, CASE WHEN i % 2 = 0 THEN ARRAY[i / 2, -i / 2]::vector END
+             FROM generate_series(1, 200) i;
+             INSERT INTO vector_sample_sparse SELECT i, NULL FROM generate_series(1, 100) i;
+             CREATE TABLE vector_sample_null (id BIGINT, emb vector(2));
+             INSERT INTO vector_sample_null SELECT i, NULL FROM generate_series(1, 100) i;",
+        )
+        .unwrap();
+        let mut samples = Vec::new();
+        for (table, field) in [
+            ("vector_sample_dense", "emb"),
+            ("vector_sample_sparse", "emb"),
+            (
+                "vector_sample_sparse",
+                "((emb + '[0,0]'::vector)::vector(2))",
+            ),
+            ("vector_sample_null", "emb"),
+        ] {
+            let index = format!("{table}_idx_{}", samples.len());
+            Spi::run(&format!(
+                "CREATE INDEX {index} ON {table} USING paradedb (id, {field})
+                 WITH (target_segment_count = 2);"
+            ))
+            .unwrap();
+            let (heaprel, indexrel) = open_rels(table, &index);
+            let projection = CategorizedPartitionField::resolve(
+                &indexrel.options().partition_by()[0],
+                &indexrel.schema().unwrap().categorized_fields(),
+            )
+            .unwrap();
+            let mut sample = VectorSample::new(2, SAMPLE_ROWS);
+            unsafe {
+                sample_partition_fields(
+                    &heaprel,
+                    &indexrel,
+                    snapshot_any(),
+                    &projection,
+                    SAMPLE_ROWS,
+                    None,
+                    |row, vector, _| {
+                        assert!(vector.is_some());
+                        sample.insert(row, vector)
+                    },
+                )
+            }
+            .unwrap();
+            samples.push(sample);
+        }
+        assert_eq!(samples[0].present.len(), SAMPLE_ROWS);
+        assert_eq!(samples[1].present.len(), SAMPLE_ROWS);
+        assert_eq!(samples[0].data, samples[1].data);
+        assert_eq!(samples[0].data, samples[2].data);
+        assert!(samples[3].present.is_empty());
+    }
+
+    #[pg_test]
+    fn vector_partition_sampling_reads_beyond_scalar_block_limit() {
+        const ROWS: usize = MAX_SAMPLE_BLOCKS as usize + 1;
+        const PADDING_BYTES: usize = pg_sys::BLCKSZ as usize / 2;
+        Spi::run(&format!(
+            "CREATE EXTENSION IF NOT EXISTS vector;
+             CREATE TABLE vector_sample_blocks (id BIGINT, emb vector(2), padding TEXT);
+             ALTER TABLE vector_sample_blocks ALTER COLUMN padding SET STORAGE PLAIN;
+             INSERT INTO vector_sample_blocks
+             SELECT i, ARRAY[i, -i]::vector, repeat('x', {PADDING_BYTES})
+             FROM generate_series(1, {ROWS}) i;
+             CREATE INDEX vector_sample_blocks_idx ON vector_sample_blocks
+             USING paradedb (id, emb) WITH (partition_by = '', target_segment_count = 1);"
+        ))
+        .unwrap();
+        let (heaprel, indexrel) = open_rels("vector_sample_blocks", "vector_sample_blocks_idx");
+        let projection = CategorizedPartitionField::resolve(
+            &FieldName::from("emb"),
+            &indexrel.schema().unwrap().categorized_fields(),
+        )
+        .unwrap();
+        let mut sampled = 0;
+        unsafe {
+            assert!(
+                pg_sys::RelationGetNumberOfBlocksInFork(
+                    heaprel.as_ptr(),
+                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                ) > MAX_SAMPLE_BLOCKS
+            );
+            sample_partition_fields(
+                &heaprel,
+                &indexrel,
+                snapshot_any(),
+                &projection,
+                ROWS,
+                None,
+                |row, vector, _| {
+                    assert_eq!(row, sampled);
+                    assert!(vector.is_some());
+                    sampled += 1;
+                    Ok(())
+                },
+            )
+        }
+        .unwrap();
+        assert_eq!(sampled, ROWS);
+    }
 
     #[pg_test]
     fn vector_partition_training_and_transport() {

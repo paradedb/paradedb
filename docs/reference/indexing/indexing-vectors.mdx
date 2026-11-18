@@ -246,17 +246,18 @@ modelBuilder.Entity<MockItem>()
 <ParamField body="training_sample_ratio" default={0}>
   Fraction of indexed vectors sampled for training whenever a segment is
   clustered. `0` chooses the fraction automatically: for a segment of `n`
-  vectors, `nlist = n / target_leaf_size`, and Tantivy clamps the sample to
-  however many full-precision vectors fit in the clusterer's memory budget
-  between `16 * nlist` and `128 * nlist`. Set a value above `0` through `1` to
-  override that choice.
+  vectors, `nlist = n / target_leaf_size`, and Tantivy reserves half the vector
+  memory budget for the sample and half for fine-training workspace, then clamps
+  the sample between `16 * nlist` and `128 * nlist`. If the minimum exceeds that
+  capacity, training warns and can reread source vectors. Set a value above `0`
+  through `1` to override automatic sampling.
 </ParamField>
 <ParamField body="target_leaf_size" default={400}>
   The target number of indexed vectors in a cluster. Must be an integer between
   `1` and `2147483647`. A segment of `n` vectors is split into about `n /
   target_leaf_size` lists. With `training_sample_ratio = 0`, the default `400`
-  trains on 128 vectors per list, which is 32% of the rows, unless
-  `maintenance_work_mem` cannot hold that sample.
+  trains on 128 vectors per list, which is 32% of the rows, unless the
+  clusterer's memory budget cannot hold that sample and its training workspace.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>
   Route each query through one-bit codes of the IVF centroids, then rerank the

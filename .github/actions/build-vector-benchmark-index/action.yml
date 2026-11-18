@@ -57,6 +57,8 @@ runs:
         test "${#runs[@]}" -eq 1
         # Keep the HTML report with the build diagnostics.
         pdbench-report html "${runs[0]}"
+        cp benchmark-artifacts/index-build.log "${runs[0]}/index-build.log"
+        cp benchmark-artifacts/index-build-settings.log "${runs[0]}/index-build-settings.log"
         index="$(jq -r '.config.datastore.vars.index_name' "${runs[0]}/run.json")"
         build_seconds="$(jq -se --arg statement "CREATE INDEX $index ON " '
           [.[] | select(.type == "Point" and .metric == "sql_statement_duration"

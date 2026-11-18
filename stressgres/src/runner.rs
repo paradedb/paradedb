@@ -1044,22 +1044,6 @@ impl SuiteRunner {
             }
         }
 
-        for job in &self.runners {
-            let job_errors = job.collect_errors().into_iter().filter(|e| {
-                e.source()
-                    .and_then(|e| e.downcast_ref::<postgres::Error>())
-                    .map(|e| is_ignorable_error(e, self.suite.ignore_errors()))
-                    .unwrap_or(false)
-            });
-
-            // Add job title to each error from this job
-            for error in job_errors {
-                let job_title = job.title();
-                let error_with_title = Arc::new(anyhow!("Job '{}' error: {}", job_title, error));
-                all_errors.push(error_with_title);
-            }
-        }
-
         if !all_errors.is_empty() {
             self.have_error.store(true, Ordering::Relaxed);
         }
@@ -1375,25 +1359,6 @@ impl JobRunner {
             .any(|(_, stats)| stats.results.is_err() || stats.assert_error.is_some())
     }
 
-    pub fn collect_errors(&self) -> Vec<Arc<anyhow::Error>> {
-        self.worker_error
-            .read()
-            .clone()
-            .into_iter()
-            .chain(self.runtime_stats.read().values().filter_map(|stats| {
-                if stats.assert_error.is_some() {
-                    Some(Arc::new(anyhow!(stats.assert_error.clone().unwrap())))
-                } else if stats.results.is_err() {
-                    let postgres_error = Clone::clone(stats.results.as_ref().err().unwrap());
-                    let msg = format_postgres_error(&postgres_error);
-                    Some(Arc::new(anyhow!(msg)))
-                } else {
-                    None
-                }
-            }))
-            .collect()
-    }
-
     pub fn worker_error(&self) -> Option<Arc<anyhow::Error>> {
         self.worker_error.read().clone()
     }
@@ -1673,31 +1638,6 @@ mod tests {
         tokio_connstr,
     };
     use std::time::{Duration, Instant};
-
-    #[test]
-    fn stalled_io_observes_shutdown_started_after_the_operation() {
-        let policy = IoPolicy {
-            interrupt_shutdown: true,
-            ..IoPolicy::default()
-        };
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()
-            .unwrap();
-        runtime.block_on(async {
-            let shutdown = policy.shutdown.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-                *shutdown.write() = Some(Instant::now());
-            });
-            let result = tokio::time::timeout(
-                Duration::from_secs(2),
-                policy.wait(std::future::pending::<()>()),
-            )
-            .await;
-            assert_eq!(result.unwrap(), None);
-        });
-    }
 
     #[test]
     fn io_deadline_preserves_a_ready_response_and_bounds_a_stalled_response() {

@@ -287,7 +287,7 @@ mod tests {
     use std::io;
 
     #[test]
-    fn message_matching_flags_connectivity_faults() {
+    fn string_errors_are_classified() {
         for msg in [
             "error connecting to server: Network is unreachable (os error 101)",
             "server closed the connection unexpectedly",
@@ -298,30 +298,23 @@ mod tests {
             // marks this as connectivity noise (server down/restarting mid-handshake).
             "error performing TLS handshake: unexpected EOF",
         ] {
-            assert!(message_looks_transient(msg), "should be transient: {msg}");
+            assert!(
+                is_transient_error(&anyhow!("{msg}")),
+                "should be transient: {msg}"
+            );
         }
-    }
 
-    #[test]
-    fn message_matching_ignores_real_errors() {
         for msg in [
             "ERROR: division by zero (SQLState: 22012)",
             "duplicate key value violates unique constraint (SQLState: 23505)",
             "ERROR: relation \"foo\" does not exist (SQLState: 42P01)",
             "Job assertion failed: expected 5 but got 3",
         ] {
-            assert!(!message_looks_transient(msg), "should be real: {msg}");
+            assert!(
+                !is_transient_error(&anyhow!("{msg}")),
+                "should be real: {msg}"
+            );
         }
-    }
-
-    #[test]
-    fn anyhow_string_errors_are_classified() {
-        assert!(is_transient_error(&anyhow!(
-            "error connecting to server: Network is unreachable (os error 101)"
-        )));
-        assert!(!is_transient_error(&anyhow!(
-            "Job assertion failed: expected 5 but got 3"
-        )));
     }
 
     #[test]

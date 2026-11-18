@@ -70,7 +70,7 @@ impl SearchOperator {
         }
     }
 
-    pub(super) fn classify_query(self, query: pdb::Query) -> pdb::Query {
+    pub(crate) fn classify_query(self, query: pdb::Query) -> pdb::Query {
         let (query, score) = match query {
             pdb::Query::ScoreAdjusted { query, score } => (*query, Some(score)),
             query => (query, None),

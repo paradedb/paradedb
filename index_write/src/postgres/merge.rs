@@ -42,6 +42,7 @@ use tantivy::index::SegmentMeta;
 use tantivy::indexer::MergeCandidate;
 
 const BACKPRESSURE_MULTIPLIER: usize = 4;
+const MUTABLE_BACKPRESSURE_SEGMENT_COUNT: usize = 2;
 
 thread_local! {
     static WARNED_VECTOR_INDEXES: RefCell<HashSet<pg_sys::Oid>> = RefCell::new(HashSet::default());
@@ -100,6 +101,8 @@ pub enum MergeStyle {
     },
     /// Only a background merge may follow.
     Background,
+    /// Retry background scheduling without waiting for merge admission or selection.
+    Sweep,
 }
 
 /// Who runs a merge, which decides what happens between candidates.
@@ -264,9 +267,7 @@ impl IndexLayerSizes {
             // indexes on hosts with many cores, where the default `target_segment_count` is large.
             if background_layer_sizes.is_empty() {
                 background_layer_sizes.push(target_segment_byte_size);
-            } else if has_larger_layer
-                && segment_cnt > BACKPRESSURE_MULTIPLIER * target_segment_count
-            {
+            } else if has_larger_layer && needs_backpressure(segment_cnt, target_segment_count) {
                 backpressure_layer_size = Some(target_segment_byte_size);
             }
         }
@@ -299,6 +300,13 @@ impl IndexLayerSizes {
     }
 }
 
+pub(crate) fn needs_backpressure(
+    visible_segment_count: usize,
+    target_segment_count: usize,
+) -> bool {
+    visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
+}
+
 #[inline]
 fn backpressure(
     candidates: &[LayeredMergeCandidate],
@@ -314,9 +322,9 @@ fn backpressure(
                     .iter()
                     .map(|(_, MergeCandidate(segment_ids))| segment_ids.len())
                     .sum();
-                eligible_segment_count > 2
+                eligible_segment_count > MUTABLE_BACKPRESSURE_SEGMENT_COUNT
             } else {
-                visible_segment_count > BACKPRESSURE_MULTIPLIER * target_segment_count
+                needs_backpressure(visible_segment_count, target_segment_count)
             }
         })
         .min_by_key(|layer| layer[0].0)
@@ -332,14 +340,28 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
         return Ok(());
     }
 
-    let layer_sizes = IndexLayerSizes::from(index);
-    let target_segment_count = index.target_segment_count();
-    if matches!(style, MergeStyle::Background) && !layer_sizes.user_configured_background_layers() {
+    if !matches!(style, MergeStyle::Insert { .. })
+        && index.options().background_layer_sizes().is_empty()
+    {
         return Ok(());
     }
+    let layer_sizes = IndexLayerSizes::from(index);
+    let target_segment_count = index.target_segment_count();
     let metadata = MetaPage::open(index);
-    let merge_pins = metadata.pin_merge();
-    let merge_lock = metadata.acquire_merge_lock();
+    let (merge_pins, merge_lock) = if matches!(style, MergeStyle::Sweep) {
+        if VacuumSignal::new(index.oid()).wants_cancel() {
+            return Ok(());
+        }
+        let Some(merge_pins) = metadata.try_pin_merge() else {
+            return Ok(());
+        };
+        let Some(merge_lock) = metadata.try_acquire_merge_lock() else {
+            return Ok(());
+        };
+        (merge_pins, merge_lock)
+    } else {
+        (metadata.pin_merge(), metadata.acquire_merge_lock())
+    };
     let merger = SearchIndexMerger::open(index, MvccSatisfies::Mergeable)?;
     let mut merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
     #[cfg(feature = "pg_test")]
@@ -762,7 +784,7 @@ impl MergeSlot {
     // NOTE: This only prevents concurrent merges from different backends,
     // will always return true if called repeatedly from the same transaction
     // See: https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS
-    pub(crate) fn is_available(&self) -> bool {
+    fn is_available(&self) -> bool {
         let key = self.key();
         if let Some(lock) = AdvisoryLock::conditional_lock_session(key) {
             drop(lock); // explicitly unlock immediately

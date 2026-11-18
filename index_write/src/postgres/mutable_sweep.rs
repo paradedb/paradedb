@@ -26,9 +26,10 @@ use crate::postgres::index::free_leaf_partition_indexes;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::merge::{
     MergeMode, MergeSlot, MergeSlotVariant, MergeStyle, do_merge, merge_crash_details, merge_index,
-    warn_unsupported_vector_merge,
+    needs_backpressure, warn_unsupported_vector_merge,
 };
 use crate::postgres::ps_status::{MERGING, set_ps_display_suffix};
+use crate::postgres::storage::block::MVCCEntry;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{
@@ -249,8 +250,14 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                 return None;
                             }
                             let mut idle_segments = HashMap::default();
+                            let mut visible_segment_count = 0;
                             MetaPage::open(&index).segment_metas().for_each(|_, entry| {
-                                if entry.is_mutable() && entry.xmax() == pg_sys::InvalidTransactionId {
+                                if entry.visible() {
+                                    visible_segment_count += 1;
+                                }
+                                if entry.is_mutable()
+                                    && entry.xmax() == pg_sys::InvalidTransactionId
+                                {
                                     let key = (index.oid(), entry.segment_id());
                                     let count = entry.num_docs();
                                     current_counts.insert(key, count);
@@ -259,7 +266,13 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                                     }
                                 }
                             });
-                            Some((index.oid(), idle_segments))
+                            let needs_merge =
+                                needs_backpressure(
+                                    visible_segment_count,
+                                    index.target_segment_count(),
+                                ) && !index.options().background_layer_sizes().is_empty();
+                            (!idle_segments.is_empty() || needs_merge)
+                                .then_some((index.oid(), idle_segments))
                         })
                         .collect::<Vec<_>>();
                     Some((indexes, current_counts))
@@ -279,26 +292,24 @@ unsafe extern "C-unwind" fn mutable_sweep_database(database: pg_sys::Datum) {
                             if VacuumSignal::new(index.oid()).wants_cancel() {
                                 return;
                             }
-                            if [MergeSlotVariant::Small, MergeSlotVariant::Large]
-                                .into_iter()
-                                .any(|variant| MergeSlot::new(index.oid(), variant).is_available())
-                            {
-                                do_merge(&index, MergeStyle::Background)
-                                    .expect("should be able to schedule a background merge");
-                            }
-                            if idle_segments.is_empty() {
-                                return;
-                            }
-                            let Some(_slot) = MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
-                            else {
-                                return;
-                            };
-                            let metadata = MetaPage::open(&index);
-                            let Some(merge_pins) = metadata.try_pin_merge() else {
-                                return;
-                            };
-                            let merge_lock = metadata.acquire_merge_lock();
                             PgTryBuilder::new(AssertUnwindSafe(|| {
+                                if idle_segments.is_empty() {
+                                    do_merge(&index, MergeStyle::Sweep)
+                                        .expect("should be able to schedule a background merge");
+                                    return;
+                                }
+                                let Some(_slot) =
+                                    MergeSlot::new(index.oid(), MergeSlotVariant::Small).lock()
+                                else {
+                                    return;
+                                };
+                                let metadata = MetaPage::open(&index);
+                                let Some(merge_pins) = metadata.try_pin_merge() else {
+                                    return;
+                                };
+                                let Some(merge_lock) = metadata.try_acquire_merge_lock() else {
+                                    return;
+                                };
                                 let frozen = metadata.freeze_mutable_segments_matching(|entry| {
                                     idle_segments.get(&entry.segment_id())
                                         == Some(&entry.num_docs())

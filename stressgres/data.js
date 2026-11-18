@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794989407089,
+  "lastUpdate": 1794989431388,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -183989,6 +183989,65 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14308704419-tps"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989428708,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - tps",
+            "value": 149.3200548210759,
+            "unit": "median tps",
+            "extra": "avg tps: 147.4628031416399, max tps: 159.3446570426587, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 546.5181172323851,
+            "unit": "median tps",
+            "extra": "avg tps: 561.1606739913562, max tps: 4860.152159213724, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3099.5445833423505,
+            "unit": "median tps",
+            "extra": "avg tps: 3113.410729041433, max tps: 3241.4321285818346, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - tps",
+            "value": 182.05691042138753,
+            "unit": "median tps",
+            "extra": "avg tps: 179.81375034655966, max tps: 196.70538387914777, count: 59068"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.65521658630433,
+            "unit": "median tps",
+            "extra": "avg tps: 376.5366762142808, max tps: 2642.950212461053, count: 118136"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.410529438697786,
+            "unit": "median tps",
+            "extra": "avg tps: 29.646591855008538, max tps: 45.919151252449446, count: 59068"
+          }
+        ],
+        "publication_id": "14409040208-tps"
       }
     ],
     "pg_search background-merge.toml Performance - Other Metrics": [
@@ -234350,6 +234409,125 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14308704419-other"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b2eb4729af36020b49a9fdb82528410631739727",
+          "message": "feat: expand a phrase query with synonyms (#7499)\n\n## Ticket(s) Closed\n\n- Part of #2945\n\n## What\n\nThis PR makes the phrase operator `###` expand with the synonym rules of\na `pdb.expand` subquery.\n\n```sql\nSELECT id FROM products\nWHERE description ### (SELECT pdb.expand('red sofa', rule) FROM shop_synonyms);\n```\n\n## Why\n\nOnly `|||` and `&&&` expanded. `###` with the subquery was an error, so\na phrase search for `red sofa` could not find `red couch`.\n\n## How\n\n- A phrase query holds the rules, the same as a match query.\n- Tantivy's `PhraseQuery` has one term at each position. So the query is\none phrase for each combination of alternatives, under a\n`DisjunctionMaxQuery`.\n- `paradedb.synonyms_max_alternatives` caps the phrases, as it caps the\nalternatives of a match. The typed phrase is the first one, so the cap\nkeeps it.\n\n## Tests\n\n- `synonym_phrase.sql`\n- `synonym_expand.sql`",
+          "timestamp": "2026-11-18T07:17:34Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b2eb4729af36020b49a9fdb82528410631739727"
+        },
+        "date": 1794989431277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Scan - Primary - cpu",
+            "value": 13.655761,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.050458102618393, max cpu: 36.484562, count: 59068"
+          },
+          {
+            "name": "Aggregate Scan - Primary - mem",
+            "value": 51.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.26333883722997, max mem: 51.31640625, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.599904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.41476941115459, max cpu: 36.69374, count: 59068"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 30.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.691398049705423, max mem: 30.6953125, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.591105,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.75945463950881, max cpu: 13.846154, count: 59068"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.01009734014187, max mem: 50.109375, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 2496,
+            "unit": "median block_count",
+            "extra": "avg block_count: 2495.396458319225, max block_count: 2570.0, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.2136055041477145, max cpu: 4.628737, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 28.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.45693198675679, max mem: 28.48828125, count: 59068"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.427236405498746, max segment_count: 35.0, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - cpu",
+            "value": 9.217475,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.982544852787933, max cpu: 33.566433, count: 59068"
+          },
+          {
+            "name": "Unordered Top K Base Scan - Primary - mem",
+            "value": 59.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.793704528043946, max mem: 59.80078125, count: 59068"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.471003036623475, max cpu: 41.280457, count: 118136"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.99996630604769, max mem: 57.76171875, count: 118136"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.169055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.58405291534513, max cpu: 18.382, count: 59068"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 47.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.42073178635217, max mem: 47.51953125, count: 59068"
+          }
+        ],
+        "publication_id": "14409040208-other"
       }
     ],
     "pg_search logical-replication.toml Performance - TPS": [

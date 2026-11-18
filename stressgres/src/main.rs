@@ -64,8 +64,13 @@ fn main() -> anyhow::Result<()> {
         // When using the "ui" subcommand.
         Command::Ui(args) => {
             let suite = load_suite(&args.suite_path, args.pgversion, None)?;
-            let suite_runner =
-                SuiteRunner::new(suite, args.paused, args.grace.window(), SetupMode::Full)?;
+            let suite_runner = SuiteRunner::new(
+                suite,
+                args.paused,
+                args.grace.window(),
+                args.grace.operation_timeout(),
+                SetupMode::Full,
+            )?;
             tui::run(suite_runner)?;
         }
 
@@ -79,7 +84,13 @@ fn main() -> anyhow::Result<()> {
             } else {
                 SetupMode::Full
             };
-            let suite_runner = SuiteRunner::new(suite, false, args.grace.window(), setup_mode)?;
+            let suite_runner = SuiteRunner::new(
+                suite,
+                false,
+                args.grace.window(),
+                args.grace.operation_timeout(),
+                setup_mode,
+            )?;
             // `--setup-only` has built the schema and is done; the workload runs later in a
             // separate `--skip-setup` process.
             if setup_mode == SetupMode::SetupOnly {
@@ -111,6 +122,7 @@ fn main() -> anyhow::Result<()> {
                 suite,
                 false,
                 GraceWindow::fixed(Duration::ZERO),
+                None,
                 SetupMode::Full,
             )?;
             headless::run(

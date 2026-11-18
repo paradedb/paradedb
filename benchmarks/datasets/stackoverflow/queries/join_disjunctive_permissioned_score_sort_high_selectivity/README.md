@@ -13,6 +13,6 @@
 
 `postgres_union_agg.sql` uses the canonical 2-branch `UNION ALL` + `GROUP BY` GIN + B-Tree rewrite (`SET enable_indexonlyscan TO off`); see `../join_disjunctive_score_sort_low_selectivity/README.md` for details.
 
-## Rank Join Variant Omission
+## Rank Join Variants
 
-`rank_join.sql` and `rank_join_range_partitioned.sql` are omitted because post-`InitPlan` range estimation reports `2,043` matching posts (`0.010%`), below both `paradedb.rank_join_min_rows` (`10,000`) and `paradedb.rank_join_unscored_selectivity_threshold` (`0.025`), so `RankJoinRule` declines `RankJoinExec` in favor of parallel `HashJoinExec` with dynamic `InList` pushdown.
+`hash_partitioned.sql` and `range_partitioned.sql` set `paradedb.enable_rank_join TO off` to benchmark the `HashJoinExec` baseline, while `rank_join.sql` and `rank_join_range_partitioned.sql` set `paradedb.enable_rank_join TO on` (where post-`InitPlan` row estimation and `ScanMode::Disjunctive` `base_query` selectivity gating decline `RankJoinExec` at `2,043` matching posts / `0.010%`, keeping both variants on `HashJoinExec`).

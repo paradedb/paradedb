@@ -1,0 +1,367 @@
+-- A `pdb.expand` subquery makes the query parser expand each word and each quoted phrase of its
+-- query string.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS parse_products, parse_notes, parse_stems, parse_grams, parse_synonyms;
+CREATE TABLE parse_synonyms (rule pdb.synonym_rule NOT NULL);
+INSERT INTO parse_synonyms VALUES
+    ('sofa, couch, divan'),
+    ('sneakers => running shoes'),
+    ('trail shoes, hikers');
+CREATE TABLE parse_products (id int PRIMARY KEY, description text, category text, metadata jsonb);
+INSERT INTO parse_products VALUES
+    (1, 'red couch'),
+    (2, 'red leather sofa'),
+    (3, 'oak divan'),
+    (4, 'blue running shoes'),
+    (5, 'blue shoes for running'),
+    (6, 'blue sneakers'),
+    (7, 'green hikers'),
+    (8, 'trail map'),
+    (9, 'red chair'),
+    (10, 'soda can'),
+    (11, 'night coach'),
+    (12, 'running shoes sale'),
+    (13, 'hikers sale');
+INSERT INTO parse_products VALUES
+    (14, 'oak table', 'sofa', '{"seat": "sofa"}'),
+    (15, 'pine table', 'couch', '{"seat": "couch"}');
+CREATE INDEX parse_products_idx ON parse_products
+    USING bm25 (id, description, category, metadata);
+-- The rules table needs no index. The subquery reads the rules, and the parsed query expands
+-- with them when the query runs.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms);
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "parse_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.parse_products
+   Output: parse_products.id
+   Table: parse_products
+   Index: parse_products_idx
+   Worker Selection: Row-capped
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('parse_products_idx'::regclass, paradedb.to_search_query_input('description'::paradedb.fieldname, $1))"}}}
+   InitPlan 1
+     ->  Aggregate
+           Output: pdb.expand('sofa'::text, (parse_synonyms.rule)::text)
+           ->  Seq Scan on public.parse_synonyms
+                 Output: parse_synonyms.rule
+(14 rows)
+
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "parse_synonyms" has no synonym index for these rules with the tokenizer of field `description`. To disable this warning: SET paradedb.planner_warnings = 'off'
+ id 
+----
+  1
+  2
+  3
+(3 rows)
+
+-- With a synonym index on the rule column, the query reads the index.
+CREATE INDEX parse_synonyms_idx ON parse_synonyms USING paradedb (rule);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms);
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.parse_products
+   Output: id
+   Table: parse_products
+   Index: parse_products_idx
+   Worker Selection: Cost model
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"sofa","lenient":null,"conjunction_mode":null}}}}
+   Synonyms: parse_synonyms_idx
+(10 rows)
+
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+(3 rows)
+
+-- The operators of the query string apply to the group of a word, so `-sofa` also removes the
+-- rows with `couch`.
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('red -sofa', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  9
+(1 row)
+
+-- A word in a group or with a boost expands too.
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('(sofa^2 OR chair) AND red', rule) FROM parse_synonyms)
+ORDER BY id;
+ id 
+----
+  1
+  2
+  9
+(3 rows)
+
+-- A quoted phrase expands as the phrase operator does, and it keeps its slop.
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('"sofa red"~2', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- An alternative can have more or fewer words than the words it replaces. The words after it
+-- keep their distance to it.
+SELECT id FROM parse_products
+WHERE description @@@ (
+    SELECT pdb.expand('"sneakers sale" OR "trail shoes sale"', rule) FROM parse_synonyms
+) ORDER BY id;
+ id 
+----
+ 12
+ 13
+(2 rows)
+
+-- A stop word leaves a gap in a quoted phrase, and each phrase keeps the gap. No synonym index
+-- has the tokenizer of this field, so the subquery runs as written.
+CREATE TABLE parse_notes (id int PRIMARY KEY, note text);
+INSERT INTO parse_notes VALUES
+    (1, 'sofa of leather'),
+    (2, 'couch of leather'),
+    (3, 'couch leather');
+CREATE INDEX parse_notes_idx ON parse_notes
+    USING bm25 (id, (note::pdb.simple('stopwords_language=English')));
+SELECT id FROM parse_notes
+WHERE note @@@ (SELECT pdb.expand('"sofa of leather"', rule) FROM parse_synonyms) ORDER BY id;
+WARNING:  a `pdb.expand` subquery reads its rules from the table on every query, because "parse_synonyms" has no synonym index for these rules with the tokenizer of field `note`. To disable this warning: SET paradedb.planner_warnings = 'off'
+ id 
+----
+  1
+  2
+(2 rows)
+
+DROP TABLE parse_notes;
+-- A directed rule replaces the typed word with its phrase.
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sneakers', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  4
+ 12
+(2 rows)
+
+-- The parser makes one query for each word, so a rule on `trail shoes` needs the quotes.
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('trail shoes', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  4
+  5
+  8
+ 12
+(4 rows)
+
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('"trail shoes"', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  7
+ 13
+(2 rows)
+
+-- A word for another field stays as typed, so `category:sofa` does not find the category `couch`.
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('category:sofa', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+ 14
+(1 row)
+
+-- A JSON field expands at each of its paths, with the path on the left side or in the query
+-- string.
+SELECT id FROM parse_products
+WHERE metadata->>'seat' @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+ 14
+ 15
+(2 rows)
+
+SELECT id FROM parse_products
+WHERE metadata @@@ (SELECT pdb.expand('seat:sofa', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+ 14
+ 15
+(2 rows)
+
+-- A fuzzy query keeps the typed word fuzzy, so it finds `soda`. It matches the alternatives
+-- exactly, so `couch` does not find `coach`.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms)::pdb.fuzzy(1);
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.parse_products
+   Output: id
+   Table: parse_products
+   Index: parse_products_idx
+   Worker Selection: Cost model
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"sofa","lenient":null,"conjunction_mode":null,"fuzzy_data":{"distance":1,"prefix":false,"transposition_cost_one":false}}}}}
+   Synonyms: parse_synonyms_idx
+(10 rows)
+
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms)::pdb.fuzzy(1)
+ORDER BY id;
+ id 
+----
+  1
+  2
+  3
+ 10
+(4 rows)
+
+-- The setting caps the alternatives of a word, and the typed word stays.
+SET paradedb.synonyms_max_alternatives = 2;
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+RESET paradedb.synonyms_max_alternatives;
+-- A top-k by score of one word stays serial, since Block-WAND prunes one term. A word that a rule
+-- turns into a group can take workers.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('chair', rule) FROM parse_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, (pdb.score(id))
+   ->  Custom Scan (ParadeDB Base Scan) on public.parse_products
+         Output: id, pdb.score(id)
+         Table: parse_products
+         Index: parse_products_idx
+         Worker Selection: Prunable top-K
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"chair","lenient":null,"conjunction_mode":null}}}}
+         Synonyms: parse_synonyms_idx
+(13 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms)
+ORDER BY pdb.score(id) DESC, id LIMIT 2;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, (pdb.score(id))
+   ->  Custom Scan (ParadeDB Base Scan) on public.parse_products
+         Output: id, pdb.score(id)
+         Table: parse_products
+         Index: parse_products_idx
+         Worker Selection: Cost model
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"sofa","lenient":null,"conjunction_mode":null}}}}
+         Synonyms: parse_synonyms_idx
+(13 rows)
+
+-- A generic plan has no text, so it gives the parameter to the index when the query runs.
+PREPARE parse_sofa(text) AS SELECT id FROM parse_products
+WHERE description @@@ (SELECT pdb.expand($1, rule) FROM parse_synonyms) ORDER BY id;
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) EXECUTE parse_sofa('sofa');
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id
+   Sort Key: parse_products.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.parse_products
+         Output: id
+         Table: parse_products
+         Index: parse_products_idx
+         Worker Selection: Row-capped
+         Exec Method: ColumnarExecState
+         Columnar: id
+         Scores: false
+         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('parse_products_idx'::regclass, paradedb.to_search_query_input('description'::paradedb.fieldname, paradedb.expand_with_index($1, 'parse_synonyms_idx'::regclass)))"}}}
+(12 rows)
+
+EXECUTE parse_sofa('sofa');
+ id 
+----
+  1
+  2
+  3
+(3 rows)
+
+RESET plan_cache_mode;
+DEALLOCATE parse_sofa;
+-- The parser does not use the `search_tokenizer`, so the query reads the synonym index that has
+-- the tokenizer of the field.
+CREATE TABLE parse_stems (id int PRIMARY KEY, title text);
+INSERT INTO parse_stems VALUES (1, 'running shoes'), (2, 'sneakers');
+CREATE INDEX parse_stems_idx ON parse_stems
+    USING bm25 (id, (title::pdb.simple('stemmer=english'))) WITH (search_tokenizer = 'simple');
+CREATE INDEX parse_synonyms_stem_idx ON parse_synonyms
+    USING paradedb ((rule::pdb.simple('stemmer=english')));
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id FROM parse_stems
+WHERE title @@@ (SELECT pdb.expand('sneakers', rule) FROM parse_synonyms);
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on public.parse_stems
+   Output: id
+   Table: parse_stems
+   Index: parse_stems_idx
+   Worker Selection: Cost model
+   Exec Method: ColumnarExecState
+   Columnar: id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"sneakers","lenient":null,"conjunction_mode":null}}}}
+   Synonyms: parse_synonyms_stem_idx
+(10 rows)
+
+SELECT id FROM parse_stems
+WHERE title @@@ (SELECT pdb.expand('sneakers', rule) FROM parse_synonyms) ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+DROP INDEX parse_synonyms_stem_idx;
+DROP TABLE parse_stems;
+-- An alternative of several tokens is a phrase, so the field has to keep positions.
+CREATE TABLE parse_grams (id int PRIMARY KEY, title text);
+INSERT INTO parse_grams VALUES (1, 'sofa');
+CREATE INDEX parse_grams_idx ON parse_grams USING bm25 (id, (title::pdb.ngram(3, 3)));
+SELECT id FROM parse_grams
+WHERE title @@@ (SELECT pdb.expand('sofa', rule) FROM parse_synonyms);
+ERROR:  the synonym `cou ouc uch` of `sof ofa` is a phrase, and field `title` is not indexed with positions
+DROP TABLE parse_grams;
+-- The rules hold words, so the left side has to be a text field.
+SELECT id FROM parse_products
+WHERE id @@@ (SELECT pdb.expand('description:sofa', rule) FROM parse_synonyms);
+ERROR:  `pdb.expand` needs a text field on the left side of `@@@`, and `id` is not one
+DROP TABLE parse_products, parse_synonyms;

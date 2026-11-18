@@ -34,8 +34,9 @@ all clusters, but adaptive stopping can still end the scan early.
 </ParamField>
 
 <Note>
-  Recall also depends on the index's `training_sample_ratio` and
-  `target_leaf_size`, applied whenever a segment is clustered. See [Index
+  Recall also depends on the index's `target_leaf_size` and
+  `training_sample_ratio`. `0` chooses the sample from the leaf size and
+  `maintenance_work_mem`. See [Index
   Options](/reference/indexing/indexing-vectors#index-options).
 </Note>
 

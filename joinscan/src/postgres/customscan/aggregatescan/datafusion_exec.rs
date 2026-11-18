@@ -1442,9 +1442,7 @@ async fn build_source_df(
     // MPP-aware provider setup. Every source gets its segments sliced across PG
     // parallel workers via `parallel_state.checkout_segment_for_source(plan_position)`
     // when this is an MPP plan.
-    let is_mpp = mpp_manifests.is_some()
-        || (crate::postgres::customscan::mpp::glue::mpp_is_active()
-            && ctx.state().config().target_partitions() > 1);
+    let is_mpp = mpp_manifests.is_some() || ctx.state().config().target_partitions() > 1;
     let source_idx = is_mpp.then_some(plan_position);
     let mut provider = PgSearchTableProvider::new(scan_info, fields.clone(), source_idx);
     // The leader claims segments out of the DSM pool the same manifests populate, so its own

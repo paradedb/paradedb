@@ -655,6 +655,8 @@ pub struct ParallelScanState {
     vector_routing_cv: ConditionVariable,
 
     spilled: AtomicU32,
+    /// `InList` dynamic filter pushdown cap mode (`Standard` vs `LazySortProbe`) propagated to MPP workers.
+    pub inlist_pushdown_mode: crate::gucs::InListPushdownMode,
 
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
@@ -710,6 +712,7 @@ impl ParallelScanState {
         self.vector_routing_ready = false;
         self.vector_routing_cv.init();
         self.spilled.store(0, Ordering::Relaxed);
+        self.inlist_pushdown_mode = crate::gucs::InListPushdownMode::Standard;
         self.shared_threshold.init();
         self.populate(
             &args.all_sources,

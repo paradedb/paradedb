@@ -1,7 +1,7 @@
 # Permissioned Search, Medium Selectivity (Score Sort)
 
 - **Join**: Single Feature (BM25 Score)
-- **Description**: A Full Text Search (BM25) drives the ranking, restricted by a medium-selectivity foreign filter on `users` (`u.about_me ||| 'software'`). On the 20M dataset, the foreign filter matches 68,087 users (`3.01%`), passing `RankJoinRule` Gate 3 (`>= paradedb.rank_join_unscored_selectivity_threshold = 0.025` and `>= paradedb.rank_join_min_rows = 10,000`) near the crossover where `InList` pushdown exceeds `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`20,000`), so `rank_join*.sql` plan `RankJoinExec` (`NRJN`) with a selectivity-scaled `SA` window on `stackoverflow_posts`.
+- **Description**: A Full Text Search (BM25) drives the ranking, restricted by a medium-selectivity foreign filter on `users` (`u.about_me ||| 'software'`). On the 20M dataset, the foreign filter matches 68,087 users (`3.01%`), below `paradedb.rank_join_unscored_selectivity_threshold` (`0.08`) and above `paradedb.hash_join_inlist_pushdown_max_distinct_values` (`20,000`), so `RankJoinRule` declines both `RankJoinExec` and `lazy_sort` probe execution in favor of parallel `HashJoinExec` + `SortExec(TopK)`.
 
 ## Query Info (statistics from 20M dataset):
 

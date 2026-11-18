@@ -48,37 +48,6 @@ pub fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     "unknown panic payload".to_string()
 }
 
-pub mod glue {
-    use pgrx::pg_sys;
-
-    pub const MIN_TOTAL_WORKER_COUNT: u32 = 3;
-
-    pub fn mpp_is_active() -> bool {
-        producer_worker_cap() >= MIN_TOTAL_WORKER_COUNT - 1
-    }
-
-    pub fn query_allows_parallel_mode(root: &pg_sys::PlannerInfo) -> bool {
-        !root.glob.is_null() && unsafe { (*root.glob).parallelModeOK }
-    }
-
-    pub fn producer_worker_cap() -> u32 {
-        let max_per_gather = unsafe { pg_sys::max_parallel_workers_per_gather };
-        let max_workers = unsafe { pg_sys::max_parallel_workers };
-        max_per_gather.min(max_workers).max(0) as u32
-    }
-
-    #[derive(Default, Clone, Copy, Debug)]
-    pub struct MppLaunchTiming {
-        pub prepare_us: u64,
-        pub plan_us: u64,
-        pub attach_us: u64,
-        pub leader_setup_us: u64,
-        pub exec_us: u64,
-        pub first_frame_us: u64,
-        pub total_us: u64,
-    }
-}
-
 #[macro_export]
 macro_rules! mpp_log {
     ($($arg:tt)*) => {

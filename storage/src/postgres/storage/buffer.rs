@@ -208,9 +208,23 @@ struct UnlockReleaseBufferOnMainThread(pg_sys::Buffer);
 
 crate::impl_safe_drop!(UnlockReleaseBufferOnMainThread, |self| {
     unsafe {
-        if pg_sys::InterruptHoldoffCount > 0
-            && (crate::postgres::utils::IsTransactionState() || pg_sys::InRecovery)
-        {
+        if !crate::postgres::utils::IsTransactionState() && !pg_sys::InRecovery {
+            return;
+        }
+        // Shared buffers (`> 0`) acquire a content LWLock in `LockBuffer`, keeping
+        // `InterruptHoldoffCount > 0` until released or cleared by `(Sub)TransactionAbort`. Local
+        // `TEMP` buffers (`< 0`) take no LWLock in `LockBuffer`, so when `SearchIndexManifest` or
+        // `FFHelper` drops at `EndCustomScan` (outside `HeldInterrupts`), `InterruptHoldoffCount`
+        // is `0`; check `LocalRefCount` directly so local `TEMP` buffer pins do not leak.
+        let still_held = if self.0 < 0 {
+            let bufid = (-self.0 - 1) as isize;
+            !pg_sys::LocalRefCount.is_null()
+                && (bufid as i32) < pg_sys::NLocBuffer
+                && *pg_sys::LocalRefCount.offset(bufid) > 0
+        } else {
+            pg_sys::InterruptHoldoffCount > 0
+        };
+        if still_held {
             pg_sys::UnlockReleaseBuffer(self.0);
         }
     }

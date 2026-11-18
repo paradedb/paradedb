@@ -110,7 +110,7 @@ pub mod pdb {
     #[aggregate_name = "expand"]
     pub struct ExpandAgg;
 
-    /// Makes `|||` and `&&&` expand the tokens of `query` with the rules that the aggregate reads.
+    /// Makes a search operator expand the tokens of `query` with the rules that the aggregate reads.
     #[pgrx::pg_aggregate]
     impl Aggregate<ExpandAgg> for ExpandAgg {
         const PARALLEL: Option<ParallelOption> = Some(ParallelOption::Safe);

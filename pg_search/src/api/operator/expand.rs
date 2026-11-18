@@ -49,12 +49,14 @@ pub fn expand_with_index(query: String, index: IndexOid) -> pdb::Query {
 const MORE: &str = "it does more than read the rules of one table";
 
 /// Replaces the `pdb.expand` subquery in `rhs` with a query on a synonym index of its table, for
-/// a match on `field` of the text index `index`. `None` leaves the subquery to run as written.
+/// a query on `field` of the text index `index`. `None` leaves the subquery to run as written.
+/// `parsed` is for a query parser string.
 pub(super) unsafe fn replace_expand_subquery(
     root: *mut pg_sys::PlannerInfo,
     rhs: *mut pg_sys::Node,
     index: &PgSearchRelation,
     field: &FieldName,
+    parsed: bool,
 ) -> Option<*mut pg_sys::Node> {
     // The replaced plan depends on the role, and only a root can record that.
     if root.is_null() {
@@ -66,7 +68,7 @@ pub(super) unsafe fn replace_expand_subquery(
         }
         expand_call(subquery)
             .ok_or_else(|| MORE.to_owned())
-            .and_then(|expand| synonym_index_query(root, subquery, expand, index, field))
+            .and_then(|expand| synonym_index_query(root, subquery, expand, index, field, parsed))
             .map_err(|reason| {
                 add_planner_warning(
                     "Synonyms",
@@ -274,6 +276,7 @@ unsafe fn synonym_index_query(
     expand: *mut pg_sys::Aggref,
     index: &PgSearchRelation,
     field: &FieldName,
+    parsed: bool,
 ) -> Result<*mut pg_sys::Node, String> {
     let rules = rules_of_one_table(root, subquery, expand)?;
     let synonym_index = synonym_index_of_column(
@@ -282,6 +285,7 @@ unsafe fn synonym_index_query(
         |candidate| holds_rows(candidate, rules.quals),
         index,
         field,
+        parsed,
     )
     .ok_or_else(|| {
         let name = rules.table.name();

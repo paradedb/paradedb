@@ -253,9 +253,9 @@ modelBuilder.Entity<MockItem>()
 </ParamField>
 <ParamField body="target_leaf_size" default={400}>
   The target number of indexed vectors in a cluster. Must be an integer between
-  `1` and `2147483647`. A segment of `n` vectors is split into about
-  `n / target_leaf_size` lists. With `training_sample_ratio = 0`, the default
-  `400` trains on 128 vectors per list, which is 32% of the rows, unless
+  `1` and `2147483647`. A segment of `n` vectors is split into about `n /
+  target_leaf_size` lists. With `training_sample_ratio = 0`, the default `400`
+  trains on 128 vectors per list, which is 32% of the rows, unless
   `maintenance_work_mem` cannot hold that sample.
 </ParamField>
 <ParamField body="vector_router_quantization" default={true}>

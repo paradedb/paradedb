@@ -40,7 +40,7 @@
 //! - Client side ([`worker::DsmGrpcChannelResolver`]): implements `ChannelResolver` using
 //!   `tonic::transport::Endpoint::connect_with_connector_lazy` + `hyper_util::rt::TokioIo` and
 //!   `datafusion_distributed::grpc::create_worker_client`.
-//! - Server side ([`worker::run_mpp_worker`], [`worker::setup_leader_worker`]): runs
+//! - Server side ([`worker::run_mpp_worker`], [`worker::build_mpp_exec_context`]): runs
 //!   `datafusion_distributed::Worker` inside
 //!   `tonic::transport::Server::builder().add_service(worker.into_worker_server()).serve_with_incoming_shutdown(...)`
 //!   on each background worker (`ServerProc(1..=W)`), and also on the leader (`ServerProc(0)`,
@@ -93,7 +93,7 @@
 //!   flag, read their leader-assigned wakeup slot from the DSM mesh, and run
 //!   `serve_with_incoming_shutdown` (and when `parallel_leader_participation = on`, the leader
 //!   installs its `LocalWorkerContext` and spawns its own `ServerProc(0)` server task via
-//!   [`worker::setup_leader_worker`]). The leader executes `DistributedExec`; `QueryCoordinator`
+//!   [`worker::build_mpp_exec_context`]). The leader executes `DistributedExec`; `QueryCoordinator`
 //!   dispatches stage plans over `coordinator_channel`, participating processes stream batches
 //!   over `execute_task`, and `c2w_stream` EOF triggers `Worker::coordinator_channel` to send
 //!   `TaskMetrics` and `TaskCompletedDynamicFilters` back to the leader's

@@ -16,9 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![allow(rustdoc::private_intra_doc_links)]
 
-//! Tonic/gRPC channel resolver (`DsmGrpcChannelResolver`), participating leader worker setup
-//! (`setup_leader_worker`), and MPP background worker server loop (`run_mpp_worker`) over DSM
-//! `AsyncRead`/`AsyncWrite` SPSC byte rings.
+//! Tonic/gRPC channel resolver (`DsmGrpcChannelResolver`), leader session-context builders
+//! (`build_mpp_plan_context` / `build_mpp_exec_context`), and MPP background worker server loop
+//! (`run_mpp_worker`) over DSM `AsyncRead`/`AsyncWrite` SPSC byte rings.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -50,8 +50,7 @@ use crate::postgres::customscan::mpp::dsm_stream::{
     DsmAsyncStream, ServerProc, build_worker_streams, proc_wakeup_slot,
 };
 use crate::postgres::customscan::mpp::glue::{
-    BgWorkerCount, LeaderParticipation, MppLeaderState, WorkerSession,
-    register_worker_streams_on_dsm_detach,
+    BgWorkerCount, MppBudget, MppLeaderState, WorkerSession, register_worker_streams_on_dsm_detach,
 };
 use crate::postgres::customscan::mpp::interrupt::{
     HeldInterrupts, PgTokioRuntime, check_for_interrupts,
@@ -72,17 +71,17 @@ pub struct MppWorkerResolver {
 }
 
 impl MppWorkerResolver {
-    pub fn new(bg_workers: BgWorkerCount, leader: LeaderParticipation) -> Self {
-        let participants = bg_workers.participants(leader);
+    pub fn new(budget: MppBudget) -> Self {
+        let participants = budget.participants();
         assert!(
             participants.is_mpp_active(),
             "MppWorkerResolver requires at least two MPP participants"
         );
         let mut urls = Vec::with_capacity(participants.as_usize());
-        if leader.is_participating() {
+        if budget.leader.is_participating() {
             urls.push(Self::worker_url(ServerProc(0)));
         }
-        urls.extend((1..=bg_workers.get()).map(|w| Self::worker_url(ServerProc(w))));
+        urls.extend((1..=budget.bg_workers.get()).map(|w| Self::worker_url(ServerProc(w))));
         Self { urls }
     }
 
@@ -276,21 +275,48 @@ impl MppMetricsCollection {
     }
 }
 
-/// Build the distributed session context.
+/// Build a distributed `SessionContext` for physical planning or plain `EXPLAIN` (before any DSM
+/// worker channels exist).
+pub(crate) fn build_mpp_plan_context(
+    seed: SessionContext,
+    budget: MppBudget,
+    metrics: MppMetricsCollection,
+) -> SessionContext {
+    build_mpp_session_context(seed, None, budget, metrics)
+}
+
+/// Build the leader's post-launch execution `SessionContext` from `leader` and, when
+/// `leader.leader_participation.is_participating()`, attach the in-process `worker-0`
+/// `LocalWorkerContext` and spawn its `ServerProc(0)` Tonic gRPC server task on `runtime`.
 ///
-/// The leader calls this with `resolver = None` at plan/EXPLAIN time, and with `resolver = Some(...)`
-/// at execution time after launching parallel workers and initializing the DSM rings.
-pub(crate) fn build_mpp_session_context(
+/// Bundling context construction with `setup_leader_worker` guarantees that `MppWorkerResolver`
+/// never advertises `http://worker-0` without a live leader worker serving it.
+pub(crate) fn build_mpp_exec_context(
+    seed: SessionContext,
+    leader: &mut MppLeaderState,
+    runtime: &PgTokioRuntime,
+    leader_spilled: Arc<std::sync::atomic::AtomicBool>,
+    metrics: MppMetricsCollection,
+) -> SessionContext {
+    let exec_ctx = build_mpp_session_context(
+        seed,
+        Some(Arc::clone(&leader.session.resolver)),
+        MppBudget::new(leader.bg_workers, leader.leader_participation),
+        metrics,
+    );
+    setup_leader_worker(leader, exec_ctx, runtime, leader_spilled)
+}
+
+fn build_mpp_session_context(
     seed: SessionContext,
     resolver: Option<Arc<DsmGrpcChannelResolver>>,
-    bg_workers: BgWorkerCount,
-    leader: LeaderParticipation,
+    budget: MppBudget,
     metrics: MppMetricsCollection,
 ) -> SessionContext {
     if let Some(r) = resolver.as_ref() {
-        debug_assert_eq!(r.bg_workers(), bg_workers);
+        debug_assert_eq!(r.bg_workers(), budget.bg_workers);
     }
-    let participants = bg_workers.participants(leader);
+    let participants = budget.participants();
     assert!(
         participants.is_mpp_active(),
         "MPP session contexts require at least two participants"
@@ -313,7 +339,7 @@ pub(crate) fn build_mpp_session_context(
     let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
         .with_distributed_option_extension(DistributedConfig::default())
-        .with_distributed_worker_resolver(MppWorkerResolver::new(bg_workers, leader));
+        .with_distributed_worker_resolver(MppWorkerResolver::new(budget));
 
     if let Some(resolver) = resolver {
         let dyn_resolver: Arc<dyn ChannelResolver + Send + Sync> = resolver;
@@ -488,7 +514,7 @@ fn build_mpp_worker(
 /// `http://worker-0` (`LocalWorkerContext`) onto `exec_ctx` and spawn a Tonic gRPC `Worker` server
 /// on `runtime` over `ServerProc(0)`'s inbound DSM SPSC streams so remote background workers can
 /// also pull shuffle partitions from `worker-0`. No-op when `CoordinatorOnly`.
-pub(crate) fn setup_leader_worker(
+fn setup_leader_worker(
     leader: &mut MppLeaderState,
     exec_ctx: SessionContext,
     runtime: &PgTokioRuntime,
@@ -666,13 +692,21 @@ mod tests {
             .unwrap();
         // Exercise both `(bg_workers = 2, CoordinatorOnly)` and `(bg_workers = 1, Participating)`
         // (including two-stage shuffle between `worker-0` on the leader and `worker-1`).
-        for (bg_workers, leader_mode) in [
-            (BgWorkerCount::new(2), LeaderParticipation::CoordinatorOnly),
-            (BgWorkerCount::new(1), LeaderParticipation::Participating),
+        for budget in [
+            MppBudget::new(
+                BgWorkerCount::new(2),
+                crate::postgres::customscan::mpp::glue::LeaderParticipation::CoordinatorOnly,
+            ),
+            MppBudget::new(
+                BgWorkerCount::new(1),
+                crate::postgres::customscan::mpp::glue::LeaderParticipation::Participating,
+            ),
         ] {
             rt.block_on(async move {
+                let bg_workers = budget.bg_workers;
+                let leader_mode = budget.leader;
                 let n_procs = bg_workers.mesh_procs();
-                let participants = bg_workers.participants(leader_mode).as_usize();
+                let participants = budget.participants().as_usize();
                 let bytes = dsm_region_bytes(n_procs, DEFAULT_SPSC_RING_CAPACITY).unwrap();
                 let mut backing = vec![AlignedBlock([0u8; 64]); bytes.div_ceil(64)];
                 let base = backing.as_mut_ptr() as *mut u8;
@@ -787,10 +821,7 @@ mod tests {
                 let mut builder = SessionStateBuilder::new_from_existing(seed.state())
                     .with_config(cfg)
                     .with_distributed_option_extension(DistributedConfig::default())
-                    .with_distributed_worker_resolver(MppWorkerResolver::new(
-                        bg_workers,
-                        leader_mode,
-                    ))
+                    .with_distributed_worker_resolver(MppWorkerResolver::new(budget))
                     .with_distributed_channel_resolver(dyn_resolver)
                     .with_distributed_desired_task_count_handler(participants)
                     .with_distributed_compression(None)

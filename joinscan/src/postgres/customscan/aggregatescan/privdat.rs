@@ -349,8 +349,8 @@ pub enum PrivateData {
         #[serde(default)]
         having_filter: Option<FilterExpr>,
         /// Plan-time MPP parallel safety decision (`sources_and_exprs_allow_parallel`:
-        /// `PlannerGlobal.parallelModeOK`, no `rowMarks`, non-`TEMP` sources, and parallel-safe
-        /// worker expressions).
+        /// `PlannerGlobal.parallelModeOK`, non-`TEMP` sources, and parallel-safe worker
+        /// expressions).
         parallel_mode_ok: bool,
     },
 }

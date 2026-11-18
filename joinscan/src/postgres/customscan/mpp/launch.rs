@@ -54,7 +54,7 @@ use crate::parallel_worker::{
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::{
-    BgWorkerCount, LeaderParticipation, MppLeaderState, bg_worker_cap, collect_stages,
+    BgWorkerCount, LeaderParticipation, MppBudget, MppLeaderState, bg_worker_cap, collect_stages,
     debug_parallel_query_is_active, estimate_dsm_size, leader_setup, max_producer_task_count,
     worker_setup,
 };
@@ -208,8 +208,8 @@ fn run_launched_worker(seg: *mut pg_sys::dsm_segment, state_manager: ParallelSta
     run_mpp_worker(inputs, &runtime);
 }
 
-/// Compute the effective `(BgWorkerCount, LeaderParticipation)` budget when a scan over `plan`
-/// qualifies for MPP, or `None` when MPP is ineligible or gated off.
+/// Compute the effective [`MppBudget`] when a scan over `plan` qualifies for MPP, or `None` when
+/// MPP is ineligible or gated off.
 ///
 /// Enforces three checks in a single pass over `plan.sources()`:
 /// 1. `parallel_mode_ok`: the statement, absorbed sources, and pushed-down expressions allow
@@ -231,10 +231,7 @@ fn run_launched_worker(seg: *mut pg_sys::dsm_segment, state_manager: ParallelSta
 ///
 /// Shared by plan-time mode selection, plain-`EXPLAIN` rebuilds, and execution-time launch so all
 /// three agree.
-pub(crate) fn mpp_budget(
-    parallel_mode_ok: bool,
-    plan: &RelNode,
-) -> Option<(BgWorkerCount, LeaderParticipation)> {
+pub(crate) fn mpp_budget(parallel_mode_ok: bool, plan: &RelNode) -> Option<MppBudget> {
     if !parallel_mode_ok {
         return None;
     }
@@ -283,34 +280,32 @@ pub(crate) fn mpp_budget(
         return None;
     }
 
-    Some((bg_cap, leader))
+    Some(MppBudget::new(bg_cap, leader))
 }
 
 /// Decide on the first `exec_custom_scan` pull whether to attempt an MPP launch, returning the
-/// scan's background-worker ceiling and leader-participation mode when eligible.
+/// scan's [`MppBudget`] when eligible.
 ///
 /// PostgreSQL's `ExecutePlan` (`execMain.c`) sets `estate->es_use_parallel_mode` only at
 /// `ExecutorRun` time: it stays `false` throughout `ExecutorStart` (`begin_custom_scan`) and is
 /// left `false` on partial portal fetches (`Execute` with `max_rows > 0`), `SPI_execute(...,
 /// tcount > 0)`, and PL/pgSQL `FOR` loops, matching `ExecGather` (`nodeGather.c`). Checking here
-/// once on the first tuple pull refreshes per-table `parallel_workers` reloptions for cached
-/// `PREPARE` plans and avoids preparing MPP state during `begin_custom_scan` only to revert it on
-/// partial fetches or unpulled (`LIMIT 0`) scans.
+/// once on the first tuple pull avoids preparing MPP state during `begin_custom_scan` only to
+/// revert it on partial fetches or unpulled (`LIMIT 0`) scans.
 ///
 /// # Safety
 /// `estate` must be either null or a valid `EState` pointer for the active executor run.
 pub(crate) unsafe fn exec_mpp_budget(
     estate: *mut pg_sys::EState,
     parallel_mode_ok: bool,
-    plan: &mut RelNode,
-) -> Option<(BgWorkerCount, LeaderParticipation)> {
+    plan: &RelNode,
+) -> Option<MppBudget> {
     if pg_sys::ParallelWorkerNumber != -1 {
         return None;
     }
     if !estate.is_null() && !(*estate).es_use_parallel_mode {
         return None;
     }
-    plan.refresh_parallel_workers();
     mpp_budget(parallel_mode_ok, plan)
 }
 
@@ -351,8 +346,7 @@ fn gated_by_min_rows(
 pub unsafe fn launch_mpp(
     // `es_parallel_workers_to_launch` / `es_parallel_workers_launched` were added in PG18.
     #[cfg_attr(not(feature = "pg18"), allow(unused_variables))] estate: *mut pg_sys::EState,
-    scan_bg_cap: BgWorkerCount,
-    leader_participation: LeaderParticipation,
+    budget: MppBudget,
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
 ) -> Option<MppLeaderState> {
@@ -362,13 +356,9 @@ pub unsafe fn launch_mpp(
 
     // Task counts were capped by `target_partitions = participants` at plan time and reflect
     // segment counts (#5657). Same `max_tasks >= 2` gate as plain EXPLAIN (#5784).
-    let requested_bg = BgWorkerCount::for_stage_tasks(
-        max_producer_task_count(&stages),
-        scan_bg_cap,
-        leader_participation,
-    )?;
+    let requested_bg = budget.for_stage_tasks(max_producer_task_count(&stages))?;
 
-    let min_mesh_procs = leader_participation.min_mpp_bg_workers().mesh_procs() as usize;
+    let min_mesh_procs = budget.leader.min_mpp_bg_workers().mesh_procs() as usize;
     if !has_available_wakeup_slots(min_mesh_procs) {
         pgrx::warning!("mpp: wakeup slot pool exhausted; running serially");
         return None;
@@ -422,7 +412,7 @@ pub unsafe fn launch_mpp(
     crate::mpp_log!(
         "launch: spawning {} producers (leader_participation={:?})",
         requested_bg.get(),
-        leader_participation
+        budget.leader
     );
     #[cfg(feature = "pg18")]
     if !estate.is_null() {
@@ -443,7 +433,7 @@ pub unsafe fn launch_mpp(
 
     let go = unsafe { go_flag(finish.state_manager()) };
 
-    match mpp_attach_outcome(requested_bg, launched, leader_participation) {
+    match mpp_attach_outcome(requested_bg, launched, budget.leader) {
         Ok(MppAttachOutcome::SerialFallback) => {
             // The machine could not attach enough background workers for an active MPP mesh.
             // Any launched worker is still on the go flag with no rings attached; release it
@@ -502,8 +492,7 @@ pub unsafe fn launch_mpp(
     // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
     let mut leader =
-        match unsafe { leader_setup(mesh_ptr, launched, leader_participation, wakeup_reservation) }
-        {
+        match unsafe { leader_setup(mesh_ptr, launched, budget.leader, wakeup_reservation) } {
             Ok(l) => l,
             Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
         };

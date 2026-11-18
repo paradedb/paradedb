@@ -766,10 +766,10 @@ impl PhysicalOptimizerRule for RangeCoPartitionedJoinRule {
     fn optimize(
         &self,
         plan: Arc<dyn ExecutionPlan>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         if !crate::gucs::enable_range_partitioned_join()
-            || _config
+            || config
                 .extensions
                 .get::<datafusion_distributed::DistributedConfig>()
                 .is_none()

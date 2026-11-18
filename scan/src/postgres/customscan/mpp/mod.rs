@@ -101,25 +101,41 @@ pub mod glue {
                 ParticipantCount(self.0.saturating_add(leader.leader_share()))
             }
         }
+    }
+
+    /// Background-worker ceiling paired with the leader's participation mode for an MPP scan.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct MppBudget {
+        pub bg_workers: BgWorkerCount,
+        pub leader: LeaderParticipation,
+    }
+
+    impl MppBudget {
+        pub const fn new(bg_workers: BgWorkerCount, leader: LeaderParticipation) -> Self {
+            Self { bg_workers, leader }
+        }
+
+        pub const fn participants(self) -> ParticipantCount {
+            self.bg_workers.participants(self.leader)
+        }
 
         /// Background workers to request for a distributed plan whose widest producer stage has
-        /// `max_tasks` tasks, bounded by `cap` and `leader`. Returns `None` when either the stage
-        /// task count or `cap` cannot form an active `>= 2`-participant MPP mesh.
-        pub fn for_stage_tasks(
-            max_tasks: usize,
-            cap: Self,
-            leader: LeaderParticipation,
-        ) -> Option<Self> {
-            let min_bg = leader.min_mpp_bg_workers();
-            if max_tasks < ParticipantCount::MIN_MPP_PARTICIPANTS as usize || cap < min_bg {
+        /// `max_tasks` tasks, bounded by `self.bg_workers` and `self.leader`. Returns `None` when
+        /// either the stage task count or `self.bg_workers` cannot form an active
+        /// `>= 2`-participant MPP mesh.
+        pub fn for_stage_tasks(self, max_tasks: usize) -> Option<BgWorkerCount> {
+            let min_bg = self.leader.min_mpp_bg_workers();
+            if max_tasks < ParticipantCount::MIN_MPP_PARTICIPANTS as usize
+                || self.bg_workers < min_bg
+            {
                 return None;
             }
             let tasks_u32 = u32::try_from(max_tasks).unwrap_or(u32::MAX);
-            Some(Self(
+            Some(BgWorkerCount(
                 tasks_u32
-                    .saturating_sub(leader.leader_share())
+                    .saturating_sub(self.leader.leader_share())
                     .max(min_bg.get())
-                    .min(cap.get()),
+                    .min(self.bg_workers.get()),
             ))
         }
     }
@@ -188,16 +204,7 @@ pub mod glue {
     }
 
     pub fn query_allows_parallel_mode(root: &pg_sys::PlannerInfo) -> bool {
-        if root.glob.is_null() || unsafe { !(*root.glob).parallelModeOK } {
-            return false;
-        }
-        if !root.rowMarks.is_null() {
-            return false;
-        }
-        if !root.parse.is_null() && unsafe { !(*root.parse).rowMarks.is_null() } {
-            return false;
-        }
-        true
+        !root.glob.is_null() && unsafe { (*root.glob).parallelModeOK }
     }
 
     #[pgrx::pg_guard]

@@ -123,7 +123,7 @@ pub struct MppLeaderState {
     /// Active leader session handle holding the gRPC channel resolver and DSM shutdown handle.
     pub session: LeaderSession,
     /// Incoming server streams for `ServerProc(0)` when `leader_participation.is_participating()`,
-    /// consumed by `setup_leader_worker` before execution starts.
+    /// consumed by `build_mpp_exec_context` before execution starts.
     pub server_streams: Option<LeaderServerStreams>,
     /// Number of attached parallel background workers (`1..=W`) in this mesh.
     pub bg_workers: BgWorkerCount,
@@ -136,6 +136,68 @@ pub struct MppLeaderState {
     pub finish: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
     /// Per-phase launch timing the leader fills in as it commits, for `EXPLAIN ANALYZE`.
     pub timing: MppLaunchTiming,
+}
+
+/// Runtime MPP lifecycle for a single `CustomScanState` across its `ExecutorRun` (including
+/// `ReScanCustomScan` iterations).
+#[derive(Default)]
+pub enum MppLifecycle {
+    /// Serial execution: plan-time ineligible (`!parallel_mode_ok`), a `launch_mpp` attempt fell
+    /// back to serial, or `EndCustomScan` tore down the scan. Once `Disabled`, rescans in the same
+    /// `ExecutorRun` stay serial without retrying worker launch.
+    #[default]
+    Disabled,
+    /// Eligible to attempt MPP on the next initial tuple pull (`exec_custom_scan` or after a
+    /// rescan of an `Active` launch).
+    Eligible,
+    /// Active distributed execution holding the leader's DSM mesh and worker handles.
+    Active(Box<MppLeaderState>),
+}
+
+impl MppLifecycle {
+    pub fn from_plan(parallel_mode_ok: bool) -> Self {
+        if parallel_mode_ok {
+            Self::Eligible
+        } else {
+            Self::Disabled
+        }
+    }
+
+    pub fn active(leader: MppLeaderState) -> Self {
+        Self::Active(Box::new(leader))
+    }
+
+    pub fn is_eligible(&self) -> bool {
+        matches!(self, Self::Eligible)
+    }
+
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Active(_))
+    }
+
+    pub fn as_leader(&self) -> Option<&MppLeaderState> {
+        match self {
+            Self::Active(leader) => Some(leader),
+            Self::Disabled | Self::Eligible => None,
+        }
+    }
+
+    pub fn as_leader_mut(&mut self) -> Option<&mut MppLeaderState> {
+        match self {
+            Self::Active(leader) => Some(leader),
+            Self::Disabled | Self::Eligible => None,
+        }
+    }
+}
+
+/// Whether [`teardown_mpp_scan`] is resetting for `ReScanCustomScan` or ending at `EndCustomScan`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MppTeardown {
+    /// Transition an `Active` scan back to [`MppLifecycle::Eligible`] so the next rescan launches
+    /// workers again, while preserving [`MppLifecycle::Disabled`] after a serial fallback.
+    Rescan,
+    /// Permanently transition to [`MppLifecycle::Disabled`].
+    EndScan,
 }
 
 /// Initialize the leader's DSM SPSC ring mesh using a pre-reserved [`WakeupSlotReservation`] and
@@ -469,44 +531,56 @@ pub fn shutdown_mpp_scan(
     stream: &mut Option<SendableRecordBatchStream>,
     runtime: Option<&PgTokioRuntime>,
     physical_plan: Option<&Arc<dyn ExecutionPlan>>,
-    mpp: &mut Option<MppLeaderState>,
+    mpp: &mut MppLifecycle,
     spilled: &AtomicBool,
 ) {
-    if let Some(leader) = mpp.as_ref() {
+    if let Some(leader) = mpp.as_leader() {
         *stream = None;
         finish_leader_execution(runtime, physical_plan, leader);
     }
-    if let Some(leader) = mpp.as_mut()
+    if let Some(leader) = mpp.as_leader_mut()
         && let Some(finish) = leader.finish.as_mut()
     {
         let _ = finish.recv();
     }
     warn_if_spilled(
         spilled,
-        mpp.as_ref().and_then(|leader| leader.finish.as_ref()),
+        mpp.as_leader().and_then(|leader| leader.finish.as_ref()),
     );
 }
 
 /// Shared `EndCustomScan` and `ReScanCustomScan` teardown for `JoinScan` and `AggregateScan`:
-/// drops `stream`, shuts down the leader session (or quiesces serial tasks), takes the leader out
-/// of `mpp`, clears `current_batch`, `physical_plan`, and `runtime` before the DSM is destroyed,
-/// and joins and destroys the parallel worker context while folding any worker spill flag into
-/// `spilled`.
+/// drops `stream`, shuts down the leader session (or quiesces serial tasks), transitions `mpp`
+/// according to `teardown`, clears `current_batch`, `physical_plan`, and `runtime` before the DSM
+/// is destroyed, and joins and destroys the parallel worker context while folding any worker spill
+/// flag into `spilled`.
 pub fn teardown_mpp_scan(
     stream: &mut Option<SendableRecordBatchStream>,
     current_batch: &mut Option<RecordBatch>,
     physical_plan: &mut Option<Arc<dyn ExecutionPlan>>,
     runtime: &mut Option<PgTokioRuntime>,
-    mpp: &mut Option<MppLeaderState>,
+    mpp: &mut MppLifecycle,
     spilled: &AtomicBool,
+    teardown: MppTeardown,
 ) {
     *stream = None;
-    if let Some(leader) = mpp.as_ref() {
+    if let Some(leader) = mpp.as_leader() {
         finish_leader_execution(runtime.as_ref(), physical_plan.as_ref(), leader);
     } else if let Some(rt) = runtime.as_ref() {
         rt.quiesce_tasks();
     }
-    let finish = mpp.take().and_then(|mut leader| leader.finish.take());
+    let next_state = match (&*mpp, teardown) {
+        (MppLifecycle::Active(_) | MppLifecycle::Eligible, MppTeardown::Rescan) => {
+            MppLifecycle::Eligible
+        }
+        (MppLifecycle::Disabled, MppTeardown::Rescan) | (_, MppTeardown::EndScan) => {
+            MppLifecycle::Disabled
+        }
+    };
+    let finish = match std::mem::replace(mpp, next_state) {
+        MppLifecycle::Active(mut leader) => leader.finish.take(),
+        MppLifecycle::Disabled | MppLifecycle::Eligible => None,
+    };
     // Drop order: the physical plan and session hold DSM stream references, so both must go before
     // the DSM is destroyed below, and the stream/plan must go before the runtime.
     *current_batch = None;

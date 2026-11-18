@@ -910,6 +910,39 @@ impl JoinLevelExpr {
             }
         }
     }
+
+    /// Collect all PostgreSQL expression nodes reachable from this `JoinLevelExpr` (`SearchQueryInput`
+    /// expressions, `MultiTablePredicate`s, and `PgExpression` join filters) for MPP parallel-hazard
+    /// checking.
+    ///
+    /// # Safety
+    /// Must be called within a valid PostgreSQL memory context (may call `stringToNode`).
+    pub unsafe fn collect_parallel_hazard_exprs(&self, out: &mut Vec<*mut pg_sys::Node>) {
+        match self {
+            Self::SingleTablePredicate { predicate, .. } => {
+                predicate.query.collect_expression_nodes_into(out);
+            }
+            Self::MultiTablePredicate { predicate } => {
+                unsafe { push_serialized_pg_node(&predicate.pg_node_string, out) };
+            }
+            Self::PgExpression { pg_node_string, .. } => {
+                unsafe { push_serialized_pg_node(pg_node_string, out) };
+            }
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    unsafe { c.collect_parallel_hazard_exprs(out) };
+                }
+            }
+            Self::Not(inner) => unsafe { inner.collect_parallel_hazard_exprs(out) },
+            Self::MarkOrNull { .. } => {}
+        }
+    }
+}
+
+unsafe fn push_serialized_pg_node(expr_str: &str, out: &mut Vec<*mut pg_sys::Node>) {
+    if let Ok(cstr) = std::ffi::CString::new(expr_str) {
+        out.push(unsafe { pg_sys::stringToNode(cstr.as_ptr()).cast() });
+    }
 }
 
 /// Represents a PostgreSQL RTI of a LATERAL unnest function RTE.
@@ -1412,32 +1445,39 @@ impl RelNode {
         result
     }
 
-    /// Re-read each source relation's `parallel_workers` reloption from the relation cache so
-    /// `ALTER TABLE ... SET (parallel_workers = N)` takes effect on cached prepared plans too.
-    pub fn refresh_parallel_workers(&mut self) {
-        for source in self.sources_mut() {
-            let heap_rel = PgSearchRelation::open(source.scan_info.heaprelid);
-            source.scan_info.rel_parallel_workers = heap_rel.parallel_workers();
-        }
-    }
-
-    /// Collect all raw `Expr*` nodes from `HeapFilter`s, `PostgresExpression`s, and serialized
-    /// vector `ORDER BY` expressions in this subtree for PostgreSQL `is_parallel_safe` checking.
+    /// Collect all raw `Expr*` nodes from `HeapFilter`s, `PostgresExpression`s, join-level
+    /// `MultiTablePredicate` / `PgExpression` filters, and serialized vector `ORDER BY`
+    /// expressions in this subtree for MPP parallel-hazard checking.
     ///
     /// # Safety
     /// Must be called within a valid PostgreSQL memory context (may call `stringToNode`).
     pub unsafe fn collect_parallel_hazard_exprs(&self, out: &mut Vec<*mut pg_sys::Node>) {
-        self.visit_queries(&mut |q| q.collect_expression_nodes_into(out));
-        for source in self.sources() {
-            if let Some(ref vec_ob) = source.scan_info.vector_order_by
-                && let crate::api::OrderByFeature::VectorDistance {
-                    query_vector: crate::api::QueryVector::Expr(ref expr_str),
-                    ..
-                } = vec_ob.feature
-                && let Ok(cstr) = std::ffi::CString::new(expr_str.as_str())
-            {
-                out.push(unsafe { pg_sys::stringToNode(cstr.as_ptr()).cast() });
+        match self {
+            RelNode::Scan(source) => {
+                for q in source.scan_info.mode.queries() {
+                    q.collect_expression_nodes_into(out);
+                }
+                if let Some(ref vec_ob) = source.scan_info.vector_order_by
+                    && let crate::api::OrderByFeature::VectorDistance {
+                        query_vector: crate::api::QueryVector::Expr(ref expr_str),
+                        ..
+                    } = vec_ob.feature
+                {
+                    unsafe { push_serialized_pg_node(expr_str, out) };
+                }
             }
+            RelNode::Join(j) => {
+                unsafe { j.left.collect_parallel_hazard_exprs(out) };
+                unsafe { j.right.collect_parallel_hazard_exprs(out) };
+                if let Some(ref filter) = j.filter {
+                    unsafe { filter.collect_parallel_hazard_exprs(out) };
+                }
+            }
+            RelNode::Filter(f) => {
+                unsafe { f.input.collect_parallel_hazard_exprs(out) };
+                unsafe { f.predicate.collect_parallel_hazard_exprs(out) };
+            }
+            RelNode::Unnest(u) => unsafe { u.input.collect_parallel_hazard_exprs(out) },
         }
     }
 
@@ -2158,17 +2198,14 @@ impl JoinCSClause {
                 query_vector: crate::api::QueryVector::Expr(ref expr_str),
                 ..
             } = ob.feature
-                && let Ok(cstr) = std::ffi::CString::new(expr_str.as_str())
             {
-                out.push(unsafe { pg_sys::stringToNode(cstr.as_ptr()).cast() });
+                unsafe { push_serialized_pg_node(expr_str, out) };
             }
         }
         if let Some(ref projections) = self.output_projection {
             for proj in projections {
-                if let ChildProjection::Expression { pg_expr_string, .. } = proj
-                    && let Ok(cstr) = std::ffi::CString::new(pg_expr_string.as_str())
-                {
-                    out.push(unsafe { pg_sys::stringToNode(cstr.as_ptr()).cast() });
+                if let ChildProjection::Expression { pg_expr_string, .. } = proj {
+                    unsafe { push_serialized_pg_node(pg_expr_string, out) };
                 }
             }
         }

@@ -336,7 +336,7 @@ fn reloption_parallel_workers(mut serial_conn: SerialConn) {
     );
 
     // 2. MPP (`JoinScan` + `AggregateScan`): per-table caps, mixed `(0, 2)` max, `mpp_min_rows`
-    //    bypass when `parallel_workers > 0`, and cached generic `PREPARE` refresh.
+    //    bypass when `parallel_workers > 0`, and cached generic `PREPARE` invalidation.
     let join_sql = "SELECT u.id FROM ws_users u JOIN ws_products p ON u.age = p.age \
                     WHERE u.name === 'bob' ORDER BY u.id LIMIT 50";
     let agg_sql = "SELECT p.age, count(*)::bigint FROM ws_users u JOIN ws_products p ON u.age = p.age \
@@ -377,7 +377,7 @@ fn reloption_parallel_workers(mut serial_conn: SerialConn) {
         }
     }
 
-    // Generic `PREPARE` refreshes `parallel_workers` across `ALTER TABLE`.
+    // Generic `PREPARE` invalidates and replans with updated `parallel_workers` across `ALTER TABLE`.
     r#"
     SET paradedb.mpp_min_rows TO 0;
     SET parallel_leader_participation TO on;
@@ -635,9 +635,14 @@ fn gather_parallel_hazards_and_portal_fetches(mut serial_conn: SerialConn) {
     //    - Worker heap filter, `PostgresExpression` predicate with `PARALLEL RESTRICTED` function,
     //      `SELECT DISTINCT`, and `FOR UPDATE` all run serially.
     r#"
+    SELECT set_config('probe.leader_pid', pg_backend_pid()::text, false);
+
     CREATE FUNCTION ws_restricted_id(x int) RETURNS int
     LANGUAGE plpgsql IMMUTABLE PARALLEL RESTRICTED AS $$
     BEGIN
+        IF pg_backend_pid()::text <> current_setting('probe.leader_pid') THEN
+            RAISE EXCEPTION 'restricted function ran in parallel worker';
+        END IF;
         RETURN x;
     END;
     $$;
@@ -645,6 +650,9 @@ fn gather_parallel_hazards_and_portal_fetches(mut serial_conn: SerialConn) {
     CREATE FUNCTION ws_restricted_term(t text) RETURNS pdb.query
     LANGUAGE plpgsql STABLE PARALLEL RESTRICTED AS $$
     BEGIN
+        IF pg_backend_pid()::text <> current_setting('probe.leader_pid') THEN
+            RAISE EXCEPTION 'restricted function ran in parallel worker';
+        END IF;
         RETURN pdb.term(t);
     END;
     $$;
@@ -671,6 +679,20 @@ fn gather_parallel_hazards_and_portal_fetches(mut serial_conn: SerialConn) {
         ),
         (
             "ParadeDB Join Scan",
+            "SELECT u.id FROM ws_users u \
+             JOIN ws_products p ON u.age = p.age AND ws_restricted_id(u.age) <= p.id \
+             WHERE u.name === 'bob' ORDER BY u.id LIMIT 10",
+        ),
+        (
+            "ParadeDB Join Scan",
+            "SELECT u.id FROM ws_users u \
+             WHERE u.name === 'bob' AND EXISTS ( \
+                 SELECT 1 FROM ws_products p \
+                 WHERE p.age = u.age AND ws_restricted_id(u.age) <= p.id \
+             ) ORDER BY u.id LIMIT 10",
+        ),
+        (
+            "ParadeDB Join Scan",
             "SELECT u.id FROM ws_users u JOIN ws_products p ON u.age = p.age \
              WHERE u.name @@@ ws_restricted_term('bob') ORDER BY u.id LIMIT 10",
         ),
@@ -678,6 +700,20 @@ fn gather_parallel_hazards_and_portal_fetches(mut serial_conn: SerialConn) {
             "ParadeDB Aggregate Scan",
             "SELECT p.age, count(*) FROM ws_users u JOIN ws_products p ON u.age = p.age \
              WHERE u.name @@@ ws_restricted_term('bob') GROUP BY p.age ORDER BY p.age LIMIT 5",
+        ),
+        (
+            "ParadeDB Aggregate Scan",
+            "SELECT count(*) FROM ws_users u \
+             JOIN ws_products p ON u.age = p.age AND ws_restricted_id(u.age) <= p.id \
+             WHERE u.name === 'bob'",
+        ),
+        (
+            "ParadeDB Aggregate Scan",
+            "SELECT count(*) FROM ws_users u \
+             WHERE u.name === 'bob' AND EXISTS ( \
+                 SELECT 1 FROM ws_products p \
+                 WHERE p.age = u.age AND ws_restricted_id(u.age) <= p.id \
+             )",
         ),
         (
             "ParadeDB Join Scan",

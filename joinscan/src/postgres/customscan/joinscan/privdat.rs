@@ -117,8 +117,7 @@ pub struct PrivateData {
     /// plan node is not translator-compatible.
     pub custom_exprs_string: Option<String>,
     /// Plan-time MPP parallel safety decision (`sources_and_exprs_allow_parallel`:
-    /// `PlannerGlobal.parallelModeOK`, no `rowMarks`, non-`TEMP` sources, and parallel-safe worker
-    /// expressions).
+    /// `PlannerGlobal.parallelModeOK`, non-`TEMP` sources, and parallel-safe worker expressions).
     pub parallel_mode_ok: bool,
 }
 

@@ -17,7 +17,7 @@ For example, this query returns the top 3 search results alongside the total num
 ```sql SQL
 SELECT
   id, description, rating,
-  pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+  pdb.agg('{"filter": "*"}') OVER ()
 FROM mock_items
 WHERE category === 'electronics'
 ORDER BY rating DESC
@@ -33,7 +33,7 @@ await db
     id: mockItems.id,
     description: mockItems.description,
     rating: mockItems.rating,
-    agg: search.agg({ value_count: { field: "id" } }).over(),
+    agg: search.agg({ filter: "*" }).over(),
   })
   .from(mockItems)
   .where(
@@ -55,7 +55,7 @@ MockItem.objects.filter(
 ).values(
     'id', 'description', 'rating'
 ).annotate(
-    agg=Window(expression=Agg('{"value_count": {"field": "id"}}'))
+    agg=Window(expression=Agg('{"filter": "*"}'))
 ).order_by('-rating')[:3]
 ```
 
@@ -74,7 +74,7 @@ base = (
     .limit(3)
 )
 
-stmt = facets.with_rows(base, agg=facets.value_count(field="id"), field=MockItem.id)
+stmt = facets.with_rows(base, agg={"filter": "*"}, field=MockItem.id)
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
@@ -85,7 +85,7 @@ with Session(engine) as session:
 ```ruby Rails
 relation = MockItem.search(:category)
                    .term("electronics")
-                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .with_agg(agg: { filter: "*" })
                    .select(:id, :description, :rating)
                    .order(rating: :desc)
                    .limit(3)
@@ -103,7 +103,7 @@ await dbContext
         item.Id,
         item.Description,
         item.Rating,
-        Agg = EF.Functions.AggOver(new { value_count = new { field = "id" } })
+        Agg = EF.Functions.AggOver(new { filter = "*" })
     })
     .Take(3)
     .ToListAsync();
@@ -114,9 +114,9 @@ await dbContext
 ```ini Expected Response
  id |         description         | rating |      agg
 ----+-----------------------------+--------+----------------
- 12 | Innovative wireless earbuds |      5 | {"value": 5.0}
-  1 | Ergonomic metal keyboard    |      4 | {"value": 5.0}
-  2 | Plastic Keyboard            |      4 | {"value": 5.0}
+ 12 | Innovative wireless earbuds |      5 | {"doc_count": 5}
+  1 | Ergonomic metal keyboard    |      4 | {"doc_count": 5}
+  2 | Plastic Keyboard            |      4 | {"doc_count": 5}
 (3 rows)
 ```
 
@@ -127,6 +127,8 @@ await dbContext
 </Note>
 
 ## Facets with `GROUP BY`
+
+The grouped facet below uses `value_count` because `pdb.combine_agg` runs on the aggregation path that does not support `filter` JSON aggregates. Since `id` is a non-null scalar field, its value count equals the row count, at the cost of reading its columnar data.
 
 In a `GROUP BY` query, a bare `pdb.agg(...)` computes an aggregation per group. To compute a single facet across all matching rows alongside grouped results, wrap `pdb.agg(...)` in `pdb.combine_agg(...) OVER ()`:
 

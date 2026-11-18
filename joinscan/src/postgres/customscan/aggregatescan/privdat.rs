@@ -349,7 +349,9 @@ pub enum PrivateData {
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
         having_filter: Option<FilterExpr>,
-        /// PostgreSQL's statement-wide `PlannerGlobal.parallelModeOK` decision.
+        /// Plan-time MPP parallel safety decision (`sources_and_exprs_allow_parallel`:
+        /// `PlannerGlobal.parallelModeOK`, non-`TEMP` sources, and parallel-safe worker
+        /// expressions).
         parallel_mode_ok: bool,
     },
 }

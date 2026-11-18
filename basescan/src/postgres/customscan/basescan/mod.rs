@@ -76,7 +76,8 @@ use crate::postgres::customscan::orderby::{
     PathKeyInfo, UnusableReason, extract_pathkey_styles_with_sortability_check,
 };
 use crate::postgres::customscan::parallel::{
-    RowEstimate, compute_nworkers, max_useful_workers, segment_view,
+    QualParallelDependency, RelParallelWorkers, RowEstimate, ScanParallelStructure,
+    compute_nworkers, max_useful_workers, segment_view,
 };
 use crate::postgres::customscan::projections::{
     PlaceholderColumn, PlaceholderColumns, inject_placeholders, pullout_funcexprs,
@@ -1144,17 +1145,7 @@ impl CustomScan for BaseScan {
                         _ => None,
                     });
             let is_vector_topk = vector_field.is_some();
-            let available_workers = |segment_count| {
-                if (*rel).consider_parallel {
-                    max_useful_workers(
-                        segment_count,
-                        quals.contains_external_var(),
-                        quals.contains_correlated_param(root),
-                    )
-                } else {
-                    0
-                }
-            };
+            let rel_parallel_workers = RelParallelWorkers::from_pg((*rel).rel_parallel_workers);
 
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
@@ -1215,6 +1206,18 @@ impl CustomScan for BaseScan {
                     estimation_query.resolve(query.clone()).ok(),
                 )
             });
+            let parallel_structure = ScanParallelStructure {
+                segment_count,
+                rel_parallel_workers,
+                qual_dependency: QualParallelDependency::from_quals(&quals, root),
+            };
+            let available_workers = || {
+                if (*rel).consider_parallel {
+                    max_useful_workers(parallel_structure)
+                } else {
+                    0
+                }
+            };
 
             // Use planning_estimate for costing so parameterized limits still
             // contribute a non-zero row estimate (otherwise the parallel-worker
@@ -1335,7 +1338,7 @@ impl CustomScan for BaseScan {
                     });
                     WorkerPathPolicy::for_vector_topk(
                         strategy,
-                        available_workers(segment_count),
+                        available_workers(),
                         work,
                         parallel_leader_participates,
                     )
@@ -1352,10 +1355,8 @@ impl CustomScan for BaseScan {
                         is_sorted,
                         limit: float_limit,
                         base_result_rows,
-                        segment_count,
+                        structure: parallel_structure,
                         consider_parallel: consider_parallel_local,
-                        quals: &quals,
-                        root: builder.args().root,
                         parallel_leader_participates,
                         is_join_context,
                         has_grouping,

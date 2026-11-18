@@ -891,6 +891,22 @@ impl PgSearchTableProvider {
 
         let segment_count = pruning.candidate_segments;
         let target_partitions = state.config().target_partitions();
+        let rel_pw = self
+            .scan_info
+            .rel_parallel_workers
+            .or_else(|| heap_rel.parallel_workers());
+        let effective_target_partitions = match rel_pw {
+            Some(0) => 1,
+            Some(n) => {
+                let leader_share =
+                    crate::postgres::customscan::mpp::glue::LeaderParticipation::current()
+                        .leader_share() as usize;
+                target_partitions
+                    .min((n as usize).saturating_add(leader_share))
+                    .max(1)
+            }
+            None => target_partitions,
+        };
         if self.range_split_points.is_some() {
             debug_assert!(
                 target_partitions > 1,
@@ -901,13 +917,13 @@ impl PgSearchTableProvider {
                 "PgSearchTableProvider: range partitioning is configured but source_idx is None; range partitioning requires an MPP source",
             );
         }
-        // The output partitions of the scan default to min(segments, target_partitions).
+        // The output partitions of the scan default to min(segments, effective_target_partitions).
         // During distributed planning, the `pg_search_scan_desired_task_count` handler reads this partition
         // count to determine how many tasks (e.g. parallel workers) this leaf should scale out into.
         let partition_count = match &self.range_split_points {
             // The split points seat only so many partitions; a task past them would be empty.
             Some(points) => points.partitions_for(target_partitions),
-            None => std::cmp::min(segment_count, target_partitions).max(1),
+            None => std::cmp::min(segment_count, effective_target_partitions).max(1),
         };
 
         self.create_lazy_scan(

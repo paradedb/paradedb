@@ -16,7 +16,7 @@ ProjectionExec
           PgSearchScan (files)        ← lazy scan, deferred columns, receives dynamic filters
 ```
 
-When a viable PostgreSQL parallel launch is available, JoinScan uses Massively Parallel Processing (MPP) via `datafusion-distributed` to parallelize queries. DataFusion's in-process multithreading is bypassed because PostgreSQL has already launched independent parallel worker processes. For a viable MPP launch, `DistributedPlanner` slices the physical plan into network stages (`DistributedExec`); logical tasks are assigned round-robin across the workers that attached, so one worker may host multiple tasks.
+When a viable PostgreSQL parallel launch is available, JoinScan uses Massively Parallel Processing (MPP) via `datafusion-distributed` to parallelize queries. DataFusion's in-process multithreading is bypassed because PostgreSQL coordinates independent parallel worker processes. For a viable MPP launch, `DistributedPlanner` slices the physical plan into network stages (`DistributedExec`); logical tasks are assigned round-robin across the active participants (the leader when `parallel_leader_participation = on`, plus the attached parallel workers), so one participant may host multiple tasks.
 
 [`SegmentedTopKExec`][topk-exec] publishes dynamic filter thresholds that are pushed down through the join to the probe-side scan, pruning rows at the scanner level. It also performs the final materialized sort and LIMIT, so the lookup above it only fetches and decodes K rows (not K×segments).
 
@@ -48,7 +48,7 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 7. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)` and transfers ownership of its already pushed-down `DynamicFilterPhysicalExpr` into the injected node, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 8. **`FilterPushdown` + [`UnwrapFilterPassthroughRule`][filter-passthrough]** — pushes dynamic filters through the plan and then strips the temporary `FilterPassthroughExec` wrappers
 
-When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`DistributedExec`), slicing it into isolated tasks. Plans with fewer than two producer tasks, or launches with fewer than two attached workers, run serially.
+When MPP is eligible, `DistributedPlanner` builds an MPP execution tree (`DistributedExec`), slicing it into isolated tasks. Plans with fewer than two producer tasks, or launches with fewer than two total participants (`0` attached workers, or `1` attached worker when `parallel_leader_participation = off`), run serially.
 
 ### 4. Deferred Columns
 
@@ -76,11 +76,11 @@ After all input is consumed, `SegmentedTopKExec` materializes sort column values
 
 JoinScan does not use DataFusion's standard in-process multithreading. Since PostgreSQL already coordinates execution across independent backend processes via the `Gather` node, relying on thread-level parallelism inside a Postgres worker would result in `Workers * Threads` explosions, and Postgres does not support interacting with its APIs anywhere but on the `main` thread.
 
-Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. It assigns logical tasks across PostgreSQL parallel workers based on segment count:
+Instead, MPP via `datafusion-distributed` is our only mechanism for parallelizing joins. It assigns logical tasks across participating processes (parallel workers and, when `parallel_leader_participation = on`, the leader) based on segment count:
 
 1. **Partition Output Definition**: Because index segments are checked out atomically from shared memory, [`PgSearchScanPlan`][scan-plan] natively partitions its output by the number of segments. In [`table_provider.rs`](../../../scan/table_provider.rs), we formally expose the scan's output partition count as `min(segment_count, target_partitions)`. When the `RangePartitioningRule` has injected range split points, the scan instead declares `Partitioning::Range` with the split points, which lets DataFusion treat the two sides of a join as co-partitioned.
 2. **Task Estimation**: During MPP planning, [`pg_search_scan_desired_task_count`](../../../scan/execution_plan.rs) (`on_desired_task_count_event`) intercepts the leaf nodes and requests exactly this `partition_count` number of tasks.
-3. **Execution Routing**: For a viable MPP launch, tasks are assigned round-robin across the workers PostgreSQL attached, and each worker uses `ParallelScanState` to lazily claim segments. A one-task plan does not launch MPP workers and runs serially.
+3. **Execution Routing**: For a viable MPP launch, tasks are assigned round-robin across the participating processes, and each participant uses `ParallelScanState` to lazily claim segments. Plans with fewer than two tasks or fewer than two total participants run serially.
 
 ## Key Files
 

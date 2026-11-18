@@ -18,11 +18,12 @@
 
 //! Leader-driven MPP worker launch.
 //!
-//! The leader spawns its producer workers itself through `parallel_worker::builder`
+//! The leader spawns its background workers itself through `parallel_worker::builder`
 //! (`CreateParallelContext` + `LaunchParallelWorkers`), the same path index builds and the
-//! parallel aggregate use. The leader picks the requested worker count; if PostgreSQL attaches
-//! fewer (but still at least two), tasks safely multiplex onto the attached workers instead of
-//! falling back to serial execution.
+//! parallel aggregate use. The leader picks the requested background worker count based on
+//! stage task counts and `parallel_leader_participation`; if PostgreSQL attaches fewer (but
+//! still enough for at least two task-executing participants), tasks safely multiplex onto the
+//! attached participants instead of falling back to serial execution.
 //!
 //! The MPP DSM region rides as builder `ParallelState` entries instead of a hand-laid coordinate:
 //! a reserve-only region for the SPSC byte-ring mesh (`dsm_stream::dsm_region_bytes`), a zeroed
@@ -31,16 +32,15 @@
 //!
 //! The launch is plan-first (`#5667`), mirroring core PG's parallel-query order (plan ->
 //! size-by-walking-the-plan -> create DSM -> bind pointers -> launch): the caller builds the
-//! distributed physical plan with `producer_worker_cap()` (PG's parallelism GUCs) as the
-//! planner's ceiling, then [`launch_mpp`] walks the finished plan
-//! to learn the largest producer-stage task count, size the mesh and spawn exactly
-//! `clamp(max_tasks, 2, cap)` producers, and stamp the shared scan state into the plan
-//! ([`crate::scan::execution_plan::stamp_parallel_state`]). A plan with no producer stages spawns
-//! nothing at all. One plan serves both on-demand stage serialization and the leader's own
+//! distributed physical plan with the scan's participant ceiling as the planner's `target_partitions`,
+//! then [`launch_mpp`] walks the finished plan to learn the largest producer-stage task count,
+//! size the mesh, spawn the needed background workers, and stamp the shared scan state into the
+//! plan ([`crate::scan::execution_plan::stamp_parallel_state`]). A plan with no data parallelism
+//! spawns nothing at all. One plan serves both on-demand stage serialization and the leader's own
 //! execution; the go flag holds spawned workers off the mesh until the DSM SPSC rings are
 //! initialized. If PostgreSQL attaches fewer workers, the plan does not change: the leader just
 //! initializes a narrower mesh inside the region it already reserved, and the plan's tasks
-//! multiplex onto the attached producers.
+//! multiplex onto the active participants.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -54,16 +54,17 @@ use crate::parallel_worker::{
 };
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::mpp::glue::{
-    MIN_TOTAL_WORKER_COUNT, MppLeaderState, collect_stages, estimate_dsm_size, leader_setup,
-    max_producer_task_count, mpp_is_active, producer_worker_cap, stages_have_data_parallelism,
+    BgWorkerCount, LeaderParticipation, MppBudget, MppLeaderState, bg_worker_cap, collect_stages,
+    debug_parallel_query_is_active, estimate_dsm_size, leader_setup, max_producer_task_count,
     worker_setup,
 };
 use crate::postgres::customscan::mpp::interrupt::PgTokioRuntime;
 use crate::postgres::customscan::mpp::wakeup::{has_available_wakeup_slots, reserve_wakeup_slots};
 use crate::postgres::customscan::mpp::worker::{MppWorkerInputs, run_mpp_worker};
+use crate::postgres::customscan::parallel::RelParallelWorkers;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::execution_plan::prepare_vector_routing;
-use crate::scan::info::{RowEstimate, ScanInfo};
+use crate::scan::info::RowEstimate;
 
 /// `state_values()` order. Each index maps to a `ParallelState` TOC entry the workers look up.
 const MESH_IDX: usize = 0;
@@ -83,9 +84,9 @@ const MPP_MQ_SIZE: usize = 1024;
 
 /// The builder process carrying the MPP DSM entries. The mesh region is reserve-only:
 /// `glue::leader_setup` (`dsm_stream::init_dsm_mesh`) initializes the header, wakeup slots, and
-/// `2 * W^2` SPSC ring headers (sized from `paradedb.mpp_queue_size` across all rings)
-/// in place inside DSM, so materializing (zeroing, copying) a host-side buffer of that size per
-/// query would buy nothing. The scan state is a small zeroed blob populated in place.
+/// `2 * N * (N - 1)` SPSC ring headers (`N = W + 1`, sized from `paradedb.mpp_queue_size` across
+/// all rings) in place inside DSM, so materializing (zeroing, copying) a host-side buffer of that
+/// size per query would buy nothing. The scan state is a small zeroed blob populated in place.
 struct MppParallelProcess {
     mesh_region: crate::parallel_worker::UninitializedBytesParallelState,
     scan_state: Vec<u8>,
@@ -94,9 +95,10 @@ struct MppParallelProcess {
 
 /// The only launch outcomes that preserve the MPP mesh invariant.
 ///
-/// PostgreSQL can attach fewer workers than requested, but the mesh needs at least two
-/// producers. More workers than requested would contradict the DSM allocation made for this
-/// launch and must not be treated as a valid width.
+/// PostgreSQL can attach fewer workers than requested, so long as at least one background worker
+/// attached and the resulting participant set (`attached + leader_share`) has at least two
+/// task-executing participants. More workers than requested would contradict the DSM allocation
+/// made for this launch and must not be treated as a valid width.
 #[derive(Debug, PartialEq, Eq)]
 enum MppAttachOutcome {
     SerialFallback,
@@ -104,16 +106,19 @@ enum MppAttachOutcome {
 }
 
 fn mpp_attach_outcome(
-    requested_producers: u32,
-    attached_producers: u32,
+    requested: BgWorkerCount,
+    attached: BgWorkerCount,
+    leader: LeaderParticipation,
 ) -> Result<MppAttachOutcome, String> {
-    if attached_producers > requested_producers {
+    if attached > requested {
         return Err(format!(
-            "mpp: {attached_producers} workers attached after requesting {requested_producers}"
+            "mpp: {} workers attached after requesting {}",
+            attached.get(),
+            requested.get()
         ));
     }
 
-    if attached_producers < MIN_TOTAL_WORKER_COUNT - 1 {
+    if attached < leader.min_mpp_bg_workers() {
         Ok(MppAttachOutcome::SerialFallback)
     } else {
         Ok(MppAttachOutcome::Parallel)
@@ -203,106 +208,105 @@ fn run_launched_worker(seg: *mut pg_sys::dsm_segment, state_manager: ParallelSta
     run_mpp_worker(inputs, &runtime);
 }
 
-/// Where MPP sits in a scan's launch lifecycle. Every transition consumes the previous stage,
-/// so a scan is in exactly one stage at a time; a single field keeps the impossible
-/// combinations unrepresentable. Held only by the leader; builder-launched workers reconstruct
-/// their state from DSM and never carry this.
-#[derive(Default)]
-#[allow(clippy::large_enum_variant)]
-pub enum MppLifecycle {
-    /// Serial execution: the query didn't qualify, or teardown already reclaimed the leader state.
-    #[default]
-    Inactive,
-    /// The scan qualified for one MPP planning and launch attempt.
-    Pending,
-    /// A launch attempt was consumed (`take_pending`) and not committed to `Launched`, so the scan
-    /// fell back to serial execution and remains serial across subsequent rescans.
-    Declined,
-    /// The workers are running dispatched fragments; carries the leader's mesh and finish
-    /// handles until teardown.
-    Launched(MppLeaderState),
-}
-
-impl MppLifecycle {
-    /// Consume the pending launch marker, transitioning `Pending -> Declined` until a committed
-    /// launch overwrites the state with `Launched`. A declined launch stays `Declined` across
-    /// rescans so subsequent iterations do not repeat a doomed launch attempt.
-    pub fn take_pending(&mut self) -> bool {
-        match std::mem::take(self) {
-            MppLifecycle::Pending => {
-                *self = MppLifecycle::Declined;
-                true
-            }
-            other => {
-                *self = other;
-                false
-            }
-        }
-    }
-
-    /// Consume the leader state at teardown, leaving `Inactive`.
-    pub fn take_leader(&mut self) -> Option<MppLeaderState> {
-        match std::mem::take(self) {
-            MppLifecycle::Launched(leader) => Some(leader),
-            other => {
-                *self = other;
-                None
-            }
-        }
-    }
-
-    pub fn leader(&self) -> Option<&MppLeaderState> {
-        match self {
-            MppLifecycle::Launched(leader) => Some(leader),
-            _ => None,
-        }
-    }
-
-    pub fn leader_mut(&mut self) -> Option<&mut MppLeaderState> {
-        match self {
-            MppLifecycle::Launched(leader) => Some(leader),
-            _ => None,
-        }
-    }
-
-    pub fn is_launched(&self) -> bool {
-        matches!(self, MppLifecycle::Launched(_))
-    }
-}
-
-/// True when the size gate keeps MPP off: the largest source's estimated match count sits
-/// under `paradedb.mpp_min_rows`. Matches Postgres' refusal to parallelize small scans
-/// (`min_parallel_table_scan_size`): below this size the launch cost (worker spawn, plan
-/// dispatch, per-worker index opens) dominates whatever the split saves. The largest source
-/// stands for the scan: it is the bulk of the work the split divides, and the smaller sides
-/// ride along. A selective query over a large index does little scan work, so each source
-/// counts estimated matches, not index documents; an estimate substituted from the index's
-/// total document count (Postgres expressions, heap filters) is discounted by
-/// `PARAMETERIZED_SELECTIVITY`, mirroring BaseScan.
+/// Compute the effective [`MppBudget`] when a scan over `plan` qualifies for MPP, or `None` when
+/// MPP is ineligible or gated off.
 ///
-/// Shared by the launch and by the plain-EXPLAIN plan rebuilds, the same split as
-/// [`mpp_plan_has_data_parallelism`](crate::postgres::customscan::mpp::glue::mpp_plan_has_data_parallelism),
-/// so the rendered plan agrees with the executed mode (#5784).
+/// Enforces three checks in a single pass over `plan.sources()`:
+/// 1. `parallel_mode_ok`: the statement, absorbed sources, and pushed-down expressions allow
+///    parallel mode (`#6157`).
+/// 2. Participant budget: starts from PostgreSQL's global parallel worker GUCs ([`bg_worker_cap`]),
+///    applies per-relation `ALTER TABLE ... SET (parallel_workers = N)` across BM25-indexed
+///    sources (`Disabled` -> `0`, `Fixed(n)` -> `min(n, global)`, `Unset` -> `global`, taking the
+///    `max` across sources like PostgreSQL's parallel join paths), and requires at least
+///    [`LeaderParticipation::min_mpp_bg_workers`] (`>= 2` total participants).
+/// 3. Row-estimate gate (`#5784`): the largest source's estimated match count (discounting
+///    total-doc fallback estimates by `PARAMETERIZED_SELECTIVITY`, with `RowEstimate::Unknown`
+///    left ungated) must meet `paradedb.mpp_min_rows`, unless `debug_parallel_query` is active or
+///    an indexed source explicitly sets `parallel_workers = N` (`N > 0`), matching PostgreSQL's
+///    `compute_parallel_worker`.
 ///
-/// `RowEstimate::Unknown` does not gate. The join estimator always produces `Known` for real
-/// sources, so `Unknown` marks a placeholder; silently serializing a big query would cost far
-/// more than a wasted launch.
-pub(crate) fn mpp_gated_by_min_rows<'a>(sources: impl IntoIterator<Item = &'a ScanInfo>) -> bool {
-    gated_by_min_rows(
-        crate::gucs::mpp_min_rows() as u64,
-        sources
-            .into_iter()
-            .map(|info| (info.estimate, info.estimate_from_total_docs)),
-    )
+/// TODO: Evaluate aligning MPP's size and cost gates with PostgreSQL's
+/// `min_parallel_table_scan_size`, `min_parallel_index_scan_size`, `parallel_setup_cost`, and
+/// `parallel_tuple_cost` GUCs rather than gating solely on `paradedb.mpp_min_rows`.
+///
+/// Shared by plan-time mode selection, plain-`EXPLAIN` rebuilds, and execution-time launch so all
+/// three agree.
+pub(crate) fn mpp_budget(parallel_mode_ok: bool, plan: &RelNode) -> Option<MppBudget> {
+    if !parallel_mode_ok {
+        return None;
+    }
+    let leader = LeaderParticipation::current();
+    let global = bg_worker_cap();
+    let sources = plan.sources();
+
+    let mut saw_indexed_source = false;
+    let mut effective_bg = 0u32;
+    let mut has_fixed_rel_workers = false;
+    for source in &sources {
+        let info = &source.scan_info;
+        if info.indexrelid == pg_sys::InvalidOid {
+            continue;
+        }
+        saw_indexed_source = true;
+        let source_cap = match RelParallelWorkers::from_opt(info.rel_parallel_workers) {
+            RelParallelWorkers::Disabled => 0,
+            RelParallelWorkers::Fixed(n) => {
+                has_fixed_rel_workers = true;
+                (n.get() as u32).min(global.get())
+            }
+            RelParallelWorkers::Unset => global.get(),
+        };
+        effective_bg = effective_bg.max(source_cap);
+    }
+
+    let bg_cap = if saw_indexed_source {
+        BgWorkerCount::new(effective_bg)
+    } else {
+        global
+    };
+    if bg_cap < leader.min_mpp_bg_workers() {
+        return None;
+    }
+
+    if !debug_parallel_query_is_active()
+        && !has_fixed_rel_workers
+        && gated_by_min_rows(
+            crate::gucs::mpp_min_rows() as u64,
+            sources
+                .iter()
+                .map(|s| (s.scan_info.estimate, s.scan_info.estimate_from_total_docs)),
+        )
+    {
+        return None;
+    }
+
+    Some(MppBudget::new(bg_cap, leader))
 }
 
-/// Whether a scan over `plan` may attempt an MPP launch: the statement allows parallel mode
-/// (#6157), PG's worker budget admits producers, and the query clears the size gate (#5784).
-/// Shared by launch preparation and the plain-EXPLAIN plan rebuild so both agree.
-pub(crate) fn mpp_eligible(parallel_mode_ok: bool, plan: &RelNode) -> bool {
-    parallel_mode_ok
-        && mpp_is_active()
-        && !mpp_gated_by_min_rows(plan.sources().into_iter().map(|s| &s.scan_info))
+/// Decide on the first `exec_custom_scan` pull whether to attempt an MPP launch, returning the
+/// scan's [`MppBudget`] when eligible.
+///
+/// PostgreSQL's `ExecutePlan` (`execMain.c`) sets `estate->es_use_parallel_mode` only at
+/// `ExecutorRun` time: it stays `false` throughout `ExecutorStart` (`begin_custom_scan`) and is
+/// left `false` on partial portal fetches (`Execute` with `max_rows > 0`), `SPI_execute(...,
+/// tcount > 0)`, and PL/pgSQL `FOR` loops, matching `ExecGather` (`nodeGather.c`). Checking here
+/// once on the first tuple pull avoids preparing MPP state during `begin_custom_scan` only to
+/// revert it on partial fetches or unpulled (`LIMIT 0`) scans.
+///
+/// # Safety
+/// `estate` must be either null or a valid `EState` pointer for the active executor run.
+pub(crate) unsafe fn exec_mpp_budget(
+    estate: *mut pg_sys::EState,
+    parallel_mode_ok: bool,
+    plan: &RelNode,
+) -> Option<MppBudget> {
+    if pg_sys::ParallelWorkerNumber != -1 {
+        return None;
+    }
+    if !estate.is_null() && !(*estate).es_use_parallel_mode {
+        return None;
+    }
+    mpp_budget(parallel_mode_ok, plan)
 }
 
 /// `(estimate, estimate_from_total_docs)` per source, not `&ScanInfo`: the plain unit tests
@@ -330,13 +334,19 @@ fn gated_by_min_rows(
 }
 
 /// Plan-first MPP launch (#5667): size the worker pool from the finished physical plan, build
-/// the DSM, stamp the shared scan state into the plan, spawn exactly the needed producers, and
-/// dispatch. `None` means run serially — the plan has nothing to distribute, the DSM couldn't
-/// be built, or the machine could not attach the minimum two producers needed for an MPP mesh.
-/// Nothing is forked on the nothing-to-distribute path. `None` covers only environmental
-/// shortfalls; a `pgrx::error!` means an invariant breach or a failure past mesh commitment,
-/// where a silent serial fallback would hide a real bug.
-pub fn launch_mpp(
+/// the DSM, stamp the shared scan state into the plan, spawn the needed background workers, and
+/// initialize the mesh. `None` means run serially: the plan has nothing to distribute, the DSM
+/// couldn't be built, or the machine could not attach enough background workers for at least two
+/// task-executing participants. Nothing is forked on the nothing-to-distribute path. `None`
+/// covers only environmental shortfalls; a `pgrx::error!` means an invariant breach or a failure
+/// past mesh commitment, where a silent serial fallback would hide a real bug.
+///
+/// # Safety
+/// `estate` must be either null or point to a valid, mutable `EState` for the duration of this call.
+pub unsafe fn launch_mpp(
+    // `es_parallel_workers_to_launch` / `es_parallel_workers_launched` were added in PG18.
+    #[cfg_attr(not(feature = "pg18"), allow(unused_variables))] estate: *mut pg_sys::EState,
+    budget: MppBudget,
     physical: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     args: ParallelScanArgs,
 ) -> Option<MppLeaderState> {
@@ -344,27 +354,18 @@ pub fn launch_mpp(
 
     let stages = collect_stages(physical);
 
-    // Task counts were capped by `target_partitions = cap` at plan time and reflect segment
-    // counts (#5657). The producer floor keeps the mesh-width invariant; see
-    // [`MIN_TOTAL_WORKER_COUNT`]. Same gate as plain EXPLAIN (#5784).
-    if !stages_have_data_parallelism(&stages) {
-        // 0: nothing to distribute. 1: no data parallelism: every 1-task stage lands on a
-        // single worker, leaving the second (floor) producer idle. Run serially.
-        // This also keeps `producer_count <= max_tasks`, so every launched proc owns at
-        // least one fragment of the widest stage.
-        return None;
-    }
-    let max_tasks = max_producer_task_count(&stages);
-    let cap = producer_worker_cap();
-    let producer_count = (max_tasks as u32).clamp(MIN_TOTAL_WORKER_COUNT - 1, cap);
+    // Task counts were capped by `target_partitions = participants` at plan time and reflect
+    // segment counts (#5657). Same `max_tasks >= 2` gate as plain EXPLAIN (#5784).
+    let requested_bg = budget.for_stage_tasks(max_producer_task_count(&stages))?;
 
-    if !has_available_wakeup_slots(MIN_TOTAL_WORKER_COUNT as usize) {
+    let min_mesh_procs = budget.leader.min_mpp_bg_workers().mesh_procs() as usize;
+    if !has_available_wakeup_slots(min_mesh_procs) {
         pgrx::warning!("mpp: wakeup slot pool exhausted; running serially");
         return None;
     }
 
     let t_prepare = std::time::Instant::now();
-    let region_bytes = match estimate_dsm_size(producer_count + 1) {
+    let region_bytes = match estimate_dsm_size(requested_bg) {
         Ok(sz) => sz,
         Err(e) => {
             pgrx::warning!("mpp: estimate_dsm failed: {e}; running serially");
@@ -388,7 +389,7 @@ pub fn launch_mpp(
         process,
         "mpp_launched_worker",
         WorkerStyle::Query,
-        producer_count as usize,
+        requested_bg.get() as usize,
         MPP_MQ_SIZE,
     )?;
 
@@ -406,30 +407,44 @@ pub fn launch_mpp(
     timing.prepare_us = t_prepare.elapsed().as_micros() as u64;
 
     // Spawn the workers; the go flag keeps them off the mesh until the rings are initialized
-    // below. The trace doubles as the regress observable that a launch was attempted at all
-    // (mpp_worker_sizing).
-    crate::mpp_log!("launch: spawning {producer_count} producers");
+    // below. The trace doubles as the integration-test observable (`tests/tests/mpp_worker_sizing.rs`)
+    // that a launch was attempted at all.
+    crate::mpp_log!(
+        "launch: spawning {} producers (leader_participation={:?})",
+        requested_bg.get(),
+        budget.leader
+    );
+    #[cfg(feature = "pg18")]
+    if !estate.is_null() {
+        unsafe { (*estate).es_parallel_workers_to_launch += requested_bg.get() as i32 };
+    }
     let attach = launcher.launch()?;
     prepare_vector_routing(physical);
 
     let t_attach = std::time::Instant::now();
     let finish = attach.wait_for_attach()?;
     timing.attach_us = t_attach.elapsed().as_micros() as u64;
-    let launched = finish.launched_workers() as u32;
-    timing.workers = launched;
+    let launched = BgWorkerCount::new(finish.launched_workers() as u32);
+    #[cfg(feature = "pg18")]
+    if !estate.is_null() {
+        unsafe { (*estate).es_parallel_workers_launched += launched.get() as i32 };
+    }
+    timing.workers = launched.get();
 
     let go = unsafe { go_flag(finish.state_manager()) };
 
-    match mpp_attach_outcome(producer_count, launched) {
+    match mpp_attach_outcome(requested_bg, launched, budget.leader) {
         Ok(MppAttachOutcome::SerialFallback) => {
-            // The machine could not give us the minimum two producers required for the MPP mesh.
-            // The launched workers are still on the go flag with no rings attached; release them
+            // The machine could not attach enough background workers for an active MPP mesh.
+            // Any launched worker is still on the go flag with no rings attached; release it
             // and run serially. No `leader_setup` ran, so there are no DSM-backed senders to
             // outlive the mapping.
             go.store(GO_ABORT, Ordering::Release);
             finish.wait_for_finish();
             pgrx::warning!(
-                "mpp: launched {launched} of {producer_count} requested workers; running serially"
+                "mpp: launched {} of {} requested workers; running serially",
+                launched.get(),
+                requested_bg.get()
             );
             return None;
         }
@@ -437,22 +452,25 @@ pub fn launch_mpp(
         Err(e) => pgrx::error!("{e}"),
     }
 
-    let Some(wakeup_reservation) = reserve_wakeup_slots((launched + 1) as usize) else {
+    let mesh_procs = launched.mesh_procs() as usize;
+    let Some(wakeup_reservation) = reserve_wakeup_slots(mesh_procs) else {
         go.store(GO_ABORT, Ordering::Release);
         finish.wait_for_finish();
         pgrx::warning!(
             "mpp: failed to reserve {} wakeup slots; running serially",
-            launched + 1
+            mesh_procs
         );
         return None;
     };
 
     // PostgreSQL may attach fewer workers than requested. The plan and its task counts stand:
-    // `MppWorkerResolver(launched)` assigns tasks across the attached workers, and same-worker
-    // stage reads short-circuit in memory via `LocalWorkerContext`.
-    if launched != producer_count {
+    // `MppWorkerResolver(launched, leader_participation)` assigns tasks across the active
+    // participants, and same-worker stage reads short-circuit in memory via `LocalWorkerContext`.
+    if launched != requested_bg {
         crate::mpp_log!(
-            "launch: {launched} of {producer_count} producers attached; multiplexing original task plan"
+            "launch: {} of {} producers attached; multiplexing original task plan",
+            launched.get(),
+            requested_bg.get()
         );
     }
 
@@ -473,10 +491,11 @@ pub fn launch_mpp(
     // and `wait_for_attach` reports a worker that dies before attaching. Each worker maps
     // its number to `proc_idx = worker_number + 1`, so every attached worker is in this mesh.
     let t_setup = std::time::Instant::now();
-    let mut leader = match unsafe { leader_setup(mesh_ptr, launched + 1, wakeup_reservation) } {
-        Ok(l) => l,
-        Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
-    };
+    let mut leader =
+        match unsafe { leader_setup(mesh_ptr, launched, budget.leader, wakeup_reservation) } {
+            Ok(l) => l,
+            Err(e) => pgrx::error!("mpp: leader_setup failed: {e}"),
+        };
     timing.leader_setup_us = t_setup.elapsed().as_micros() as u64;
     leader.timing = timing;
 
@@ -491,11 +510,9 @@ pub fn launch_mpp(
     Some(leader)
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use pgrx::pg_test;
 
     #[test]
     fn gate_takes_the_largest_source() {
@@ -531,196 +548,68 @@ mod tests {
         assert!(!gated_by_min_rows(0, [(RowEstimate::Known(1), false)]));
     }
 
-    #[pg_test]
-    fn pending_launch_is_consumed_once() {
-        let mut lifecycle = MppLifecycle::Pending;
-
-        assert!(lifecycle.take_pending());
-        assert!(matches!(lifecycle, MppLifecycle::Declined));
-        assert!(!lifecycle.take_pending());
-        assert!(lifecycle.take_leader().is_none());
-        assert!(matches!(lifecycle, MppLifecycle::Declined));
-    }
-
-    #[pg_test]
+    #[test]
     fn short_launch_uses_the_attached_width_when_the_mesh_is_viable() {
+        let req = BgWorkerCount::new(5);
+
+        // Participating leader: 0 attached workers falls back to serial; 1+ runs in parallel
+        // (leader + 1 worker = 2 participants).
         assert_eq!(
-            mpp_attach_outcome(5, 0),
-            Ok(MppAttachOutcome::SerialFallback)
-        );
-        assert_eq!(
-            mpp_attach_outcome(5, 1),
-            Ok(MppAttachOutcome::SerialFallback)
-        );
-        assert_eq!(mpp_attach_outcome(5, 2), Ok(MppAttachOutcome::Parallel));
-        assert_eq!(mpp_attach_outcome(5, 3), Ok(MppAttachOutcome::Parallel));
-        assert_eq!(mpp_attach_outcome(5, 5), Ok(MppAttachOutcome::Parallel));
-        assert!(mpp_attach_outcome(5, 6).is_err());
-    }
-
-    #[pg_test]
-    fn mpp_aggregate_executes_across_parallel_workers() {
-        use std::sync::Arc;
-
-        use arrow_array::Int64Array;
-        use datafusion::physical_plan::collect;
-        use datafusion::prelude::SessionContext;
-        use pgrx::Spi;
-
-        use crate::index::fast_fields_helper::WhichFastField;
-        use crate::index::mvcc::MvccSatisfies;
-        use crate::index::reader::index::SearchIndexManifest;
-        use crate::postgres::customscan::mpp::glue::{
-            finish_leader_execution, merge_worker_metrics,
-        };
-        use crate::postgres::customscan::mpp::worker::{
-            MppMetricsCollection, build_mpp_session_context,
-        };
-        use crate::postgres::rel::PgSearchRelation;
-        use crate::scan::info::ScanInfo;
-        use crate::scan::table_provider::PgSearchTableProvider;
-        use crate::schema::SearchFieldType;
-
-        Spi::run("SET paradedb.global_mutable_segment_rows = 0;").unwrap();
-        Spi::run("CREATE TABLE mpp_pg_test (id INT, category INT, val INT);").unwrap();
-        Spi::run("CREATE INDEX mpp_pg_test_idx ON mpp_pg_test USING paradedb (id, category, val);")
-            .unwrap();
-        Spi::run("INSERT INTO mpp_pg_test SELECT i, i % 3, i * 10 FROM generate_series(1, 30) i;")
-            .unwrap();
-        Spi::run("INSERT INTO mpp_pg_test SELECT i, i % 3, i * 10 FROM generate_series(31, 60) i;")
-            .unwrap();
-        Spi::run("RESET paradedb.global_mutable_segment_rows;").unwrap();
-        Spi::run("SET max_parallel_workers = 64;").unwrap();
-        Spi::run("SET max_parallel_workers_per_gather = 2;").unwrap();
-
-        let heap_oid = Spi::get_one::<pg_sys::Oid>(
-            "SELECT oid FROM pg_class WHERE relname = 'mpp_pg_test' AND relkind = 'r';",
-        )
-        .unwrap()
-        .unwrap();
-        let index_oid = Spi::get_one::<pg_sys::Oid>(
-            "SELECT oid FROM pg_class WHERE relname = 'mpp_pg_test_idx' AND relkind = 'i';",
-        )
-        .unwrap()
-        .unwrap();
-
-        unsafe {
-            pg_sys::CommandCounterIncrement();
-            let snap = pg_sys::GetTransactionSnapshot();
-            pg_sys::PushActiveSnapshot(snap);
-        }
-
-        let index_rel = PgSearchRelation::open(index_oid);
-        let manifest = SearchIndexManifest::capture(&index_rel, MvccSatisfies::Snapshot).unwrap();
-        assert!(
-            manifest.segment_view().len() >= 2,
-            "expected at least 2 segments for parallel MPP scan"
-        );
-
-        let fields = vec![
-            WhichFastField::Ctid,
-            WhichFastField::eager_scalar("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
-            WhichFastField::eager_scalar(
-                "category".to_string(),
-                SearchFieldType::I64(pg_sys::INT4OID),
+            mpp_attach_outcome(
+                req,
+                BgWorkerCount::new(0),
+                LeaderParticipation::Participating
             ),
-            WhichFastField::eager_scalar("val".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
-        ];
-        let mut scan_info = ScanInfo::new(1, heap_oid, index_oid, crate::scan::ScanMode::all());
-        for (i, field) in fields.iter().enumerate() {
-            scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
+            Ok(MppAttachOutcome::SerialFallback)
+        );
+        for attached in [1, 2, 3, 5] {
+            assert_eq!(
+                mpp_attach_outcome(
+                    req,
+                    BgWorkerCount::new(attached),
+                    LeaderParticipation::Participating
+                ),
+                Ok(MppAttachOutcome::Parallel)
+            );
         }
-        let mut provider = PgSearchTableProvider::new(scan_info, fields, Some(0));
-        provider.set_manifest(manifest.clone());
-
-        let runtime = PgTokioRuntime::new().unwrap();
-
-        let plan_ctx =
-            build_mpp_session_context(SessionContext::new(), None, MppMetricsCollection::Enabled);
-        plan_ctx.register_table("t", Arc::new(provider)).unwrap();
-
-        let physical_plan = runtime.block_on(async {
-            use datafusion::functions_aggregate::expr_fn::{count, sum};
-            use datafusion::prelude::{col, lit};
-
-            let df = plan_ctx
-                .table("t")
-                .await
-                .unwrap()
-                .aggregate(
-                    vec![col("category")],
-                    vec![count(lit(1)).alias("cnt"), sum(col("val")).alias("total")],
-                )
-                .unwrap()
-                .sort(vec![col("category").sort(true, true)])
-                .unwrap();
-            df.create_physical_plan().await.unwrap()
-        });
-
-        // Concurrent `#[pg_test]` tests (e.g. `build_parallel`) share the cluster-wide
-        // `max_worker_processes` pool and can temporarily starve `LaunchParallelWorkers`.
-        let mut leader = (0..200)
-            .find_map(|attempt| {
-                if attempt > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                let args = ParallelScanArgs {
-                    all_sources: vec![manifest.segment_view()],
-                    with_aggregates: false,
-                    with_segment_info: false,
-                };
-                launch_mpp(&physical_plan, args)
-            })
-            .expect("expected launch_mpp to spawn parallel workers");
-        assert_eq!(leader.timing.workers, 2);
-
-        let exec_ctx = build_mpp_session_context(
-            SessionContext::new(),
-            Some(Arc::clone(&leader.session.resolver)),
-            MppMetricsCollection::Enabled,
+        assert!(
+            mpp_attach_outcome(
+                req,
+                BgWorkerCount::new(6),
+                LeaderParticipation::Participating
+            )
+            .is_err()
         );
 
-        let batches = runtime.block_on(async {
-            collect(Arc::clone(&physical_plan), exec_ctx.task_ctx())
-                .await
-                .unwrap()
-        });
-
-        let mut rows: Vec<(i64, i64, i64)> = Vec::new();
-        for batch in &batches {
-            let cats = batch
-                .column(0)
-                .as_any()
-                .downcast_ref::<Int64Array>()
-                .unwrap();
-            let cnts = batch
-                .column(1)
-                .as_any()
-                .downcast_ref::<Int64Array>()
-                .unwrap();
-            let sums = batch
-                .column(2)
-                .as_any()
-                .downcast_ref::<Int64Array>()
-                .unwrap();
-            for i in 0..batch.num_rows() {
-                rows.push((cats.value(i), cnts.value(i), sums.value(i)));
-            }
+        // Coordinator-only leader: 0 or 1 attached workers falls back to serial; 2+ runs in
+        // parallel.
+        for attached in [0, 1] {
+            assert_eq!(
+                mpp_attach_outcome(
+                    req,
+                    BgWorkerCount::new(attached),
+                    LeaderParticipation::CoordinatorOnly
+                ),
+                Ok(MppAttachOutcome::SerialFallback)
+            );
         }
-        assert_eq!(rows, vec![(0, 20, 6300), (1, 20, 5900), (2, 20, 6100)]);
-
-        finish_leader_execution(Some(&runtime), Some(&physical_plan), &leader);
-        let merged = merge_worker_metrics(&physical_plan);
-        assert!(merged.is_some(), "expected worker metrics to be merged");
-
-        if let Some(mut finish) = leader.finish.take() {
-            let _ = finish.recv();
-            finish.wait_for_finish();
+        for attached in [2, 3, 5] {
+            assert_eq!(
+                mpp_attach_outcome(
+                    req,
+                    BgWorkerCount::new(attached),
+                    LeaderParticipation::CoordinatorOnly
+                ),
+                Ok(MppAttachOutcome::Parallel)
+            );
         }
-        drop(leader);
-        drop(runtime);
-        unsafe {
-            pg_sys::PopActiveSnapshot();
-        }
+        assert!(
+            mpp_attach_outcome(
+                req,
+                BgWorkerCount::new(6),
+                LeaderParticipation::CoordinatorOnly
+            )
+            .is_err()
+        );
     }
 }

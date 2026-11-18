@@ -90,11 +90,12 @@ impl SearchOperator {
             query => (query, None, None, None),
         };
         if let Some(rules) = synonyms {
-            let (pdb::Query::Match { synonyms, .. } | pdb::Query::TokenizedPhrase { synonyms, .. }) =
-                &mut query
+            let (pdb::Query::Match { synonyms, .. }
+            | pdb::Query::TokenizedPhrase { synonyms, .. }
+            | pdb::Query::ParseWithField { synonyms, .. }) = &mut query
             else {
                 panic!(
-                    "`pdb.expand` expands the `|||`, `&&&` and `###` operators, not `{}`",
+                    "`pdb.expand` expands the `|||`, `&&&`, `###` and `@@@` operators, not `{}`",
                     self.name()
                 );
             };

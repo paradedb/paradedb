@@ -71,8 +71,8 @@ await dbContext
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
 the query string language.
 
-To also find the synonyms of the words of a query string, put a text field on the left-hand side and give the query its
-rules with a [`pdb.expand`](/reference/tokenizers/synonyms#query-parser) subquery.
+To also match the synonyms of the words in a query string, put a text or JSON field on the left-hand side and give the
+query its rules with a [`pdb.expand`](/reference/tokenizers/synonyms#query-parser) subquery.
 
 ## Lenient Parsing
 

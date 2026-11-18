@@ -1136,7 +1136,7 @@ impl SearchQueryInput {
         visit_search_query_input!(self, visitor, visit_ref, as_ref);
     }
 
-    /// The synonym indexes that the queries of this tree name.
+    /// The synonym indexes that the queries of this tree read.
     pub fn synonym_indexes(&self) -> Vec<pg_sys::Oid> {
         let mut indexes = Vec::new();
         self.visit_ref(&mut |input| {

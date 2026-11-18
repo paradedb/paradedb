@@ -48,8 +48,9 @@ pub fn expand_with_index(query: String, index: IndexOid) -> pdb::Query {
 
 const MORE: &str = "it does more than read the rules of one table";
 
-/// Replaces the `pdb.expand` subquery in `rhs` with a query on a synonym index of its table, for a
-/// query on `field` of `index` (a parser string if `parsed`). `None` leaves the subquery as written.
+/// Replaces the `pdb.expand` subquery in `rhs` with a query on a synonym index of its table, for
+/// a query on `field` of the text index `index`. `None` leaves the subquery to run as written.
+/// `parsed` is for a query parser string.
 pub(super) unsafe fn replace_expand_subquery(
     root: *mut pg_sys::PlannerInfo,
     rhs: *mut pg_sys::Node,

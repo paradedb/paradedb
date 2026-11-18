@@ -378,7 +378,7 @@ pub(super) struct ScanParallelismInputs<'a> {
     /// True when a `GROUP BY` / `SELECT DISTINCT` sits above this scan; routes it through the row
     /// heuristic because PG under-costs the serial HashAggregate for non-collapsing grouping.
     pub(super) has_grouping: bool,
-    /// True when a synonym rule turns the one token of the match into a group of alternatives,
+    /// True when a synonym rule turns the one token of the query into a group of alternatives,
     /// which prunes less than one term. The call reads the synonym index.
     pub(super) expands_with_synonyms: &'a dyn Fn() -> bool,
 }

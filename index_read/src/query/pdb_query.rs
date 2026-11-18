@@ -1959,18 +1959,18 @@ fn tokenized_phrase(
         None => vec![tokens],
     };
     let path = field.path();
-    let term = |token: &String| {
+    let term = |token: String| {
         value_to_term(
             search_field.field(),
-            &PdbOwnedValue::Str(token.clone()),
+            &PdbOwnedValue::Str(token),
             field_type,
             path.as_deref(),
             index_created_by_version,
         )
     };
     let mut variants = variants
-        .iter()
-        .map(|variant| variant.iter().map(term).collect())
+        .into_iter()
+        .map(|variant| variant.into_iter().map(term).collect())
         .collect::<anyhow::Result<Vec<Vec<Term>>>>()?;
 
     let variant_query = |mut terms: Vec<Term>| -> Box<dyn TantivyQuery> {

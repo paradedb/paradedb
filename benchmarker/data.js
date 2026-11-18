@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794971328883,
+  "lastUpdate": 1794971356818,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "benchmarker hn-ci (QPS)": [
@@ -75407,6 +75407,164 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14339582306-latency"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2ff27230444f572a870808b5e475c9134866e65e",
+          "message": "fix: skip foreground immutable merges in logical apply workers (#7521)\n\n## What\n\nLogical replication apply workers skip all foreground immutable segment\nmerges, including index-wide backpressure and explicitly configured\nforeground layers. Ordinary backends keep their existing merge behavior.\n\n## Why\n\nImmutable segment merges should not hold up logical replication apply\nprogress.\n\n## How\n\nUse one `IsLogicalWorker()` branch when selecting foreground work.\nLogical workers restrict backpressure candidates to mutable segments and\nskip configured foreground candidates. Mutable foreground backpressure\nremains eligible even when a background merger launches. Normal backends\nuse the existing segment-count threshold and configured layers. This\nalso excludes empty immutable segments that could otherwise join a\nmutable merge.\n\n## Tests\n\n- Six existing merge/backpressure integration tests passed on PostgreSQL\n18.\n- Extension build/install, formatting, `git diff --check`, and all\napplicable pre-commit hooks passed, including workspace-wide Clippy,\nCargo check, and documentation checks.",
+          "timestamp": "2026-11-17T23:55:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/2ff27230444f572a870808b5e475c9134866e65e"
+        },
+        "date": 1794971348403,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p50 latency",
+            "value": 9.283,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p95 latency",
+            "value": 10.744,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r90) p99 latency",
+            "value": 11.052,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p50 latency",
+            "value": 13.079,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p95 latency",
+            "value": 15.087,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) p99 latency",
+            "value": 16.085,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p50 latency",
+            "value": 26.484,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p95 latency",
+            "value": 30.985,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) p99 latency",
+            "value": 32.383,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p50 latency",
+            "value": 10.684,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p95 latency",
+            "value": 12.838,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) p99 latency",
+            "value": 13.853,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p50 latency",
+            "value": 16.946,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p95 latency",
+            "value": 20.574,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) p99 latency",
+            "value": 20.845,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p50 latency",
+            "value": 38.11,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p95 latency",
+            "value": 47.262,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) p99 latency",
+            "value": 48.347,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p50 latency",
+            "value": 3.53,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p95 latency",
+            "value": 4.293,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) p99 latency",
+            "value": 4.714,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p50 latency",
+            "value": 5.723,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p95 latency",
+            "value": 6.907,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) p99 latency",
+            "value": 7.18,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p50 latency",
+            "value": 18.383,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p95 latency",
+            "value": 21.818,
+            "unit": "ms"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) p99 latency",
+            "value": 22.981,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14393891305-latency"
       }
     ],
     "benchmarker cohere-10m (throughput)": [
@@ -79749,6 +79907,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14339582306-throughput"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2ff27230444f572a870808b5e475c9134866e65e",
+          "message": "fix: skip foreground immutable merges in logical apply workers (#7521)\n\n## What\n\nLogical replication apply workers skip all foreground immutable segment\nmerges, including index-wide backpressure and explicitly configured\nforeground layers. Ordinary backends keep their existing merge behavior.\n\n## Why\n\nImmutable segment merges should not hold up logical replication apply\nprogress.\n\n## How\n\nUse one `IsLogicalWorker()` branch when selecting foreground work.\nLogical workers restrict backpressure candidates to mutable segments and\nskip configured foreground candidates. Mutable foreground backpressure\nremains eligible even when a background merger launches. Normal backends\nuse the existing segment-count threshold and configured layers. This\nalso excludes empty immutable segments that could otherwise join a\nmutable merge.\n\n## Tests\n\n- Six existing merge/backpressure integration tests passed on PostgreSQL\n18.\n- Extension build/install, formatting, `git diff --check`, and all\napplicable pre-commit hooks passed, including workspace-wide Clippy,\nCargo check, and documentation checks.",
+          "timestamp": "2026-11-17T23:55:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/2ff27230444f572a870808b5e475c9134866e65e"
+        },
+        "date": 1794971350764,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "paradedb (knn_top10_10pct@r90) QPS",
+            "value": 108.26546861693956,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r95) QPS",
+            "value": 76.31609100014808,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_10pct@r99) QPS",
+            "value": 38.395780296731544,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r90) QPS",
+            "value": 93.79750031946442,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r95) QPS",
+            "value": 59.06758462573001,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_1pct@r99) QPS",
+            "value": 25.671612224839496,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r90) QPS",
+            "value": 276.3320581518834,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r95) QPS",
+            "value": 173.2425558555003,
+            "unit": "queries/s"
+          },
+          {
+            "name": "paradedb (knn_top10_unfiltered@r99) QPS",
+            "value": 59.81928807250396,
+            "unit": "queries/s"
+          }
+        ],
+        "publication_id": "14393891305-throughput"
       }
     ],
     "benchmarker cohere-10m (index build)": [
@@ -81731,6 +81957,39 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14339582306-index"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2ff27230444f572a870808b5e475c9134866e65e",
+          "message": "fix: skip foreground immutable merges in logical apply workers (#7521)\n\n## What\n\nLogical replication apply workers skip all foreground immutable segment\nmerges, including index-wide backpressure and explicitly configured\nforeground layers. Ordinary backends keep their existing merge behavior.\n\n## Why\n\nImmutable segment merges should not hold up logical replication apply\nprogress.\n\n## How\n\nUse one `IsLogicalWorker()` branch when selecting foreground work.\nLogical workers restrict backpressure candidates to mutable segments and\nskip configured foreground candidates. Mutable foreground backpressure\nremains eligible even when a background merger launches. Normal backends\nuse the existing segment-count threshold and configured layers. This\nalso excludes empty immutable segments that could otherwise join a\nmutable merge.\n\n## Tests\n\n- Six existing merge/backpressure integration tests passed on PostgreSQL\n18.\n- Extension build/install, formatting, `git diff --check`, and all\napplicable pre-commit hooks passed, including workspace-wide Clippy,\nCargo check, and documentation checks.",
+          "timestamp": "2026-11-17T23:55:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/2ff27230444f572a870808b5e475c9134866e65e"
+        },
+        "date": 1794971356803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "cohere_wiki_bm25_idx build time",
+            "value": 10.064925675583334,
+            "unit": "min"
+          },
+          {
+            "name": "cohere_wiki_bm25_idx index size",
+            "value": 46288.921875,
+            "unit": "MiB"
+          }
+        ],
+        "publication_id": "14393891305-index"
       }
     ],
     "benchmarker cohere-1m (index build)": [
@@ -85983,6 +86242,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14339582306-buffers"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2ff27230444f572a870808b5e475c9134866e65e",
+          "message": "fix: skip foreground immutable merges in logical apply workers (#7521)\n\n## What\n\nLogical replication apply workers skip all foreground immutable segment\nmerges, including index-wide backpressure and explicitly configured\nforeground layers. Ordinary backends keep their existing merge behavior.\n\n## Why\n\nImmutable segment merges should not hold up logical replication apply\nprogress.\n\n## How\n\nUse one `IsLogicalWorker()` branch when selecting foreground work.\nLogical workers restrict backpressure candidates to mutable segments and\nskip configured foreground candidates. Mutable foreground backpressure\nremains eligible even when a background merger launches. Normal backends\nuse the existing segment-count threshold and configured layers. This\nalso excludes empty immutable segments that could otherwise join a\nmutable merge.\n\n## Tests\n\n- Six existing merge/backpressure integration tests passed on PostgreSQL\n18.\n- Extension build/install, formatting, `git diff --check`, and all\napplicable pre-commit hooks passed, including workspace-wide Clippy,\nCargo check, and documentation checks.",
+          "timestamp": "2026-11-17T23:55:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/2ff27230444f572a870808b5e475c9134866e65e"
+        },
+        "date": 1794971352468,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_10pct@r90 shared hits/query",
+            "value": 3082.09,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r95 shared hits/query",
+            "value": 5465.36,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_10pct@r99 shared hits/query",
+            "value": 12512.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r90 shared hits/query",
+            "value": 5620.58,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r95 shared hits/query",
+            "value": 9530.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_1pct@r99 shared hits/query",
+            "value": 22861.3,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 shared hits/query",
+            "value": 1308.39,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 shared hits/query",
+            "value": 2306.07,
+            "unit": "hits/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 shared hits/query",
+            "value": 7441.03,
+            "unit": "hits/query"
+          }
+        ],
+        "publication_id": "14393891305-buffers"
       }
     ],
     "benchmarker cohere-1m (buffers)": [
@@ -93433,6 +93760,59 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14339582306-router"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2ff27230444f572a870808b5e475c9134866e65e",
+          "message": "fix: skip foreground immutable merges in logical apply workers (#7521)\n\n## What\n\nLogical replication apply workers skip all foreground immutable segment\nmerges, including index-wide backpressure and explicitly configured\nforeground layers. Ordinary backends keep their existing merge behavior.\n\n## Why\n\nImmutable segment merges should not hold up logical replication apply\nprogress.\n\n## How\n\nUse one `IsLogicalWorker()` branch when selecting foreground work.\nLogical workers restrict backpressure candidates to mutable segments and\nskip configured foreground candidates. Mutable foreground backpressure\nremains eligible even when a background merger launches. Normal backends\nuse the existing segment-count threshold and configured layers. This\nalso excludes empty immutable segments that could otherwise join a\nmutable merge.\n\n## Tests\n\n- Six existing merge/backpressure integration tests passed on PostgreSQL\n18.\n- Extension build/install, formatting, `git diff --check`, and all\napplicable pre-commit hooks passed, including workspace-wide Clippy,\nCargo check, and documentation checks.",
+          "timestamp": "2026-11-17T23:55:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/2ff27230444f572a870808b5e475c9134866e65e"
+        },
+        "date": 1794971354363,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 router vs flat, clusters",
+            "value": 0.9313811537540893,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 adaptive on vs off, vectors probed",
+            "value": 0.995971317766962,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vs flat, clusters",
+            "value": 0.9288814572363739,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 adaptive on vs off, vectors probed",
+            "value": 0.9812254410032262,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vs flat, clusters",
+            "value": 1.3495660946223247,
+            "unit": "ratio"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 adaptive on vs off, vectors probed",
+            "value": 0.8214066029547089,
+            "unit": "ratio"
+          }
+        ],
+        "publication_id": "14393891305-router"
       }
     ],
     "benchmarker cohere-10m (router detail)": [
@@ -93979,6 +94359,74 @@ window.BENCHMARK_DATA = {
           }
         ],
         "publication_id": "14339582306-router-detail"
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2ff27230444f572a870808b5e475c9134866e65e",
+          "message": "fix: skip foreground immutable merges in logical apply workers (#7521)\n\n## What\n\nLogical replication apply workers skip all foreground immutable segment\nmerges, including index-wide backpressure and explicitly configured\nforeground layers. Ordinary backends keep their existing merge behavior.\n\n## Why\n\nImmutable segment merges should not hold up logical replication apply\nprogress.\n\n## How\n\nUse one `IsLogicalWorker()` branch when selecting foreground work.\nLogical workers restrict backpressure candidates to mutable segments and\nskip configured foreground candidates. Mutable foreground backpressure\nremains eligible even when a background merger launches. Normal backends\nuse the existing segment-count threshold and configured layers. This\nalso excludes empty immutable segments that could otherwise join a\nmutable merge.\n\n## Tests\n\n- Six existing merge/backpressure integration tests passed on PostgreSQL\n18.\n- Extension build/install, formatting, `git diff --check`, and all\napplicable pre-commit hooks passed, including workspace-wide Clippy,\nCargo check, and documentation checks.",
+          "timestamp": "2026-11-17T23:55:39Z",
+          "url": "https://github.com/paradedb/paradedb/commit/2ff27230444f572a870808b5e475c9134866e65e"
+        },
+        "date": 1794971355988,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "knn_top10_unfiltered@r90 flat vectors probed",
+            "value": 18956.84,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router vectors probed, adaptive on",
+            "value": 17666.35,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r90 router routing time",
+            "value": 0.6504004600000001,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 flat vectors probed",
+            "value": 41939.2,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router vectors probed, adaptive on",
+            "value": 38230.8,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r95 router routing time",
+            "value": 1.21276366,
+            "unit": "ms"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 flat vectors probed",
+            "value": 128151.33,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router vectors probed, adaptive on",
+            "value": 141615.55,
+            "unit": "vectors/query"
+          },
+          {
+            "name": "knn_top10_unfiltered@r99 router routing time",
+            "value": 4.36684365,
+            "unit": "ms"
+          }
+        ],
+        "publication_id": "14393891305-router-detail"
       }
     ],
     "benchmarker cohere-1m (router)": [

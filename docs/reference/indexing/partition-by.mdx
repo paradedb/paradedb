@@ -96,11 +96,6 @@ modelBuilder.Entity<MockItem>()
   unless explicitly set.
 </Note>
 
-Vector partitioning trains its centroids before indexing rows. It samples non-NULL vectors
-from the heap, targeting the larger of 30,000 vectors or 1% of the estimated table row count.
-The sample is reduced as needed to fit the training memory estimate within
-`maintenance_work_mem`. NULL vectors do not count toward the sample.
-
 Partitioning an index provides two key benefits:
 
 - Accelerating search and filter queries
